@@ -1,0 +1,202 @@
+:root {
+  --font-sans: 'Nanum Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+
+  /* Light Theme (Complementary to Dracula) */
+  --background: #fdfdfd;
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --card-background: #ffffff;
+  --card-border: #e0e0e0;
+  --primary-color: #0B6BCB; /* New Deep Blue */
+  --primary-hover: #0957A0;
+  --danger-color: #b00020;
+  --danger-hover: #8c001a;
+  --success-color: #00c853;
+  --warning-color: #ffab00;
+  --input-bg: #ffffff;
+  --input-border: #cccccc;
+  --button-text: #ffffff;
+  --shadow-light: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.12);
+}
+
+html.dark {
+  /* Dracula Theme */
+  --background: #282a36;
+  --text-primary: #f8f8f2;
+  --text-secondary: #6272a4;
+  --card-background: #44475a;
+  --card-border: #383a4a;
+  --primary-color: #bd93f9; /* Purple */
+  --primary-hover: #ae81ff;
+  --danger-color: #ff5555; /* Red */
+  --danger-hover: #cc4444;
+  --success-color: #50fa7b; /* Green */
+  --warning-color: #ffb86c; /* Orange */
+  --input-bg: #383a4a;
+  --input-border: #383a4a;
+  --button-text: #f8f8f2;
+  --shadow-light: 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--background);
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+#app {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+h1 {
+  font-family: 'Zen Tokyo Zoo', cursive;
+  font-size: 3.5rem;
+  font-weight: normal;
+  letter-spacing: -0.05em;
+  text-transform: uppercase;
+}
+
+.card {
+  background-color: var(--card-background);
+  border: 1px solid var(--card-border);
+  border-radius: 0.75rem;
+  padding: 2rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow-light);
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 10px; /* Fully rounded */
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+    text-decoration: none;
+    color: var(--button-text);
+    box-shadow: var(--shadow-light);
+}
+
+.button-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.button-primary:hover {
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
+    box-shadow: var(--shadow-medium);
+}
+
+.button-danger {
+    background-color: var(--danger-color);
+    border-color: var(--danger-color);
+}
+
+.button-danger:hover {
+    background-color: var(--danger-hover);
+    border-color: var(--danger-hover);
+    box-shadow: var(--shadow-medium);
+}
+
+.button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.input {
+    display: block;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    background-color: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 10px; /* Fully rounded */
+    color: var(--text-primary);
+    transition: border-color 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.2);
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+  #app {
+    padding: 1rem;
+  }
+
+  .card {
+    padding: 1.5rem;
+  }
+
+  .download-form {
+    grid-template-columns: 1fr;
+  }
+
+  .url-input, .password-input {
+    grid-column: auto;
+  }
+
+  .table-container {
+    overflow-x: auto; /* Enable horizontal scrolling for tables */
+  }
+
+  table {
+    width: 100%; /* Ensure table takes full width */
+  }
+
+  th, td {
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .button {
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+  }
+
+  .button-icon {
+    padding: 0.3rem;
+  }
+
+  .pagination {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}
+
