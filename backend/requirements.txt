@@ -3,6 +3,7 @@ anyio==4.9.0
 certifi==2025.6.15
 charset-normalizer==3.4.2
 click==8.2.1
+cloudscraper==1.2.71
 colorama==0.4.6
 dnspython==2.7.0
 email_validator==2.2.0
@@ -26,10 +27,12 @@ pydantic-extra-types==2.10.5
 pydantic-settings==2.10.1
 pydantic_core==2.33.2
 Pygments==2.19.2
+pyparsing==3.2.3
 python-dotenv==1.1.1
 python-multipart==0.0.20
 PyYAML==6.0.2
 requests==2.32.4
+requests-toolbelt==1.0.0
 rich==14.0.0
 rich-toolkit==0.14.8
 shellingham==1.5.4
