@@ -32,20 +32,4 @@
   {/if}
 </button>
 
-<style>
-  .theme-toggle {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 1.5rem;
-    padding: 0.5rem;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background-color 0.2s ease;
-  }
-  .theme-toggle:hover {
-    background-color: var(--card-border);
-  }
-</style>
+

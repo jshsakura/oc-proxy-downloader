@@ -11,10 +11,19 @@ const createThemeStore = () => {
   // Function to apply the theme class to the document element
   const applyThemeClass = (currentTheme) => {
     if (typeof document !== 'undefined') {
-      if (currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      // Remove all theme classes first
+      document.documentElement.classList.remove('dark', 'dracula');
+
+      if (currentTheme === 'dark') {
         document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
+      } else if (currentTheme === 'dracula') {
+        document.documentElement.classList.add('dracula');
+      } else if (currentTheme === 'system') {
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.classList.add('dark');
+        } else {
+          // Default to light if system is not dark
+        }
       }
     }
   };

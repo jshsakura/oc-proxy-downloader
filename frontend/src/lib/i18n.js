@@ -6,23 +6,23 @@ const locale = writable('en');
 
 async function loadTranslations(lang) {
     isLoading.set(true);
-    console.log(`[i18n] Attempting to load translations for: ${lang}`);
+    // console.log(`[i18n] Attempting to load translations for: ${lang}`);
     try {
         const response = await fetch(`/api/locales/${lang}.json`);
-        console.log(`[i18n] Response for ${lang}.json: ${response.status} ${response.statusText}, ok: ${response.ok}`);
+        // console.log(`[i18n] Response for ${lang}.json: ${response.status} ${response.statusText}, ok: ${response.ok}`);
         if (!response.ok) {
             throw new Error(`Could not load ${lang}.json (Status: ${response.status})`);
         }
         const data = await response.json();
-        console.log(`[i18n] Loaded data for ${lang}.json:`, data);
+        // console.log(`[i18n] Loaded data for ${lang}.json:`, data);
         translations.set(data);
         locale.set(lang);
-        console.log(`[i18n] Translations store after set:`, translations);
+        // console.log(`[i18n] Translations store after set:`, translations);
     } catch (error) {
         console.error('[i18n] Failed to load translations:', error);
         // Fallback to English if loading fails for the requested language
         if (lang !== 'en') {
-            console.log('[i18n] Falling back to English translations.');
+            // console.log('[i18n] Falling back to English translations.');
             await loadTranslations('en');
         } else {
             // If even English fails, set an empty object to prevent errors
@@ -37,7 +37,7 @@ async function loadTranslations(lang) {
 const t = derived(translations, ($translations) => {
     return (key, vars = {}) => {
         let text = $translations[key];
-        
+
         // Fallback for critical keys if translation is not found
         if (text === undefined) {
             switch (key) {
@@ -95,6 +95,9 @@ const t = derived(translations, ($translations) => {
                 case 'delete_confirm':
                     text = 'Are you sure you want to delete this download?';
                     break;
+                case 'download_proxying':
+                    text = 'Proxying';
+                    break;
                 default:
                     text = key; // Fallback to key if no specific fallback is defined
             }
@@ -105,16 +108,22 @@ const t = derived(translations, ($translations) => {
                 text = text.replace(new RegExp(`{${varKey}}`, 'g'), value);
             }
         }
-        console.log(`[i18n] Translating key: ${key}, result: ${text}`);
+        // console.log(`[i18n] Translating key: ${key}, result: ${text}`);
         return text;
     };
 });
 
 function initializeLocale() {
-    const browserLang = navigator.language.split('-')[0];
     const supportedLangs = ['en', 'ko'];
+    // 1. localStorage에 lang이 있으면 그걸 우선 사용
+    const storedLang = localStorage.getItem('lang');
+    if (storedLang && supportedLangs.includes(storedLang)) {
+        return loadTranslations(storedLang);
+    }
+    // 2. 없으면 브라우저 언어 사용
+    const browserLang = navigator.language.split('-')[0];
     const lang = supportedLangs.includes(browserLang) ? browserLang : 'en';
     return loadTranslations(lang);
 }
 
-export { t, locale, isLoading, initializeLocale };
+export { t, locale, isLoading, initializeLocale, loadTranslations };

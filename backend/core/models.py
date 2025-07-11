@@ -21,4 +21,13 @@ class DownloadRequest(Base):
     direct_link = Column(String, nullable=True)
 
     def as_dict(self):
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns} 
+        data = {}
+        for c in self.__table__.columns:
+            value = getattr(self, c.name)
+            if isinstance(value, datetime.datetime):
+                data[c.name] = value.isoformat() if value else None
+            elif c.name in ['downloaded_size', 'total_size'] and value is None:
+                data[c.name] = 0 # Ensure these are always numbers
+            else:
+                data[c.name] = value
+        return data 

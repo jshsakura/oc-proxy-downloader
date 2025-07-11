@@ -1,13 +1,48 @@
 <script>
   import { createEventDispatcher } from "svelte";
   import { theme } from "./theme.js";
-  import { t } from "./i18n.js";
+  import { t, loadTranslations } from "./i18n.js";
+  import FolderIcon from "../icons/FolderIcon.svelte";
+  import XIcon from "../icons/XIcon.svelte";
+  import SettingsIcon from "../icons/SettingsIcon.svelte";
+  import { toastMessage, showToast, showToastMsg } from "./toast.js";
+  import { onMount, onDestroy } from "svelte";
+
+  // --- Icons ---
+  // icons 객체 완전히 삭제
+
+  const themeIcons = {
+    light: "☀️",
+    dark: "🌙",
+    dracula: "🧛‍♂️",
+    system: "🖥️",
+  };
 
   export let showModal;
   export let currentSettings;
 
   let settings = { ...currentSettings };
-  let selectedTheme = $theme;
+  let selectedTheme = settings.theme || $theme;
+  let selectedLocale = settings.language || "ko";
+  let selectedLocaleWasSet = false;
+
+  // settings 동기화 시 언어도 동기화
+  $: if (currentSettings && currentSettings.download_path) {
+    settings = { ...currentSettings };
+    selectedTheme = settings.theme || $theme;
+    // selectedLocale = settings.language || "ko"; // 이 줄은 주석 처리 또는 삭제
+  }
+
+  // download_path가 있을 때만 로딩 false
+  $: isLoading = !settings || !settings.download_path;
+
+  $: if (showModal && !selectedLocaleWasSet) {
+    selectedLocale = localStorage.getItem("lang") || "ko";
+    selectedLocaleWasSet = true;
+  }
+  $: if (!showModal) {
+    selectedLocaleWasSet = false;
+  }
 
   const dispatch = createEventDispatcher();
 
@@ -17,7 +52,8 @@
 
   async function saveSettings() {
     theme.set(selectedTheme);
-    settings.theme = selectedTheme; // Add theme to settings object
+    settings.theme = selectedTheme;
+    settings.language = selectedLocale;
     try {
       const response = await fetch("/api/settings", {
         method: "POST",
@@ -25,8 +61,12 @@
         body: JSON.stringify(settings),
       });
       if (response.ok) {
-        dispatch("settingsChanged", settings);
-        closeModal();
+        if (localStorage.getItem("lang") !== selectedLocale) {
+          localStorage.setItem("lang", selectedLocale);
+          window.location.reload();
+        }
+        // dispatch("settingsChanged", settings);
+        // closeModal();
       } else {
         alert("Failed to save settings");
       }
@@ -35,241 +75,214 @@
       alert("Error saving settings");
     }
   }
+
+  async function selectFolder() {
+    try {
+      const response = await fetch("/api/select_folder", { method: "POST" });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.path) {
+          settings.download_path = data.path;
+        }
+      } else {
+        alert("폴더 선택에 실패했습니다.");
+      }
+    } catch (e) {
+      alert("폴더 선택 중 오류 발생");
+    }
+  }
+
+  function changeLocale(e) {
+    selectedLocale = e.target.value;
+  }
+
+  onMount(() => {
+    document.body.style.overflow = "hidden";
+  });
+  onDestroy(() => {
+    document.body.style.overflow = "";
+  });
 </script>
 
 {#if showModal}
   <div
     class="modal-backdrop"
-    on:click={closeModal}
-    role="button"
+    role="dialog"
+    aria-label="Settings"
+    aria-modal="true"
     tabindex="0"
+    on:click={closeModal}
     on:keydown={(e) => {
       if (e.key === "Escape") closeModal();
     }}
   >
     <div class="modal" on:click|stopPropagation>
-      <h2>{$t("settings_title")}</h2>
-
-      <div class="form-group">
-        <label for="download-path">{$t("settings_download_path")}</label>
-        <input
-          id="download-path"
-          type="text"
-          class="input"
-          bind:value={settings.download_path}
-        />
-      </div>
-
-      <div class="form-group">
-        <label>{$t("settings_theme")}</label>
-        <div class="theme-options">
-          <label class="theme-option-label">
-            <input
-              type="radio"
-              bind:group={selectedTheme}
-              value="light"
-              hidden
-            />
-            <div class="theme-card light-theme-card">
-              <span>{$t("theme_light")}</span>
-            </div>
-          </label>
-          <label class="theme-option-label">
-            <input
-              type="radio"
-              bind:group={selectedTheme}
-              value="dark"
-              hidden
-            />
-            <div class="theme-card dark-theme-card">
-              <span>{$t("theme_dark")}</span>
-            </div>
-          </label>
-          <label class="theme-option-label">
-            <input
-              type="radio"
-              bind:group={selectedTheme}
-              value="system"
-              hidden
-            />
-            <div class="theme-card system-theme-card">
-              <span>{$t("theme_system")}</span>
-            </div>
-          </label>
+      {#if isLoading}
+        <div class="modal-loading-container">
+          <div class="modal-spinner"></div>
+          <div class="modal-loading-text">로딩 중...</div>
         </div>
-      </div>
-
-      <div class="modal-actions">
-        <button on:click={closeModal} class="button button-secondary"
-          >{$t("button_cancel")}</button
+      {:else}
+        <!-- 기존 폼 내용 시작 -->
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <SettingsIcon />
+            <h2>{$t("settings_title")}</h2>
+          </div>
+          <button class="button-icon close-button" on:click={closeModal}>
+            <XIcon />
+          </button>
+        </div>
+        <div class="form-group">
+          <label for="download-path">{$t("settings_download_path")}</label>
+          <div class="input-group">
+            <input
+              id="download-path"
+              type="text"
+              class="input"
+              bind:value={settings.download_path}
+            />
+            <button
+              type="button"
+              class="button-icon"
+              title="폴더 선택"
+              on:click={selectFolder}
+              aria-label="폴더 선택"
+            >
+              <FolderIcon />
+            </button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="locale">{$t("settings_language")}</label>
+          <div class="input-group">
+            <select
+              id="locale"
+              class="input"
+              bind:value={selectedLocale}
+              on:change={changeLocale}
+            >
+              <option value="ko">한국어</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+        <fieldset class="form-group">
+          <legend>{$t("settings_theme")}</legend>
+          <div class="theme-options">
+            <label class="theme-option-label">
+              <input
+                type="radio"
+                bind:group={selectedTheme}
+                value="light"
+                hidden
+              />
+              <div class="theme-card light-theme-card">
+                <span class="theme-icon" aria-label="라이트"
+                  >{themeIcons.light}</span
+                >
+                <span>{$t("theme_light")}</span>
+              </div>
+            </label>
+            <label class="theme-option-label">
+              <input
+                type="radio"
+                bind:group={selectedTheme}
+                value="dark"
+                hidden
+              />
+              <div class="theme-card dark-theme-card">
+                <span class="theme-icon" aria-label="다크"
+                  >{themeIcons.dark}</span
+                >
+                <span>{$t("theme_dark")}</span>
+              </div>
+            </label>
+            <label class="theme-option-label">
+              <input
+                type="radio"
+                bind:group={selectedTheme}
+                value="dracula"
+                hidden
+              />
+              <div class="theme-card dracula-theme-card">
+                <span class="theme-icon" aria-label="드라큘라"
+                  >{themeIcons.dracula}</span
+                >
+                <span>{$t("theme_dracula")}</span>
+              </div>
+            </label>
+            <label class="theme-option-label">
+              <input
+                type="radio"
+                bind:group={selectedTheme}
+                value="system"
+                hidden
+              />
+              <div class="theme-card system-theme-card">
+                <span class="theme-icon" aria-label="시스템"
+                  >{themeIcons.system}</span
+                >
+                <span>{$t("theme_system")}</span>
+              </div>
+            </label>
+          </div>
+        </fieldset>
+        <div
+          class="modal-actions"
+          style="padding-top: 1rem; border-top: 1px solid var(--card-border);"
         >
-        <button on:click={saveSettings} class="button button-primary"
-          >{$t("button_save")}</button
-        >
-      </div>
+          <button on:click={closeModal} class="button button-secondary"
+            >{$t("button_cancel")}</button
+          >
+          <button on:click={saveSettings} class="button button-primary"
+            >{$t("button_save")}</button
+          >
+        </div>
+        <!-- 기존 폼 내용 끝 -->
+      {/if}
     </div>
   </div>
 {/if}
 
+{#if $showToast}
+  <div class="toast">{$toastMessage}</div>
+{/if}
+
 <style>
-  .modal-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-  }
   .modal {
-    background: var(--card-background);
-    color: var(--text-primary);
-    padding: 2rem;
-    border-radius: 10px;
-    width: 500px;
-    max-width: 90%;
-    box-shadow: var(--shadow-medium);
+    max-height: 90vh;
+    overflow-y: auto;
   }
-  h2 {
-    margin-top: 0;
-    margin-bottom: 2rem;
-    font-size: 1.8rem;
-    color: var(--text-primary);
+  .modal-loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    padding: 2rem 0;
   }
-  .form-group {
+  .modal-spinner {
+    width: 48px;
+    height: 48px;
+    border: 5px solid var(--card-border, #e0e0e0);
+    border-top: 5px solid var(--primary-color, #0b6bcb);
+    border-radius: 50%;
+    animation: modal-spin 1s linear infinite;
     margin-bottom: 1.5rem;
   }
-  label {
-    display: block;
-    margin-bottom: 0.5rem;
+  @keyframes modal-spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+  .modal-loading-text {
+    font-size: 1.1rem;
+    color: var(--text-secondary, #666);
     font-weight: 600;
-    color: var(--text-secondary);
-  }
-  .input {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--input-border);
-    border-radius: 10px; /* Changed to 10px */
-    background-color: var(--input-bg);
-    color: var(--text-primary);
-    font-size: 1rem;
-    transition: border-color 0.2s ease;
-  }
-  .input:focus {
-    outline: none;
-    border-color: var(--primary-color);
-  }
-
-  .theme-options {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 1rem;
-  }
-  .theme-option-label {
-    cursor: pointer;
-    display: block;
-  }
-  .theme-card {
-    border: 2px solid var(--card-border);
-    border-radius: 10px;
-    padding: 0.5rem;
-    text-align: center;
-    transition: all 0.2s ease;
-    color: var(--text-primary);
-  }
-  .theme-card:hover {
-    border-color: var(--primary-color);
-  }
-  .theme-option-label input[type="radio"]:checked + .theme-card {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.3);
-  }
-
-  .light-theme-card {
-    background-color: #f0f0f0;
-    color: #333;
-  }
-  .dark-theme-card {
-    background-color: #333;
-    color: #f0f0f0;
-  }
-  .system-theme-card {
-    background-color: var(
-      --card-background
-    ); /* Uses current theme background */
-    color: var(--text-primary);
-  }
-
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 1rem;
-  }
-  .button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.5rem 1rem;
-    font-size: 0.9rem;
-    font-weight: 600;
-    border-radius: 10px; /* Changed to 10px */
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition:
-      background-color 0.3s ease,
-      border-color 0.3s ease,
-      color 0.3s ease,
-      box-shadow 0.3s ease;
-    text-decoration: none;
-    box-shadow: var(--shadow-light);
-  }
-  .button:hover {
-    background-color: var(--button-hover-background);
-  }
-  .button-primary {
-    background-color: var(--primary-color);
-    color: #fff; /* White text for primary button */
-  }
-  .button-primary:hover {
-    background-color: var(--primary-hover);
-  }
-  .button-secondary {
-    background-color: var(
-      --button-secondary-background,
-      #e0e0e0
-    ); /* Default light gray */
-    color: var(--button-secondary-text, #333); /* Default dark text */
-  }
-  .button-secondary:hover {
-    background-color: var(--button-secondary-background-hover, #c0c0c0);
-  }
-
-  /* Theme-specific variables for button backgrounds and text */
-  :root[data-theme="light"] {
-    --button-background: #f0f0f0; /* Light gray for light theme buttons */
-    --button-hover-background: #d0d0d0; /* Slightly darker gray on hover */
-    --button-text: #333; /* Dark text for light theme buttons */
-
-    --button-secondary-background: #e0e0e0;
-    --button-secondary-text: #333;
-    --button-secondary-background-hover: #c0c0c0;
-  }
-
-  :root[data-theme="dark"] {
-    --button-background: #555; /* Dark gray for dark theme buttons */
-    --button-hover-background: #777; /* Slightly lighter gray on hover */
-    --button-text: #f0f0f0; /* Light text for dark theme buttons */
-
-    --button-secondary-background: #555;
-    --button-secondary-text: #f0f0f0;
-    --button-secondary-background-hover: #777;
-  }
-
-  /* Apply the theme-specific text color to the button */
-  .button {
-    color: var(--button-text);
+    letter-spacing: 0.05em;
   }
 </style>

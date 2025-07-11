@@ -22,6 +22,9 @@ import cloudscraper
 import re
 from urllib.parse import urlparse, unquote
 import os
+from pathlib import Path
+import tkinter as tk
+from tkinter import filedialog
 
 # Get the absolute path to the frontend/dist directory
 backend_dir = os.path.dirname(os.path.abspath(__file__))
@@ -77,7 +80,8 @@ def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
     item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
     if item:
         item_dict = item.as_dict()
-        item_dict["status"] = get_message(status_map.get(item.status, item.status), lang)
+        item_dict["status"] = item.status # Send raw status to frontend
+        print(f"[LOG] Notifying status update for {download_id}: {item_dict}") # Add this log
         status_queue.put(json.dumps({"type": "status_update", "data": item_dict}))
 
 async def notify_proxy_try(download_id: int, proxy: str):
@@ -88,7 +92,7 @@ class DownloadRequestCreate(BaseModel):
     url: HttpUrl
     password: str = None
 
-def parse_direct_link(url, password=None, proxies=None):
+def parse_direct_link(url, password=None, proxies=None, req_id=None):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.54',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -109,6 +113,16 @@ def parse_direct_link(url, password=None, proxies=None):
     tried = False
     scraper = cloudscraper.create_scraper()
     for proxy_addr in proxy_list:
+        if req_id: # Check status only if req_id is provided
+            db_check = next(get_db())
+            try:
+                current_req = db_check.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
+                if current_req and current_req.status == "paused":
+                    print(f"[LOG] Proxy parsing for {req_id} paused. Exiting proxy loop.")
+                    return None # Exit if paused
+            finally:
+                db_check.close()
+
         proxies = {"http": proxy_addr, "https": proxy_addr}
         try:
             r = scraper.post(url, payload, headers=headers, proxies=proxies, timeout=10, verify=False)
@@ -116,6 +130,7 @@ def parse_direct_link(url, password=None, proxies=None):
             print(f"[LOG] 프록시 {proxy_addr} 응답 HTML 일부: {r.text[:1000]}")
             tried = True
             if r.status_code == 200:
+                print(f"[LOG] Content-Length from direct link parsing: {r.headers.get("Content-Length")}")
                 html = lxml.html.fromstring(r.content)
                 direct_link_elem = html.xpath('/html/body/div[4]/div[2]/a')
                 if direct_link_elem:
@@ -140,38 +155,69 @@ def parse_direct_link(url, password=None, proxies=None):
 def get_or_parse_direct_link(req, proxies=None):
     if req.direct_link:
         return req.direct_link
-    direct_link = parse_direct_link(req.url, req.password, proxies)
+    direct_link = parse_direct_link(req.url, req.password, proxies, req.id)
     req.direct_link = direct_link
     return direct_link
 
-def download_1fichier_file(request_id: int, db: Session, lang: str = "ko"):
-    req = db.query(DownloadRequest).filter(DownloadRequest.id == request_id).first()
-    if not req:
-        print(f"[LOG] DownloadRequest not found: {request_id}")
-        return
-
-    download_path = get_download_path()
-
+def download_1fichier_file(request_id: int, lang: str = "ko"):
+    print(f"[LOG] Entering download_1fichier_file for request_id: {request_id}")
+    db = next(get_db()) # Get a new session for this background task
+    req = None # Initialize req to None
     try:
-        req.status = "downloading"
-        db.commit()
-        notify_status_update(db, req.id, lang)
-        print(f"[LOG] 다운로드 시작: {req.url}")
+        req = db.query(DownloadRequest).filter(DownloadRequest.id == request_id).first()
+        if not req:
+            print(f"[LOG] DownloadRequest not found: {request_id}")
+            return
 
+        download_path = get_download_path()
+        print(f"[LOG] Download path: {download_path}")
+
+        # Check if file already exists to resume download
+        file_path = download_path / (req.file_name if req.file_name else f"download_{request_id}")
+        initial_downloaded_size = 0
+        if file_path.exists():
+            initial_downloaded_size = file_path.stat().st_size
+            print(f"[LOG] Resuming download for {req.id} from {initial_downloaded_size} bytes. File: {file_path}")
+        else:
+            print(f"[LOG] Starting new download for {req.id}. File: {file_path}")
+        
+        # Removed: req.status = "proxying" # Set status to proxying before parsing direct link
+        # The status should be set by the calling endpoint (e.g., create_download_task, resume_download)
+        db.commit()
+        print(f"[LOG] Before notify (proxying): req.total_size={req.total_size}, req.downloaded_size={req.downloaded_size}")
+        notify_status_update(db, req.id, lang)
+        print(f"[LOG] DB status updated to proxying for {req.id}")
+        print(f"[LOG] Before get_or_parse_direct_link: req.total_size={req.total_size}, req.downloaded_size={req.downloaded_size}")
         direct_link = get_or_parse_direct_link(req)
+        print(f"[LOG] After get_or_parse_direct_link: direct_link={direct_link}, req.total_size={req.total_size}, req.downloaded_size={req.downloaded_size}")
+        print(f"[LOG] Direct link for {req.id}: {direct_link}")
 
         if not direct_link:
             raise Exception("Direct link not found")
 
+        req.status = "downloading" # Set status to downloading after direct link is found
+        db.commit()
+        notify_status_update(db, req.id, lang)
+        print(f"[LOG] DB status updated to downloading for {req.id}")
+
+        headers = {}
+        if initial_downloaded_size > 0:
+            headers["Range"] = f"bytes={initial_downloaded_size}-"
+            print(f"[LOG] Request headers with Range: {headers}")
+
         # Use requests to download the file
-        with requests.get(direct_link, stream=True, allow_redirects=True) as r:
+        with requests.get(direct_link, stream=True, allow_redirects=True, headers=headers) as r:
+            print(f"[LOG] HTTP GET request sent for {req.id}. Status code: {r.status_code}")
+            print(f"[LOG] Response headers: {r.headers}")
+            print(f"[LOG] Content-Length header: {r.headers.get("Content-Length")}")
+            print(f"[LOG] Content-Range header: {r.headers.get("Content-Range")}")
             r.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
 
             file_name = None
             if "Content-Disposition" in r.headers:
                 # Try to extract filename from Content-Disposition header
                 cd = r.headers["Content-Disposition"]
-                file_name = re.findall(r"filename\*=UTF-8\'\'(.*?)", cd)
+                file_name = re.findall(r"filename\*=UTF-8''(.+?)", cd)
                 if not file_name:
                     file_name = re.findall(r"filename=\"(.*?)\"", cd)
                 if file_name:
@@ -182,20 +228,66 @@ def download_1fichier_file(request_id: int, db: Session, lang: str = "ko"):
                 file_name = os.path.basename(urlparse(direct_link).path)
                 if not file_name:
                     file_name = f"download_{request_id}" # Generic name if all else fails
+            print(f"[LOG] Determined file name: {file_name}")
 
-            file_path = download_path / file_name
-            total_size = int(r.headers.get("Content-Length", 0))
-            downloaded_size = 0
+            # If resuming, and file_name was not set, set it now
+            if not req.file_name:
+                req.file_name = file_name
+            
+            # Determine total size
+            total_size = req.total_size if req.total_size is not None else 0 # Ensure total_size starts as a number
+            # Try to get total size from Content-Range header (for resumed downloads)
+            content_range = r.headers.get("Content-Range")
+            if content_range:
+                match = re.search(r"/(\\d+)$", content_range)
+                if match:
+                    total_size = int(match.group(1))
+                    print(f"[LOG] Total size from Content-Range: {total_size}")
 
-            req.file_name = file_name
-            req.file_size = total_size
+            # If total_size is still 0 (e.g., new download or no Content-Range)
+            if total_size == 0:
+                # For new downloads, Content-Length is the total size
+                # For resumed downloads without Content-Range, Content-Length is remaining size
+                current_content_length = int(r.headers.get("Content-Length", 0))
+                if initial_downloaded_size == 0: # New download
+                    total_size = current_content_length
+                    print(f"[LOG] Total size from Content-Length (new download): {total_size}")
+                else: # Resumed download without Content-Range
+                    total_size = initial_downloaded_size + current_content_length
+                    print(f"[LOG] Total size from Content-Length (resumed, no Content-Range): {total_size}")
+
+            # Ensure total_size is at least 1 to prevent division by zero in frontend if it's still 0
+            if total_size == 0:
+                total_size = 1
+                print(f"[LOG] Total size defaulted to 1 to prevent NaN in frontend.")
+
+            # Ensure req.total_size is updated if it was not set or was incorrect
+            if req.total_size is None or req.total_size != total_size:
+                req.total_size = total_size
+                print(f"[LOG] Updated req.total_size to: {req.total_size}")
+            print(f"[LOG] Final total_size before commit/notify: {total_size}")
+
+            downloaded_size = initial_downloaded_size
+
+            req.total_size = total_size
             db.commit()
-            notify_status_update(db, req.id, lang)
+            notify_status_update(db, req.id, lang) # Call notify_status_update here
+            print(f"[LOG] DB file_name and total_size updated for {req.id}")
 
-            with open(file_path, "wb") as f:
+            # Open file in append mode if resuming, else write mode
+            mode = "ab" if initial_downloaded_size > 0 else "wb"
+            print(f"[LOG] Opening file in mode: {mode}")
+            with open(file_path, mode) as f:
+                chunk_count = 0
                 for chunk in r.iter_content(chunk_size=8192):
+                    chunk_count += 1
+                    # Periodically refresh status from DB
+                    if chunk_count % 100 == 0: # Check every 100 chunks (adjust as needed)
+                        db.refresh(req) # Refresh the req object from the database
+                        print(f"[LOG] Download {req.id} status refreshed: {req.status}")
+
                     if req.status == "paused": # Check for pause status
-                        print(f"[LOG] Download {req.id} paused.")
+                        print(f"[LOG] Download {req.id} paused. Exiting chunk loop.")
                         return # Exit the function, download will resume later
                     
                     f.write(chunk)
@@ -205,6 +297,7 @@ def download_1fichier_file(request_id: int, db: Session, lang: str = "ko"):
                     # Update status every 1MB or 10% of total size, whichever is smaller
                     if total_size > 0 and (downloaded_size % (1024 * 1024) == 0 or downloaded_size * 10 // total_size != (downloaded_size - len(chunk)) * 10 // total_size):
                         notify_status_update(db, req.id, lang)
+                print(f"[LOG] Finished writing all chunks for {req.id}")
 
         req.status = "done"
         req.downloaded_size = total_size # Ensure downloaded_size is total_size on completion
@@ -213,22 +306,34 @@ def download_1fichier_file(request_id: int, db: Session, lang: str = "ko"):
         print(f"[LOG] 다운로드 완료 처리: {req.url}")
 
     except requests.exceptions.RequestException as e:
-        req.status = "failed"
-        req.error = f"Network or HTTP error: {e}"
-        db.commit()
-        notify_status_update(db, req.id, lang)
-        print(f"[LOG] 다운로드 예외 발생 (requests): {e}")
+        error_message = f"Network or HTTP error: {e}"
+        print(f"[LOG] Download {request_id} failed due to RequestException: {error_message}")
+        if req: # Ensure req is defined before accessing its attributes
+            req.status = "failed"
+            req.error = error_message
+            db.commit()
+            notify_status_update(db, req.id, lang)
+        else:
+            print(f"[LOG] Critical: req was None when RequestException occurred for download_id {request_id}")
     except Exception as e:
-        req.status = "failed"
-        req.error = str(e)
-        db.commit()
-        notify_status_update(db, req.id, lang)
-        print(f"[LOG] 다운로드 예외 발생: {e}")
+        error_message = str(e)
+        print(f"[LOG] Download {request_id} failed due to general Exception: {error_message}")
+        if req: # Ensure req is defined before accessing its attributes
+            req.status = "failed"
+            req.error = error_message
+            db.commit()
+            notify_status_update(db, req.id, lang)
+        else:
+            print(f"[LOG] Critical: req was None when general Exception occurred for download_id {request_id}")
+    finally:
+        db.close() # Ensure the session is closed
 
 
 status_map = {
     "pending": "download_pending",
     "downloading": "download_downloading",
+    "paused": "download_paused",
+    "proxying": "download_proxying",
     "done": "download_done",
     "failed": "download_failed"
 }
@@ -241,14 +346,16 @@ def create_download_task(request: DownloadRequestCreate, background_tasks: Backg
     lang = get_lang(req)
     db_req = DownloadRequest(
         url=str(request.url),
-        status="pending",
+        status="proxying", # Set initial status to proxying
         password=request.password
     )
     db.add(db_req)
     db.commit()
     db.refresh(db_req)
-    background_tasks.add_task(download_1fichier_file, db_req.id, db, lang)
-    return {"id": db_req.id, "status": get_message(status_map[db_req.status], lang)}
+    notify_status_update(db, db_req.id, lang) # Add this line
+    print(f"[LOG] New DownloadRequest created: id={db_req.id}, total_size={db_req.total_size}") # Add this log
+    background_tasks.add_task(download_1fichier_file, db_req.id, lang)
+    return {"id": db_req.id, "status": db_req.status}
 
 @api_router.get("/history/")
 def get_download_history(db: Session = Depends(get_db), req: Request = None):
@@ -282,7 +389,7 @@ def get_download_history(db: Session = Depends(get_db), req: Request = None):
     result = []
     for item in items:
         item_dict = item.as_dict()
-        item_dict["status"] = get_message(status_map.get(item.status, item.status), lang)
+        item_dict["status"] = item.status # Send raw status to frontend for CSS class consistency
         result.append(item_dict)
         
     return {"items": result, "page": page, "total_pages": total_pages}
@@ -294,7 +401,7 @@ def get_download_detail(download_id: int, db: Session = Depends(get_db), req: Re
     if not item:
         raise HTTPException(status_code=404, detail=get_message("download_not_found", lang))
     item_dict = item.as_dict()
-    item_dict["status"] = get_message(status_map.get(item.status, item.status), lang)
+    item_dict["status"] = item.status # Send raw status to frontend
     return item_dict
 
 @api_router.post("/resume/{download_id}")
@@ -303,11 +410,11 @@ def resume_download(download_id: int, background_tasks: BackgroundTasks, db: Ses
     item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
     if not item:
         raise HTTPException(status_code=404, detail=get_message("download_not_found", lang))
-    item.status = "pending"
+    item.status = "downloading" # Change to downloading directly
     db.commit()
-    notify_status_update(db, item.id, lang)
-    background_tasks.add_task(download_1fichier_file, item.id, db, lang)
-    return {"id": item.id, "status": get_message(status_map[item.status], lang), "message": get_message("resume_success", lang)}
+    notify_status_update(db, item.id, lang) # REMOVE THIS LINE
+    background_tasks.add_task(download_1fichier_file, item.id, lang)
+    return {"id": item.id, "status": item.status, "message": get_message("resume_success", lang)}
 
 @api_router.post("/pause/{download_id}")
 def pause_download(download_id: int, db: Session = Depends(get_db), req: Request = None):
@@ -315,10 +422,10 @@ def pause_download(download_id: int, db: Session = Depends(get_db), req: Request
     item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Download not found")
-    item.status = "pending"
+    item.status = "paused" # Change status to 'paused'
     db.commit()
     notify_status_update(db, item.id, lang)
-    return {"id": item.id, "status": get_message(status_map[item.status], lang)}
+    return {"id": item.id, "status": item.status}
 
 @api_router.post("/delete/{download_id}")
 def delete_download(download_id: int, db: Session = Depends(get_db)):
@@ -345,12 +452,12 @@ def retry_download(download_id: int, background_tasks: BackgroundTasks, db: Sess
     item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
     if not item:
         raise HTTPException(status_code=404, detail=get_message("download_not_found", lang))
-    item.status = "pending"
+    item.status = "downloading" # Change to downloading directly
     item.error = None
     db.commit()
-    notify_status_update(db, item.id, lang)
-    background_tasks.add_task(download_1fichier_file, item.id, db, lang)
-    return {"id": item.id, "status": get_message(status_map[item.status], lang), "message": get_message("retry_success", lang)}
+    notify_status_update(db, item.id, lang) # REMOVE THIS LINE
+    background_tasks.add_task(download_1fichier_file, item.id, lang)
+    return {"id": item.id, "status": item.status, "message": get_message("retry_success", lang)}
 
 @api_router.get("/proxies/")
 def get_proxies():
@@ -389,7 +496,7 @@ async def select_folder():
     root.destroy()
     return {"path": folder_selected}
 
-@api_router.post("/settings/")
+@api_router.post("/settings")
 def update_settings_endpoint(settings: dict):
     try:
         print(f"[LOG] Received settings to save: {settings}")
