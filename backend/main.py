@@ -25,11 +25,59 @@ import os
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
+import threading
+from concurrent.futures import ThreadPoolExecutor, Future
+import weakref
 
 # Get the absolute path to the frontend/dist directory
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(backend_dir)
 frontend_dist_path = os.path.join(project_root, "frontend", "dist")
+
+# 다운로드 스레드 관리
+class DownloadManager:
+    def __init__(self):
+        self.active_downloads = {}  # {download_id: Future}
+        self.executor = ThreadPoolExecutor(max_workers=5)  # 최대 5개 동시 다운로드
+        self._lock = threading.Lock()
+    
+    def start_download(self, download_id: int, func, *args, **kwargs):
+        """다운로드 시작"""
+        with self._lock:
+            if download_id in self.active_downloads:
+                # 이미 실행 중인 다운로드가 있으면 취소
+                self.cancel_download(download_id)
+            
+            future = self.executor.submit(func, *args, **kwargs)
+            self.active_downloads[download_id] = future
+            return future
+    
+    def cancel_download(self, download_id: int):
+        """다운로드 취소"""
+        with self._lock:
+            if download_id in self.active_downloads:
+                future = self.active_downloads[download_id]
+                if not future.done():
+                    future.cancel()
+                del self.active_downloads[download_id]
+    
+    def is_download_active(self, download_id: int) -> bool:
+        """다운로드가 활성 상태인지 확인"""
+        with self._lock:
+            return download_id in self.active_downloads
+    
+    def cleanup_completed(self):
+        """완료된 다운로드 정리"""
+        with self._lock:
+            completed_ids = [
+                download_id for download_id, future in self.active_downloads.items()
+                if future.done()
+            ]
+            for download_id in completed_ids:
+                del self.active_downloads[download_id]
+
+# 전역 다운로드 매니저 인스턴스
+download_manager = DownloadManager()
 
 
 Base.metadata.create_all(bind=engine)
@@ -233,39 +281,21 @@ def download_1fichier_file(request_id: int, lang: str = "ko"):
             # If resuming, and file_name was not set, set it now
             if not req.file_name:
                 req.file_name = file_name
-            
-            # Determine total size
-            total_size = req.total_size if req.total_size is not None else 0 # Ensure total_size starts as a number
-            # Try to get total size from Content-Range header (for resumed downloads)
-            content_range = r.headers.get("Content-Range")
-            if content_range:
-                match = re.search(r"/(\\d+)$", content_range)
+                db.commit()
+
+            # Get total size from Content-Length or Content-Range header
+            total_size = 0
+            if "Content-Length" in r.headers:
+                total_size = int(r.headers["Content-Length"])
+            elif "Content-Range" in r.headers:
+                # Parse Content-Range: bytes 200-1000/1001
+                content_range = r.headers["Content-Range"]
+                match = re.search(r"bytes \d+-\d+/(\d+)", content_range)
                 if match:
                     total_size = int(match.group(1))
-                    print(f"[LOG] Total size from Content-Range: {total_size}")
-
-            # If total_size is still 0 (e.g., new download or no Content-Range)
-            if total_size == 0:
-                # For new downloads, Content-Length is the total size
-                # For resumed downloads without Content-Range, Content-Length is remaining size
-                current_content_length = int(r.headers.get("Content-Length", 0))
-                if initial_downloaded_size == 0: # New download
-                    total_size = current_content_length
-                    print(f"[LOG] Total size from Content-Length (new download): {total_size}")
-                else: # Resumed download without Content-Range
-                    total_size = initial_downloaded_size + current_content_length
-                    print(f"[LOG] Total size from Content-Length (resumed, no Content-Range): {total_size}")
-
-            # Ensure total_size is at least 1 to prevent division by zero in frontend if it's still 0
-            if total_size == 0:
-                total_size = 1
-                print(f"[LOG] Total size defaulted to 1 to prevent NaN in frontend.")
-
-            # Ensure req.total_size is updated if it was not set or was incorrect
-            if req.total_size is None or req.total_size != total_size:
-                req.total_size = total_size
-                print(f"[LOG] Updated req.total_size to: {req.total_size}")
-            print(f"[LOG] Final total_size before commit/notify: {total_size}")
+            
+            if initial_downloaded_size > 0 and total_size > 0:
+                total_size = total_size + initial_downloaded_size
 
             downloaded_size = initial_downloaded_size
 
@@ -279,12 +309,23 @@ def download_1fichier_file(request_id: int, lang: str = "ko"):
             print(f"[LOG] Opening file in mode: {mode}")
             with open(file_path, mode) as f:
                 chunk_count = 0
+                last_status_check = time.time()
+                status_check_interval = 2.0  # 2초마다 상태 체크
+                
                 for chunk in r.iter_content(chunk_size=8192):
                     chunk_count += 1
-                    # Periodically refresh status from DB
-                    if chunk_count % 100 == 0: # Check every 100 chunks (adjust as needed)
+                    current_time = time.time()
+                    
+                    # 효율적인 상태 체크: 2초마다 또는 1MB마다
+                    should_check_status = (
+                        current_time - last_status_check >= status_check_interval or
+                        chunk_count % 128 == 0  # 1MB (8192 * 128 = 1MB)
+                    )
+                    
+                    if should_check_status:
                         db.refresh(req) # Refresh the req object from the database
                         print(f"[LOG] Download {req.id} status refreshed: {req.status}")
+                        last_status_check = current_time
 
                     if req.status == "paused": # Check for pause status
                         print(f"[LOG] Download {req.id} paused. Exiting chunk loop.")
@@ -327,6 +368,8 @@ def download_1fichier_file(request_id: int, lang: str = "ko"):
             print(f"[LOG] Critical: req was None when general Exception occurred for download_id {request_id}")
     finally:
         db.close() # Ensure the session is closed
+        # 다운로드 완료 후 매니저에서 제거
+        download_manager.cleanup_completed()
 
 
 status_map = {
@@ -354,7 +397,9 @@ def create_download_task(request: DownloadRequestCreate, background_tasks: Backg
     db.refresh(db_req)
     notify_status_update(db, db_req.id, lang) # Add this line
     print(f"[LOG] New DownloadRequest created: id={db_req.id}, total_size={db_req.total_size}") # Add this log
-    background_tasks.add_task(download_1fichier_file, db_req.id, lang)
+    
+    # DownloadManager를 사용하여 다운로드 시작
+    download_manager.start_download(db_req.id, download_1fichier_file, db_req.id, lang)
     return {"id": db_req.id, "status": db_req.status}
 
 @api_router.get("/history/")
@@ -412,8 +457,10 @@ def resume_download(download_id: int, background_tasks: BackgroundTasks, db: Ses
         raise HTTPException(status_code=404, detail=get_message("download_not_found", lang))
     item.status = "downloading" # Change to downloading directly
     db.commit()
-    notify_status_update(db, item.id, lang) # REMOVE THIS LINE
-    background_tasks.add_task(download_1fichier_file, item.id, lang)
+    notify_status_update(db, item.id, lang)
+    
+    # DownloadManager를 사용하여 다운로드 시작
+    download_manager.start_download(download_id, download_1fichier_file, download_id, lang)
     return {"id": item.id, "status": item.status, "message": get_message("resume_success", lang)}
 
 @api_router.post("/pause/{download_id}")
@@ -425,6 +472,12 @@ def pause_download(download_id: int, db: Session = Depends(get_db), req: Request
     item.status = "paused" # Change status to 'paused'
     db.commit()
     notify_status_update(db, item.id, lang)
+    
+    # 활성 다운로드가 있으면 취소
+    if download_manager.is_download_active(download_id):
+        download_manager.cancel_download(download_id)
+        print(f"[LOG] Download {download_id} cancelled due to pause request")
+    
     return {"id": item.id, "status": item.status}
 
 @api_router.post("/delete/{download_id}")
@@ -455,8 +508,10 @@ def retry_download(download_id: int, background_tasks: BackgroundTasks, db: Sess
     item.status = "downloading" # Change to downloading directly
     item.error = None
     db.commit()
-    notify_status_update(db, item.id, lang) # REMOVE THIS LINE
-    background_tasks.add_task(download_1fichier_file, item.id, lang)
+    notify_status_update(db, item.id, lang)
+    
+    # DownloadManager를 사용하여 다운로드 시작
+    download_manager.start_download(download_id, download_1fichier_file, download_id, lang)
     return {"id": item.id, "status": item.status, "message": get_message("retry_success", lang)}
 
 @api_router.get("/proxies/")
@@ -517,6 +572,33 @@ async def serve_locale_file(lang: str):
     if os.path.exists(locale_file_path):
         return FileResponse(locale_file_path, media_type="application/json")
     raise HTTPException(status_code=404, detail="Locale file not found")
+
+@api_router.get("/downloads/active")
+def get_active_downloads():
+    """활성 다운로드 목록 반환"""
+    active_downloads = list(download_manager.active_downloads.keys())
+    return {"active_downloads": active_downloads, "count": len(active_downloads)}
+
+@api_router.post("/downloads/cancel/{download_id}")
+def cancel_download(download_id: int, db: Session = Depends(get_db), req: Request = None):
+    """다운로드 강제 취소"""
+    lang = get_lang(req)
+    item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail=get_message("download_not_found", lang))
+    
+    # 스레드 취소
+    if download_manager.is_download_active(download_id):
+        download_manager.cancel_download(download_id)
+        print(f"[LOG] Download {download_id} forcefully cancelled")
+    
+    # 상태를 failed로 변경
+    item.status = "failed"
+    item.error = "Download cancelled by user"
+    db.commit()
+    notify_status_update(db, item.id, lang)
+    
+    return {"id": item.id, "status": item.status, "message": "Download cancelled"}
 
 app.include_router(api_router)
 

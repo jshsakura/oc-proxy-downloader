@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  app:
+    image: <YOUR_DOCKERHUB_ID>/oc-proxy-downloader:latest
+    container_name: oc-proxy-downloader
+    environment:
+      - TZ=Asia/Seoul
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - ./backend/downloads:/app/backend/downloads
+    ports:
+      - "8000:8000"
+    restart: unless-stopped 

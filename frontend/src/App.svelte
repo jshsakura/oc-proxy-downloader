@@ -47,6 +47,7 @@
   let currentPage = 1;
   let totalPages = 1;
   let isDownloadsLoading = false;
+  let activeDownloads = []; // 활성 다운로드 목록
 
   let showSettingsModal = false;
   let showPasswordModal = false;
@@ -83,6 +84,7 @@
     }
     fetchDownloads(currentPage);
     connectWebSocket();
+    fetchActiveDownloads(); // 웹소켓 연결 후 활성 다운로드 목록 가져오기
 
     const unsubscribe = t.subscribe((t_func) => {
       document.title = t_func("title");
@@ -132,6 +134,9 @@
           // If the download is new, add it to the beginning of the list
           downloads = [updatedDownload, ...downloads];
         }
+
+        // 상태 업데이트 후 활성 다운로드 목록 갱신
+        fetchActiveDownloads();
       }
     };
 
@@ -183,6 +188,37 @@
     }
   }
 
+  async function fetchActiveDownloads() {
+    try {
+      const response = await fetch("/api/downloads/active");
+      if (response.ok) {
+        const data = await response.json();
+        activeDownloads = data.active_downloads;
+      }
+    } catch (error) {
+      console.error("Error fetching active downloads:", error);
+    }
+  }
+
+  async function cancelDownload(downloadId) {
+    if (!confirm($t("cancel_confirm"))) return;
+
+    try {
+      const response = await fetch(`/api/downloads/cancel/${downloadId}`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        showToastMsg($t("download_cancelled"));
+        await fetchActiveDownloads();
+      } else {
+        showToastMsg($t("cancel_failed"));
+      }
+    } catch (error) {
+      console.error("Error cancelling download:", error);
+      showToastMsg($t("cancel_failed"));
+    }
+  }
+
   async function callApi(endpoint, downloadId = null, newStatus = null) {
     try {
       const response = await fetch(endpoint, { method: "POST" });
@@ -194,6 +230,8 @@
           downloads = [...downloads]; // Trigger Svelte reactivity
         }
       }
+      // API 호출 후 활성 다운로드 목록 갱신
+      await fetchActiveDownloads();
     } catch (error) {
       console.error(`Error calling ${endpoint}:`, error);
     }
@@ -472,6 +510,15 @@
                       >
                         <PauseIcon />
                       </button>
+                      {#if activeDownloads.includes(download.id)}
+                        <button
+                          class="button-icon danger"
+                          title="강제 취소"
+                          on:click={() => cancelDownload(download.id)}
+                        >
+                          ✕
+                        </button>
+                      {/if}
                     {:else if (download.status
                       .toLowerCase()
                       .includes("pending") || download.status
