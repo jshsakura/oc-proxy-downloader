@@ -1,36 +1,37 @@
 
-import json
 import os
 from pathlib import Path
+import json
 
-CONFIG_FILE = Path('config.json')
+CONFIG_FILE = Path(__file__).parent.parent / "config.json"
 DEFAULT_CONFIG = {
-    'download_path': 'downloads',
-    'theme': 'system'
+    "download_path": "./downloads",
+    "theme": "light",
+    "language": "ko"
 }
 
 def get_config():
-    if not CONFIG_FILE.is_file():
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(DEFAULT_CONFIG, f, indent=4)
-        return DEFAULT_CONFIG
-    
-    with open(CONFIG_FILE, 'r') as f:
-        try:
-            config = json.load(f)
-            # Ensure all default keys exist
-            for key, value in DEFAULT_CONFIG.items():
-                if key not in config:
-                    config[key] = value
-            return config
-        except json.JSONDecodeError:
-            return DEFAULT_CONFIG
+    if CONFIG_FILE.exists():
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    # 파일이 없으면 기본값으로 생성
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
+    return DEFAULT_CONFIG.copy()
 
 def save_config(config):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=4)
 
 def get_download_path():
-    path = Path(os.environ.get("DOWNLOAD_PATH", str(Path(__file__).parent.parent / "downloads")))
+    env_path = os.environ.get("DOWNLOAD_PATH")
+    if env_path:
+        path = Path(env_path)
+    else:
+        config = get_config()
+        raw_path = config.get("download_path", "./downloads")
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = Path(__file__).parent.parent / path
     path.mkdir(parents=True, exist_ok=True)
     return path

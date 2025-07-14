@@ -30,6 +30,13 @@
   "action_retry": "Retry",
   "action_delete": "Delete",
   "delete_confirm": "Are you sure you want to delete this download?",
+  "confirm_title": "Confirm",
+  "confirm_delete_title": "Delete Download",
+  "confirm_cancel_title": "Cancel Download",
+  "button_confirm": "Confirm",
+  "button_delete": "Delete",
+  "button_cancel_download": "Cancel Download",
+  "button_cancel": "Cancel",
   "cancel_confirm": "Are you sure you want to cancel this download?",
   "download_cancelled": "Download has been cancelled.",
   "cancel_failed": "Failed to cancel download.",
@@ -40,8 +47,6 @@
   "theme_dark": "Dark",
   "theme_dracula": "Dracula",
   "theme_system": "System",
-  "button_cancel": "Cancel",
-  "button_save": "Save",
   "file_name_na": "N/A",
   "password_modal_title": "Enter Password",
   "password_modal_label": "Password",
@@ -65,5 +70,7 @@
   "clipboard_copy_success": "[{link}] copied to clipboard.",
   "clipboard_copy_failed": "Failed to copy to clipboard",
   "loading": "Loading...",
-  "settings_language": "Language"
+  "settings_language": "Language",
+  "button_save": "Save",
+  "use_proxy_label": "Use Proxy"
 }

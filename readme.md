@@ -1,3 +1,11 @@
+<div align="center">
+  <img src="docs/preview/preview.png" alt="OC Proxy Downloader 미리보기" style="max-width: 700px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin-bottom: 1rem;" />
+  <br/>
+  <b>OC Proxy Downloader 미리보기</b>
+</div>
+
+---
+
 ### 가상 환경 생성
 
 python -m venv venv

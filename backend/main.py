@@ -28,6 +28,8 @@ from tkinter import filedialog
 import threading
 from concurrent.futures import ThreadPoolExecutor, Future
 import weakref
+import multiprocessing
+from typing import Optional
 
 # Get the absolute path to the frontend/dist directory
 backend_dir = os.path.dirname(os.path.abspath(__file__))
@@ -37,44 +39,23 @@ frontend_dist_path = os.path.join(project_root, "frontend", "dist")
 # 다운로드 스레드 관리
 class DownloadManager:
     def __init__(self):
-        self.active_downloads = {}  # {download_id: Future}
-        self.executor = ThreadPoolExecutor(max_workers=5)  # 최대 5개 동시 다운로드
-        self._lock = threading.Lock()
-    
-    def start_download(self, download_id: int, func, *args, **kwargs):
-        """다운로드 시작"""
-        with self._lock:
-            if download_id in self.active_downloads:
-                # 이미 실행 중인 다운로드가 있으면 취소
-                self.cancel_download(download_id)
-            
-            future = self.executor.submit(func, *args, **kwargs)
-            self.active_downloads[download_id] = future
-            return future
-    
-    def cancel_download(self, download_id: int):
-        """다운로드 취소"""
-        with self._lock:
-            if download_id in self.active_downloads:
-                future = self.active_downloads[download_id]
-                if not future.done():
-                    future.cancel()
-                del self.active_downloads[download_id]
-    
-    def is_download_active(self, download_id: int) -> bool:
-        """다운로드가 활성 상태인지 확인"""
-        with self._lock:
-            return download_id in self.active_downloads
-    
-    def cleanup_completed(self):
-        """완료된 다운로드 정리"""
-        with self._lock:
-            completed_ids = [
-                download_id for download_id, future in self.active_downloads.items()
-                if future.done()
-            ]
-            for download_id in completed_ids:
-                del self.active_downloads[download_id]
+        self.active_downloads = {}  # {download_id: Process}
+
+    def start_download(self, download_id, func, *args, **kwargs):
+        self.cancel_download(download_id)
+        p = multiprocessing.Process(target=func, args=args, kwargs=kwargs)
+        p.start()
+        self.active_downloads[download_id] = p
+
+    def cancel_download(self, download_id):
+        p = self.active_downloads.get(download_id)
+        if p and p.is_alive():
+            p.terminate()
+        self.active_downloads.pop(download_id, None)
+
+    def is_download_active(self, download_id):
+        p = self.active_downloads.get(download_id)
+        return p and p.is_alive()
 
 # 전역 다운로드 매니저 인스턴스
 download_manager = DownloadManager()
@@ -114,6 +95,17 @@ async def status_broadcaster():
 async def startup_event():
     asyncio.create_task(status_broadcaster())
 
+@app.on_event("startup")
+async def on_startup():
+    # 서버 재시작 시 진행 중이던 다운로드를 모두 paused로 변경
+    db = next(get_db())
+    affected = db.query(DownloadRequest).filter(
+        DownloadRequest.status.in_(["downloading", "proxying"])
+    ).update({"status": "paused"})
+    db.commit()
+    print(f"[LOG] 서버 재시작: {affected}개의 진행 중 다운로드를 paused로 변경")
+
+
 @app.websocket("/ws/status")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
@@ -139,6 +131,7 @@ async def notify_proxy_try(download_id: int, proxy: str):
 class DownloadRequestCreate(BaseModel):
     url: HttpUrl
     password: str = None
+    use_proxy: Optional[bool] = True
 
 def parse_direct_link(url, password=None, proxies=None, req_id=None):
     headers = {
@@ -200,14 +193,57 @@ def parse_direct_link(url, password=None, proxies=None, req_id=None):
         print(f"[LOG] 로컬 direct_link 파싱 예외: {e}")
     return None
 
-def get_or_parse_direct_link(req, proxies=None):
+def get_or_parse_direct_link(req, proxies=None, use_proxy=True):
     if req.direct_link:
         return req.direct_link
-    direct_link = parse_direct_link(req.url, req.password, proxies, req.id)
-    req.direct_link = direct_link
-    return direct_link
+    # 프록시 없이 시도
+    if not use_proxy:
+        return parse_direct_link(req.url, req.password, proxies=None, req_id=req.id)
+    # 프록시 순회 코드 (기존)
+    proxy_list = get_all_proxies()
+    tried = False
+    scraper = cloudscraper.create_scraper()
+    for proxy_addr in proxy_list:
+        if req.id: # Check status only if req_id is provided
+            db_check = next(get_db())
+            try:
+                current_req = db_check.query(DownloadRequest).filter(DownloadRequest.id == req.id).first()
+                if current_req and current_req.status == "paused":
+                    print(f"[LOG] Proxy parsing for {req.id} paused. Exiting proxy loop.")
+                    return None # Exit if paused
+            finally:
+                db_check.close()
 
-def download_1fichier_file(request_id: int, lang: str = "ko"):
+        proxies = {"http": proxy_addr, "https": proxy_addr}
+        try:
+            r = scraper.post(req.url, payload={'dl_no_ssl': 'on', 'dlinline': 'on'}, headers=headers, proxies=proxies, timeout=10, verify=False)
+            print(f"[LOG] 프록시 {proxy_addr} 응답코드: {r.status_code}")
+            print(f"[LOG] 프록시 {proxy_addr} 응답 HTML 일부: {r.text[:1000]}")
+            tried = True
+            if r.status_code == 200:
+                print(f"[LOG] Content-Length from direct link parsing: {r.headers.get("Content-Length")}")
+                html = lxml.html.fromstring(r.content)
+                direct_link_elem = html.xpath('/html/body/div[4]/div[2]/a')
+                if direct_link_elem:
+                    return direct_link_elem[0].get('href')
+        except Exception as e:
+            print(f"[LOG] 프록시 {proxy_addr} 예외: {e}")
+            continue
+    # 프록시 모두 실패 시 로컬로 시도
+    try:
+        r = scraper.post(req.url, payload={'dl_no_ssl': 'on', 'dlinline': 'on'}, headers=headers, timeout=10, verify=False)
+        print(f"[LOG] 로컬 응답코드: {r.status_code}")
+        print(f"[LOG] 로컬 응답 HTML 일부: {r.text[:1000]}")
+        if r.status_code == 200:
+            html = lxml.html.fromstring(r.content)
+            direct_link_elem = html.xpath('/html/body/div[4]/div[2]/a')
+            if direct_link_elem:
+                return direct_link_elem[0].get('href')
+    except Exception as e:
+        print(f"[LOG] 로컬 direct_link 파싱 예외: {e}")
+    return None
+
+def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = True):
     print(f"[LOG] Entering download_1fichier_file for request_id: {request_id}")
     db = next(get_db()) # Get a new session for this background task
     req = None # Initialize req to None
@@ -236,7 +272,7 @@ def download_1fichier_file(request_id: int, lang: str = "ko"):
         notify_status_update(db, req.id, lang)
         print(f"[LOG] DB status updated to proxying for {req.id}")
         print(f"[LOG] Before get_or_parse_direct_link: req.total_size={req.total_size}, req.downloaded_size={req.downloaded_size}")
-        direct_link = get_or_parse_direct_link(req)
+        direct_link = get_or_parse_direct_link(req, use_proxy=use_proxy)
         print(f"[LOG] After get_or_parse_direct_link: direct_link={direct_link}, req.total_size={req.total_size}, req.downloaded_size={req.downloaded_size}")
         print(f"[LOG] Direct link for {req.id}: {direct_link}")
 
@@ -369,7 +405,7 @@ def download_1fichier_file(request_id: int, lang: str = "ko"):
     finally:
         db.close() # Ensure the session is closed
         # 다운로드 완료 후 매니저에서 제거
-        download_manager.cleanup_completed()
+        # download_manager.cleanup_completed() # This line is no longer needed as multiprocessing handles cleanup
 
 
 status_map = {
@@ -399,7 +435,7 @@ def create_download_task(request: DownloadRequestCreate, background_tasks: Backg
     print(f"[LOG] New DownloadRequest created: id={db_req.id}, total_size={db_req.total_size}") # Add this log
     
     # DownloadManager를 사용하여 다운로드 시작
-    download_manager.start_download(db_req.id, download_1fichier_file, db_req.id, lang)
+    download_manager.start_download(db_req.id, download_1fichier_file, db_req.id, lang, request.use_proxy)
     return {"id": db_req.id, "status": db_req.status}
 
 @api_router.get("/history/")
@@ -452,15 +488,16 @@ def get_download_detail(download_id: int, db: Session = Depends(get_db), req: Re
 @api_router.post("/resume/{download_id}")
 def resume_download(download_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), req: Request = None):
     lang = get_lang(req)
+    use_proxy = req.query_params.get("use_proxy", "true").lower() == "true"
     item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
     if not item:
         raise HTTPException(status_code=404, detail=get_message("download_not_found", lang))
     item.status = "downloading" # Change to downloading directly
+    item.use_proxy = use_proxy  # use_proxy 값 저장
     db.commit()
     notify_status_update(db, item.id, lang)
-    
     # DownloadManager를 사용하여 다운로드 시작
-    download_manager.start_download(download_id, download_1fichier_file, download_id, lang)
+    download_manager.start_download(download_id, download_1fichier_file, download_id, lang, use_proxy)
     return {"id": item.id, "status": item.status, "message": get_message("resume_success", lang)}
 
 @api_router.post("/pause/{download_id}")
@@ -611,5 +648,6 @@ async def serve_spa(full_path: str):
     return FileResponse(os.path.join(frontend_dist_path, "index.html"))
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)

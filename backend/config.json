@@ -1,5 +1,5 @@
 {
-  "theme": "dark",
-  "download_path": "/app/backend/downloads",
-  "language": "en"
+    "download_path": "./downloads",
+    "theme": "light",
+    "language": "ko"
 }

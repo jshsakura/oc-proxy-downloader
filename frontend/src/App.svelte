@@ -24,6 +24,7 @@
   import DownloadIcon from "./icons/DownloadIcon.svelte";
   import SettingsIcon from "./icons/SettingsIcon.svelte";
   import { toastMessage, showToast, showToastMsg } from "./lib/toast.js";
+  import ConfirmModal from "./lib/ConfirmModal.svelte";
 
   console.log(
     "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
@@ -57,6 +58,38 @@
   let selectedDownload = {};
   let downloadPath = ""; // Declare downloadPath here
   let prevLang = null;
+  let useProxy = true;
+
+  let showConfirm = false;
+  let confirmMessage = "";
+  let confirmAction = null;
+  let confirmTitle = null;
+  let confirmIcon = null;
+  let confirmButtonText = null;
+  let cancelButtonText = null;
+
+  let isDark =
+    typeof document !== "undefined" && document.body.classList.contains("dark");
+
+  function openConfirm({
+    message,
+    onConfirm,
+    title = null,
+    icon = null,
+    confirmText = null,
+    cancelText = null,
+  }) {
+    confirmMessage = message;
+    confirmAction = () => {
+      onConfirm && onConfirm();
+      showConfirm = false;
+    };
+    confirmTitle = title;
+    confirmIcon = icon;
+    confirmButtonText = confirmText;
+    cancelButtonText = cancelText;
+    showConfirm = true;
+  }
 
   const themeIcons = {
     light: "☀️",
@@ -171,7 +204,7 @@
       const response = await fetch("/api/download/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, password }),
+        body: JSON.stringify({ url, password, use_proxy: useProxy }),
       });
       if (response.ok) {
         const newDownload = await response.json();
@@ -200,25 +233,6 @@
     }
   }
 
-  async function cancelDownload(downloadId) {
-    if (!confirm($t("cancel_confirm"))) return;
-
-    try {
-      const response = await fetch(`/api/downloads/cancel/${downloadId}`, {
-        method: "POST",
-      });
-      if (response.ok) {
-        showToastMsg($t("download_cancelled"));
-        await fetchActiveDownloads();
-      } else {
-        showToastMsg($t("cancel_failed"));
-      }
-    } catch (error) {
-      console.error("Error cancelling download:", error);
-      showToastMsg($t("cancel_failed"));
-    }
-  }
-
   async function callApi(endpoint, downloadId = null, newStatus = null) {
     try {
       const response = await fetch(endpoint, { method: "POST" });
@@ -238,9 +252,17 @@
   }
 
   async function deleteDownload(id) {
-    if (!confirm($t("delete_confirm"))) return;
-    await callApi(`/api/delete/${id}`);
-    fetchDownloads(currentPage);
+    openConfirm({
+      message: $t("delete_confirm"),
+      onConfirm: async () => {
+        await callApi(`/api/delete/${id}`);
+        fetchDownloads(currentPage);
+      },
+      title: $t("confirm_delete_title"),
+      icon: '<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>',
+      confirmText: $t("button_delete"),
+      cancelText: $t("button_cancel"),
+    });
   }
 
   function formatBytes(bytes, decimals = 2) {
@@ -435,6 +457,7 @@
               <th>{$t("table_header_progress")}</th>
               <th class="center-align">{$t("table_header_requested_date")}</th>
               <th class="center-align">{$t("table_header_requested_time")}</th>
+              <th>{$t("use_proxy_label")}</th>
               <th class="actions-header">{$t("table_header_actions")}</th>
             </tr>
           </thead>
@@ -492,6 +515,74 @@
                   <td class="center-align">
                     {formatTime(download.requested_at)}
                   </td>
+                  <td class="proxy-toggle-cell">
+                    <label class="custom-checkbox-label">
+                      <input
+                        type="checkbox"
+                        class="custom-checkbox"
+                        bind:checked={download.use_proxy}
+                        disabled={download.status.toLowerCase() !== "paused"}
+                        on:change={() => {
+                          // 상태 변경 시 배열 갱신
+                          downloads = downloads.map((d) =>
+                            d.id === download.id
+                              ? { ...d, use_proxy: download.use_proxy }
+                              : d
+                          );
+                        }}
+                      />
+                      <span class="custom-checkbox-icon">
+                        {#if download.use_proxy}
+                          {#if isDark}
+                            <svg
+                              width="18"
+                              height="18"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="#81c784"
+                              stroke-width="3"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            >
+                              <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                          {:else}
+                            <svg
+                              width="18"
+                              height="18"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="#388e3c"
+                              stroke-width="3"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            >
+                              <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                          {/if}
+                        {:else}
+                          <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="none"
+                            stroke-width="0"
+                          >
+                            <rect
+                              x="4"
+                              y="4"
+                              width="16"
+                              height="16"
+                              rx="4"
+                              fill="none"
+                              stroke="none"
+                            />
+                          </svg>
+                        {/if}
+                      </span>
+                    </label>
+                  </td>
                   <td class="actions">
                     {#if download.status
                       .toLowerCase()
@@ -510,15 +601,6 @@
                       >
                         <PauseIcon />
                       </button>
-                      {#if activeDownloads.includes(download.id)}
-                        <button
-                          class="button-icon danger"
-                          title="강제 취소"
-                          on:click={() => cancelDownload(download.id)}
-                        >
-                          ✕
-                        </button>
-                      {/if}
                     {:else if (download.status
                       .toLowerCase()
                       .includes("pending") || download.status
@@ -531,9 +613,9 @@
                         title={$t("action_resume")}
                         on:click={() =>
                           callApi(
-                            `/api/resume/${download.id}`,
+                            `/api/resume/${download.id}?use_proxy=${download.use_proxy}`,
                             download.id,
-                            "pending"
+                            "downloading"
                           )}
                       >
                         <ResumeIcon />
@@ -543,7 +625,12 @@
                       <button
                         class="button-icon"
                         title={$t("action_retry")}
-                        on:click={() => callApi(`/api/retry/${download.id}`)}
+                        on:click={() =>
+                          callApi(
+                            `/api/retry/${download.id}`,
+                            download.id,
+                            "downloading"
+                          )}
                       >
                         <RetryIcon />
                       </button>
@@ -564,7 +651,7 @@
                       <InfoIcon />
                     </button>
                     <button
-                      class="button-icon danger"
+                      class="button-icon"
                       title={$t("action_delete")}
                       on:click={() => deleteDownload(download.id)}
                     >
@@ -624,4 +711,88 @@
       on:close={() => (showDetailModal = false)}
     />
   {/if}
+
+  <ConfirmModal
+    bind:showModal={showConfirm}
+    message={confirmMessage}
+    title={confirmTitle}
+    icon={confirmIcon}
+    confirmText={confirmButtonText}
+    cancelText={cancelButtonText}
+    on:confirm={confirmAction}
+  />
 </main>
+
+<style>
+  .button-icon.danger,
+  .button.danger {
+    color: #fff;
+    background: #e53935;
+    border: none;
+    transition: background 0.2s;
+  }
+  .button-icon.danger:hover,
+  .button.danger:hover {
+    background: #b71c1c;
+  }
+  .proxy-toggle-cell {
+    text-align: center;
+  }
+  .custom-checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    justify-content: center;
+  }
+  .custom-checkbox {
+    display: none;
+  }
+  .custom-checkbox-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background: var(--card-background, #f5f5f5);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    border: 2px solid #bdbdbd;
+    transition:
+      background 0.2s,
+      border 0.2s,
+      box-shadow 0.2s;
+    vertical-align: middle;
+    position: relative;
+    top: 2px;
+  }
+  .custom-checkbox-label:hover .custom-checkbox-icon {
+    box-shadow: 0 0 0 2px #90caf9;
+    border-color: #42a5f5;
+  }
+  :global(body.dark) .custom-checkbox-icon {
+    background: #23272f;
+    border-color: #555;
+  }
+  .custom-checkbox:checked + .custom-checkbox-icon {
+    background: #81c784;
+    border-color: #388e3c;
+  }
+  :global(body.dark) .custom-checkbox:checked + .custom-checkbox-icon {
+    background: #388e3c;
+    border-color: #81c784;
+  }
+  .custom-checkbox:disabled + .custom-checkbox-icon {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: #e0e0e0;
+    border-color: #bdbdbd;
+  }
+  :global(body.dark) .custom-checkbox:disabled + .custom-checkbox-icon {
+    background: #333;
+    border-color: #444;
+  }
+  table th {
+    text-align: center;
+  }
+</style>
