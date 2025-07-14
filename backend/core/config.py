@@ -31,4 +31,6 @@ def save_config(config):
         json.dump(config, f, indent=4)
 
 def get_download_path():
-    return Path(os.environ.get("DOWNLOAD_PATH", str(Path(__file__).parent.parent / "downloads")))
+    path = Path(os.environ.get("DOWNLOAD_PATH", str(Path(__file__).parent.parent / "downloads")))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
