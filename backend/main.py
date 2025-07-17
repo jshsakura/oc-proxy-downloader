@@ -134,114 +134,104 @@ class DownloadRequestCreate(BaseModel):
     use_proxy: Optional[bool] = True
 
 def parse_direct_link(url, password=None, proxies=None, req_id=None):
+    """1fichier에서 직접 다운로드 링크를 파싱하는 함수 (개선된 버전)"""
+    from core.parser import fichier_parser
+    
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.54',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'cross-site',
         'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
         'Referer': str(url),
     }
+    
     payload = {'dl_no_ssl': 'on', 'dlinline': 'on'}
     if password:
         payload['pass'] = password
+    
     # 프록시 리스트 순차 시도
     proxy_list = get_all_proxies()
-    tried = False
     scraper = cloudscraper.create_scraper()
+    
     for proxy_addr in proxy_list:
-        if req_id: # Check status only if req_id is provided
+        if req_id:  # 요청 ID가 있으면 상태 확인
             db_check = next(get_db())
             try:
                 current_req = db_check.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
                 if current_req and current_req.status == "paused":
-                    print(f"[LOG] Proxy parsing for {req_id} paused. Exiting proxy loop.")
-                    return None # Exit if paused
+                    print(f"[LOG] 다운로드 {req_id} 일시정지됨. 프록시 파싱 중단.")
+                    return None
             finally:
                 db_check.close()
 
-        proxies = {"http": proxy_addr, "https": proxy_addr}
+        proxy_config = {"http": proxy_addr, "https": proxy_addr}
         try:
-            r = scraper.post(url, payload, headers=headers, proxies=proxies, timeout=10, verify=False)
+            print(f"[LOG] 프록시 {proxy_addr}로 1fichier 파싱 시도...")
+            r = scraper.post(url, data=payload, headers=headers, proxies=proxy_config, timeout=15, verify=False)
             print(f"[LOG] 프록시 {proxy_addr} 응답코드: {r.status_code}")
-            print(f"[LOG] 프록시 {proxy_addr} 응답 HTML 일부: {r.text[:1000]}")
-            tried = True
+            
             if r.status_code == 200:
-                print(f"[LOG] Content-Length from direct link parsing: {r.headers.get("Content-Length")}")
-                html = lxml.html.fromstring(r.content)
-                direct_link_elem = html.xpath('/html/body/div[4]/div[2]/a')
-                if direct_link_elem:
-                    return direct_link_elem[0].get('href')
+                print(f"[LOG] HTML 응답 길이: {len(r.text)} 문자")
+                print(f"[LOG] HTML 응답 일부: {r.text[:500]}...")
+                
+                # 새로운 파서 사용
+                direct_link = fichier_parser.parse_download_link(r.text, str(url))
+                if direct_link:
+                    print(f"[LOG] ✅ 다운로드 링크 발견: {direct_link}")
+                    
+                    # 파일 정보도 추출
+                    file_info = fichier_parser.extract_file_info(r.text)
+                    if file_info.get('name'):
+                        print(f"[LOG] 파일명: {file_info['name']}")
+                    if file_info.get('size'):
+                        print(f"[LOG] 파일 크기: {file_info['size']}")
+                    
+                    return direct_link
+                else:
+                    print(f"[LOG] ❌ 프록시 {proxy_addr}에서 다운로드 링크를 찾을 수 없음")
+            else:
+                print(f"[LOG] ❌ 프록시 {proxy_addr} HTTP 오류: {r.status_code}")
+                
         except Exception as e:
-            print(f"[LOG] 프록시 {proxy_addr} 예외: {e}")
+            print(f"[LOG] ❌ 프록시 {proxy_addr} 예외 발생: {e}")
             continue
-    # 프록시 모두 실패 시 로컬로 시도
+    
+    # 모든 프록시 실패 시 로컬로 시도
+    print(f"[LOG] 모든 프록시 실패. 로컬 연결로 시도...")
     try:
-        r = scraper.post(url, payload, headers=headers, timeout=10, verify=False)
-        print(f"[LOG] 로컬 응답코드: {r.status_code}")
-        print(f"[LOG] 로컬 응답 HTML 일부: {r.text[:1000]}")
+        r = scraper.post(url, data=payload, headers=headers, timeout=15, verify=False)
+        print(f"[LOG] 로컬 연결 응답코드: {r.status_code}")
+        
         if r.status_code == 200:
-            html = lxml.html.fromstring(r.content)
-            direct_link_elem = html.xpath('/html/body/div[4]/div[2]/a')
-            if direct_link_elem:
-                return direct_link_elem[0].get('href')
+            print(f"[LOG] 로컬 HTML 응답 길이: {len(r.text)} 문자")
+            direct_link = fichier_parser.parse_download_link(r.text, str(url))
+            if direct_link:
+                print(f"[LOG] ✅ 로컬 연결로 다운로드 링크 발견: {direct_link}")
+                return direct_link
+            else:
+                print(f"[LOG] ❌ 로컬 연결에서도 다운로드 링크를 찾을 수 없음")
+        
     except Exception as e:
-        print(f"[LOG] 로컬 direct_link 파싱 예외: {e}")
+        print(f"[LOG] ❌ 로컬 연결 예외 발생: {e}")
+    
+    print(f"[LOG] ❌ 모든 방법으로 다운로드 링크 파싱 실패")
     return None
 
 def get_or_parse_direct_link(req, proxies=None, use_proxy=True):
+    """다운로드 요청에서 직접 링크를 가져오거나 파싱하는 함수 (개선된 버전)"""
     if req.direct_link:
+        print(f"[LOG] 기존 direct_link 사용: {req.direct_link}")
         return req.direct_link
-    # 프록시 없이 시도
-    if not use_proxy:
-        return parse_direct_link(req.url, req.password, proxies=None, req_id=req.id)
-    # 프록시 순회 코드 (기존)
-    proxy_list = get_all_proxies()
-    tried = False
-    scraper = cloudscraper.create_scraper()
-    for proxy_addr in proxy_list:
-        if req.id: # Check status only if req_id is provided
-            db_check = next(get_db())
-            try:
-                current_req = db_check.query(DownloadRequest).filter(DownloadRequest.id == req.id).first()
-                if current_req and current_req.status == "paused":
-                    print(f"[LOG] Proxy parsing for {req.id} paused. Exiting proxy loop.")
-                    return None # Exit if paused
-            finally:
-                db_check.close()
-
-        proxies = {"http": proxy_addr, "https": proxy_addr}
-        try:
-            r = scraper.post(req.url, payload={'dl_no_ssl': 'on', 'dlinline': 'on'}, headers=headers, proxies=proxies, timeout=10, verify=False)
-            print(f"[LOG] 프록시 {proxy_addr} 응답코드: {r.status_code}")
-            print(f"[LOG] 프록시 {proxy_addr} 응답 HTML 일부: {r.text[:1000]}")
-            tried = True
-            if r.status_code == 200:
-                print(f"[LOG] Content-Length from direct link parsing: {r.headers.get("Content-Length")}")
-                html = lxml.html.fromstring(r.content)
-                direct_link_elem = html.xpath('/html/body/div[4]/div[2]/a')
-                if direct_link_elem:
-                    return direct_link_elem[0].get('href')
-        except Exception as e:
-            print(f"[LOG] 프록시 {proxy_addr} 예외: {e}")
-            continue
-    # 프록시 모두 실패 시 로컬로 시도
-    try:
-        r = scraper.post(req.url, payload={'dl_no_ssl': 'on', 'dlinline': 'on'}, headers=headers, timeout=10, verify=False)
-        print(f"[LOG] 로컬 응답코드: {r.status_code}")
-        print(f"[LOG] 로컬 응답 HTML 일부: {r.text[:1000]}")
-        if r.status_code == 200:
-            html = lxml.html.fromstring(r.content)
-            direct_link_elem = html.xpath('/html/body/div[4]/div[2]/a')
-            if direct_link_elem:
-                return direct_link_elem[0].get('href')
-    except Exception as e:
-        print(f"[LOG] 로컬 direct_link 파싱 예외: {e}")
-    return None
+    
+    # 새로운 파서 사용
+    return parse_direct_link(req.url, req.password, proxies=proxies, req_id=req.id)
 
 def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = True):
     print(f"[LOG] Entering download_1fichier_file for request_id: {request_id}")
@@ -277,7 +267,11 @@ def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = 
         print(f"[LOG] Direct link for {req.id}: {direct_link}")
 
         if not direct_link:
-            raise Exception("Direct link not found")
+            raise Exception("1fichier에서 다운로드 링크를 찾을 수 없습니다. 사이트 구조가 변경되었거나 프록시 문제일 수 있습니다.")
+        
+        # 다운로드 링크를 데이터베이스에 저장
+        req.direct_link = direct_link
+        db.commit()
 
         req.status = "downloading" # Set status to downloading after direct link is found
         db.commit()
@@ -636,6 +630,63 @@ def cancel_download(download_id: int, db: Session = Depends(get_db), req: Reques
     notify_status_update(db, item.id, lang)
     
     return {"id": item.id, "status": item.status, "message": "Download cancelled"}
+
+@api_router.post("/debug/parse")
+def debug_parse_link(data: dict = Body(...)):
+    """1fichier 링크 파싱 디버깅 엔드포인트"""
+    from core.parser import fichier_parser
+    
+    url = data.get("url")
+    password = data.get("password")
+    use_proxy = data.get("use_proxy", True)
+    
+    if not url:
+        raise HTTPException(status_code=400, detail="URL이 필요합니다")
+    
+    try:
+        print(f"[DEBUG] 파싱 테스트 시작: {url}")
+        
+        # 파싱 시도
+        direct_link = parse_direct_link(url, password, req_id=None)
+        
+        result = {
+            "url": url,
+            "success": direct_link is not None,
+            "direct_link": direct_link,
+            "message": "파싱 성공" if direct_link else "파싱 실패 - 다운로드 링크를 찾을 수 없습니다"
+        }
+        
+        # 성공한 경우 파일 정보도 추출 시도
+        if direct_link:
+            try:
+                # HTML을 다시 가져와서 파일 정보 추출
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                }
+                payload = {'dl_no_ssl': 'on', 'dlinline': 'on'}
+                if password:
+                    payload['pass'] = password
+                
+                scraper = cloudscraper.create_scraper()
+                r = scraper.post(url, data=payload, headers=headers, timeout=15, verify=False)
+                
+                if r.status_code == 200:
+                    file_info = fichier_parser.extract_file_info(r.text)
+                    result["file_info"] = file_info
+                    
+            except Exception as e:
+                result["file_info_error"] = str(e)
+        
+        return result
+        
+    except Exception as e:
+        print(f"[DEBUG] 파싱 테스트 오류: {e}")
+        return {
+            "url": url,
+            "success": False,
+            "error": str(e),
+            "message": f"파싱 중 오류 발생: {e}"
+        }
 
 app.include_router(api_router)
 
