@@ -72,5 +72,8 @@
   "loading": "Loading...",
   "settings_language": "Language",
   "button_save": "Save",
-  "use_proxy_label": "Use Proxy"
+  "use_proxy_label": "Use Proxy",
+  "no_downloads_message": "No downloads in progress.",
+  "adding_download": "Adding download...",
+  "download_added_successfully": "Download added successfully."
 }

@@ -48,6 +48,7 @@
   let currentPage = 1;
   let totalPages = 1;
   let isDownloadsLoading = false;
+  let isAddingDownload = false; // 다운로드 추가 중 로딩 상태
   let activeDownloads = []; // 활성 다운로드 목록
 
   let showSettingsModal = false;
@@ -168,6 +169,11 @@
           downloads = [updatedDownload, ...downloads];
         }
 
+        // 실패 상태인 경우 토스트 메시지 표시
+        if (updatedDownload.status === "failed" && updatedDownload.error) {
+          showToastMsg(`다운로드 실패: ${updatedDownload.error}`);
+        }
+
         // 상태 업데이트 후 활성 다운로드 목록 갱신
         fetchActiveDownloads();
       }
@@ -182,16 +188,17 @@
   async function fetchDownloads(page = 1) {
     isDownloadsLoading = true;
     try {
-      const response = await fetch(`/api/history/?page=${page}&size=10`);
+      const response = await fetch(`/api/history/`);
       if (response.ok) {
         const data = await response.json();
-        downloads = data.items;
-        currentPage = data.page;
-        totalPages = data.total_pages;
+        downloads = data; // 백엔드에서 배열을 직접 반환하므로 data.items가 아님
+        currentPage = 1;
+        totalPages = 1;
       } else {
         downloads = [];
       }
     } catch (error) {
+      console.error("Error fetching downloads:", error);
       downloads = [];
     } finally {
       isDownloadsLoading = false;
@@ -200,6 +207,7 @@
 
   async function addDownload() {
     if (!url) return;
+    isAddingDownload = true;
     try {
       const response = await fetch("/api/download/", {
         method: "POST",
@@ -211,13 +219,17 @@
         url = "";
         password = ""; // Clear password after successful download
         hasPassword = false; // Reset password status
-        // fetchDownloads(); // No longer needed for immediate UI update
+        showToastMsg($t("download_added_successfully"));
+        fetchDownloads(currentPage); // 다운로드 추가 후 목록 갱신
       } else {
         const errorData = await response.json();
-        alert(`Failed to add download: ${errorData.detail}`);
+        showToastMsg(`다운로드 추가 실패: ${errorData.detail}`);
       }
     } catch (error) {
       console.error("Error adding download:", error);
+      showToastMsg("다운로드 추가 중 오류가 발생했습니다.");
+    } finally {
+      isAddingDownload = false;
     }
   }
 
@@ -255,8 +267,21 @@
     openConfirm({
       message: $t("delete_confirm"),
       onConfirm: async () => {
-        await callApi(`/api/delete/${id}`);
-        fetchDownloads(currentPage);
+        try {
+          const response = await fetch(`/api/delete/${id}`, {
+            method: "DELETE",
+          });
+          if (response.ok) {
+            showToastMsg("다운로드가 삭제되었습니다.");
+            fetchDownloads(currentPage);
+          } else {
+            const errorData = await response.json();
+            showToastMsg(`삭제 실패: ${errorData.detail}`);
+          }
+        } catch (error) {
+          console.error("Error deleting download:", error);
+          showToastMsg("삭제 중 오류가 발생했습니다.");
+        }
       },
       title: $t("confirm_delete_title"),
       icon: '<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>',
@@ -439,9 +464,18 @@
             {/if}
           </button>
         </div>
-        <button type="submit" class="button button-primary add-download-button">
-          <DownloadIcon />
-          {$t("add_download")}
+        <button
+          type="submit"
+          class="button button-primary add-download-button"
+          disabled={isAddingDownload}
+        >
+          {#if isAddingDownload}
+            <div class="spinner"></div>
+            {$t("adding_download")}
+          {:else}
+            <DownloadIcon />
+            {$t("add_download")}
+          {/if}
         </button>
       </form>
     </div>
@@ -464,7 +498,7 @@
           <tbody>
             {#if isDownloadsLoading}
               <tr>
-                <td colspan="7">
+                <td colspan="8">
                   <div class="table-loading-container">
                     <div class="modal-spinner"></div>
                     <div class="modal-loading-text">{$t("loading")}</div>
@@ -473,7 +507,7 @@
               </tr>
             {:else if downloads.length === 0}
               <tr>
-                <td colspan="7" class="no-downloads-message">
+                <td colspan="8" class="no-downloads-message">
                   {$t("no_downloads_message")}
                 </td>
               </tr>

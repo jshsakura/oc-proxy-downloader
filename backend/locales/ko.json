@@ -70,5 +70,11 @@
   "theme_system": "시스템",
   "settings_title": "설정",
   "settings_download_path": "다운로드 경로",
-  "use_proxy_label": "프록시 사용"
+  "use_proxy_label": "프록시 사용",
+  "adding_download": "다운로드 추가 중...",
+  "download_added_successfully": "다운로드가 성공적으로 추가되었습니다.",
+  "cancel_confirm": "정말로 이 다운로드를 취소하시겠습니까?",
+  "download_cancelled": "다운로드가 취소되었습니다.",
+  "cancel_failed": "다운로드 취소에 실패했습니다.",
+  "settings_theme": "테마"
 }

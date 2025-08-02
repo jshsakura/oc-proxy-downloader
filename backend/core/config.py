@@ -12,8 +12,15 @@ DEFAULT_CONFIG = {
 
 def get_config():
     if CONFIG_FILE.exists():
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            print(f"[ERROR] config.json is corrupted or empty. Using default config.")
+            # 파일이 손상되었거나 비어있으면 기본값으로 덮어쓰기
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
+            return DEFAULT_CONFIG.copy()
     # 파일이 없으면 기본값으로 생성
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
