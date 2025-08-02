@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, HttpUrl
-from core.models import Base, DownloadRequest, StatusEnum
+from core.models import Base, DownloadRequest, StatusEnum, ProxyStatus
 from core.db import engine, get_db
 from core.common import get_all_proxies, convert_size
 import requests
@@ -153,6 +153,87 @@ class DownloadRequestCreate(BaseModel):
     password: Optional[str] = None
     use_proxy: Optional[bool] = True
 
+def get_unused_proxies(db: Session):
+    """사용하지 않은 프록시 목록을 반환 (성공한 프록시 우선)"""
+    # 최근 24시간 내에 사용된 프록시들
+    cutoff_time = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+    
+    used_proxies = db.query(ProxyStatus).filter(
+        ProxyStatus.last_used_at > cutoff_time
+    ).all()
+    
+    used_proxy_addresses = {f"{p.ip}:{p.port}" for p in used_proxies}
+    
+    # 전체 프록시 목록에서 사용된 것들 제외
+    all_proxies = get_all_proxies()
+    unused_proxies = [p for p in all_proxies if p not in used_proxy_addresses]
+    
+    # 과거에 성공했던 프록시들을 우선적으로 배치
+    successful_proxies = db.query(ProxyStatus).filter(
+        ProxyStatus.last_status == 'success',
+        ProxyStatus.last_used_at <= cutoff_time  # 24시간 지난 성공 프록시들
+    ).order_by(desc(ProxyStatus.last_used_at)).all()
+    
+    priority_proxies = [f"{p.ip}:{p.port}" for p in successful_proxies if f"{p.ip}:{p.port}" in unused_proxies]
+    other_proxies = [p for p in unused_proxies if p not in priority_proxies]
+    
+    # 성공했던 프록시를 앞에 배치
+    final_proxies = priority_proxies + other_proxies
+    
+    print(f"[LOG] 전체 프록시: {len(all_proxies)}개, 사용된 프록시: {len(used_proxy_addresses)}개")
+    print(f"[LOG] 미사용 프록시: {len(unused_proxies)}개 (우선순위: {len(priority_proxies)}개)")
+    
+    return final_proxies
+
+def mark_proxy_used(db: Session, proxy_addr: str, success: bool):
+    """프록시 사용 기록을 DB에 저장"""
+    try:
+        ip, port = proxy_addr.split(':')
+        port = int(port)
+        
+        # 기존 레코드 찾기 또는 새로 생성
+        proxy_status = db.query(ProxyStatus).filter(
+            ProxyStatus.ip == ip,
+            ProxyStatus.port == port
+        ).first()
+        
+        if not proxy_status:
+            proxy_status = ProxyStatus(ip=ip, port=port)
+            db.add(proxy_status)
+        
+        proxy_status.last_used_at = datetime.datetime.utcnow()
+        proxy_status.last_status = 'success' if success else 'fail'
+        
+        if not success:
+            proxy_status.last_failed_at = datetime.datetime.utcnow()
+        
+        db.commit()
+        print(f"[LOG] 프록시 {proxy_addr} 사용 기록 저장: {'성공' if success else '실패'}")
+        
+    except Exception as e:
+        print(f"[LOG] 프록시 사용 기록 저장 실패: {e}")
+        db.rollback()
+
+def reset_proxy_usage(db: Session):
+    """모든 프록시 사용 기록 초기화 (모든 프록시를 다 써버렸을 때)"""
+    try:
+        db.query(ProxyStatus).delete()
+        db.commit()
+        print(f"[LOG] 모든 프록시 사용 기록 초기화 완료")
+    except Exception as e:
+        print(f"[LOG] 프록시 사용 기록 초기화 실패: {e}")
+        db.rollback()
+
+def test_proxy(proxy_addr, timeout=5):
+    """프록시가 작동하는지 빠르게 테스트"""
+    try:
+        proxy_config = {"http": proxy_addr, "https": proxy_addr}
+        # 간단한 HTTP 요청으로 프록시 테스트
+        response = requests.get("http://httpbin.org/ip", proxies=proxy_config, timeout=timeout)
+        return response.status_code == 200
+    except:
+        return False
+
 def parse_direct_link(url, password=None, proxies=None, req_id=None):
     """1fichier에서 직접 다운로드 링크를 파싱하는 함수 (개선된 버전)"""
     from core.parser import fichier_parser
@@ -176,57 +257,11 @@ def parse_direct_link(url, password=None, proxies=None, req_id=None):
     if password:
         payload['pass'] = password
     
-    # 프록시 리스트 순차 시도
-    proxy_list = get_all_proxies()
+    # 먼저 로컬 연결로 시도 (가장 빠르고 안정적)
+    print(f"[LOG] 로컬 연결로 1fichier 파싱 시도...")
     scraper = cloudscraper.create_scraper()
-    
-    for proxy_addr in proxy_list:
-        if req_id:  # 요청 ID가 있으면 상태 확인
-            db_check = next(get_db())
-            try:
-                current_req = db_check.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
-                if current_req and current_req.status == "paused":
-                    print(f"[LOG] 다운로드 {req_id} 일시정지됨. 프록시 파싱 중단.")
-                    return None
-            finally:
-                db_check.close()
-
-        proxy_config = {"http": proxy_addr, "https": proxy_addr}
-        try:
-            print(f"[LOG] 프록시 {proxy_addr}로 1fichier 파싱 시도...")
-            r = scraper.post(url, data=payload, headers=headers, proxies=proxy_config, timeout=15, verify=False)
-            print(f"[LOG] 프록시 {proxy_addr} 응답코드: {r.status_code}")
-            
-            if r.status_code == 200:
-                print(f"[LOG] HTML 응답 길이: {len(r.text)} 문자")
-                print(f"[LOG] HTML 응답 일부: {r.text[:500]}...")
-                
-                # 새로운 파서 사용
-                direct_link = fichier_parser.parse_download_link(r.text, str(url))
-                if direct_link:
-                    print(f"[LOG] ✅ 다운로드 링크 발견: {direct_link}")
-                    
-                    # 파일 정보도 추출
-                    file_info = fichier_parser.extract_file_info(r.text)
-                    if file_info.get('name'):
-                        print(f"[LOG] 파일명: {file_info['name']}")
-                    if file_info.get('size'):
-                        print(f"[LOG] 파일 크기: {file_info['size']}")
-                    
-                    return direct_link
-                else:
-                    print(f"[LOG] ❌ 프록시 {proxy_addr}에서 다운로드 링크를 찾을 수 없음")
-            else:
-                print(f"[LOG] ❌ 프록시 {proxy_addr} HTTP 오류: {r.status_code}")
-                
-        except Exception as e:
-            print(f"[LOG] ❌ 프록시 {proxy_addr} 예외 발생: {e}")
-            continue
-    
-    # 모든 프록시 실패 시 로컬로 시도
-    print(f"[LOG] 모든 프록시 실패. 로컬 연결로 시도...")
     try:
-        r = scraper.post(url, data=payload, headers=headers, timeout=15, verify=False)
+        r = scraper.post(url, data=payload, headers=headers, timeout=10, verify=False)
         print(f"[LOG] 로컬 연결 응답코드: {r.status_code}")
         
         if r.status_code == 200:
@@ -234,12 +269,105 @@ def parse_direct_link(url, password=None, proxies=None, req_id=None):
             direct_link = fichier_parser.parse_download_link(r.text, str(url))
             if direct_link:
                 print(f"[LOG] ✅ 로컬 연결로 다운로드 링크 발견: {direct_link}")
+                
+                # 파일 정보도 추출
+                file_info = fichier_parser.extract_file_info(r.text)
+                if file_info.get('name'):
+                    print(f"[LOG] 파일명: {file_info['name']}")
+                if file_info.get('size'):
+                    print(f"[LOG] 파일 크기: {file_info['size']}")
+                
                 return direct_link
             else:
-                print(f"[LOG] ❌ 로컬 연결에서도 다운로드 링크를 찾을 수 없음")
+                print(f"[LOG] ❌ 로컬 연결에서 다운로드 링크를 찾을 수 없음")
+        else:
+            print(f"[LOG] ❌ 로컬 연결 HTTP 오류: {r.status_code}")
         
     except Exception as e:
         print(f"[LOG] ❌ 로컬 연결 예외 발생: {e}")
+    
+    # 로컬 연결 실패 시에만 프록시 시도
+    print(f"[LOG] 로컬 연결 실패. 프록시로 시도...")
+    
+    # DB 세션 생성 (프록시 추적용)
+    db_session = next(get_db())
+    
+    try:
+        # 사용하지 않은 프록시 목록 가져오기
+        unused_proxies = get_unused_proxies(db_session)
+        
+        if not unused_proxies:
+            print(f"[LOG] 사용 가능한 프록시가 없음. 프록시 사용 기록 초기화...")
+            reset_proxy_usage(db_session)
+            unused_proxies = get_all_proxies()
+        
+        # 프록시 개수 제한 (최대 5개만 시도)
+        max_proxies = 5
+        tested_proxies = 0
+        
+        for proxy_addr in unused_proxies:
+            if tested_proxies >= max_proxies:
+                print(f"[LOG] 최대 프록시 시도 횟수({max_proxies})에 도달. 중단.")
+                break
+                
+            if req_id:  # 요청 ID가 있으면 상태 확인
+                db_check = next(get_db())
+                try:
+                    current_req = db_check.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
+                    if current_req and current_req.status == "paused":
+                        print(f"[LOG] 다운로드 {req_id} 일시정지됨. 프록시 파싱 중단.")
+                        return None
+                finally:
+                    db_check.close()
+
+            # 프록시 빠른 테스트
+            print(f"[LOG] 프록시 {proxy_addr} 연결 테스트...")
+            if not test_proxy(proxy_addr, timeout=3):
+                print(f"[LOG] ❌ 프록시 {proxy_addr} 연결 실패. 건너뜀.")
+                mark_proxy_used(db_session, proxy_addr, False)  # 실패 기록
+                continue
+            
+            tested_proxies += 1
+            proxy_config = {"http": proxy_addr, "https": proxy_addr}
+            success = False
+            
+            try:
+                print(f"[LOG] 프록시 {proxy_addr}로 1fichier 파싱 시도...")
+                r = scraper.post(url, data=payload, headers=headers, proxies=proxy_config, timeout=8, verify=False)
+                print(f"[LOG] 프록시 {proxy_addr} 응답코드: {r.status_code}")
+                
+                if r.status_code == 200:
+                    print(f"[LOG] HTML 응답 길이: {len(r.text)} 문자")
+                    
+                    # 새로운 파서 사용
+                    direct_link = fichier_parser.parse_download_link(r.text, str(url))
+                    if direct_link:
+                        print(f"[LOG] ✅ 프록시 {proxy_addr}로 다운로드 링크 발견: {direct_link}")
+                        
+                        # 파일 정보도 추출
+                        file_info = fichier_parser.extract_file_info(r.text)
+                        if file_info.get('name'):
+                            print(f"[LOG] 파일명: {file_info['name']}")
+                        if file_info.get('size'):
+                            print(f"[LOG] 파일 크기: {file_info['size']}")
+                        
+                        success = True
+                        mark_proxy_used(db_session, proxy_addr, True)  # 성공 기록
+                        return direct_link
+                    else:
+                        print(f"[LOG] ❌ 프록시 {proxy_addr}에서 다운로드 링크를 찾을 수 없음")
+                else:
+                    print(f"[LOG] ❌ 프록시 {proxy_addr} HTTP 오류: {r.status_code}")
+                    
+            except Exception as e:
+                print(f"[LOG] ❌ 프록시 {proxy_addr} 예외 발생: {e}")
+            
+            # 성공하지 못한 경우 실패 기록
+            if not success:
+                mark_proxy_used(db_session, proxy_addr, False)
+    
+    finally:
+        db_session.close()
     
     print(f"[LOG] ❌ 모든 방법으로 다운로드 링크 파싱 실패")
     return None
@@ -564,9 +692,62 @@ def cancel_download(download_id: int, req: Request, db: Session = Depends(get_db
     
     return {"id": item.id, "status": item.status, "message": "Download cancelled"}
 
+@api_router.get("/proxy-status")
+def get_proxy_status(req: Request, db: Session = Depends(get_db)):
+    """프록시 사용 현황 조회"""
+    try:
+        # 최근 24시간 내 사용된 프록시들
+        cutoff_time = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+        
+        used_proxies = db.query(ProxyStatus).filter(
+            ProxyStatus.last_used_at > cutoff_time
+        ).order_by(desc(ProxyStatus.last_used_at)).all()
+        
+        # 전체 프록시 개수
+        all_proxies = get_all_proxies()
+        total_proxies = len(all_proxies)
+        used_count = len(used_proxies)
+        available_count = total_proxies - used_count
+        
+        # 성공/실패 통계
+        success_count = len([p for p in used_proxies if p.last_status == 'success'])
+        fail_count = len([p for p in used_proxies if p.last_status == 'fail'])
+        
+        proxy_list = []
+        for proxy in used_proxies:
+            proxy_list.append({
+                "address": f"{proxy.ip}:{proxy.port}",
+                "last_used": proxy.last_used_at.isoformat() if proxy.last_used_at else None,
+                "status": proxy.last_status,
+                "last_failed": proxy.last_failed_at.isoformat() if proxy.last_failed_at else None
+            })
+        
+        return {
+            "total_proxies": total_proxies,
+            "used_proxies": used_count,
+            "available_proxies": available_count,
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "used_proxy_list": proxy_list
+        }
+        
+    except Exception as e:
+        print(f"[ERROR] 프록시 상태 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail="프록시 상태 조회 실패")
+
+@api_router.post("/proxy-status/reset")
+def reset_proxy_status(req: Request, db: Session = Depends(get_db)):
+    """프록시 사용 기록 초기화"""
+    try:
+        reset_proxy_usage(db)
+        return {"message": "프록시 사용 기록이 초기화되었습니다"}
+    except Exception as e:
+        print(f"[ERROR] 프록시 기록 초기화 실패: {e}")
+        raise HTTPException(status_code=500, detail="프록시 기록 초기화 실패")
+
 @api_router.post("/debug/parse")
 def debug_parse_link(data: dict = Body(...)):
-    """1fichier 링크 파싱 디버깅 엔드포인트"""
+    """1fichier 링크 파싱 디버깅 엔드포인트 (상세 로그 포함)"""
     from core.parser import fichier_parser
     
     url = data.get("url")
@@ -576,50 +757,137 @@ def debug_parse_link(data: dict = Body(...)):
     if not url:
         raise HTTPException(status_code=400, detail="URL이 필요합니다")
     
+    debug_info = {
+        "url": url,
+        "steps": [],
+        "success": False,
+        "direct_link": None,
+        "error": None
+    }
+    
     try:
         print(f"[DEBUG] 파싱 테스트 시작: {url}")
+        debug_info["steps"].append(f"파싱 테스트 시작: {url}")
         
-        # 파싱 시도
-        direct_link = parse_direct_link(url, password, req_id=None)
-        
-        result = {
-            "url": url,
-            "success": direct_link is not None,
-            "direct_link": direct_link,
-            "message": "파싱 성공" if direct_link else "파싱 실패 - 다운로드 링크를 찾을 수 없습니다"
+        # 1단계: 기본 HTTP 요청 테스트
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
         
-        # 성공한 경우 파일 정보도 추출 시도
-        if direct_link:
-            try:
-                # HTML을 다시 가져와서 파일 정보 추출
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                }
-                payload = {'dl_no_ssl': 'on', 'dlinline': 'on'}
-                if password:
-                    payload['pass'] = password
-                
-                scraper = cloudscraper.create_scraper()
-                r = scraper.post(url, data=payload, headers=headers, timeout=15, verify=False)
-                
-                if r.status_code == 200:
-                    file_info = fichier_parser.extract_file_info(r.text)
-                    result["file_info"] = file_info
-                    
-            except Exception as e:
-                result["file_info_error"] = str(e)
+        try:
+            import requests
+            simple_response = requests.get(url, headers=headers, timeout=10)
+            debug_info["steps"].append(f"기본 GET 요청: {simple_response.status_code}")
+            print(f"[DEBUG] 기본 GET 요청 응답: {simple_response.status_code}")
+        except Exception as e:
+            debug_info["steps"].append(f"기본 GET 요청 실패: {str(e)}")
+            print(f"[DEBUG] 기본 GET 요청 실패: {e}")
         
-        return result
+        # 2단계: cloudscraper로 POST 요청
+        payload = {'dl_no_ssl': 'on', 'dlinline': 'on'}
+        if password:
+            payload['pass'] = password
+        
+        scraper = cloudscraper.create_scraper()
+        
+        try:
+            r = scraper.post(url, data=payload, headers=headers, timeout=15, verify=False)
+            debug_info["steps"].append(f"cloudscraper POST 요청: {r.status_code}")
+            print(f"[DEBUG] cloudscraper POST 응답: {r.status_code}")
+            
+            if r.status_code == 200:
+                html_length = len(r.text)
+                debug_info["steps"].append(f"HTML 응답 길이: {html_length} 문자")
+                print(f"[DEBUG] HTML 응답 길이: {html_length}")
+                
+                # HTML 내용 일부 로그
+                html_preview = r.text[:1000].replace('\n', ' ').replace('\r', '')
+                debug_info["steps"].append(f"HTML 미리보기: {html_preview}")
+                print(f"[DEBUG] HTML 미리보기: {html_preview}")
+                
+                # 3단계: 파서로 링크 추출 시도
+                direct_link = fichier_parser.parse_download_link(r.text, str(url))
+                
+                if direct_link:
+                    debug_info["success"] = True
+                    debug_info["direct_link"] = direct_link
+                    debug_info["steps"].append(f"✅ 다운로드 링크 발견: {direct_link}")
+                    print(f"[DEBUG] ✅ 다운로드 링크 발견: {direct_link}")
+                    
+                    # 파일 정보 추출
+                    file_info = fichier_parser.extract_file_info(r.text)
+                    debug_info["file_info"] = file_info
+                    debug_info["steps"].append(f"파일 정보: {file_info}")
+                else:
+                    debug_info["steps"].append("❌ 파서에서 다운로드 링크를 찾지 못함")
+                    print(f"[DEBUG] ❌ 파서에서 다운로드 링크를 찾지 못함")
+                    
+                    # HTML에서 모든 링크 추출해서 디버깅
+                    import lxml.html
+                    doc = lxml.html.fromstring(r.text)
+                    all_links = [a.get('href') for a in doc.xpath('//a[@href]') if a.get('href')]
+                    debug_info["all_links"] = all_links[:20]  # 처음 20개만
+                    debug_info["steps"].append(f"페이지의 모든 링크 (처음 20개): {all_links[:20]}")
+            else:
+                debug_info["steps"].append(f"❌ HTTP 오류: {r.status_code}")
+                debug_info["error"] = f"HTTP {r.status_code}"
+                
+        except Exception as e:
+            debug_info["steps"].append(f"❌ cloudscraper 요청 실패: {str(e)}")
+            debug_info["error"] = str(e)
+            print(f"[DEBUG] cloudscraper 요청 실패: {e}")
+        
+        return debug_info
         
     except Exception as e:
-        print(f"[DEBUG] 파싱 테스트 오류: {e}")
-        return {
-            "url": url,
-            "success": False,
-            "error": str(e),
-            "message": f"파싱 중 오류 발생: {e}"
+        print(f"[DEBUG] 전체 파싱 테스트 오류: {e}")
+        debug_info["error"] = str(e)
+        debug_info["steps"].append(f"❌ 전체 테스트 실패: {str(e)}")
+        return debug_info
+
+@api_router.post("/debug/simple-test")
+def simple_connection_test():
+    """간단한 연결 테스트"""
+    test_results = {}
+    
+    # 1. 기본 HTTP 연결 테스트
+    try:
+        import requests
+        response = requests.get("https://1fichier.com", timeout=10)
+        test_results["basic_http"] = {
+            "status": "success",
+            "status_code": response.status_code,
+            "response_length": len(response.text)
         }
+    except Exception as e:
+        test_results["basic_http"] = {
+            "status": "failed",
+            "error": str(e)
+        }
+    
+    # 2. cloudscraper 테스트
+    try:
+        scraper = cloudscraper.create_scraper()
+        response = scraper.get("https://1fichier.com", timeout=10)
+        test_results["cloudscraper"] = {
+            "status": "success", 
+            "status_code": response.status_code,
+            "response_length": len(response.text)
+        }
+    except Exception as e:
+        test_results["cloudscraper"] = {
+            "status": "failed",
+            "error": str(e)
+        }
+    
+    # 3. 프록시 개수 확인
+    try:
+        proxy_count = len(get_all_proxies())
+        test_results["proxy_count"] = proxy_count
+    except Exception as e:
+        test_results["proxy_error"] = str(e)
+    
+    return test_results
 
 app.include_router(api_router)
 
