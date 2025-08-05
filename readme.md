@@ -141,17 +141,24 @@ GitHub Actions를 통해 자동으로 multi-platform 이미지가 빌드되어 D
 
 ## 🛠️ 개발 환경에서 실행하기
 
-### 1. 백엔드 실행
+### 백엔드 실행
 ```bash
 cd backend
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --log-level debug
 ```
 
-### 2. 프론트엔드 실행
+### 프론트엔드 개발 (별도 터미널)
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
+
+**접속:**
+- **개발**: http://localhost:3000 (Vite 개발서버, 핫리로드)
+- **운영**: http://localhost:8000 (FastAPI가 빌드된 Svelte 앱 서빙)
+
+> **참고:** Docker 환경에서는 포트 8000 하나로 모든 기능이 동작합니다.
 
 ---
 

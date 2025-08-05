@@ -1167,8 +1167,8 @@ def download_1fichier_file_NEW_VERSION(request_id: int, lang: str = "ko", use_pr
         with r:
             print(f"[LOG] HTTP GET request sent for {req.id}. Status code: {r.status_code}")
             print(f"[LOG] Response headers: {r.headers}")
-            print(f"[LOG] Content-Length header: {r.headers.get("Content-Length")}")
-            print(f"[LOG] Content-Range header: {r.headers.get("Content-Range")}")
+            print(f"[LOG] Content-Length header: {r.headers.get('Content-Length')}")
+            print(f"[LOG] Content-Range header: {r.headers.get('Content-Range')}")
             r.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
 
             file_name = None
