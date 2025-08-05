@@ -1,27 +1,27 @@
 :root {
   --font-sans: 'Nanum Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
 
-  /* Light Theme (Complementary to Dracula) */
-  --background: #fdfdfd;
-  --text-primary: #333333;
-  --text-secondary: #666666;
+  /* Professional Light Theme */
+  --background: #fafbfc;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
   --card-background: #ffffff;
-  --card-border: #e0e0e0;
-  --primary-color: #0B6BCB; /* New Deep Blue */
-  --primary-hover: #0957A0;
-  --danger-color: #b00020;
-  --danger-hover: #8c001a;
-  --success-color: #00c853;
-  --warning-color: #ffab00;
+  --card-border: #e2e8f0;
+  --primary-color: #2563eb; /* Professional blue */
+  --primary-hover: #1d4ed8;
+  --danger-color: #dc2626;
+  --danger-hover: #b91c1c;
+  --success-color: #059669;
+  --warning-color: #d97706;
   --input-bg: #ffffff;
-  --input-border: #cccccc;
+  --input-border: #cbd5e1;
   
-  --shadow-light: 0 2px 4px rgba(0, 0, 0, 0.08);
-  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-light: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-medium: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
 
-  --primary-color-rgb: 11, 107, 203;
-  --disabled-button-background: #e0e0e0;
-  --disabled-button-text: #999;
+  --primary-color-rgb: 37, 99, 235;
+  --disabled-button-background: #f1f5f9;
+  --disabled-button-text: #64748b;
   
   /* Theme selected background for light theme */
   --theme-selected-bg: #d0d0d0;
@@ -35,28 +35,27 @@
 }
 
 html.dark {
-  /* New Dark Theme (based on Light Theme) */
-  --background: #1a1a1a;
-  --text-primary: #e0e0e0;
-  --text-secondary: #b0b0b0;
-  --card-background: #2a2a2a;
-  --card-border: #3a3a3a;
-  --primary-color: #474BDF;
-  --primary-hover: #3a3ca0;
-  --primary-color-rgb: 71, 75, 223;
-  --danger-color: #e57373;
-  --danger-hover: #d32f2f;
-  --success-color: #81c784;
-  --warning-color: #ffb74d;
-  --input-bg: #3a3a3a;
-  --input-border: #555555;
+  /* Professional Dark Theme */
+  --background: #0f172a;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --card-background: #1e293b;
+  --card-border: #334155;
+  --primary-color: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-color-rgb: 59, 130, 246;
+  --danger-color: #ef4444;
+  --danger-hover: #dc2626;
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --input-bg: #1e293b;
+  --input-border: #475569;
   
-  --shadow-light: 0 2px 4px rgba(0, 0, 0, 0.3);
-  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.4);
+  --shadow-light: 0 1px 3px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-medium: 0 4px 6px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.12);
 
-  --primary-color-rgb: 11, 107, 203;
-  --disabled-button-background: #444444;
-  --disabled-button-text: #888888;
+  --disabled-button-background: #334155;
+  --disabled-button-text: #94a3b8;
   
   /* Theme selected background for dark theme */
   --theme-selected-bg: #444444;
@@ -70,31 +69,31 @@ html.dark {
 }
 
 html.dracula {
-  /* Dracula Theme */
+  /* Improved Dracula Theme - Better visibility */
   --background: #282a36;
   --text-primary: #f8f8f2;
-  --text-secondary: #6272a4;
+  --text-secondary: #8be9fd; /* Changed from #6272a4 to cyan for better visibility */
   --card-background: #44475a;
-  --card-border: #383a4a;
+  --card-border: #6272a4; /* More visible border */
   --primary-color: #bd93f9; /* Purple */
-  --primary-hover: #ae81ff;
+  --primary-hover: #9f7aea;
   --danger-color: #ff5555; /* Red */
-  --danger-hover: #cc4444;
+  --danger-hover: #e53e3e;
   --success-color: #50fa7b; /* Green */
   --warning-color: #ffb86c; /* Orange */
-  --input-bg: #383a4a;
-  --input-border: #383a4a;
+  --input-bg: #44475a; /* Darker for better contrast */
+  --input-border: #6272a4; /* More visible border */
   
   --shadow-light: 0 2px 4px rgba(0, 0, 0, 0.2);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.3);
 
   --primary-color-rgb: 189, 147, 249;
-  --disabled-button-background: #383a4a;
-  --disabled-button-text: #6272a4;
+  --disabled-button-background: #6272a4;
+  --disabled-button-text: #f8f8f2;
   
-  /* Dracula 테마에만 빠져있던 일반 버튼용 변수 */
+  /* Improved button colors for Dracula */
   --button-background: #6272a4;
-  --button-hover-background: #7184b8;
+  --button-hover-background: #8be9fd;
   --button-text: #f8f8f2;
   
   /* Theme selected background for dracula theme */
@@ -221,9 +220,9 @@ body {
 }
 
 #app {
-  max-width: 1400px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 1rem;
   position: relative;
 }
 
@@ -244,11 +243,12 @@ h1 {
 .card {
   background-color: var(--card-background);
   border: 1px solid var(--card-border);
-  border-radius: 0.75rem;
-  padding: 2rem;
-  margin-bottom: 1.5rem;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
   box-shadow: var(--shadow-light);
   transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  overflow: hidden;
 }
 
 .button {
@@ -394,11 +394,11 @@ select.input option {
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between; /* Changed to space-between */
-  margin-bottom: 2rem;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
   text-align: center;
   position: relative;
-  padding: 0 1rem; /* Added padding for alignment */
+  padding: 0 0.5rem;
 }
 .header-actions {
   display: flex;
@@ -506,10 +506,11 @@ select.input option {
 }
 .table-container {
   overflow-x: auto;
-  overflow-y: visible;
-  border-radius: 10px;
-  border: 1px solid var(--card-border);
-  max-width: 100%;
+  overflow-y: auto;
+  width: calc(100% + 3rem);
+  margin: 0 -1.5rem 0 -1.5rem;
+  min-height: 400px;
+  max-height: 600px;
 }
 
 /* 테이블 컨테이너 전용 스크롤바 스타일 */
@@ -540,26 +541,46 @@ select.input option {
 table {
   width: 100%;
   min-width: 800px;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   white-space: nowrap;
+  background-color: var(--card-background);
 }
 th,
 td {
-  padding: 1rem 1.25rem;
   text-align: left;
+  font-size: 0.875rem;
+}
+td {
   border-bottom: 1px solid var(--card-border);
-  font-size: 0.8rem;
+  height: 48px;
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+td:first-child,
+th:first-child {
+  padding-left: 1.5rem;
 }
 th {
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   background-color: var(--card-background);
+  border-bottom: 1px solid var(--card-border);
+  border-right: 1px solid var(--card-border);
   position: sticky;
   top: 0;
   z-index: 1;
-  box-shadow: 0 1px 0 var(--card-border);
+  text-transform: uppercase;
+  resize: horizontal;
+  overflow: hidden;
+  height: 48px;
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+th:last-child {
+  border-right: 1px solid transparent;
 }
 tbody tr {
   transition: background-color 0.2s ease;
@@ -567,12 +588,9 @@ tbody tr {
 tbody tr:hover {
   background-color: rgba(var(--primary-color-rgb), 0.05);
 }
-tbody tr:last-child td {
-  border-bottom: none;
-}
 .filename {
-  max-width: 300px;
-  min-width: 200px;
+  max-width: 500px;
+  min-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -587,42 +605,73 @@ tbody tr:last-child td {
 .actions-header {
   text-align: center;
 }
+/* Clean compact status badges */
 .status {
-  display: inline-block;
-  padding: 0.4em 0.8em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
   font-size: 0.7rem;
-  font-weight: 700;
-  line-height: 1.3;
+  font-weight: 600;
+  line-height: 1.1;
   text-align: center;
   white-space: nowrap;
   vertical-align: middle;
-  border-radius: 10px; /* Applied border-radius */
+  border-radius: 8px;
   text-transform: capitalize;
+  transition: all 0.2s ease;
 }
+
+.status::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .status-pending {
   color: var(--text-primary);
   background-color: var(--card-border);
+  border: 1px solid var(--input-border);
 }
+.status-pending::before { background-color: #9ca3af; }
+
 .status-downloading {
   color: #fff;
   background-color: var(--primary-color);
 }
+.status-downloading::before { background-color: #fff; animation: pulse 2s infinite; }
+
 .status-done {
   color: #fff;
   background-color: var(--success-color);
 }
+.status-done::before { background-color: #fff; }
+
 .status-failed {
   color: #fff;
   background-color: var(--danger-color);
 }
+.status-failed::before { background-color: #fff; }
+
 .status-proxying {
   color: #fff;
   background-color: var(--warning-color);
 }
+.status-proxying::before { background-color: #fff; animation: pulse 2s infinite; }
+
 .status-paused,
 .status-stopped {
   color: #fff;
-  background-color: #6c757d; /* Bootstrap gray */
+  background-color: #6b7280;
+}
+.status-paused::before,
+.status-stopped::before { background-color: #fff; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 .progress-container {
   width: 100%;
@@ -768,8 +817,11 @@ html[data-theme="dark"] {
   display: flex;
   justify-content: right;
   align-items: center;
-  padding-top: 1.5rem;
+  padding: 1rem 1.5rem;
+  margin: 0 -1.5rem -1.5rem -1.5rem;
   gap: 1rem;
+  border-top: 1px solid var(--card-border);
+  background-color: var(--card-background);
 }
 .page-info {
   margin: 0 0.5rem;

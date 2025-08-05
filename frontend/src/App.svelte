@@ -496,6 +496,22 @@
     );
   }
 
+  function formatFullDateTime(dateString) {
+    if (!dateString) return "-";
+    const date = new Date(dateString);
+    const dateStr = date.getFullYear() +
+      "-" +
+      String(date.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(date.getDate()).padStart(2, "0");
+    const timeStr = String(date.getHours()).padStart(2, "0") +
+      ":" +
+      String(date.getMinutes()).padStart(2, "0") +
+      ":" +
+      String(date.getSeconds()).padStart(2, "0");
+    return `${dateStr} ${timeStr}`;
+  }
+
   function formatTime(dateString) {
     if (!dateString) return "-";
     const date = new Date(dateString);
@@ -729,27 +745,27 @@
       activeDownloadCount={activeDownloadCount}
     />
 
-    <!-- 탭 네비게이션 -->
-    <div class="tabs-container">
-      <div class="tabs">
-        <button 
-          class="tab" 
-          class:active={currentTab === "working"}
-          on:click={() => currentTab = "working"}
-        >
-          {$t("tab_working")} ({workingCount})
-        </button>
-        <button 
-          class="tab" 
-          class:active={currentTab === "completed"}
-          on:click={() => currentTab = "completed"}
-        >
-          {$t("tab_completed")} ({completedCount})
-        </button>
-      </div>
-    </div>
-
     <div class="card">
+      <!-- 탭 네비게이션을 카드 안으로 이동 -->
+      <div class="tabs-container">
+        <div class="tabs">
+          <button 
+            class="tab" 
+            class:active={currentTab === "working"}
+            on:click={() => currentTab = "working"}
+          >
+            {$t("tab_working")} ({workingCount})
+          </button>
+          <button 
+            class="tab" 
+            class:active={currentTab === "completed"}
+            on:click={() => currentTab = "completed"}
+          >
+            {$t("tab_completed")} ({completedCount})
+          </button>
+        </div>
+      </div>
+      
       <div class="table-container">
         <table>
           <thead>
@@ -759,15 +775,14 @@
               <th>{$t("table_header_size")}</th>
               <th>{$t("table_header_progress")}</th>
               <th class="center-align">{$t("table_header_requested_date")}</th>
-              <th class="center-align">{$t("table_header_requested_time")}</th>
-              <th>{$t("use_proxy_label")}</th>
+              <th>프록시</th>
               <th class="actions-header">{$t("table_header_actions")}</th>
             </tr>
           </thead>
           <tbody>
             {#if isDownloadsLoading}
               <tr>
-                <td colspan="8">
+                <td colspan="7">
                   <div class="table-loading-container">
                     <div class="modal-spinner"></div>
                     <div class="modal-loading-text">{$t("loading")}</div>
@@ -776,7 +791,7 @@
               </tr>
             {:else if filteredDownloads.length === 0}
               <tr>
-                <td colspan="8" class="no-downloads-message">
+                <td colspan="7" class="no-downloads-message">
                   {currentTab === "working" ? $t("no_working_downloads") : $t("no_completed_downloads")}
                 </td>
               </tr>
@@ -813,11 +828,8 @@
                       </span>
                     </div>
                   </td>
-                  <td class="center-align">
+                  <td class="center-align" title={formatFullDateTime(download.requested_at)}>
                     {formatDate(download.requested_at)}
-                  </td>
-                  <td class="center-align">
-                    {formatTime(download.requested_at)}
                   </td>
                   <td class="proxy-toggle-cell">
                     <label class="custom-checkbox-label">
@@ -1194,46 +1206,53 @@
     border: 1px solid var(--success-color);
   }
 
-  /* 탭 스타일 */
+  /* 카드 내부 탭 스타일 */
   .tabs-container {
-    margin-bottom: 1.5rem;
+    margin: -1.5rem -1.5rem 0 -1.5rem;
+    padding: 1rem 1.5rem 0 1.5rem;
+    border-bottom: 1px solid var(--card-border);
+    background: linear-gradient(135deg, var(--card-background) 0%, rgba(var(--primary-color-rgb), 0.02) 100%);
   }
 
   .tabs {
     display: flex;
-    background-color: var(--card-background);
-    border: 1px solid var(--card-border);
-    border-radius: 10px;
-    padding: 4px;
-    box-shadow: var(--shadow-light);
+    gap: 0.25rem;
   }
 
   .tab {
-    flex: 1;
     background: none;
     border: none;
-    padding: 0.75rem 1rem;
-    border-radius: 8px;
+    padding: 0.75rem 1.25rem;
     cursor: pointer;
     font-weight: 500;
-    font-size: 0.9rem;
-    transition: all 0.2s ease;
+    font-size: 0.875rem;
+    transition: all 0.3s ease;
     color: var(--text-secondary);
+    border-radius: 8px 8px 0 0;
+    position: relative;
+    border: 1px solid transparent;
+    border-bottom: none;
   }
 
   .tab:hover {
-    background-color: var(--button-secondary-background-hover);
     color: var(--text-primary);
+    background-color: rgba(var(--primary-color-rgb), 0.05);
+    border-color: var(--card-border);
+    border-bottom: none;
   }
 
   .tab.active {
-    background-color: var(--primary-color);
-    color: white;
+    color: var(--primary-color);
     font-weight: 600;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    background-color: var(--card-background);
+    border-color: var(--card-border);
+    border-bottom: 1px solid var(--card-background);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+    z-index: 1;
   }
 
   .tab.active:hover {
-    background-color: var(--primary-color);
+    color: var(--primary-color);
+    background-color: var(--card-background);
   }
 </style>

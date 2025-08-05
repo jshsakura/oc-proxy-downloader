@@ -63,14 +63,22 @@
         title="미사용 프록시: {availableProxies}개"
       ></div>
     </div>
-    <span class="proxy-stats">성공 {successCount} | 실패 {failCount}</span>
+    <div class="proxy-stats">
+      <span class="success-badge">성공 {successCount}</span>
+      <span class="fail-badge">실패 {failCount}</span>
+    </div>
     <button 
-      class="reset-btn" 
+      class="refresh-btn" 
       on:click={refreshProxies}
       disabled={availableProxies > 0}
-      title="프록시 리셋"
+      title="프록시 새로고침"
     >
-      <span class="reset-icon"></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+        <path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+        <path d="M3 21v-5h5"/>
+      </svg>
     </button>
   </div>
   
@@ -125,12 +133,12 @@
   .proxy-gauge {
     background-color: var(--card-background);
     border: 1px solid var(--card-border);
-    border-radius: 10px;
-    padding: 1rem;
-    margin-bottom: 1.5rem;
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
     box-shadow: var(--shadow-light);
     transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
   }
 
   .proxy-info {
@@ -181,27 +189,55 @@
   }
 
   .proxy-stats {
-    color: var(--text-secondary);
-    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.7rem;
+    font-weight: 600;
   }
 
-  .reset-btn {
+  .success-badge {
+    color: var(--success-color);
+    background: rgba(16, 185, 129, 0.1);
+    padding: 0.2rem 0.4rem;
+    border-radius: 6px;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+  }
+
+  .fail-badge {
+    color: var(--danger-color);
+    background: rgba(239, 68, 68, 0.1);
+    padding: 0.2rem 0.4rem;
+    border-radius: 6px;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+  }
+
+  .divider {
+    color: var(--text-secondary);
+    opacity: 0.5;
+  }
+
+  .refresh-btn {
     background-color: var(--button-secondary-background);
     color: var(--button-secondary-text);
     border: 1px solid var(--button-secondary-border);
-    border-radius: 10px;
-    padding: 0.3rem 0.75rem;
+    border-radius: 8px;
+    padding: 6px;
     cursor: pointer;
-    font-size: 0.8rem;
-    font-weight: 600;
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    min-width: 28px;
+    height: 28px;
   }
 
-  .reset-btn:hover:not(:disabled) {
+  .refresh-btn:hover:not(:disabled) {
     background-color: var(--button-secondary-background-hover);
+    transform: rotate(180deg);
   }
 
-  .reset-btn:disabled {
+  .refresh-btn:disabled {
     background-color: var(--disabled-button-background);
     color: var(--disabled-button-text);
     cursor: not-allowed;
@@ -313,27 +349,6 @@
     transform: translate(-50%, -50%) rotate(-45deg);
   }
   
-  .reset-icon {
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    border: 2px solid currentColor;
-    border-radius: 50%;
-    position: relative;
-  }
-  
-  .reset-icon::after {
-    content: '';
-    position: absolute;
-    top: -2px;
-    right: -1px;
-    width: 0;
-    height: 0;
-    border-left: 3px solid transparent;
-    border-right: 3px solid transparent;
-    border-bottom: 4px solid currentColor;
-    transform: rotate(45deg);
-  }
   
   .warning-icon {
     display: inline-block;
