@@ -34,10 +34,11 @@ COPY backend/ ./backend/
 COPY --from=frontend-build /app/frontend/dist ./backend/static
 
 # 필요한 디렉토리 생성
-RUN mkdir -p /app/backend/downloads
+RUN mkdir -p /app/backend/downloads /config
 
 # 환경변수 기본값
 ENV DOWNLOAD_PATH=/app/backend/downloads \
+    CONFIG_PATH=/config \
     PUID=1000 \
     PGID=1000 \
     TZ=Asia/Seoul \
@@ -60,9 +61,9 @@ if ! getent passwd appuser > /dev/null 2>&1; then\n\
     adduser --disabled-password --gecos "" --uid $PUID --gid $PGID appuser\n\
 fi\n\
 \n\
-# 다운로드 디렉토리 권한 설정\n\
-mkdir -p $DOWNLOAD_PATH\n\
-chown -R $PUID:$PGID $DOWNLOAD_PATH\n\
+# 디렉토리 권한 설정\n\
+mkdir -p $DOWNLOAD_PATH $CONFIG_PATH\n\
+chown -R $PUID:$PGID $DOWNLOAD_PATH $CONFIG_PATH\n\
 chown -R $PUID:$PGID /app/backend\n\
 \n\
 # 타임존 설정\n\

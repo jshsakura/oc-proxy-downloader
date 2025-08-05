@@ -3,7 +3,9 @@ import os
 from pathlib import Path
 import json
 
-CONFIG_FILE = Path(__file__).parent.parent / "config.json"
+# Docker 환경에서는 /config 사용, 개발 환경에서는 기존 위치 사용
+CONFIG_DIR = Path(os.environ.get("CONFIG_PATH", Path(__file__).parent.parent))
+CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_CONFIG = {
     "download_path": "./downloads",
     "theme": "light",
@@ -11,6 +13,9 @@ DEFAULT_CONFIG = {
 }
 
 def get_config():
+    # CONFIG_DIR 생성
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:

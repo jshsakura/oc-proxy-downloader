@@ -1,10 +1,13 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import os
+from pathlib import Path
 
-# Get the absolute path to the backend directory
-BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{os.path.join(BACKEND_DIR, 'downloads.db')}"
+# Docker 환경에서는 /config 사용, 개발 환경에서는 기존 위치 사용
+CONFIG_DIR = Path(os.environ.get("CONFIG_PATH", os.path.join(os.path.dirname(__file__), '..')))
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = CONFIG_DIR / 'downloads.db'
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}

@@ -9,10 +9,10 @@ services:
       - PUID=1000
       - PGID=1000
       - DOWNLOAD_PATH=/app/backend/downloads
+      - CONFIG_PATH=/config
     volumes:
       - ./downloads:/app/backend/downloads  # 다운로드 파일 저장
-      - ./backend/config.json:/app/backend/config.json  # 설정 파일 마운트 (선택사항)
-      - ./backend/database.db:/app/backend/database.db  # 데이터베이스 파일 마운트 (선택사항)
+      - ./config:/config  # 설정 및 데이터베이스 파일
     ports:
       - "8000:8000"
     restart: unless-stopped
