@@ -20,6 +20,11 @@ htmlcov/
 
 # Node.js
 node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.svelte-kit/
+frontend/.vite/
 dist/
 build/
 .parcel-cache/
@@ -31,10 +36,29 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
-.DS_Store
-Thumbs.db
-package-lock.json
 
 # Project specific
 backend/downloads.db
+backend/database.db
+backend/*.db
+backend/downloads/*
+backend/*.log
 downloads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude AI
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+test_file.*
+*.tmp
