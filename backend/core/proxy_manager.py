@@ -93,28 +93,41 @@ def reset_proxy_usage(db: Session):
         db.rollback()
 
 
-def test_proxy(proxy_addr, timeout=1):
-    """프록시 연결 테스트"""
+def test_proxy(proxy_addr, timeout=8):
+    """프록시 연결 테스트 - 1fichier.com HTTPS 지원 여부 확인"""
+    proxy_config = {
+        "http": f"http://{proxy_addr}",
+        "https": f"http://{proxy_addr}"
+    }
+    
+    # 1단계: 간단한 HTTP 테스트
     try:
-        proxy_config = {
-            "http": f"http://{proxy_addr}",
-            "https": f"http://{proxy_addr}"
-        }
-        response = requests.get("https://1fichier.com", proxies=proxy_config, timeout=timeout, verify=False)
-        return response.status_code == 200
-    except Exception as e:
-        print(f"[LOG] 프록시 {proxy_addr} 테스트 실패: {e}")
+        response = requests.get("http://httpbin.org/ip", proxies=proxy_config, timeout=timeout)
+        if response.status_code != 200:
+            return False
+    except Exception:
+        return False
+    
+    # 2단계: HTTPS 터널링 테스트 (1fichier.com과 유사한 환경)
+    try:
+        response = requests.head("https://1fichier.com", proxies=proxy_config, timeout=timeout, verify=False)
+        return response.status_code in [200, 301, 302, 403, 429]  # 연결은 되지만 차단될 수 있음
+    except requests.exceptions.ProxyError as e:
+        if "Tunnel connection failed" in str(e):
+            return False  # HTTPS 터널링 미지원
+        return False
+    except Exception:
         return False
 
 
-def get_working_proxy(db: Session, max_test=5):
+def get_working_proxy(db: Session, max_test=15):
     """작동하는 프록시 하나를 찾아서 반환"""
     unused_proxies = get_unused_proxies(db)
     
     for i, proxy_addr in enumerate(unused_proxies[:max_test]):
         print(f"[LOG] 프록시 테스트 {i+1}/{max_test}: {proxy_addr}")
         
-        if test_proxy(proxy_addr, timeout=2):
+        if test_proxy(proxy_addr, timeout=10):
             print(f"[LOG] 작동하는 프록시 발견: {proxy_addr}")
             return proxy_addr
             

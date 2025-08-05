@@ -15,7 +15,7 @@ from .parser import fichier_parser
 def get_or_parse_direct_link(req, proxies=None, use_proxy=True, force_reparse=False, proxy_addr=None):
     """다운로드 요청에서 직접 링크를 가져오거나 파싱하는 함수"""
     
-    # proxy_addr이 있으면 proxies 생성
+    # proxy_addr이 있으면 proxies 생성 (CONNECT 터널링 사용)
     if proxy_addr and use_proxy:
         proxies = {
             'http': f'http://{proxy_addr}',
@@ -56,8 +56,8 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=True):
     if proxies:
         # print(f"[LOG] 지정된 프록시로 파싱 시도: {proxies}")
         try:
-            # 1단계: GET 요청으로 페이지 로드
-            r1 = scraper.get(url, headers=headers, proxies=proxies, timeout=3)
+            # 1단계: GET 요청으로 페이지 로드 (HTTPS 전용)
+            r1 = scraper.get(url, headers=headers, proxies=proxies, timeout=10)
             # print(f"[LOG] GET 응답: {r1.status_code}")
             
             if r1.status_code not in [200, 500]:
@@ -85,7 +85,8 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=True):
             headers_post = headers.copy()
             headers_post['Referer'] = str(url)
             
-            r2 = scraper.post(url, data=payload, headers=headers_post, proxies=proxies, timeout=3)
+            # 2단계: POST 요청 (HTTPS 전용)
+            r2 = scraper.post(url, data=payload, headers=headers_post, proxies=proxies, timeout=10)
             # print(f"[LOG] POST 응답: {r2.status_code}")
             
             if r2.status_code == 200:
@@ -105,7 +106,13 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=True):
             print(f"[LOG] 타임아웃: {e}")
             raise e  # 프록시 순환 로직에서 처리하도록 raise
         except requests.exceptions.ProxyError as e:
-            print(f"[LOG] 프록시 연결 오류: {e}")
+            error_msg = str(e)
+            if "Tunnel connection failed: 400 Bad Request" in error_msg:
+                print(f"[LOG] 프록시 HTTPS 터널링 실패: {proxy_addr if 'proxy_addr' in locals() else 'Unknown'}")
+            elif "Unable to connect to proxy" in error_msg:
+                print(f"[LOG] 프록시 연결 불가: {proxy_addr if 'proxy_addr' in locals() else 'Unknown'}")
+            else:
+                print(f"[LOG] 프록시 연결 오류: {e}")
             raise e  # 프록시 순환 로직에서 처리하도록 raise
         except Exception as e:
             print(f"[LOG] 파싱 예외: {e}")
