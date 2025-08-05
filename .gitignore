@@ -62,3 +62,70 @@ Thumbs.db
 # Test files
 test_file.*
 *.tmp
+
+# Logs
+*.log
+logs/
+*.log.*
+*.out
+
+# Temporary files
+*~
+*.bak
+*.backup
+*.orig
+*.rej
+
+# System files
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage reports
+.nyc_output/
+lcov.info
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Editor directories and files
+*.sublime-project
+*.sublime-workspace
+.history/
+*.code-workspace
+
+# Local development
+.local/
+.cache/
+.tmp/
+
+# Package manager locks (keep package-lock.json, yarn.lock for consistency)
+# npm-shrinkwrap.json
+
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Archive files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Large media files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.mp3
+*.wav
+*.flac
