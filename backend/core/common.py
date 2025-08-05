@@ -1,4 +1,5 @@
 import math
+import os
 import random
 import requests
 import cloudscraper
@@ -48,7 +49,10 @@ def get_all_proxies():
         except Exception as e:
             print(f"[LOG] 프록시 리스트 {url} 에서 IP:PORT 추출 실패: {e}")
             continue
+    # 중복 제거
+    proxies = list(set(proxies))
     random.shuffle(proxies)
+    # print(f"[LOG] 총 {len(proxies)}개의 고유 프록시 발견")
     return proxies
 
 def is_valid_link(url: str) -> bool:

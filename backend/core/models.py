@@ -7,7 +7,7 @@ class StatusEnum(str, enum.Enum):
     pending = "pending"
     proxying = "proxying"
     downloading = "downloading"
-    paused = "paused"
+    stopped = "stopped"  # paused를 stopped로 변경
     done = "done"
     failed = "failed"
 
@@ -38,8 +38,19 @@ class DownloadRequest(Base):
                 data[c.name] = value.isoformat() if value else None
             elif isinstance(value, StatusEnum):
                 data[c.name] = value.value
+            elif c.name == 'status' and isinstance(value, str) and value == 'paused':
+                # Handle legacy 'paused' status for backward compatibility
+                data[c.name] = 'stopped'
             elif c.name in ['downloaded_size', 'total_size'] and value is None:
                 data[c.name] = 0 # Ensure these are always numbers
+            elif c.name == 'error' and value:
+                # Clean error messages to avoid encoding issues
+                try:
+                    # Remove problematic Unicode characters that can cause cp949 encoding errors
+                    cleaned_value = value.encode('ascii', 'ignore').decode('ascii')
+                    data[c.name] = cleaned_value if cleaned_value else str(value)
+                except:
+                    data[c.name] = "Encoding error in error message"
             else:
                 data[c.name] = value
         return data
@@ -53,3 +64,4 @@ class ProxyStatus(Base):
     last_used_at = Column(DateTime, nullable=True)
     last_status = Column(String, nullable=True)  # 'success' or 'fail'
     last_failed_at = Column(DateTime, nullable=True)
+    success = Column(Boolean, nullable=True)  # 호환성을 위해 추가

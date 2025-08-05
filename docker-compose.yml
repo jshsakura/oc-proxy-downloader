@@ -1,14 +1,24 @@
 version: '3.8'
 services:
-  app:
-    image: <YOUR_DOCKERHUB_ID>/oc-proxy-downloader:latest
+  oc-proxy-downloader:
+    build: .
+    # image: <YOUR_DOCKERHUB_ID>/oc-proxy-downloader:latest  # 빌드 후 이미지 사용시 주석 해제
     container_name: oc-proxy-downloader
     environment:
       - TZ=Asia/Seoul
       - PUID=1000
       - PGID=1000
+      - DOWNLOAD_PATH=/app/backend/downloads
     volumes:
-      - ./backend/downloads:/app/backend/downloads
+      - ./downloads:/app/backend/downloads  # 다운로드 파일 저장
+      - ./backend/config.json:/app/backend/config.json  # 설정 파일 마운트 (선택사항)
+      - ./backend/database.db:/app/backend/database.db  # 데이터베이스 파일 마운트 (선택사항)
     ports:
       - "8000:8000"
-    restart: unless-stopped 
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/settings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s 

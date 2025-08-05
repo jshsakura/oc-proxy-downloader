@@ -112,20 +112,25 @@ html.dracula {
 
 /* Light Theme (기본) */
 html, body {
-  scrollbar-width: thin;
-  scrollbar-color: #bbb transparent;
+  scrollbar-width: auto;
+  scrollbar-color: #999 #f1f1f1;
 }
 html ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-  background: transparent;
+  width: 14px;
+  height: 14px;
+  background: #f1f1f1;
 }
 html ::-webkit-scrollbar-thumb {
-  background: #bbb;
-  border-radius: 8px;
+  background: #999;
+  border-radius: 6px;
+  border: 2px solid #f1f1f1;
+}
+html ::-webkit-scrollbar-thumb:hover {
+  background: #777;
 }
 html ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #f1f1f1;
+  border-radius: 6px;
 }
 html ::-webkit-scrollbar-button {
   display: none;
@@ -135,14 +140,25 @@ html ::-webkit-scrollbar-button {
 
 /* Dark Theme */
 html.dark, html.dark body {
-  scrollbar-width: thin;
-  scrollbar-color: #444 transparent;
+  scrollbar-width: auto;
+  scrollbar-color: #555 #2a2a2a;
+}
+html.dark ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+  background: #2a2a2a;
 }
 html.dark ::-webkit-scrollbar-thumb {
-  background: #444;
+  background: #555;
+  border-radius: 6px;
+  border: 2px solid #2a2a2a;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #666;
 }
 html.dark ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #2a2a2a;
+  border-radius: 6px;
 }
 html.dark ::-webkit-scrollbar-button {
   display: none;
@@ -152,14 +168,25 @@ html.dark ::-webkit-scrollbar-button {
 
 /* Dracula Theme */
 html.dracula, html.dracula body {
-  scrollbar-width: thin;
-  scrollbar-color: #6272a4 transparent;
+  scrollbar-width: auto;
+  scrollbar-color: #6272a4 #383a4a;
+}
+html.dracula ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+  background: #383a4a;
 }
 html.dracula ::-webkit-scrollbar-thumb {
   background: #6272a4;
+  border-radius: 6px;
+  border: 2px solid #383a4a;
+}
+html.dracula ::-webkit-scrollbar-thumb:hover {
+  background: #7184b8;
 }
 html.dracula ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #383a4a;
+  border-radius: 6px;
 }
 html.dracula ::-webkit-scrollbar-button {
   display: none;
@@ -175,8 +202,15 @@ html.dracula ::-webkit-scrollbar-button {
   box-sizing: border-box;
 }
 
-body {
+html, body {
   margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+body {
   font-family: var(--font-sans);
   background-color: var(--background);
   color: var(--text-primary);
@@ -190,6 +224,7 @@ body {
   max-width: 1400px;
   margin: 0 auto;
   padding: 2rem;
+  position: relative;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -314,6 +349,8 @@ select.input option {
 
   .table-container {
     overflow-x: auto; /* Enable horizontal scrolling for tables */
+    overflow-y: auto; /* Enable vertical scrolling for tables */
+    max-height: 60vh; /* 모바일에서는 60% 높이로 제한 */
   }
 
   table {
@@ -469,11 +506,40 @@ select.input option {
 }
 .table-container {
   overflow-x: auto;
-  border-radius: 10px; /* Applied border-radius */
+  overflow-y: visible;
+  border-radius: 10px;
   border: 1px solid var(--card-border);
+  max-width: 100%;
+}
+
+/* 테이블 컨테이너 전용 스크롤바 스타일 */
+.table-container::-webkit-scrollbar {
+  width: 16px !important;
+  height: 16px !important;
+  background: #f1f1f1 !important;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+  background: #888 !important;
+  border-radius: 8px !important;
+  border: 1px solid #ccc !important;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+  background: #555 !important;
+}
+
+.table-container::-webkit-scrollbar-track {
+  background: #f1f1f1 !important;
+  border-radius: 8px !important;
+}
+
+.table-container::-webkit-scrollbar-corner {
+  background: #f1f1f1 !important;
 }
 table {
   width: 100%;
+  min-width: 800px;
   border-collapse: collapse;
   white-space: nowrap;
 }
@@ -490,6 +556,10 @@ th {
   color: var(--text-secondary);
   letter-spacing: 0.08em;
   background-color: var(--card-background);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  box-shadow: 0 1px 0 var(--card-border);
 }
 tbody tr {
   transition: background-color 0.2s ease;
@@ -501,7 +571,8 @@ tbody tr:last-child td {
   border-bottom: none;
 }
 .filename {
-  max-width: 500px;
+  max-width: 300px;
+  min-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -510,6 +581,8 @@ tbody tr:last-child td {
   display: flex;
   gap: 0.5rem;
   justify-content: center;
+  min-width: 150px;
+  white-space: nowrap;
 }
 .actions-header {
   text-align: center;
@@ -527,8 +600,8 @@ tbody tr:last-child td {
   text-transform: capitalize;
 }
 .status-pending {
-  color: var(--text-primary); /* Changed to ensure visibility */
-  background-color: var(--card-border); /* Adjusted for better visibility in light theme */
+  color: var(--text-primary);
+  background-color: var(--card-border);
 }
 .status-downloading {
   color: #fff;
@@ -540,15 +613,16 @@ tbody tr:last-child td {
 }
 .status-failed {
   color: #fff;
-  background-color: hsl(0, 80%, 70%);
+  background-color: var(--danger-color);
 }
 .status-proxying {
   color: #fff;
-  background-color: var(--warning-color); /* A distinct color for proxying status */
+  background-color: var(--warning-color);
 }
-.status-paused {
-  color: var(--text-primary);
-  background-color: #b0b0b0; /* A distinct grey for paused status */
+.status-paused,
+.status-stopped {
+  color: #fff;
+  background-color: #6c757d; /* Bootstrap gray */
 }
 .progress-container {
   width: 100%;
@@ -1252,15 +1326,131 @@ html.dracula .system-theme-card {
 .spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid transparent;
-  border-top: 2px solid currentColor;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
   display: inline-block;
   margin-right: 8px;
+  position: relative;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.spinner::before,
+.spinner::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+}
+
+.spinner::before {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  opacity: 0.2;
+  animation: ripple 1.5s ease-out infinite;
+}
+
+.spinner::after {
+  width: 8px;
+  height: 8px;
+  top: 4px;
+  left: 4px;
+  background: currentColor;
+  animation: bounce 1s ease-in-out infinite;
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.7);
+    opacity: 0.7;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.3);
+  }
 }
 
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+.modal-spinner {
+  width: 24px;
+  height: 24px;
+  display: inline-block;
+  margin-right: 12px;
+  position: relative;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.modal-spinner::before,
+.modal-spinner::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+}
+
+.modal-spinner::before {
+  width: 24px;
+  height: 24px;
+  border: 3px solid currentColor;
+  opacity: 0.2;
+  animation: ripple-large 1.5s ease-out infinite;
+}
+
+.modal-spinner::after {
+  width: 12px;
+  height: 12px;
+  top: 6px;
+  left: 6px;
+  background: currentColor;
+  animation: bounce-large 1s ease-in-out infinite;
+}
+
+@keyframes ripple-large {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@keyframes bounce-large {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.7);
+    opacity: 0.7;
+  }
 }

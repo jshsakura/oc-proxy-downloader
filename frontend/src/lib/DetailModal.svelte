@@ -3,7 +3,9 @@
   import { t } from "./i18n.js";
   import InfoIcon from "../icons/InfoIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
+  import CopyIcon from "../icons/CopyIcon.svelte";
   import { onMount, onDestroy } from "svelte";
+  import { showToastMsg } from "./toast.js";
 
   export let showModal = false;
   export let download = {};
@@ -22,6 +24,30 @@
     const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+  }
+
+  async function copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for older browsers or non-HTTPS
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+      }
+      showToastMsg($t("copy_success") || "복사되었습니다", "success");
+    } catch (err) {
+      console.error("클립보드 복사 실패:", err);
+      showToastMsg($t("copy_failed") || "복사에 실패했습니다", "error");
+    }
   }
 
   onMount(() => {
@@ -59,17 +85,33 @@
           <tbody>
             <tr>
               <th>{$t("detail_original_url")}:</th>
-              <td>{download.url}</td>
+              <td>
+                <div class="url-container">
+                  <span class="url-text">{download.url}</span>
+                  <button 
+                    class="copy-button"
+                    on:click={() => copyToClipboard(download.url)}
+                    title={$t("copy_url") || "URL 복사"}
+                  >
+                    <CopyIcon />
+                  </button>
+                </div>
+              </td>
             </tr>
             <tr>
               <th>{$t("detail_actual_file_url")}:</th>
               <td>
                 {#if download.direct_link}
-                  <a
-                    href={download.direct_link}
-                    target="_blank"
-                    rel="noopener noreferrer">{download.direct_link}</a
-                  >
+                  <div class="url-container">
+                    <span class="url-text">{download.direct_link}</span>
+                    <button 
+                      class="copy-button"
+                      on:click={() => copyToClipboard(download.direct_link)}
+                      title={$t("copy_url") || "URL 복사"}
+                    >
+                      <CopyIcon />
+                    </button>
+                  </div>
                 {:else}
                   {$t("detail_not_available")}
                 {/if}
@@ -125,7 +167,20 @@
             </tr>
             <tr>
               <th>{$t("detail_error_message")}:</th>
-              <td>{download.error || $t("detail_no_error")}</td>
+              <td>
+                <div class="error-message-container">
+                  <span class="error-text">{download.error || $t("detail_no_error")}</span>
+                  {#if download.error}
+                    <button 
+                      class="copy-button"
+                      on:click={() => copyToClipboard(download.error)}
+                      title={$t("copy_error") || "에러 메시지 복사"}
+                    >
+                      <CopyIcon />
+                    </button>
+                  {/if}
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -143,5 +198,50 @@
   .modal {
     max-height: 90vh;
     overflow-y: auto;
+  }
+
+  .error-message-container,
+  .url-container {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: 100%;
+  }
+
+  .error-text,
+  .url-text {
+    flex: 1;
+    word-break: break-all;
+    white-space: pre-wrap;
+    line-height: 1.4;
+    color: var(--text-primary, #1f2937);
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+  }
+
+  .copy-button {
+    background: none;
+    border: 1px solid var(--border-color, #e1e5e9);
+    border-radius: 4px;
+    padding: 4px;
+    cursor: pointer;
+    color: var(--text-secondary, #6b7280);
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    min-width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .copy-button:hover {
+    background-color: var(--bg-secondary, #f3f4f6);
+    color: var(--text-primary, #1f2937);
+    border-color: var(--border-color-hover, #d1d5db);
+  }
+
+  .copy-button:active {
+    transform: scale(0.95);
   }
 </style>

@@ -1,14 +1,64 @@
+# Development files
+.git
+.gitignore
+README.md
+readme.md
+.env
+.env.*
+
+# Node.js
+frontend/node_modules
+frontend/.svelte-kit
+frontend/.vite
+frontend/build
+frontend/dist
+
+# Python
 __pycache__/
+backend/__pycache__
+backend/**/__pycache__
+backend/.pytest_cache
 *.pyc
 *.pyo
 *.pyd
+backend/**/*.pyc
+backend/venv
+backend/env
 .Python
 env/
 venv/
-node_modules/
-frontend/node_modules/
-frontend/.svelte-kit/
-frontend/.vite/
-*.db-journal
+
+# Database and logs
+backend/*.db
+backend/*.db-journal
 *.sqlite3
-.DS_Store 
+backend/*.log
+backend/downloads/*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.yml
+docker-compose.*.yml
+.dockerignore
+
+# Other
+.claude/
+docs/
+*.md
+
+# Build scripts
+build-multiplatform.sh
+build-multiplatform.ps1
+
+# GitHub Actions (included in build)
+# .github/ 

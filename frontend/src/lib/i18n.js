@@ -6,29 +6,44 @@ const locale = writable('en');
 
 async function loadTranslations(lang) {
     isLoading.set(true);
-    // console.log(`[i18n] Attempting to load translations for: ${lang}`);
     try {
-        const response = await fetch(`/api/locales/${lang}.json`);
-        // console.log(`[i18n] Response for ${lang}.json: ${response.status} ${response.statusText}, ok: ${response.ok}`);
+        // Try API first, with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3초 타임아웃
+        
+        const response = await fetch(`/api/locales/${lang}.json`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
         if (!response.ok) {
             throw new Error(`Could not load ${lang}.json (Status: ${response.status})`);
         }
         const data = await response.json();
-        // console.log(`[i18n] Loaded data for ${lang}.json:`, data);
         translations.set(data);
         locale.set(lang);
-        // console.log(`[i18n] Translations store after set:`, translations);
+        console.log(`[i18n] Loaded translations from API for: ${lang}`);
     } catch (error) {
-        console.error('[i18n] Failed to load translations:', error);
-        // Fallback to English if loading fails for the requested language
-        if (lang !== 'en') {
-            // console.log('[i18n] Falling back to English translations.');
-            await loadTranslations('en');
-        } else {
-            // If even English fails, set an empty object to prevent errors
-            translations.set({});
-            locale.set('en');
-        }
+        console.error('[i18n] API failed, using fallback translations:', error);
+        // Fallback to embedded minimal translations
+        const fallbackTranslations = {
+            "title": lang === 'ko' ? "OC Proxy" : "OC Proxy",
+            "add_download": lang === 'ko' ? "다운로드 추가" : "Add Download",
+            "url_placeholder": lang === 'ko' ? "다운로드 URL" : "Download URL",
+            "loading": lang === 'ko' ? "로딩 중..." : "Loading...",
+            "table_header_file_name": lang === 'ko' ? "파일 이름" : "File Name",
+            "table_header_status": lang === 'ko' ? "상태" : "Status",
+            "table_header_actions": lang === 'ko' ? "작업" : "Actions",
+            "action_pause": lang === 'ko' ? "일시정지" : "Pause",
+            "action_resume": lang === 'ko' ? "재개" : "Resume",
+            "action_retry": lang === 'ko' ? "재시도" : "Retry",
+            "action_delete": lang === 'ko' ? "삭제" : "Delete",
+            "settings_title": lang === 'ko' ? "설정" : "Settings",
+            "close": lang === 'ko' ? "닫기" : "Close"
+        };
+        
+        translations.set(fallbackTranslations);
+        locale.set(lang);
     } finally {
         isLoading.set(false);
     }
@@ -97,6 +112,30 @@ const t = derived(translations, ($translations) => {
                     break;
                 case 'download_proxying':
                     text = 'Proxying';
+                    break;
+                case 'clipboard_tooltip':
+                    text = 'Paste from clipboard';
+                    break;
+                case 'clipboard_read_failed':
+                    text = 'Failed to read clipboard';
+                    break;
+                case 'password_tooltip':
+                    text = 'Set password';
+                    break;
+                case 'no_working_downloads':
+                    text = 'No downloads in progress.';
+                    break;
+                case 'no_completed_downloads':
+                    text = 'No completed downloads.';
+                    break;
+                case 'tab_working':
+                    text = 'Working';
+                    break;
+                case 'tab_completed':
+                    text = 'Completed';
+                    break;
+                case 'redownload':
+                    text = 'Redownload';
                     break;
                 default:
                     text = key; // Fallback to key if no specific fallback is defined
