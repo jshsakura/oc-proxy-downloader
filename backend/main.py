@@ -1914,13 +1914,18 @@ async def pause_download(download_id: int, db: Session = Depends(get_db)):
 app.include_router(api_router)
 app.include_router(proxy_stats_router, prefix="/api")
 
-# Serve static files from the dist directory
-app.mount("/", StaticFiles(directory=frontend_dist_path), name="static")
-
-# Catch-all route for SPA routing
+# Catch-all route for SPA routing (정적 파일보다 먼저 정의)
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
+    # 정적 파일인지 확인
+    file_path = os.path.join(frontend_dist_path, full_path)
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+    # SPA 라우팅을 위해 index.html 반환
     return FileResponse(os.path.join(frontend_dist_path, "index.html"))
+
+# Serve static files from the dist directory
+app.mount("/static", StaticFiles(directory=frontend_dist_path), name="static")
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

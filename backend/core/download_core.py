@@ -169,13 +169,47 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
 
 def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
     """프록시를 순환하면서 Direct Link 파싱"""
+    from .proxy_manager import get_working_proxy
+    
+    # 먼저 작동하는 프록시를 찾아서 시도
+    working_proxy = get_working_proxy(db, max_test=50)
+    if working_proxy:
+        print(f"[LOG] 검증된 프록시로 파싱 시도: {working_proxy}")
+        try:
+            # WebSocket으로 프록시 시도 중 알림
+            send_websocket_message("proxy_trying", {
+                "proxy": working_proxy,
+                "step": "파싱 중 (검증됨)",
+                "current": 1,
+                "total": 1,
+                "url": req.url
+            })
+            
+            direct_link = get_or_parse_direct_link(
+                req, 
+                proxies=None, 
+                use_proxy=True, 
+                force_reparse=force_reparse, 
+                proxy_addr=working_proxy
+            )
+            
+            if direct_link:
+                print(f"[LOG] 검증된 프록시로 파싱 성공: {working_proxy}")
+                mark_proxy_used(db, working_proxy, success=True)
+                return direct_link, working_proxy
+                
+        except Exception as e:
+            print(f"[LOG] 검증된 프록시 파싱 실패 - {working_proxy}: {e}")
+            mark_proxy_used(db, working_proxy, success=False)
+    
+    # 검증된 프록시가 없거나 실패한 경우 전체 프록시로 폴백
     unused_proxies = get_unused_proxies(db)
     
     if not unused_proxies:
         print(f"[LOG] 사용 가능한 프록시가 없음")
         return None, None
     
-    # print(f"[LOG] {len(unused_proxies)}개 프록시로 파싱 시도")
+    print(f"[LOG] {len(unused_proxies)}개 프록시로 파싱 시도 (폴백)")
     
     for i, proxy_addr in enumerate(unused_proxies):
         # 매 프록시 시도마다 정지 상태 체크

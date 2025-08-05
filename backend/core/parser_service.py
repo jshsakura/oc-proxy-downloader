@@ -26,22 +26,23 @@ def get_or_parse_direct_link(req, proxies=None, use_proxy=True, force_reparse=Fa
     # 강제 재파싱이 요청되었거나 기존 링크가 없는 경우
     if force_reparse or not req.direct_link:
         print(f"[LOG] direct_link 새로 파싱 (force_reparse: {force_reparse}, proxy: {proxy_addr})")
-        return parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy)
+        return parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy, proxy_addr=proxy_addr)
     
     # 기존 링크가 있는 경우 만료 여부 확인
     if is_direct_link_expired(req.direct_link, use_proxy=use_proxy, proxy_addr=proxy_addr):
         print(f"[LOG] 기존 direct_link가 만료됨. 재파싱 시작: {req.direct_link} (proxy: {proxy_addr})")
-        return parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy)
+        return parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy, proxy_addr=proxy_addr)
     
     print(f"[LOG] 기존 direct_link 재사용: {req.direct_link}")
     return req.direct_link
 
 
-def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=True):
+def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=True, proxy_addr=None):
     """단순화된 1fichier Direct Link 파싱"""
     # print(f"[LOG] Direct Link 파싱 시작: {url}")
     
     scraper = cloudscraper.create_scraper()
+    scraper.verify = False  # SSL 검증 비활성화
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -107,12 +108,13 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=True):
             raise e  # 프록시 순환 로직에서 처리하도록 raise
         except requests.exceptions.ProxyError as e:
             error_msg = str(e)
+            proxy_display = proxy_addr if proxy_addr else 'Unknown'
             if "Tunnel connection failed: 400 Bad Request" in error_msg:
-                print(f"[LOG] 프록시 HTTPS 터널링 실패: {proxy_addr if 'proxy_addr' in locals() else 'Unknown'}")
+                print(f"[LOG] 프록시 HTTPS 터널링 실패: {proxy_display}")
             elif "Unable to connect to proxy" in error_msg:
-                print(f"[LOG] 프록시 연결 불가: {proxy_addr if 'proxy_addr' in locals() else 'Unknown'}")
+                print(f"[LOG] 프록시 연결 불가: {proxy_display}")
             else:
-                print(f"[LOG] 프록시 연결 오류: {e}")
+                print(f"[LOG] 프록시 연결 오류 ({proxy_display}): {e}")
             raise e  # 프록시 순환 로직에서 처리하도록 raise
         except Exception as e:
             print(f"[LOG] 파싱 예외: {e}")

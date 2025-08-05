@@ -93,30 +93,23 @@ def reset_proxy_usage(db: Session):
         db.rollback()
 
 
-def test_proxy(proxy_addr, timeout=8):
-    """프록시 연결 테스트 - 1fichier.com HTTPS 지원 여부 확인"""
+def test_proxy(proxy_addr, timeout=3):
+    """프록시 연결 테스트 - CloudScraper와 동일한 환경으로 테스트"""
+    import cloudscraper
+    
     proxy_config = {
         "http": f"http://{proxy_addr}",
         "https": f"http://{proxy_addr}"
     }
     
-    # 1단계: 간단한 HTTP 테스트
+    # CloudScraper로 실제 파싱과 동일한 환경에서 테스트
     try:
-        response = requests.get("http://httpbin.org/ip", proxies=proxy_config, timeout=timeout)
-        if response.status_code != 200:
-            return False
-    except Exception:
-        return False
-    
-    # 2단계: HTTPS 터널링 테스트 (1fichier.com과 유사한 환경)
-    try:
-        response = requests.head("https://1fichier.com", proxies=proxy_config, timeout=timeout, verify=False)
-        return response.status_code in [200, 301, 302, 403, 429]  # 연결은 되지만 차단될 수 있음
-    except requests.exceptions.ProxyError as e:
-        if "Tunnel connection failed" in str(e):
-            return False  # HTTPS 터널링 미지원
-        return False
-    except Exception:
+        scraper = cloudscraper.create_scraper()
+        scraper.verify = False
+        response = scraper.head("https://1fichier.com", proxies=proxy_config, timeout=timeout)
+        return response.status_code in [200, 301, 302, 403, 429]
+    except Exception as e:
+        # 모든 예외는 실패로 처리 (빠른 필터링)
         return False
 
 
@@ -127,7 +120,7 @@ def get_working_proxy(db: Session, max_test=15):
     for i, proxy_addr in enumerate(unused_proxies[:max_test]):
         print(f"[LOG] 프록시 테스트 {i+1}/{max_test}: {proxy_addr}")
         
-        if test_proxy(proxy_addr, timeout=10):
+        if test_proxy(proxy_addr, timeout=3):
             print(f"[LOG] 작동하는 프록시 발견: {proxy_addr}")
             return proxy_addr
             

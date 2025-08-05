@@ -20,7 +20,14 @@
       "Bash(tasklist:*)",
       "Bash(netsh:*)",
       "Bash(del \"C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\downloads.db\")",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(git restore:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": []
   }
