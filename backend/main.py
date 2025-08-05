@@ -28,6 +28,11 @@ import builtins
 original_print = builtins.print
 builtins.print = force_print
 
+# Python 경로 설정 (Docker 환경 대응)
+backend_path = os.path.dirname(os.path.abspath(__file__))
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
+
 from core.config import get_config, save_config, get_download_path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, BackgroundTasks, HTTPException, Body, APIRouter
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
