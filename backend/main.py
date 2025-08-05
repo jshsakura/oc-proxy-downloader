@@ -59,8 +59,12 @@ import re
 from urllib.parse import urlparse, unquote
 import os
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+    GUI_AVAILABLE = True
+except ImportError:
+    GUI_AVAILABLE = False
 import threading
 from concurrent.futures import ThreadPoolExecutor, Future
 import weakref
@@ -1429,6 +1433,10 @@ async def select_folder(req: Request):
     
     def open_folder_dialog():
         """별도 스레드에서 폴더 선택 대화상자 실행"""
+        if not GUI_AVAILABLE:
+            print("[INFO] GUI not available in this environment, using default downloads path")
+            return downloads_path
+            
         try:
             root = tk.Tk()
             root.withdraw()
