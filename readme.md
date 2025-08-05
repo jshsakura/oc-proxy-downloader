@@ -44,6 +44,20 @@ docker-compose logs -f
 docker-compose down
 ```
 
+**문제 해결: 캐시 이슈 시**
+```bash
+# Linux/macOS
+./docker-reset.sh
+
+# Windows PowerShell
+.\docker-reset.ps1
+
+# 또는 수동으로:
+docker-compose down --remove-orphans
+docker-compose build --no-cache
+docker-compose up -d
+```
+
 ### 2. 이미지 빌드만 하기
 
 **단일 플랫폼 빌드:**
@@ -135,7 +149,32 @@ docker run -d \
 - **linux/amd64** (x86_64) - Intel/AMD 64-bit
 - **linux/arm64** (aarch64) - ARM 64-bit (Apple Silicon, Raspberry Pi 4+ 등)
 
-GitHub Actions를 통해 자동으로 multi-platform 이미지가 빌드되어 Docker Hub에 배포됩니다.
+**Docker Hub 자동 배포:**
+- `main` 브랜치 푸시 → `latest` 태그 + 날짜-커밋해시 태그 (linux/amd64 + linux/arm64)
+- 버전 태그 푸시 → 해당 버전 태그 (linux/amd64 + linux/arm64)
+
+모든 이미지는 GitHub Actions를 통해 자동으로 multi-platform 빌드됩니다.
+
+### 9. 버전 관리 및 릴리스
+
+**자동 릴리스 스크립트:**
+```bash
+# 패치 버전 증가 (1.0.0 → 1.0.1)
+./release.sh patch
+
+# 마이너 버전 증가 (1.0.0 → 1.1.0)  
+./release.sh minor
+
+# 메이저 버전 증가 (1.0.0 → 2.0.0)
+./release.sh major
+
+# 직접 버전 지정
+./release.sh v1.2.3
+```
+
+**버전 규칙:**
+- 태그가 있는 경우: `v1.0.0` → Docker 태그 `1.0.0`
+- 태그가 없는 경우: `2025.08.05-a1b2c3d` 형식 (날짜-커밋해시)
 
 ---
 

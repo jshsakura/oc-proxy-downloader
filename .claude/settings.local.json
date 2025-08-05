@@ -19,7 +19,8 @@
       "Bash(mv:*)",
       "Bash(tasklist:*)",
       "Bash(netsh:*)",
-      "Bash(del \"C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\downloads.db\")"
+      "Bash(del \"C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\downloads.db\")",
+      "Bash(bash:*)"
     ],
     "deny": []
   }

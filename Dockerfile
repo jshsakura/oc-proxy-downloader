@@ -12,6 +12,7 @@ FROM python:3.11-slim AS backend
 # Build arguments for multi-platform
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
+ARG VERSION=dev
 
 WORKDIR /app
 
@@ -40,7 +41,8 @@ ENV DOWNLOAD_PATH=/app/backend/downloads \
     PUID=1000 \
     PGID=1000 \
     TZ=Asia/Seoul \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    APP_VERSION=${VERSION}
 
 EXPOSE 8000
 
