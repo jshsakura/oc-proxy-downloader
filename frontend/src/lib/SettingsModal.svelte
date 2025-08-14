@@ -2,7 +2,6 @@
   import { createEventDispatcher } from "svelte";
   import { theme } from "./theme.js";
   import { t, loadTranslations } from "./i18n.js";
-  import FolderIcon from "../icons/FolderIcon.svelte";
   import HomeIcon from "../icons/HomeIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
@@ -96,32 +95,6 @@
     }
   }
 
-  async function selectFolder() {
-    try {
-      console.log("[DEBUG] 폴더 선택 API 호출 시작");
-      const response = await fetch("/api/select_folder", { 
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-      console.log("[DEBUG] API 응답 받음:", response.status);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log("[DEBUG] 응답 데이터:", data);
-        if (data.path) {
-          settings = { ...settings, download_path: data.path };
-          console.log("[DEBUG] 폴더 경로 업데이트됨:", data.path);
-        }
-      } else {
-        console.warn("[WARN] 폴더 선택 API 실패 (도커 환경일 수 있음):", response.status);
-        // 도커 환경에서는 조용히 실패 처리
-      }
-    } catch (e) {
-      console.warn("[WARN] 폴더 선택 실패 (도커 환경일 수 있음):", e.message);
-      // 도커 환경에서는 조용히 실패 처리, 사용자가 수동 입력 가능
-    }
-  }
-
   async function resetToDefault() {
     try {
       console.log("[DEBUG] 기본 경로 가져오기 API 호출 시작");
@@ -206,15 +179,6 @@
                 bind:value={settings.download_path}
                 placeholder="다운로드 경로를 입력하세요 (예: /downloads)"
               />
-              <button
-                type="button"
-                class="input-icon-button"
-                on:click={selectFolder}
-                title="폴더 선택"
-                aria-label="폴더 선택"
-              >
-                <FolderIcon />
-              </button>
               <button
                 type="button"
                 class="input-icon-button reset-button"
@@ -561,7 +525,7 @@
   }
   
   .input-group .input {
-    padding-right: 88px; /* 두 개의 버튼 공간 확보 (48px + 40px) */
+    padding-right: 48px; /* 리셋 버튼 하나만 있으므로 패딩 줄임 */
   }
 
   .input:focus {
@@ -588,7 +552,7 @@
   }
   
   .input-icon-button.reset-button {
-    right: 48px; /* 첫 번째 버튼 왼쪽에 배치 */
+    right: 8px; /* 폴더 버튼 제거했으므로 오른쪽으로 이동 */
   }
 
   .input-icon-button:hover {
