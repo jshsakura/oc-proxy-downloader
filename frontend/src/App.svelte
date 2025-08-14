@@ -1158,9 +1158,10 @@
 
   /* 빈 테이블일 때 더 작은 높이 */
   .table-container.empty-table {
-    height: auto; /* 콘텐츠에 맞게 자동 조정 */
+    height: fit-content; /* 콘텐츠에 정확히 맞춤 */
     min-height: auto; /* 최소 높이 제거 */
     max-height: none; /* 최대 높이 제한 제거 */
+    overflow: hidden; /* 스크롤바 완전 제거 */
   }
 
   /* 인터랙티브 상태 라벨 스타일 */
@@ -1226,7 +1227,6 @@
   .tabs-container {
     margin: -1.5rem -1.5rem 0 -1.5rem;
     padding: 1rem 1.5rem 0 1.5rem;
-    border-bottom: 1px solid var(--card-border);
     background: linear-gradient(135deg, var(--card-background) 0%, rgba(var(--primary-color-rgb), 0.02) 100%);
   }
 

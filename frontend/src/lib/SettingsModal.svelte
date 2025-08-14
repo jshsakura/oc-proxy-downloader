@@ -107,14 +107,20 @@
         if (data.path) {
           settings = { ...settings, download_path: data.path };
           console.log("[DEBUG] 기본 경로로 리셋됨:", data.path);
+        } else {
+          // API 응답에 path가 없으면 기본값 사용
+          settings = { ...settings, download_path: "/downloads" };
+          console.log("[DEBUG] 기본값으로 리셋됨: /downloads");
         }
       } else {
-        console.error("[ERROR] 기본 경로 가져오기 실패:", response.status);
-        alert("기본 경로를 가져오는데 실패했습니다.");
+        console.warn("[WARN] 기본 경로 API 실패, 기본값 사용:", response.status);
+        // API 실패 시 기본값으로 직접 설정
+        settings = { ...settings, download_path: "/downloads" };
       }
     } catch (e) {
-      console.error("[ERROR] 기본 경로 가져오기 중 오류:", e);
-      alert("기본 경로 가져오기 중 오류 발생: " + e.message);
+      console.warn("[WARN] 기본 경로 API 오류, 기본값 사용:", e.message);
+      // 오류 발생 시 기본값으로 직접 설정
+      settings = { ...settings, download_path: "/downloads" };
     }
   }
 
