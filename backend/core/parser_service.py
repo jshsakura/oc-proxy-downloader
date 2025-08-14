@@ -332,11 +332,62 @@ def _detect_download_limits(html_content, original_url):
     try:
         import re
         
-        # 1단계: 실시간 카운트다운 감지 (가장 우선순위)
+        # HTML 내용 디버깅
+        print(f"[DEBUG] HTML 길이: {len(html_content)} 글자")
+        
+        # HTML 일부 출력해서 실제 내용 확인
+        if len(html_content) > 500:
+            sample_start = html_content[:500]
+            sample_middle = html_content[len(html_content)//2:len(html_content)//2+300] 
+            print(f"[DEBUG] HTML 시작 부분: {sample_start}")
+            print(f"[DEBUG] HTML 중간 부분: {sample_middle}")
+        
+        if 'dlw' in html_content:
+            print(f"[DEBUG] HTML에서 'dlw' 발견됨")
+        if 'disabled' in html_content:
+            print(f"[DEBUG] HTML에서 'disabled' 발견됨")
+        if 'Free download' in html_content:
+            print(f"[DEBUG] HTML에서 'Free download' 발견됨")
+        if 'button' in html_content.lower():
+            print(f"[DEBUG] HTML에서 'button' 발견됨")
+        if '1fichier' in html_content:
+            print(f"[DEBUG] HTML에서 '1fichier' 발견됨")
+        else:
+            print(f"[DEBUG] HTML에서 '1fichier'를 찾을 수 없음 - 다른 사이트로 리다이렉트된 것 같음")
+        
+        # 1단계: JavaScript에서 카운트다운 시간 추출 (가장 우선순위)
+        if 'id="dlw"' in html_content and 'disabled' in html_content:
+            print(f"[DEBUG] dlw 버튼이 disabled 상태로 발견됨")
+            
+            # JavaScript 코드에서 카운트다운 시간 추출
+            js_countdown_match = re.search(r'var\s+ct\s*=\s*(\d+)', html_content)
+            if js_countdown_match:
+                countdown_seconds = int(js_countdown_match.group(1))
+                print(f"[LOG] JavaScript에서 카운트다운 감지: {countdown_seconds}초 (var ct = {countdown_seconds})")
+                return ("countdown", countdown_seconds)
+            
+            # 다른 JavaScript 패턴도 시도
+            js_patterns = [
+                r'countdown["\']?\s*[:=]\s*(\d+)',  # countdown: 60 또는 countdown = 60
+                r'timer["\']?\s*[:=]\s*(\d+)',     # timer: 45
+                r'wait["\']?\s*[:=]\s*(\d+)',      # wait: 25
+            ]
+            
+            for pattern in js_patterns:
+                js_match = re.search(pattern, html_content, re.IGNORECASE)
+                if js_match:
+                    countdown_seconds = int(js_match.group(1))
+                    print(f"[LOG] JavaScript 패턴에서 카운트다운 감지: {countdown_seconds}초")
+                    return ("countdown", countdown_seconds)
+                    
+            print(f"[DEBUG] JavaScript에서 카운트다운 시간을 찾을 수 없음")
+        else:
+            print(f"[DEBUG] dlw 버튼이나 disabled 속성을 찾을 수 없음")
+        
+        # 기존 패턴들도 시도
         countdown_patterns = [
-            r'Free download in.*?⏳\s*(\d+)',  # Free download in ⏳ 28
+            r'Free download in.*?(\d+)',      # Free download in 47 or Free download in ⏳ 47
             r'download in.*?(\d+)',           # download in 25
-            r'⏳\s*(\d+)',                    # ⏳ 30
             r'disabled.*?(\d+)',              # disabled button with countdown
         ]
         
@@ -344,6 +395,7 @@ def _detect_download_limits(html_content, original_url):
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 countdown_seconds = int(match.group(1))
+                print(f"[LOG] 카운트다운 패턴 매칭됨: '{pattern}' -> {countdown_seconds}초")
                 return ("countdown", countdown_seconds)
         
         # 2단계: "You must wait X minutes" 형태의 메시지
@@ -360,9 +412,18 @@ def _detect_download_limits(html_content, original_url):
                 wait_minutes = int(match.group(1))
                 return (limit_type, f"{wait_minutes} 분")
         
-        # 3단계: 프리미엄 페이지로 리다이렉트된 경우
-        if '/console/abo.pl' in html_content or 'premium' in html_content.lower():
-            return ("다운로드 제한 - 프리미엄 필요", None)
+        # 3단계: 프리미엄 페이지로 리다이렉트된 경우 (더 엄격한 조건)
+        # dlw 버튼이 있으면 카운트다운 페이지이므로 프리미엄 체크 건너뛰기
+        if 'id="dlw"' not in html_content:
+            premium_indicators = [
+                '/console/abo.pl' in html_content and 'id="dlw"' not in html_content,
+                'premium required' in html_content.lower(),
+                'premium account' in html_content.lower(), 
+                'upgrade to premium' in html_content.lower()
+            ]
+            if any(premium_indicators):
+                print(f"[DEBUG] 프리미엄 필요 감지됨 (dlw 버튼 없음)")
+                return ("다운로드 제한 - 프리미엄 필요", None)
         
         # 4단계: 기타 시간 제한 메시지들
         time_limit_patterns = [

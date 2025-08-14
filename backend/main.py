@@ -230,12 +230,15 @@ manager = ConnectionManager()
 # status_queue는 shared.py에서 import됨
 
 async def status_broadcaster():
+    print("[LOG] status_broadcaster 시작됨")
     while True:
         try:
             # non-blocking으로 큐에서 메시지 확인
             try:
                 msg = status_queue.get_nowait()
+                print(f"[LOG] status_broadcaster: 메시지 처리 중, 연결 수: {len(manager.active_connections)}")
                 await manager.broadcast(msg)
+                print(f"[LOG] status_broadcaster: 메시지 브로드캐스트 완료")
             except queue.Empty:
                 # 큐가 비어있으면 잠시 대기
                 await asyncio.sleep(0.1)
@@ -335,9 +338,13 @@ def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
         # Safely handle encoding for log messages
         try:
             print(f"[LOG] Notifying status update for {download_id}: {item_dict}")
+            print(f"[LOG] WebSocket 연결 수: {len(manager.active_connections)}")
         except UnicodeEncodeError:
             print(f"[LOG] Notifying status update for {download_id}: (encoding error)")
-        status_queue.put(json.dumps({"type": "status_update", "data": item_dict}, ensure_ascii=False))
+        
+        message = json.dumps({"type": "status_update", "data": item_dict}, ensure_ascii=False)
+        status_queue.put(message)
+        print(f"[LOG] 상태 업데이트 메시지를 큐에 추가함: {download_id} -> {item.status}")
 
 async def notify_proxy_try(download_id: int, proxy: str):
     import json
