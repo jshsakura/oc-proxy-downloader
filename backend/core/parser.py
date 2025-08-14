@@ -94,7 +94,10 @@ class FichierParser:
         r'/login',
         r'/contact',
         r'/help',
-        r'/faq'
+        r'/faq',
+        r'/console/abo\.pl',  # 프리미엄 결제 페이지
+        r'/tarifs',           # 요금제 페이지
+        r'/console/',         # 콘솔 페이지들
     ]
     
     def __init__(self):

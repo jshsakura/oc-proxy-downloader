@@ -35,6 +35,7 @@ if backend_path not in sys.path:
 
 from core.config import get_config, save_config, get_download_path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, BackgroundTasks, HTTPException, Body, APIRouter
+from contextlib import asynccontextmanager
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -51,7 +52,7 @@ import random
 import lxml.html
 import time
 import asyncio
-from core.i18n import get_message
+from core.i18n import get_message, load_all_translations, get_translations
 from sqlalchemy import or_, desc, asc
 import queue
 import cloudscraper
@@ -93,7 +94,70 @@ from logger import log_once
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+# 전역 변수로 중복 실행 방지
+_startup_executed = False
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    global _startup_executed
+    
+    # 이미 실행되었으면 무조건 종료
+    if not _startup_executed:
+        _startup_executed = True
+        
+        # 번역 파일 로드
+        print("[LOG] 번역 파일 로딩 중...")
+        load_all_translations()
+        
+        # WebSocket broadcaster 시작
+        asyncio.create_task(status_broadcaster())
+        
+        # 서버 재시작 시 진행 중이던 다운로드를 모두 paused로 변경
+        db = next(get_db())
+        
+        # 진행 중이던 다운로드들을 가져와서 개별적으로 처리
+        downloading_requests = db.query(DownloadRequest).filter(
+            DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying])
+        ).all()
+        
+        for req in downloading_requests:
+            req.status = StatusEnum.stopped
+            db.commit()
+            
+            # 각 다운로드의 상태 변경을 WebSocket으로 알림
+            try:
+                import json
+                status_data = {
+                    "type": "status_update",
+                    "data": {
+                        "id": req.id,
+                        "status": "paused",
+                        "url": req.url,
+                        "file_name": req.file_name,
+                        "total_size": req.total_size,
+                        "downloaded_size": req.downloaded_size,
+                        "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+                        "direct_link": req.direct_link,
+                        "use_proxy": req.use_proxy,
+                        "error": "서버 재시작으로 인한 정지"
+                    }
+                }
+                status_queue.put(json.dumps(status_data))
+            except Exception as e:
+                print(f"[LOG] 서버 시작 시 WebSocket 알림 실패: {e}")
+        
+        if len(downloading_requests) > 0:
+            print(f"[LOG] 서버 재시작: {len(downloading_requests)}개의 진행 중 다운로드를 stopped로 변경")
+        else:
+            print(f"[LOG] 서버 시작 완료")
+    
+    yield
+    
+    # Shutdown
+    cleanup_and_exit()
+
+app = FastAPI(lifespan=lifespan)
 # print(f"[DEBUG] FastAPI 앱 생성됨 - ID: {id(app)} PID: {os.getpid()}")
 
 # 모든 요청 로깅 미들웨어
@@ -184,60 +248,6 @@ async def status_broadcaster():
             print(f"[ERROR] status_broadcaster 오류: {e}")
             await asyncio.sleep(1)  # 오류 시 잠시 대기
 
-# 전역 변수로 중복 실행 방지
-_startup_executed = False
-
-@app.on_event("startup")
-async def startup_event():
-    global _startup_executed
-    
-    # 이미 실행되었으면 무조건 종료
-    if _startup_executed:
-        return
-    
-    _startup_executed = True
-    
-    # WebSocket broadcaster 시작
-    asyncio.create_task(status_broadcaster())
-    
-    # 서버 재시작 시 진행 중이던 다운로드를 모두 paused로 변경
-    db = next(get_db())
-    
-    # 진행 중이던 다운로드들을 가져와서 개별적으로 처리
-    downloading_requests = db.query(DownloadRequest).filter(
-        DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying])
-    ).all()
-    
-    for req in downloading_requests:
-        req.status = StatusEnum.stopped
-        db.commit()
-        
-        # 각 다운로드의 상태 변경을 WebSocket으로 알림
-        try:
-            import json
-            status_data = {
-                "type": "status_update",
-                "data": {
-                    "id": req.id,
-                    "status": "paused",
-                    "url": req.url,
-                    "file_name": req.file_name,
-                    "total_size": req.total_size,
-                    "downloaded_size": req.downloaded_size,
-                    "requested_at": req.requested_at.isoformat() if req.requested_at else None,
-                    "direct_link": req.direct_link,
-                    "use_proxy": req.use_proxy,
-                    "error": "서버 재시작으로 인한 정지"
-                }
-            }
-            status_queue.put(json.dumps(status_data))
-        except Exception as e:
-            print(f"[LOG] 서버 시작 시 WebSocket 알림 실패: {e}")
-    
-    if len(downloading_requests) > 0:
-        print(f"[LOG] 서버 재시작: {len(downloading_requests)}개의 진행 중 다운로드를 stopped로 변경")
-    else:
-        print(f"[LOG] 서버 시작 완료")
 
 # cleanup 중복 실행 방지
 _cleanup_executed = False
@@ -292,9 +302,6 @@ if not hasattr(cleanup_and_exit, '_handlers_registered'):
     atexit.register(cleanup_and_exit)  # 프로그램 종료 시
     cleanup_and_exit._handlers_registered = True
 
-@app.on_event("shutdown")
-def shutdown_event():
-    cleanup_and_exit()
 
 
 @app.websocket("/ws/status")
@@ -1477,10 +1484,11 @@ def update_settings_endpoint(settings: dict, req: Request):
 
 @api_router.get("/locales/{lang}.json")
 async def serve_locale_file(lang: str, req: Request):
-    locale_file_path = os.path.join(backend_dir, "locales", f"{lang}.json")
-    if os.path.exists(locale_file_path):
-        return FileResponse(locale_file_path, media_type="application/json")
-    raise HTTPException(status_code=404, detail="Locale file not found")
+    """캐시된 번역 데이터를 반환"""
+    translations = get_translations(lang)
+    if translations:
+        return JSONResponse(content=translations)
+    raise HTTPException(status_code=404, detail="Locale not found")
 
 @api_router.get("/downloads/active")
 def get_active_downloads(req: Request):

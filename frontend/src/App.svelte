@@ -27,6 +27,7 @@
   import { toastMessage, showToast, showToastMsg } from "./lib/toast.js";
   import ConfirmModal from "./lib/ConfirmModal.svelte";
   import ProxyGauge from "./lib/ProxyGauge.svelte";
+  import LocalGauge from "./lib/LocalGauge.svelte";
 
   console.log(
     "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
@@ -61,7 +62,7 @@
   let selectedDownload = {};
   let downloadPath = ""; // Declare downloadPath here
   let prevLang = null;
-  let useProxy = true;
+  let useProxy = false;  // 기본값을 로컬로 설정
 
   // 프록시 상태 변수들
   let proxyStats = {
@@ -70,6 +71,16 @@
     usedProxies: 0,
     successCount: 0,
     failCount: 0
+  };
+
+  // 로컬 다운로드 상태 변수들
+  let localStats = {
+    localDownloadCount: 0,
+    localStatus: "",
+    localCurrentFile: "",
+    localProgress: 0,
+    localWaitTime: 0,
+    activeLocalDownloads: [],
   };
 
   // 다운로드별 프록시 상태 추적
@@ -324,6 +335,9 @@
         downloads = data; // 백엔드에서 배열을 직접 반환하므로 data.items가 아님
         currentPage = 1;
         totalPages = 1;
+        
+        // 로컬 다운로드 상태 업데이트
+        updateLocalStats(data);
       } else {
         console.error("History API failed with status:", response.status);
         const errorText = await response.text();
@@ -339,6 +353,53 @@
       console.log("Final downloads state:", downloads);
       console.log("=== fetchDownloads completed ===");
     }
+  }
+
+  function updateLocalStats(downloadsData) {
+    if (!downloadsData) return;
+    
+    // 로컬 다운로드 (use_proxy: false)인 항목들 필터링
+    const localDownloads = downloadsData.filter(d => !d.use_proxy);
+    
+    // 진행중인 로컬 다운로드 수
+    const activeLocalDownloads = localDownloads.filter(d => 
+      ['downloading', 'pending'].includes(d.status?.toLowerCase())
+    );
+    
+    // 현재 다운로드 중인 파일 찾기
+    const currentDownloading = activeLocalDownloads.find(d => d.status?.toLowerCase() === 'downloading');
+    
+    localStats.localDownloadCount = activeLocalDownloads.length;
+    localStats.localCurrentFile = currentDownloading?.file_name || 
+                                  activeLocalDownloads[0]?.file_name || "";
+    
+    if (currentDownloading) {
+      localStats.localStatus = "downloading";
+      // 진행률 계산 (downloaded_size / total_size * 100)
+      if (currentDownloading.total_size > 0 && currentDownloading.downloaded_size >= 0) {
+        localStats.localProgress = Math.round(
+          (currentDownloading.downloaded_size / currentDownloading.total_size) * 100
+        );
+      } else {
+        localStats.localProgress = 0;
+      }
+    } else if (activeLocalDownloads.length > 0) {
+      localStats.localStatus = "waiting";
+      localStats.localProgress = 0;
+    } else {
+      localStats.localStatus = "";
+      localStats.localProgress = 0;
+    }
+    
+    // 활성 로컬 다운로드 목록
+    localStats.activeLocalDownloads = activeLocalDownloads.map(d => ({
+      file_name: d.file_name,
+      progress: d.total_size > 0 ? Math.round((d.downloaded_size / d.total_size) * 100) : 0,
+      status: d.status
+    }));
+    
+    // 반응성 트리거
+    localStats = { ...localStats };
   }
 
   async function addDownload() {
@@ -622,13 +683,24 @@
     }
   }
 
-  function handleSettingsChanged() {
-    // 이후엔 오직 localStorage.lang만 기준
+  async function handleSettingsChanged(event) {
+    console.log("[DEBUG] 설정 변경됨:", event.detail);
+    
+    // 새로운 설정으로 currentSettings 업데이트
+    if (event.detail) {
+      currentSettings = { ...event.detail };
+      downloadPath = currentSettings.download_path || "";
+    }
+    
+    // 언어 변경 처리
     const lang = localStorage.getItem("lang");
     if (lang && lang !== prevLang) {
       loadTranslations(lang);
       prevLang = lang;
     }
+    
+    // 서버에서 최신 설정 다시 가져오기 (확실히 하기 위해)
+    await fetchSettings();
   }
 
 
@@ -713,6 +785,20 @@
             {/if}
           </button>
         </div>
+        <div class="proxy-toggle-container">
+          <button
+            type="button"
+            class="proxy-toggle-button {useProxy ? 'proxy' : 'local'}"
+            on:click={() => useProxy = !useProxy}
+            title={useProxy ? "프록시 모드 (클릭하여 로컬로 변경)" : "로컬 모드 (클릭하여 프록시로 변경)"}
+          >
+            <div class="proxy-toggle-slider"></div>
+            <div class="proxy-toggle-icons">
+              <span class="toggle-icon local-icon">🏠</span>
+              <span class="toggle-icon proxy-icon">🌐</span>
+            </div>
+          </button>
+        </div>
         <button
           type="submit"
           class="button button-primary add-download-button"
@@ -729,21 +815,38 @@
       </form>
     </div>
 
-    <!-- 프록시 게이지 -->
-    <ProxyGauge 
-      totalProxies={proxyStats.totalProxies}
-      availableProxies={proxyStats.availableProxies}
-      usedProxies={proxyStats.usedProxies}
-      successCount={proxyStats.successCount}
-      failCount={proxyStats.failCount}
-      currentProxy={proxyStats.currentProxy || ""}
-      currentStep={proxyStats.currentStep || ""}
-      status={proxyStats.status || ""}
-      currentIndex={proxyStats.currentIndex || 0}
-      totalAttempting={proxyStats.totalAttempting || 0}
-      lastError={proxyStats.lastError || ""}
-      activeDownloadCount={activeDownloadCount}
-    />
+    <!-- 게이지 컨테이너 -->
+    <div class="gauge-container">
+      <!-- 프록시 게이지 -->
+      <div class="gauge-item">
+        <ProxyGauge 
+          totalProxies={proxyStats.totalProxies}
+          availableProxies={proxyStats.availableProxies}
+          usedProxies={proxyStats.usedProxies}
+          successCount={proxyStats.successCount}
+          failCount={proxyStats.failCount}
+          currentProxy={proxyStats.currentProxy || ""}
+          currentStep={proxyStats.currentStep || ""}
+          status={proxyStats.status || ""}
+          currentIndex={proxyStats.currentIndex || 0}
+          totalAttempting={proxyStats.totalAttempting || 0}
+          lastError={proxyStats.lastError || ""}
+          activeDownloadCount={activeDownloadCount}
+        />
+      </div>
+
+      <!-- 로컬 게이지 -->
+      <div class="gauge-item">
+        <LocalGauge 
+          localDownloadCount={localStats.localDownloadCount}
+          localStatus={localStats.localStatus}
+          localCurrentFile={localStats.localCurrentFile}
+          localProgress={localStats.localProgress}
+          localWaitTime={localStats.localWaitTime}
+          activeLocalDownloads={localStats.activeLocalDownloads}
+        />
+      </div>
+    </div>
 
     <div class="card">
       <!-- 탭 네비게이션을 카드 안으로 이동 -->
@@ -766,7 +869,7 @@
         </div>
       </div>
       
-      <div class="table-container">
+      <div class="table-container" class:empty-table={filteredDownloads.length === 0}>
         <table>
           <thead>
             <tr>
@@ -775,7 +878,7 @@
               <th>{$t("table_header_size")}</th>
               <th>{$t("table_header_progress")}</th>
               <th class="center-align">{$t("table_header_requested_date")}</th>
-              <th>프록시</th>
+              <th>{$t("table_header_proxy")}</th>
               <th class="actions-header">{$t("table_header_actions")}</th>
             </tr>
           </thead>
@@ -832,72 +935,26 @@
                     {formatDate(download.requested_at)}
                   </td>
                   <td class="proxy-toggle-cell">
-                    <label class="custom-checkbox-label">
-                      <input
-                        type="checkbox"
-                        class="custom-checkbox"
-                        bind:checked={download.use_proxy}
-                        disabled={download.status.toLowerCase() !== "stopped"}
-                        on:change={() => {
-                          // 상태 변경 시 배열 갱신
-                          downloads = downloads.map((d) =>
-                            d.id === download.id
-                              ? { ...d, use_proxy: download.use_proxy }
-                              : d
-                          );
-                        }}
-                      />
-                      <span class="custom-checkbox-icon">
-                        {#if download.use_proxy}
-                          {#if isDark}
-                            <svg
-                              width="18"
-                              height="18"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="#81c784"
-                              stroke-width="3"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                            >
-                              <polyline points="20 6 9 17 4 12"></polyline>
-                            </svg>
-                          {:else}
-                            <svg
-                              width="18"
-                              height="18"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="#388e3c"
-                              stroke-width="3"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                            >
-                              <polyline points="20 6 9 17 4 12"></polyline>
-                            </svg>
-                          {/if}
-                        {:else}
-                          <svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="none"
-                            stroke-width="0"
-                          >
-                            <rect
-                              x="4"
-                              y="4"
-                              width="16"
-                              height="16"
-                              rx="4"
-                              fill="none"
-                              stroke="none"
-                            />
-                          </svg>
-                        {/if}
-                      </span>
-                    </label>
+                    <button
+                      type="button"
+                      class="grid-proxy-toggle {download.use_proxy ? 'proxy' : 'local'}"
+                      disabled={download.status.toLowerCase() !== "stopped"}
+                      title={download.use_proxy ? "프록시 모드" : "로컬 모드"}
+                      on:click={() => {
+                        // 토글 버튼 클릭 시 배열 갱신
+                        downloads = downloads.map((d) =>
+                          d.id === download.id
+                            ? { ...d, use_proxy: !d.use_proxy }
+                            : d
+                        );
+                      }}
+                    >
+                      <div class="grid-toggle-slider"></div>
+                      <div class="grid-toggle-icons">
+                        <span class="grid-icon local-icon">🏠</span>
+                        <span class="grid-icon proxy-icon">🌐</span>
+                      </div>
+                    </button>
                   </td>
                   <td class="actions">
                     {#if currentTab === "completed"}
@@ -1089,62 +1146,21 @@
   .proxy-toggle-cell {
     text-align: center;
   }
-  .custom-checkbox-label {
-    display: flex;
-    align-items: center;
-    cursor: pointer;
-    user-select: none;
-    justify-content: center;
-  }
-  .custom-checkbox {
-    display: none;
-  }
-  .custom-checkbox-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 6px;
-    background: var(--card-background, #f5f5f5);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-    border: 2px solid #bdbdbd;
-    transition:
-      background 0.2s,
-      border 0.2s,
-      box-shadow 0.2s;
-    vertical-align: middle;
-    position: relative;
-    top: 2px;
-  }
-  .custom-checkbox-label:hover .custom-checkbox-icon {
-    box-shadow: 0 0 0 2px #90caf9;
-    border-color: #42a5f5;
-  }
-  :global(body.dark) .custom-checkbox-icon {
-    background: #23272f;
-    border-color: #555;
-  }
-  .custom-checkbox:checked + .custom-checkbox-icon {
-    background: #81c784;
-    border-color: #388e3c;
-  }
-  :global(body.dark) .custom-checkbox:checked + .custom-checkbox-icon {
-    background: #388e3c;
-    border-color: #81c784;
-  }
-  .custom-checkbox:disabled + .custom-checkbox-icon {
-    opacity: 0.4;
-    cursor: not-allowed;
-    background: #e0e0e0;
-    border-color: #bdbdbd;
-  }
-  :global(body.dark) .custom-checkbox:disabled + .custom-checkbox-icon {
-    background: #333;
-    border-color: #444;
-  }
   table th {
     text-align: center;
+  }
+
+  /* 테이블 컨테이너 높이 제한 (app.css에서 기본 스타일 상속) */
+  .table-container {
+    height: auto; /* 콘텐츠에 맞게 자동 조정 */
+    min-height: 200px; /* 최소 높이만 설정 */
+  }
+
+  /* 빈 테이블일 때 더 작은 높이 */
+  .table-container.empty-table {
+    height: auto; /* 콘텐츠에 맞게 자동 조정 */
+    min-height: auto; /* 최소 높이 제거 */
+    max-height: none; /* 최대 높이 제한 제거 */
   }
 
   /* 인터랙티브 상태 라벨 스타일 */
@@ -1254,5 +1270,176 @@
   .tab.active:hover {
     color: var(--primary-color);
     background-color: var(--card-background);
+  }
+
+  /* 프록시 토글 버튼 스타일 */
+  .proxy-toggle-container {
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+  }
+
+  .proxy-toggle-button {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 64px;
+    height: 32px;
+    border: 2px solid;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    outline: none;
+    overflow: hidden;
+    padding: 2px;
+  }
+
+  .proxy-toggle-button.local {
+    background-color: #4CAF50;
+    border-color: #45a049;
+  }
+
+  .proxy-toggle-button.proxy {
+    background-color: #2196F3;
+    border-color: #1976D2;
+  }
+
+  .proxy-toggle-slider {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 24px;
+    height: 24px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.3s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    z-index: 2;
+  }
+
+  .proxy-toggle-button.proxy .proxy-toggle-slider {
+    transform: translateX(32px);
+  }
+
+  .proxy-toggle-icons {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    padding: 0 6px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .toggle-icon {
+    font-size: 14px;
+    transition: opacity 0.3s ease;
+  }
+
+  .proxy-toggle-button.local .proxy-icon {
+    opacity: 0.5;
+  }
+
+  .proxy-toggle-button.proxy .local-icon {
+    opacity: 0.5;
+  }
+
+  /* 그리드 프록시 토글 버튼 */
+  .grid-proxy-toggle {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 48px;
+    height: 24px;
+    border: 2px solid;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    outline: none;
+    overflow: hidden;
+    padding: 1px;
+  }
+
+  .grid-proxy-toggle.local {
+    background-color: #4CAF50;
+    border-color: #45a049;
+  }
+
+  .grid-proxy-toggle.proxy {
+    background-color: #2196F3;
+    border-color: #1976D2;
+  }
+
+  .grid-proxy-toggle:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .grid-toggle-slider {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.3s ease;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    z-index: 2;
+  }
+
+  .grid-proxy-toggle.proxy .grid-toggle-slider {
+    transform: translateX(24px);
+  }
+
+  .grid-toggle-icons {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    padding: 0 4px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .grid-icon {
+    font-size: 10px;
+    transition: opacity 0.3s ease;
+  }
+
+  .grid-proxy-toggle.local .proxy-icon {
+    opacity: 0.5;
+  }
+
+  .grid-proxy-toggle.proxy .local-icon {
+    opacity: 0.5;
+  }
+
+  /* 게이지 컨테이너 */
+  .gauge-container {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .gauge-item {
+    flex: 1;
+    min-height: 140px; /* 최소 높이로 통일 */
+  }
+
+  /* 태블릿에서 세로 배치 */
+  @media (max-width: 1024px) {
+    .gauge-container {
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    
+    .gauge-item {
+      min-height: auto;
+    }
   }
 </style>

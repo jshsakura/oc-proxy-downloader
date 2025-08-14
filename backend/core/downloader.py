@@ -139,14 +139,23 @@ def delete_download(download_id: int, db: Session = Depends(get_db)):
     if item is None:
         raise HTTPException(status_code=404, detail="Download not found")
     
-    # 다운로드 중인 경우 취소
-    from core.shared import download_manager
-    if download_manager.is_download_active(download_id):
-        download_manager.cancel_download(download_id)
+    print(f"[LOG] 다운로드 삭제 요청: ID {download_id}, 현재 상태: {item.status}")
+    
+    # 다운로드 중인 경우 먼저 정지
+    if item.status in [StatusEnum.downloading, StatusEnum.proxying]:
+        print(f"[LOG] 다운로드 중이므로 먼저 정지: ID {download_id}")
+        setattr(item, "status", StatusEnum.stopped)
+        db.commit()
+        
+        # 잠시 대기 (다운로드 함수가 정지를 감지할 시간)
+        import time
+        time.sleep(1)
     
     # DB에서 삭제
     db.delete(item)
     db.commit()
+    
+    print(f"[LOG] 다운로드 삭제 완료: ID {download_id}")
     
     return {"message": "Download deleted successfully"}
 
@@ -156,15 +165,13 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     if item is None:
         raise HTTPException(status_code=404, detail="Download not found")
     
+    print(f"[LOG] 다운로드 정지 요청: ID {download_id}")
+    
     # 상태를 stopped로 변경
     setattr(item, "status", StatusEnum.stopped)
     db.commit()
     
-    # 다운로드 중인 경우 취소
-    from core.shared import download_manager
-    if download_manager.is_download_active(download_id):
-        download_manager.cancel_download(download_id)
-        print(f"[LOG] Download {download_id} cancelled due to pause request")
+    print(f"[LOG] 다운로드 상태를 stopped로 변경 완료: ID {download_id}")
     
     return {"id": item.id, "status": item.status}
 

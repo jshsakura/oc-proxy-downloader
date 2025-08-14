@@ -41,37 +41,37 @@
 
 <div class="proxy-gauge">
   <div class="proxy-info">
-    <span class="proxy-title">프록시</span>
+    <span class="proxy-title">{$t("proxy_title")}</span>
     <span class="proxy-count">{availableProxies}/{totalProxies}</span>
     <div class="gauge-bar">
       <!-- 성공한 프록시 (초록) -->
       <div 
         class="gauge-fill success" 
         style="width: {successPercentage}%"
-        title="성공한 프록시: {successCount}개"
+        title={$t("proxy_success_tooltip", { count: successCount })}
       ></div>
       <!-- 실패한 프록시 (빨강) -->
       <div 
         class="gauge-fill failed" 
         style="width: {failPercentage}%"
-        title="실패한 프록시: {failCount}개"
+        title={$t("proxy_failed_tooltip", { count: failCount })}
       ></div>
       <!-- 미사용 프록시 (회색) -->
       <div 
         class="gauge-fill unused" 
         style="width: {unusedPercentage}%"
-        title="미사용 프록시: {availableProxies}개"
+        title={$t("proxy_unused_tooltip", { count: availableProxies })}
       ></div>
     </div>
     <div class="proxy-stats">
-      <span class="success-badge">성공 {successCount}</span>
-      <span class="fail-badge">실패 {failCount}</span>
+      <span class="success-badge">{$t("proxy_success")} {successCount}</span>
+      <span class="fail-badge">{$t("proxy_failed")} {failCount}</span>
     </div>
     <button 
       class="refresh-btn" 
       on:click={refreshProxies}
       disabled={availableProxies > 0}
-      title="프록시 새로고침"
+      title={$t("proxy_refresh")}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
@@ -88,34 +88,34 @@
       <!-- 다중 다운로드 진행 중일 때 -->
       <span class="status-icon trying-icon"></span>
       <span class="status-text">
-        {activeDownloadCount}개 다운로드 진행 중
+        {$t("proxy_multi_download", { count: activeDownloadCount })}
         {#if currentProxy}
-          - 최근: {currentProxy}
+          - {currentProxy}
         {/if}
       </span>
     {:else if status === "trying" && currentProxy}
       <span class="status-icon trying-icon"></span>
       <span class="status-text">
-        {currentStep === "parsing" ? "링크 파싱" : "다운로드"} 중... 
+        {currentStep === "parsing" ? $t("proxy_link_parsing") : $t("proxy_downloading")} {$t("proxy_in_progress")}... 
         ({currentIndex}/{totalAttempting}) {currentProxy}
       </span>
     {:else if status === "success" && currentProxy}
       <span class="status-icon success-icon"></span>
       <span class="status-text">
-        {currentStep === "parsing" ? "링크 파싱" : "다운로드"} 성공! {currentProxy}
+        {currentStep === "parsing" ? $t("proxy_link_parsing") : $t("proxy_downloading")} {$t("proxy_success_msg")}! {currentProxy}
       </span>
     {:else if status === "failed" && currentProxy}
       <span class="status-icon failed-icon"></span>
       <span class="status-text">
-        {currentStep === "parsing" ? "링크 파싱" : "다운로드"} 실패: {currentProxy}
+        {currentStep === "parsing" ? $t("proxy_link_parsing") : $t("proxy_downloading")} {$t("proxy_failed_msg")}: {currentProxy}
       </span>
     {:else}
       <span class="status-icon idle-icon"></span>
       <span class="status-text">
         {#if activeDownloadCount === 0}
-          프록시 대기 중...
+          {$t("proxy_idle")}
         {:else}
-          {activeDownloadCount}개 다운로드 진행 중...
+          {$t("proxy_downloading")}
         {/if}
       </span>
     {/if}
@@ -124,7 +124,7 @@
   {#if availableProxies === 0 && totalProxies > 0}
     <div class="warning">
       <span class="warning-icon"></span>
-      프록시 소진
+      {$t("proxy_exhausted")}
     </div>
   {/if}
 </div>
@@ -135,7 +135,10 @@
     border: 1px solid var(--card-border);
     border-radius: 8px;
     padding: 0.75rem;
-    margin-bottom: 1rem;
+    margin-bottom: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
     box-shadow: var(--shadow-light);
     transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
     font-size: 0.85rem;

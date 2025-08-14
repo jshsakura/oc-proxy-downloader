@@ -27,7 +27,9 @@
       "Bash(git restore:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(mkdir:*)",
+      "Bash(powershell:*)"
     ],
     "deny": []
   }

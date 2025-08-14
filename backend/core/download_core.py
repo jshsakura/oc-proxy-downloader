@@ -97,19 +97,35 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             print(f"[LOG] 다운로드 정지됨 (파싱 시작 전): ID {request_id}")
             return
         
-        # 1단계: 프록시 순환으로 Direct Link 파싱
-        req.status = StatusEnum.proxying
-        db.commit()
-        
+        # 1단계: Direct Link 파싱
         direct_link = None
         used_proxy_addr = None
         
         if use_proxy:
             print(f"[LOG] 프록시 모드로 Direct Link 파싱 시작")
+            req.status = StatusEnum.proxying
+            db.commit()
             direct_link, used_proxy_addr = parse_with_proxy_cycling(req, db, force_reparse=initial_downloaded_size > 0)
         else:
             print(f"[LOG] 로컬 모드로 Direct Link 파싱")
-            direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=initial_downloaded_size > 0)
+            req.status = StatusEnum.downloading
+            db.commit()
+            
+            # 로컬 모드에서는 파일 정보와 함께 파싱 (이어받기 시 항상 재파싱)
+            from .parser_service import parse_direct_link_with_file_info
+            direct_link, file_info = parse_direct_link_with_file_info(
+                req.url, req.password, use_proxy=False
+            )
+            
+            # 이어받기가 아닌 경우에만 기존 파싱 로직도 사용
+            if not direct_link:
+                direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=True)
+            
+            # 파일 정보가 추출되면 DB에 저장
+            if file_info and file_info['name'] and not req.file_name:
+                req.file_name = file_info['name']
+                print(f"[LOG] 파일명 추출: {file_info['name']}")
+                db.commit()
         
         # 정지 상태 체크 (파싱 후)
         db.refresh(req)
@@ -185,13 +201,29 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                 "url": req.url
             })
             
-            direct_link = get_or_parse_direct_link(
-                req, 
-                proxies=None, 
-                use_proxy=True, 
-                force_reparse=force_reparse, 
-                proxy_addr=working_proxy
-            )
+            # 프록시로 파싱 시도 (카운트다운 처리 포함)
+            try:
+                direct_link = get_or_parse_direct_link(
+                    req, 
+                    proxies=None, 
+                    use_proxy=True, 
+                    force_reparse=force_reparse, 
+                    proxy_addr=working_proxy
+                )
+            except Exception as e:
+                error_msg = str(e)
+                # 카운트다운 제한인 경우 프록시 문제가 아님
+                if "카운트다운 감지" in error_msg or "countdown" in error_msg.lower():
+                    print(f"[LOG] 프록시에서 카운트다운 감지 - 다른 프록시들도 동일할 가능성 높음")
+                    # 카운트다운 정보 추출
+                    import re
+                    countdown_match = re.search(r'(\d+)초', error_msg)
+                    if countdown_match:
+                        countdown_seconds = int(countdown_match.group(1))
+                        print(f"[LOG] 모든 프록시에서 {countdown_seconds}초 대기 예상")
+                    raise e  # 카운트다운은 재발생시켜서 상위에서 처리
+                else:
+                    raise e  # 다른 에러는 그대로 전파
             
             if direct_link:
                 print(f"[LOG] 검증된 프록시로 파싱 성공: {working_proxy}")
@@ -230,12 +262,24 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                 "url": req.url
             })
             
-            direct_link = get_or_parse_direct_link(
-                req, 
-                use_proxy=True, 
-                force_reparse=force_reparse, 
-                proxy_addr=proxy_addr
-            )
+            # 프록시로 파싱 시도 (카운트다운 감지)
+            try:
+                direct_link = get_or_parse_direct_link(
+                    req, 
+                    use_proxy=True, 
+                    force_reparse=force_reparse, 
+                    proxy_addr=proxy_addr
+                )
+            except Exception as e:
+                error_msg = str(e)
+                # 카운트다운 제한인 경우 모든 프록시에서 동일할 것
+                if "카운트다운 감지" in error_msg or "countdown" in error_msg.lower():
+                    print(f"[LOG] 프록시 {proxy_addr}에서 카운트다운 감지 - 프록시 순환 중단")
+                    # 카운트다운은 전체적인 사이트 제한이므로 다른 프록시 시도 중단
+                    raise e
+                else:
+                    # 일반적인 프록시 오류는 계속 진행
+                    raise e
             
             # 파싱 완료 후 정지 상태 체크
             db.refresh(req)
@@ -335,9 +379,14 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                 print(f"[LOG] 응답 받은 후 정지됨: {req.id}")
                 return
             
-            total_size = int(response.headers.get('Content-Length', 0))
+            content_length = int(response.headers.get('Content-Length', 0))
             if initial_size > 0:
-                total_size += initial_size
+                # 이어받기: 전체 크기 = 기존 크기 + 남은 크기
+                total_size = initial_size + content_length
+                print(f"[LOG] 이어받기 - 기존: {initial_size}, 남은 크기: {content_length}")
+            else:
+                # 새 다운로드: 전체 크기 = Content-Length
+                total_size = content_length
             
             req.total_size = total_size
             db.commit()
@@ -347,21 +396,24 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
                 downloaded = initial_size
                 
+                chunk_count = 0
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
+                        chunk_count += 1
                         
-                        # 진행률 업데이트 (매 1MB마다) + 정지 상태 체크
-                        if downloaded % 1048576 == 0:  # 1MB
-                            req.downloaded_size = downloaded
-                            db.commit()
-                            
-                            # 진행률 업데이트할 때만 정지 상태 체크
+                        # 매 64KB마다(8개 청크) 정지 상태 체크
+                        if chunk_count % 8 == 0:
                             db.refresh(req)
                             if req.status == StatusEnum.stopped:
                                 print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
                                 return
+                        
+                        # 진행률 업데이트 (매 1MB마다)
+                        if downloaded % 1048576 == 0:  # 1MB
+                            req.downloaded_size = downloaded
+                            db.commit()
                             
                             progress = (downloaded / total_size * 100) if total_size > 0 else 0
                             print(f"[LOG] 진행률: {progress:.1f}% ({downloaded}/{total_size})")
@@ -396,9 +448,82 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
 
 def download_local(direct_link, file_path, initial_size, req, db):
     """로컬 연결로 다운로드"""
-    print(f"[LOG] 로컬 다운로드는 아직 구현되지 않음")
-    # TODO: 로컬 다운로드 구현
-    pass
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+        'Connection': 'keep-alive'
+    }
+    
+    if initial_size > 0:
+        headers['Range'] = f'bytes={initial_size}-'
+        print(f"[LOG] 이어받기 헤더: Range={headers['Range']}")
+    
+    try:
+        # 다운로드 시작 전 정지 상태 체크
+        db.refresh(req)
+        if req.status == StatusEnum.stopped:
+            print(f"[LOG] 다운로드 시작 전 정지됨: {req.id}")
+            return
+        
+        print(f"[LOG] 로컬 연결로 다운로드 시작")
+        
+        with requests.get(direct_link, stream=True, headers=headers, timeout=(10, 30)) as response:
+            response.raise_for_status()
+            
+            # 응답 받은 후 정지 상태 체크
+            db.refresh(req)
+            if req.status == StatusEnum.stopped:
+                print(f"[LOG] 응답 받은 후 정지됨: {req.id}")
+                return
+            
+            content_length = int(response.headers.get('Content-Length', 0))
+            if initial_size > 0:
+                # 이어받기: 전체 크기 = 기존 크기 + 남은 크기
+                total_size = initial_size + content_length
+                print(f"[LOG] 이어받기 - 기존: {initial_size}, 남은 크기: {content_length}")
+            else:
+                # 새 다운로드: 전체 크기 = Content-Length
+                total_size = content_length
+            
+            req.total_size = total_size
+            db.commit()
+            
+            print(f"[LOG] 다운로드 시작 - 총 크기: {total_size} bytes")
+            
+            with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
+                downloaded = initial_size
+                
+                chunk_count = 0
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        chunk_count += 1
+                        
+                        # 매 64KB마다(8개 청크) 정지 상태 체크
+                        if chunk_count % 8 == 0:
+                            db.refresh(req)
+                            if req.status == StatusEnum.stopped:
+                                print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
+                                return
+                        
+                        # 진행률 업데이트 (매 1MB마다)
+                        if downloaded % 1048576 == 0:  # 1MB
+                            req.downloaded_size = downloaded
+                            db.commit()
+                            
+                            progress = (downloaded / total_size * 100) if total_size > 0 else 0
+                            print(f"[LOG] 진행률: {progress:.1f}% ({downloaded}/{total_size})")
+                
+                req.downloaded_size = downloaded
+                db.commit()
+                
+        print(f"[LOG] 로컬 다운로드 완료: {downloaded} bytes")
+        
+    except Exception as e:
+        print(f"[LOG] 로컬 다운로드 실패: {e}")
+        raise e
 
 
 def cleanup_download_file(file_path):
