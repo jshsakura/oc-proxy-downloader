@@ -1424,6 +1424,20 @@ def get_settings_endpoint(req: Request):
     config['download_path'] = str(get_download_path())
     return config
 
+@api_router.get("/default_download_path")
+async def get_default_download_path():
+    """기본 다운로드 경로 반환"""
+    import os
+    
+    # 도커 환경에서는 /downloads 사용
+    if os.path.exists("/downloads"):
+        default_path = "/downloads"
+    else:
+        # 로컬 환경에서는 사용자 Downloads 폴더 사용
+        default_path = os.path.join(os.path.expanduser("~"), "Downloads")
+    
+    return {"path": default_path}
+
 @api_router.post("/select_folder")
 async def select_folder(req: Request):
     """폴더 선택 대화상자를 열고 선택된 경로를 반환"""

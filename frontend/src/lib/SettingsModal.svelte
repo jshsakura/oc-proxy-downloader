@@ -3,6 +3,7 @@
   import { theme } from "./theme.js";
   import { t, loadTranslations } from "./i18n.js";
   import FolderIcon from "../icons/FolderIcon.svelte";
+  import HomeIcon from "../icons/HomeIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
   import { toastMessage, showToast, showToastMsg } from "./toast.js";
@@ -112,12 +113,35 @@
           console.log("[DEBUG] 폴더 경로 업데이트됨:", data.path);
         }
       } else {
-        console.error("[ERROR] API 응답 실패:", response.status);
-        alert("폴더 선택에 실패했습니다.");
+        console.warn("[WARN] 폴더 선택 API 실패 (도커 환경일 수 있음):", response.status);
+        // 도커 환경에서는 조용히 실패 처리
       }
     } catch (e) {
-      console.error("[ERROR] 폴더 선택 중 오류:", e);
-      alert("폴더 선택 중 오류 발생: " + e.message);
+      console.warn("[WARN] 폴더 선택 실패 (도커 환경일 수 있음):", e.message);
+      // 도커 환경에서는 조용히 실패 처리, 사용자가 수동 입력 가능
+    }
+  }
+
+  async function resetToDefault() {
+    try {
+      console.log("[DEBUG] 기본 경로 가져오기 API 호출 시작");
+      const response = await fetch("/api/default_download_path");
+      console.log("[DEBUG] API 응답 받음:", response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("[DEBUG] 기본 경로 데이터:", data);
+        if (data.path) {
+          settings = { ...settings, download_path: data.path };
+          console.log("[DEBUG] 기본 경로로 리셋됨:", data.path);
+        }
+      } else {
+        console.error("[ERROR] 기본 경로 가져오기 실패:", response.status);
+        alert("기본 경로를 가져오는데 실패했습니다.");
+      }
+    } catch (e) {
+      console.error("[ERROR] 기본 경로 가져오기 중 오류:", e);
+      alert("기본 경로 가져오기 중 오류 발생: " + e.message);
     }
   }
 
@@ -180,8 +204,7 @@
                 type="text"
                 class="input"
                 bind:value={settings.download_path}
-                readonly
-                placeholder="폴더를 클릭하여 선택하세요"
+                placeholder="다운로드 경로를 입력하세요 (예: /downloads)"
               />
               <button
                 type="button"
@@ -191,6 +214,15 @@
                 aria-label="폴더 선택"
               >
                 <FolderIcon />
+              </button>
+              <button
+                type="button"
+                class="input-icon-button reset-button"
+                on:click={resetToDefault}
+                title="기본 경로로 리셋"
+                aria-label="기본 경로로 리셋"
+              >
+                <HomeIcon />
               </button>
             </div>
           </div>
@@ -527,6 +559,10 @@
     transition: all 0.2s ease;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
+  
+  .input-group .input {
+    padding-right: 88px; /* 두 개의 버튼 공간 확보 (48px + 40px) */
+  }
 
   .input:focus {
     outline: none;
@@ -549,6 +585,10 @@
     justify-content: center;
     cursor: pointer;
     transition: background-color 0.2s ease, color 0.2s ease;
+  }
+  
+  .input-icon-button.reset-button {
+    right: 48px; /* 첫 번째 버튼 왼쪽에 배치 */
   }
 
   .input-icon-button:hover {
@@ -702,7 +742,7 @@
   }
 
   .button-secondary:hover {
-    background: var(--bg-secondary, #f8fafc);
+    background: var(--button-secondary-background-hover, var(--bg-secondary, #f8fafc));
     border-color: var(--primary-color);
     color: var(--text-primary);
     transform: translateY(-1px);
