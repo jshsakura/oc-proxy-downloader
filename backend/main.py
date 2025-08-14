@@ -1430,8 +1430,7 @@ def delete_proxy(req: Request, proxy: str = Body(..., embed=True)):
 @api_router.get("/settings")
 def get_settings_endpoint(req: Request):
     config = get_config()
-    # Use the already resolved and ensured path from get_download_path()
-    config['download_path'] = str(get_download_path())
+    # config.json에 저장된 값 그대로 반환
     return config
 
 @api_router.get("/default_download_path")
@@ -1487,10 +1486,16 @@ def update_settings_endpoint(settings: dict, req: Request):
     try:
         print(f"[LOG] Received settings to save: {settings}")
         if 'download_path' in settings and settings['download_path'] is not None:
-            # Resolve to absolute path before saving
-            settings['download_path'] = str(Path(settings['download_path']).resolve())
+            # 절대경로는 그대로 사용, 상대경로만 resolve
+            download_path = settings['download_path']
+            if not Path(download_path).is_absolute():
+                download_path = str(Path(download_path).resolve())
+            settings['download_path'] = download_path
             # Create the directory if it doesn't exist
-            Path(settings['download_path']).mkdir(parents=True, exist_ok=True)
+            try:
+                Path(settings['download_path']).mkdir(parents=True, exist_ok=True)
+            except PermissionError:
+                print(f"[WARN] Cannot create directory: {settings['download_path']}")
         save_config(settings)
         return {"message": "Settings updated successfully"}
     except Exception as e:

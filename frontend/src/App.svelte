@@ -189,8 +189,11 @@
 
   function connectWebSocket() {
     console.log("Attempting to connect WebSocket...");
-    const wsProtocol = window.location.protocol === "https" ? "wss" : "ws";
+    // HTTPS 환경에서는 반드시 wss를 사용
+    const isHttps = window.location.protocol === "https:";
+    const wsProtocol = isHttps ? "wss" : "ws";
     const wsUrl = `${wsProtocol}://${window.location.host}/ws/status`;
+    console.log(`Protocol: ${window.location.protocol}, Using WebSocket protocol: ${wsProtocol}`);
     console.log("Connecting to WebSocket at:", wsUrl);
     ws = new WebSocket(wsUrl);
 
