@@ -45,10 +45,16 @@ class DownloadRequestCreate(BaseModel):
 
 @router.post("/download/")
 def create_download_task(request: DownloadRequestCreate, db: Session = Depends(get_db)):
-    # 로그 파일에도 기록
-    with open("debug.log", "a", encoding="utf-8") as f:
-        f.write(f"[{time.strftime('%H:%M:%S')}] API CALLED: {request.url}\n")
-        f.flush()
+    # 로그 파일에도 기록 (도커 환경을 위해 /tmp 경로 사용)
+    try:
+        import os
+        log_path = "/tmp/debug.log" if os.path.exists("/tmp") else "debug.log"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%H:%M:%S')}] API CALLED: {request.url}\n")
+            f.flush()
+    except PermissionError:
+        # 권한 없으면 그냥 콘솔에만 출력
+        print(f"[{time.strftime('%H:%M:%S')}] API CALLED: {request.url}")
     
     print("="*80)
     print("[LOG] *** CREATE DOWNLOAD TASK API CALLED ***")

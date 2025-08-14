@@ -1401,8 +1401,13 @@ def get_proxies(req: Request):
 
 @api_router.post("/proxies/")
 def add_proxy(req: Request, proxy: str = Body(..., embed=True)):
-    with open("proxies.txt", "a") as f:
-        f.write(proxy + "\n")
+    try:
+        import os
+        proxy_path = "/tmp/proxies.txt" if os.path.exists("/tmp") else "proxies.txt"
+        with open(proxy_path, "a") as f:
+            f.write(proxy + "\n")
+    except PermissionError:
+        print(f"[WARN] Cannot write to proxy file, proxy not saved: {proxy}")
     return {"message": "Proxy added successfully"}
 
 @api_router.delete("/proxies/")
@@ -1410,9 +1415,14 @@ def delete_proxy(req: Request, proxy: str = Body(..., embed=True)):
     proxies = get_all_proxies()
     if proxy in proxies:
         proxies.remove(proxy)
-        with open("proxies.txt", "w") as f:
-            for p in proxies:
-                f.write(p + "\n")
+        try:
+            import os
+            proxy_path = "/tmp/proxies.txt" if os.path.exists("/tmp") else "proxies.txt"
+            with open(proxy_path, "w") as f:
+                for p in proxies:
+                    f.write(p + "\n")
+        except PermissionError:
+            print(f"[WARN] Cannot write to proxy file, proxy not removed: {proxy}")
         return {"message": "Proxy deleted successfully"}
     else:
         raise HTTPException(status_code=404, detail="Proxy not found")

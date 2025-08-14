@@ -32,8 +32,12 @@ def get_config():
     return DEFAULT_CONFIG.copy()
 
 def save_config(config):
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=4)
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=4)
+    except PermissionError:
+        print(f"[WARN] Cannot write to config file: {CONFIG_FILE}")
+        print("[WARN] Config changes will not be persisted")
 
 def get_download_path():
     env_path = os.environ.get("DOWNLOAD_PATH")

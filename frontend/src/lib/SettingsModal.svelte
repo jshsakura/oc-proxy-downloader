@@ -87,7 +87,17 @@
         closeModal();
       } else {
         console.error("[ERROR] 저장 실패:", response.status);
-        alert("Failed to save settings");
+        let errorMessage = `설정 저장에 실패했습니다 (${response.status})`;
+        
+        if (response.status === 500) {
+          errorMessage += "\n서버 내부 오류가 발생했습니다.";
+        } else if (response.status === 403) {
+          errorMessage += "\n권한이 없습니다.";
+        } else if (response.status === 404) {
+          errorMessage += "\nAPI 경로를 찾을 수 없습니다.";
+        }
+        
+        alert(errorMessage);
       }
     } catch (error) {
       console.error("Error saving settings:", error);
