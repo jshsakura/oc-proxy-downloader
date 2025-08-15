@@ -47,6 +47,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
     print(f"[LOG] 시작 시간: {time.strftime('%H:%M:%S')}")
     print("=" * 80)
     
+    # 로컬 다운로드 등록 (1fichier만)
+    from .shared import download_manager
+    
     # 새로운 DB 세션 생성
     from .db import SessionLocal
     db = SessionLocal()
@@ -66,6 +69,10 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         
         print(f"[LOG] URL: {req.url}")
         print(f"[LOG] 파일명: {req.file_name}")
+        
+        # 로컬 다운로드 등록 (1fichier만)
+        if not use_proxy:
+            download_manager.register_local_download(request_id, req.url)
         
         # 다운로드 경로 설정
         download_path = get_download_path()
@@ -180,6 +187,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 print(f"[LOG] 다운로드가 정지 상태이므로 실패 처리하지 않음: ID {request_id}")
     
     finally:
+        # 로컬 다운로드 해제
+        if not use_proxy:
+            download_manager.unregister_local_download(request_id)
         db.close()
 
 

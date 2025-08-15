@@ -79,7 +79,23 @@ def create_download_task(request: DownloadRequestCreate, db: Session = Depends(g
     print(f"[LOG] 다운로드 스레드 시작 준비")
     
     from .download_core import download_1fichier_file_new
+    from .shared import download_manager
     import threading
+    
+    # 다운로드 제한 체크 (전체 5개 + 1fichier 2개)
+    if not request.use_proxy:
+        if not download_manager.can_start_download(str(request.url)):
+            # 대기 상태로 설정
+            db_req.status = StatusEnum.pending
+            db.commit()
+            
+            # 어떤 제한인지 확인
+            if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
+                print(f"[LOG] 전체 다운로드 제한 도달 (5개). 대기 상태로 설정: {db_req.id}")
+                return {"id": db_req.id, "status": "waiting", "message": "전체 다운로드 제한 도달 (5개). 대기 중..."}
+            else:
+                print(f"[LOG] 1fichier 로컬 다운로드 제한 도달 (2개). 대기 상태로 설정: {db_req.id}")
+                return {"id": db_req.id, "status": "waiting", "message": "1fichier 로컬 다운로드 제한 도달 (2개). 대기 중..."}
     
     thread = threading.Thread(
         target=download_1fichier_file_new,

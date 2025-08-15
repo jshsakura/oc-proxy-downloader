@@ -15,12 +15,127 @@ status_queue = queue.Queue()
 class DownloadManager:
     def __init__(self):
         self.active_downloads = {}  # {download_id: Thread}
+        self.local_downloads = set()  # 로컬 다운로드 ID 집합 (1fichier만)
+        self.all_downloads = set()  # 전체 다운로드 ID 집합 (모든 도메인)
+        self.MAX_LOCAL_DOWNLOADS = 2  # 최대 로컬 다운로드 수 (1fichier만)
+        self.MAX_TOTAL_DOWNLOADS = 5  # 최대 전체 동시 다운로드 수
 
+    def can_start_download(self, url=None):
+        """다운로드를 시작할 수 있는지 확인 (전체 제한 + 1fichier 개별 제한)"""
+        # 전체 다운로드 수 체크
+        if len(self.all_downloads) >= self.MAX_TOTAL_DOWNLOADS:
+            return False
+        
+        # 1fichier인 경우 개별 제한도 체크
+        if url and '1fichier.com' in url:
+            if len(self.local_downloads) >= self.MAX_LOCAL_DOWNLOADS:
+                return False
+        
+        return True
+    
+    def can_start_local_download(self, url=None):
+        """로컬 다운로드를 시작할 수 있는지 확인 (1fichier만 제한) - 하위 호환성"""
+        return self.can_start_download(url)
+    
     def start_download(self, download_id, func, *args, **kwargs):
         self.cancel_download(download_id)
         t = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
         t.start()
         self.active_downloads[download_id] = t
+    
+    def register_download(self, download_id, url=None):
+        """다운로드 등록 (전체 + 1fichier 개별)"""
+        # 모든 다운로드 등록
+        self.all_downloads.add(download_id)
+        
+        # 1fichier인 경우 별도 등록
+        if url and '1fichier.com' in url:
+            self.local_downloads.add(download_id)
+            print(f"[LOG] 1fichier 다운로드 등록: {download_id} (1fichier: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS}, 전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+        else:
+            print(f"[LOG] 다운로드 등록: {download_id} (전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+    
+    def register_local_download(self, download_id, url=None):
+        """로컬 다운로드 등록 - 하위 호환성"""
+        self.register_download(download_id, url)
+    
+    def unregister_download(self, download_id):
+        """다운로드 해제 (전체 + 1fichier 개별)"""
+        # 전체 다운로드에서 해제
+        self.all_downloads.discard(download_id)
+        
+        # 1fichier 다운로드에서 해제
+        if download_id in self.local_downloads:
+            self.local_downloads.discard(download_id)
+            print(f"[LOG] 1fichier 다운로드 해제: {download_id} (1fichier: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS}, 전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+        else:
+            print(f"[LOG] 다운로드 해제: {download_id} (전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+        
+        # 대기 중인 다운로드가 있으면 자동 시작
+        self.check_and_start_waiting_downloads()
+    
+    def unregister_local_download(self, download_id):
+        """로컬 다운로드 해제 - 하위 호환성"""
+        self.unregister_download(download_id)
+    
+    def check_and_start_waiting_downloads(self):
+        """대기 중인 다운로드를 확인하고 시작 (전체 제한 + 1fichier 개별 제한 고려)"""
+        try:
+            db = next(get_db())
+            
+            # 전체 다운로드 수가 5개 미만인 경우에만 시작
+            if len(self.all_downloads) >= self.MAX_TOTAL_DOWNLOADS:
+                print(f"[LOG] 전체 다운로드 제한 도달 ({self.MAX_TOTAL_DOWNLOADS}개). 대기 중...")
+                return
+            
+            # 1. 먼저 1fichier가 아닌 대기 중인 다운로드 찾기
+            if len(self.all_downloads) < self.MAX_TOTAL_DOWNLOADS:
+                non_fichier_request = db.query(DownloadRequest).filter(
+                    DownloadRequest.status == StatusEnum.pending,
+                    DownloadRequest.use_proxy == False,
+                    ~DownloadRequest.url.contains('1fichier.com')
+                ).order_by(DownloadRequest.requested_at.asc()).first()
+                
+                if non_fichier_request:
+                    print(f"[LOG] 대기 중인 비-1fichier 다운로드 발견: {non_fichier_request.id}")
+                    self._start_waiting_download(non_fichier_request)
+                    return
+            
+            # 2. 1fichier 다운로드 찾기 (1fichier 개별 제한도 체크)
+            if (len(self.all_downloads) < self.MAX_TOTAL_DOWNLOADS and 
+                len(self.local_downloads) < self.MAX_LOCAL_DOWNLOADS):
+                
+                fichier_request = db.query(DownloadRequest).filter(
+                    DownloadRequest.status == StatusEnum.pending,
+                    DownloadRequest.use_proxy == False,
+                    DownloadRequest.url.contains('1fichier.com')
+                ).order_by(DownloadRequest.requested_at.asc()).first()
+                
+                if fichier_request:
+                    print(f"[LOG] 대기 중인 1fichier 다운로드 발견: {fichier_request.id}")
+                    self._start_waiting_download(fichier_request)
+                    return
+                    
+        except Exception as e:
+            print(f"[LOG] 대기 중인 다운로드 시작 실패: {e}")
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+    
+    def _start_waiting_download(self, waiting_request):
+        """대기 중인 다운로드 시작"""
+        from core.download_core import download_1fichier_file_new
+        import threading
+        
+        thread = threading.Thread(
+            target=download_1fichier_file_new,
+            args=(waiting_request.id, "ko", False),
+            daemon=True
+        )
+        thread.start()
+        print(f"[LOG] 대기 중인 다운로드 시작: {waiting_request.id}")
 
     def cancel_download(self, download_id):
         # 다운로드 상태를 stopped로 변경하여 자연스럽게 종료되도록 함
@@ -41,6 +156,8 @@ class DownloadManager:
         
         # 관리 목록에서 제거
         self.active_downloads.pop(download_id, None)
+        # 다운로드에서 해제
+        self.unregister_download(download_id)
 
     def is_download_active(self, download_id):
         t = self.active_downloads.get(download_id)
