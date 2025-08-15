@@ -12,7 +12,7 @@ services:
       - CONFIG_PATH=/config
     volumes:
       - ./downloads:/app/backend/downloads  # 다운로드 파일 저장
-      - ./config:/config  # 설정 및 데이터베이스 파일
+      - ./backend/config:/config  # 설정 및 데이터베이스 파일
     ports:
       - "8000:8000"
     restart: unless-stopped

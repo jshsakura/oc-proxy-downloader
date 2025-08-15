@@ -435,7 +435,6 @@
 
   .close-button:hover {
     background: rgba(255, 255, 255, 0.2);
-    transform: scale(1.05);
   }
 
   .close-button :global(svg) {
@@ -614,7 +613,6 @@
 
   .theme-card:hover {
     border-color: var(--primary-color);
-    transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
   }
 
@@ -702,15 +700,10 @@
 
   .button-primary:hover {
     background: linear-gradient(135deg, var(--primary-hover, #1e40af) 0%, var(--primary-color) 100%);
-    transform: translateY(-2px);
-    box-shadow: 
-      0 6px 12px rgba(0, 0, 0, 0.15),
-      0 2px 4px rgba(0, 0, 0, 0.08);
     border-color: rgba(255, 255, 255, 0.2);
   }
 
   .button-primary:active {
-    transform: translateY(0px);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
 
@@ -725,12 +718,9 @@
     background: var(--button-secondary-background-hover, var(--bg-secondary, #f8fafc));
     border-color: var(--primary-color);
     color: var(--text-primary);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
   }
 
   .button-secondary:active {
-    transform: translateY(0px);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 

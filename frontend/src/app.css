@@ -1,37 +1,37 @@
 :root {
   --font-sans: 'Nanum Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
 
-  /* Professional Light Theme */
-  --background: #fafbfc;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
+  /* Modern Gray Light Theme */
+  --background: #f8fafc;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
   --card-background: #ffffff;
   --card-border: #e2e8f0;
-  --primary-color: #2563eb; /* Professional blue */
-  --primary-hover: #1d4ed8;
+  --primary-color: #0f172a; /* Dark gray-blue */
+  --primary-hover: #334155;
   --danger-color: #dc2626;
   --danger-hover: #b91c1c;
   --success-color: #059669;
   --warning-color: #d97706;
-  --input-bg: #ffffff;
-  --input-border: #cbd5e1;
+  --input-bg: #f8fafc;
+  --input-border: #d1d5db;
   
-  --shadow-light: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 1px rgba(0, 0, 0, 0.03);
   --shadow-medium: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
 
-  --primary-color-rgb: 37, 99, 235;
+  --primary-color-rgb: 15, 23, 42;
   --disabled-button-background: #f1f5f9;
-  --disabled-button-text: #64748b;
+  --disabled-button-text: #94a3b8;
   
   /* Theme selected background for light theme */
   --theme-selected-bg: #d0d0d0;
 
   --toast-bg: #0B6BCB;
   --toast-text: #fff;
-  --button-secondary-background: #e0e0e0;
-  --button-secondary-text: #333;
-  --button-secondary-background-hover: #c0c0c0;
-  --button-secondary-border: #b0b0b0;
+  --button-secondary-background: #f1f5f9;
+  --button-secondary-text: #475569;
+  --button-secondary-background-hover: #e2e8f0;
+  --button-secondary-border: #cbd5e1;
 }
 
 html.dark {
@@ -51,7 +51,7 @@ html.dark {
   --input-bg: #1e293b;
   --input-border: #475569;
   
-  --shadow-light: 0 1px 3px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.1), 0 1px 1px rgba(0, 0, 0, 0.06);
   --shadow-medium: 0 4px 6px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.12);
 
   --disabled-button-background: #334155;
@@ -69,22 +69,22 @@ html.dark {
 }
 
 html.dracula {
-  /* Improved Dracula Theme - Better visibility */
+  /* Improved Dracula Theme - Better visibility and comfort */
   --background: #282a36;
   --text-primary: #f8f8f2;
-  --text-secondary: #8be9fd; /* Changed from #6272a4 to cyan for better visibility */
-  --card-background: #44475a;
-  --card-border: #6272a4; /* More visible border */
-  --primary-color: #bd93f9; /* Purple */
-  --primary-hover: #9f7aea;
-  --danger-color: #ff5555; /* Red */
-  --danger-hover: #e53e3e;
-  --success-color: #50fa7b; /* Green */
-  --warning-color: #ffb86c; /* Orange */
-  --input-bg: #44475a; /* Darker for better contrast */
-  --input-border: #6272a4; /* More visible border */
+  --text-secondary: #a6b3d1; /* Softer blue-gray instead of bright cyan */
+  --card-background: #3a3c4e; /* Slightly darker for better contrast */
+  --card-border: #50556a; /* Softer border */
+  --primary-color: #9580ff; /* Softer purple */
+  --primary-hover: #7c6bdc;
+  --danger-color: #ff6b7a; /* Softer red */
+  --danger-hover: #e55a6a;
+  --success-color: #70d999; /* Softer green */
+  --warning-color: #ffb86c; /* Keep orange as is */
+  --input-bg: #3a3c4e; /* Match card background */
+  --input-border: #50556a; /* Softer border */
   
-  --shadow-light: 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.1);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.3);
 
   --primary-color-rgb: 189, 147, 249;
@@ -247,8 +247,7 @@ h1 {
   border-radius: 0.5rem;
   padding: 1.5rem;
   margin-bottom: 1.25rem;
-  box-shadow: var(--shadow-light);
-  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
   overflow: hidden;
 }
 
@@ -512,7 +511,7 @@ select.input option {
   margin: 0;
   min-height: 150px; /* 최소 높이 줄임 */
   max-height: 500px; /* 최대 높이도 줄임 */
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid var(--card-border);
 }
 

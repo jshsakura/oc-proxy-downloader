@@ -1,5 +1,6 @@
 <script>
   import { t } from "./i18n.js";
+  import FolderIcon from "../icons/FolderIcon.svelte";
 
   export let localDownloadCount = 0;
   export let localStatus = ""; // "downloading", "waiting", "completed", "failed"
@@ -11,7 +12,10 @@
 
 <div class="local-gauge">
   <div class="local-info">
-    <span class="local-title">{$t("local_title")}</span>
+    <div class="local-label">
+      <span class="label-icon"><FolderIcon /></span>
+      <span class="label-text">로컬</span>
+    </div>
     <span class="local-count">{$t("local_progress_text", { count: localDownloadCount })}</span>
     <div class="local-indicator">
       <div class="local-dot {localStatus}"></div>
@@ -71,7 +75,6 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    box-shadow: var(--shadow-light);
     transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
     font-size: 0.85rem;
   }
@@ -83,9 +86,27 @@
     flex-wrap: wrap;
   }
 
-  .local-title {
-    font-weight: 600;
-    color: var(--text-primary);
+  .local-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #81C784;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 500;
+    min-height: 26px;
+  }
+  
+  .label-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .label-text {
+    line-height: 1;
   }
 
   .local-count {
@@ -106,7 +127,7 @@
   }
 
   .local-dot.downloading {
-    background-color: #4CAF50;
+    background-color: #81C784;
     animation: pulse 2s infinite;
   }
 
@@ -144,9 +165,9 @@
   }
 
   .local-status.downloading {
-    background-color: #4CAF50;
+    background-color: #81C784;
     color: white;
-    border: 1px solid #4CAF50;
+    border: 1px solid #81C784;
   }
 
   .local-status.waiting {
@@ -208,7 +229,7 @@
     left: 4px;
     width: 3px;
     height: 6px;
-    border: solid #4CAF50;
+    border: solid white;
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
   }
@@ -227,7 +248,7 @@
     left: 50%;
     width: 8px;
     height: 2px;
-    background: #4CAF50;
+    background: white;
     transform: translate(-50%, -50%) rotate(45deg);
   }
   
@@ -260,7 +281,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  
+  .local-status.downloading .status-text,
+  .local-status.waiting .status-text,
+  .local-status.completed .status-text,
+  .local-status.failed .status-text {
     color: white;
+  }
+  
+  .local-status.idle .status-text {
+    color: var(--text-secondary);
   }
 
   .active-downloads {

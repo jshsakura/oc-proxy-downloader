@@ -797,8 +797,7 @@
           >
             <div class="proxy-toggle-slider"></div>
             <div class="proxy-toggle-icons">
-              <span class="toggle-icon local-icon">🏠</span>
-              <span class="toggle-icon proxy-icon">🌐</span>
+              <!-- 아이콘 제거 -->
             </div>
           </button>
         </div>
@@ -954,8 +953,7 @@
                     >
                       <div class="grid-toggle-slider"></div>
                       <div class="grid-toggle-icons">
-                        <span class="grid-icon local-icon">🏠</span>
-                        <span class="grid-icon proxy-icon">🌐</span>
+                        <!-- 아이콘 제거 -->
                       </div>
                     </button>
                   </td>
@@ -1175,7 +1173,6 @@
   }
 
   .interactive-status:hover {
-    transform: scale(1.05);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     z-index: 10;
   }
@@ -1239,8 +1236,7 @@
   }
 
   .tab {
-    background: none;
-    border: none;
+    background: rgba(0, 0, 0, 0.02);
     padding: 0.75rem 1.25rem;
     cursor: pointer;
     font-weight: 500;
@@ -1249,8 +1245,21 @@
     color: var(--text-secondary);
     border-radius: 8px 8px 0 0;
     position: relative;
-    border: 1px solid transparent;
+    border: 1px solid rgba(0, 0, 0, 0.1);
     border-bottom: none;
+  }
+
+  /* 다크/드라큘라 테마에서의 탭 스타일 */
+  html.dark .tab,
+  html.dracula .tab {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  html.dark .tab:hover,
+  html.dracula .tab:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.15);
   }
 
   .tab:hover {
@@ -1266,8 +1275,14 @@
     background-color: var(--card-background);
     border-color: var(--card-border);
     border-bottom: 1px solid var(--card-background);
-    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.03);
     z-index: 1;
+  }
+
+  /* 다크/드라큘라 테마에서는 좀 더 진한 그림자 */
+  html.dark .tab.active,
+  html.dracula .tab.active {
+    box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.15);
   }
 
   .tab.active:hover {
@@ -1299,13 +1314,13 @@
   }
 
   .proxy-toggle-button.local {
-    background-color: #4CAF50;
-    border-color: #45a049;
+    background-color: #81C784;
+    border-color: #66BB6A;
   }
 
   .proxy-toggle-button.proxy {
-    background-color: #2196F3;
-    border-color: #1976D2;
+    background-color: #FFB74D;
+    border-color: #FFA726;
   }
 
   .proxy-toggle-slider {
@@ -1367,13 +1382,13 @@
   }
 
   .grid-proxy-toggle.local {
-    background-color: #4CAF50;
-    border-color: #45a049;
+    background-color: #81C784;
+    border-color: #66BB6A;
   }
 
   .grid-proxy-toggle.proxy {
-    background-color: #2196F3;
-    border-color: #1976D2;
+    background-color: #FFB74D;
+    border-color: #FFA726;
   }
 
   .grid-proxy-toggle:disabled {
@@ -1431,7 +1446,7 @@
 
   .gauge-item {
     flex: 1;
-    min-height: 140px; /* 최소 높이로 통일 */
+    min-height: 100px; /* 최소 높이로 통일 */
   }
 
   /* 태블릿에서 세로 배치 */

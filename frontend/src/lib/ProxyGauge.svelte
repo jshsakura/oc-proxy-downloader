@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from "svelte";
   import { t } from "./i18n.js";
+  import NetworkIcon from "../icons/NetworkIcon.svelte";
 
   export let totalProxies = 0;
   export let availableProxies = 0;
@@ -41,7 +42,10 @@
 
 <div class="proxy-gauge">
   <div class="proxy-info">
-    <span class="proxy-title">{$t("proxy_title")}</span>
+    <div class="proxy-label">
+      <span class="label-icon"><NetworkIcon /></span>
+      <span class="label-text">프록시</span>
+    </div>
     <span class="proxy-count">{availableProxies}/{totalProxies}</span>
     <div class="gauge-bar">
       <!-- 성공한 프록시 (초록) -->
@@ -139,9 +143,31 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    box-shadow: var(--shadow-light);
     transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
     font-size: 0.85rem;
+  }
+
+  .proxy-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #FFB74D;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 500;
+    min-height: 26px;
+  }
+  
+  .label-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .label-text {
+    line-height: 1;
   }
 
   .proxy-info {
@@ -237,7 +263,6 @@
 
   .refresh-btn:hover:not(:disabled) {
     background-color: var(--button-secondary-background-hover);
-    transform: rotate(180deg);
   }
 
   .refresh-btn:disabled {
