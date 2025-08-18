@@ -148,24 +148,52 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             db.commit()
             raise Exception(error_msg)
         
-        print(f"[LOG] Direct Link 획득: {direct_link}")
-        req.direct_link = direct_link
-        req.status = StatusEnum.downloading
-        db.commit()
-        
-        # 정지 상태 체크 (다운로드 시작 전)
-        db.refresh(req)
-        if req.status == StatusEnum.stopped:
-            print(f"[LOG] 다운로드 정지됨 (다운로드 시작 전): ID {request_id}")
-            return
-        
-        # 2단계: 프록시 순환으로 실제 다운로드
-        if use_proxy and used_proxy_addr:
-            print(f"[LOG] 프록시 {used_proxy_addr}로 다운로드 시작")
-            download_with_proxy(direct_link, file_path, used_proxy_addr, initial_downloaded_size, req, db)
+        # 특별한 다운로드 모드 처리
+        if direct_link in ["DIRECT_DOWNLOAD_STREAM", "DIRECT_FILE_RESPONSE"]:
+            print(f"[LOG] 직접 다운로드 모드: {direct_link}")
+            req.direct_link = direct_link
+            req.status = StatusEnum.downloading
+            db.commit()
+            
+            # 실제 파일 다운로드를 위해 다시 파싱 시도
+            print(f"[LOG] 실제 다운로드를 위한 재파싱 시도...")
+            try:
+                if use_proxy:
+                    real_link, used_proxy_addr = parse_with_proxy_cycling(req, db, force_reparse=True)
+                    if real_link and real_link not in ["DIRECT_DOWNLOAD_STREAM", "DIRECT_FILE_RESPONSE"]:
+                        direct_link = real_link
+                        print(f"[LOG] 재파싱으로 실제 링크 획득: {direct_link}")
+                    else:
+                        print(f"[LOG] 재파싱 실패 - 기본 다운로드 방법 사용")
+                else:
+                    real_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=True)
+                    if real_link and real_link not in ["DIRECT_DOWNLOAD_STREAM", "DIRECT_FILE_RESPONSE"]:
+                        direct_link = real_link
+                        print(f"[LOG] 재파싱으로 실제 링크 획득: {direct_link}")
+                    else:
+                        print(f"[LOG] 재파싱 실패 - 특별 처리 모드 유지")
+            except Exception as e:
+                print(f"[LOG] 재파싱 중 오류: {e}")
+            
         else:
-            print(f"[LOG] 로컬 연결로 다운로드 시작")
-            download_local(direct_link, file_path, initial_downloaded_size, req, db)
+            print(f"[LOG] Direct Link 획득: {direct_link}")
+            req.direct_link = direct_link
+            req.status = StatusEnum.downloading
+            db.commit()
+            
+            # 정지 상태 체크 (다운로드 시작 전)
+            db.refresh(req)
+            if req.status == StatusEnum.stopped:
+                print(f"[LOG] 다운로드 정지됨 (다운로드 시작 전): ID {request_id}")
+                return
+            
+            # 2단계: 프록시 순환으로 실제 다운로드
+            if use_proxy and used_proxy_addr:
+                print(f"[LOG] 프록시 {used_proxy_addr}로 다운로드 시작")
+                download_with_proxy(direct_link, file_path, used_proxy_addr, initial_downloaded_size, req, db)
+            else:
+                print(f"[LOG] 로컬 연결로 다운로드 시작")
+                download_local(direct_link, file_path, initial_downloaded_size, req, db)
         
         # 정지 상태 체크 (완료 처리 전)
         db.refresh(req)
@@ -538,6 +566,30 @@ def download_local(direct_link, file_path, initial_size, req, db):
         
     except Exception as e:
         print(f"[LOG] 로컬 다운로드 실패: {e}")
+        raise e
+
+
+def download_from_stream(proxy_addr, file_path, initial_size, req, db, use_proxy):
+    """직접 다운로드 스트림에서 파일 다운로드"""
+    print(f"[LOG] 직접 스트림 다운로드 시작 (프록시: {proxy_addr})")
+    
+    # 스트림 다운로드는 parser_service에서 이미 시작되었으므로
+    # 여기서는 재시도 메커니즘을 구현
+    try:
+        # 새로운 요청으로 다운로드 재시작
+        from .parser_service import get_or_parse_direct_link
+        
+        if use_proxy and proxy_addr:
+            # 프록시 사용하여 다운로드 재시작
+            print(f"[LOG] 프록시 {proxy_addr}로 스트림 다운로드 재시작")
+            download_with_proxy("STREAM_RETRY", file_path, proxy_addr, initial_size, req, db)
+        else:
+            # 로컬 연결로 다운로드 재시작
+            print(f"[LOG] 로컬 연결로 스트림 다운로드 재시작")
+            download_local("STREAM_RETRY", file_path, initial_size, req, db)
+            
+    except Exception as e:
+        print(f"[LOG] 스트림 다운로드 실패: {e}")
         raise e
 
 

@@ -351,14 +351,14 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                     print(f"[LOG] 폼 action에서 Direct Link 발견{proxy_info}: {action_url}")
                                     return action_url, r3.text
                     
-                    # 최종 시도: dlw 폼 submit 시뮬레이션
-                    print(f"[DEBUG] dlw 폼 submit 시뮬레이션 시도...")
+                    # 최종 시도: dlw 버튼 클릭 시뮬레이션으로 직접 다운로드
+                    print(f"[DEBUG] dlw 버튼 클릭 시뮬레이션 - 직접 다운로드 시도...")
                     
                     # dlw 버튼과 연결된 폼 찾기
                     form_match = re.search(r'<form[^>]*id=["\']f1["\'][^>]*>(.*?)</form>', r3.text, re.DOTALL | re.IGNORECASE)
                     if form_match:
                         form_content = form_match.group(1)
-                        print(f"[DEBUG] f1 폼 발견, submit 시도")
+                        print(f"[DEBUG] f1 폼 발견, 다운로드 클릭 시뮬레이션")
                         
                         # 폼 데이터 수집
                         form_data = {}
@@ -368,17 +368,43 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         
                         print(f"[DEBUG] 폼 데이터: {form_data}")
                         
-                        # 세 번째 POST 요청 (폼 submit)
+                        # 다운로드 헤더 설정 (파일 다운로드용)
+                        download_headers = headers_post.copy()
+                        download_headers.update({
+                            'Accept': '*/*',
+                            'Accept-Encoding': 'identity',  # 압축 비활성화
+                        })
+                        
+                        # 폼 submit - 리다이렉트 추적하지 않고 Location 헤더 확인
                         try:
-                            r4 = scraper.post(url, data=form_data, headers=headers_post, proxies=proxies, timeout=15)
-                            if r4.status_code == 200:
-                                print(f"[DEBUG] 폼 submit 응답 크기: {len(r4.text)} 문자")
+                            r4 = scraper.post(url, data=form_data, headers=download_headers, proxies=proxies, timeout=30, allow_redirects=False)
+                            print(f"[DEBUG] 폼 submit 응답: {r4.status_code}")
+                            print(f"[DEBUG] Response Headers: {dict(r4.headers)}")
+                            
+                            # 리다이렉트인 경우 Location 헤더에서 다운로드 링크 추출
+                            if r4.status_code in [302, 301, 303, 307, 308]:
+                                location = r4.headers.get('Location')
+                                if location:
+                                    # 상대 URL을 절대 URL로 변환
+                                    if location.startswith('/'):
+                                        location = f"https://1fichier.com{location}"
+                                    print(f"[LOG] 리다이렉트 다운로드 링크 발견{proxy_info}: {location}")
+                                    return location, r4.text
+                            elif r4.status_code == 200:
+                                # 직접 다운로드인 경우
+                                content_type = r4.headers.get('Content-Type', '').lower()
+                                if not content_type.startswith('text/html'):
+                                    print(f"[LOG] 직접 파일 다운로드 성공{proxy_info}! Content-Type: {content_type}")
+                                    # 실제 응답을 직접 처리할 수 있도록 특별한 반환값
+                                    return "DIRECT_FILE_RESPONSE", r4
+                                else:
+                                    print(f"[DEBUG] HTML 응답 받음 - 추가 분석 필요")
+                                    # HTML 응답에서 다운로드 링크 다시 찾기
+                                    final_link = fichier_parser.parse_download_link(r4.text, str(url))
+                                    if final_link:
+                                        print(f"[LOG] 최종 HTML에서 다운로드 링크 발견{proxy_info}: {final_link}")
+                                        return final_link, r4.text
                                 
-                                # 최종 응답에서 다운로드 링크 찾기
-                                final_link = fichier_parser.parse_download_link(r4.text, str(url))
-                                if final_link:
-                                    print(f"[LOG] 폼 submit 후 Direct Link 발견{proxy_info}: {final_link}")
-                                    return final_link, r4.text
                         except Exception as e:
                             print(f"[DEBUG] 폼 submit 실패: {e}")
                     

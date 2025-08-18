@@ -20,19 +20,19 @@ class FichierParser:
         'a[href*="cdn-"][href*=".1fichier.com"]',
         '//a[contains(@href, "cdn-") and contains(@href, ".1fichier.com")]',
         
-        # a-숫자 패턴 링크 (실제 다운로드 링크)
-        '//a[contains(@href, "a-") and contains(@href, ".1fichier.com")]',
-        '//a[contains(@href, "://a-") and contains(@href, ".1fichier.com")]',
+        # a-숫자 패턴 링크 (실제 다운로드 링크) - 가장 중요
+        '//a[contains(@href, "://a-") and contains(@href, ".1fichier.com") and not(contains(@href, "cgu")) and not(contains(@href, "cgv")) and not(contains(@href, "mentions"))]',
+        '//a[contains(@href, "a-") and contains(@href, ".1fichier.com") and not(contains(@href, "cgu")) and not(contains(@href, "cgv")) and not(contains(@href, "mentions"))]',
         
         # 1fichier 전용 다운로드 도메인들
         '//a[contains(@href, "download.1fichier.com")]',
         '//a[contains(@href, "dl.1fichier.com")]',
         '//a[contains(@href, "static.1fichier.com")]',
         
-        # dlw 버튼 (가장 일반적인 다운로드 버튼)
-        '//a[@id="dlw"]',
-        '//a[@class="dlw"]',
-        '//*[@id="dlw"][@href]',
+        # dlw 버튼 (가장 일반적인 다운로드 버튼) - cgu 등 제외
+        '//a[@id="dlw" and not(contains(@href, "cgu")) and not(contains(@href, "cgv"))]',
+        '//a[@class="dlw" and not(contains(@href, "cgu")) and not(contains(@href, "cgv"))]',
+        '//*[@id="dlw"][@href and not(contains(@href, "cgu")) and not(contains(@href, "cgv"))]',
         
         # 최신 1fichier 구조 (2024년 기준)
         '//a[contains(@class, "ok btn-general")]',
@@ -100,7 +100,7 @@ class FichierParser:
         r'https?://[^/]*download[^/]*/',  # download가 포함된 도메인
     ]
     
-    # 제외할 링크 패턴들
+    # 제외할 링크 패턴들 (강화됨)
     EXCLUDE_PATTERNS = [
         r'javascript:',
         r'#',
@@ -111,14 +111,34 @@ class FichierParser:
         r'/contact',
         r'/help',
         r'/faq',
-        r'/console/abo\.pl',  # 프리미엄 결제 페이지
-        r'/tarifs',           # 요금제 페이지
-        r'/console/',         # 콘솔 페이지들
-        r'/cgu\.html',        # 이용약관 페이지
-        r'/cgv\.html',        # 판매약관 페이지
-        r'/mentions\.html',   # 법적고지 페이지
-        r'/privacy\.html',    # 개인정보보호 페이지
-        r'/about\.html',      # 회사소개 페이지
+        r'/console/abo\.pl',    # 프리미엄 결제 페이지
+        r'/tarifs',             # 요금제 페이지
+        r'/console/',           # 콘솔 페이지들
+        r'/cgu\.html',          # 이용약관 페이지 ⭐ 핵심 문제
+        r'/cgv\.html',          # 판매약관 페이지
+        r'/mentions\.html',     # 법적고지 페이지
+        r'/privacy\.html',      # 개인정보보호 페이지
+        r'/about\.html',        # 회사소개 페이지
+        r'cgu\.html$',          # 이용약관 파일명 (경로 없이)
+        r'cgv\.html$',          # 판매약관 파일명
+        r'mentions\.html$',     # 법적고지 파일명
+        r'privacy\.html$',      # 개인정보보호 파일명
+        r'about\.html$',        # 회사소개 파일명
+        r'1fichier\.com/cgu',   # 1fichier 도메인의 cgu 관련
+        r'1fichier\.com/cgv',   # 1fichier 도메인의 cgv 관련
+        r'1fichier\.com/mentions', # 1fichier 도메인의 mentions 관련
+        r'1fichier\.com/privacy',  # 1fichier 도메인의 privacy 관련
+        r'1fichier\.com/about',    # 1fichier 도메인의 about 관련
+        r'1fichier\.com/tarifs',   # 1fichier 도메인의 tarifs 관련
+        r'1fichier\.com/premium',  # 1fichier 도메인의 premium 관련
+        r'1fichier\.com/console',  # 1fichier 도메인의 console 관련
+        r'1fichier\.com/register', # 1fichier 도메인의 register 관련
+        r'1fichier\.com/login',    # 1fichier 도메인의 login 관련
+        r'1fichier\.com/help',     # 1fichier 도메인의 help 관련
+        r'1fichier\.com/faq',      # 1fichier 도메인의 faq 관련
+        r'1fichier\.com/contact',  # 1fichier 도메인의 contact 관련
+        r'1fichier\.com/?$',       # 1fichier 메인 페이지 (파일이 아님)
+        r'https?://1fichier\.com/?$', # 1fichier 메인 페이지 (전체 URL)
     ]
     
     def __init__(self):
@@ -233,9 +253,17 @@ class FichierParser:
                 print(f"[DEBUG] 제외 패턴 매칭: {pattern} -> {link}")
                 return False
         
-        # 확실히 제외해야 할 키워드들
-        exclude_keywords = ['cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html', 
-                           'premium', 'console', 'register', 'login', 'help', 'contact', 'faq', 'tarifs']
+        # 확실히 제외해야 할 키워드들 (강화됨)
+        exclude_keywords = [
+            'cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html',
+            'premium', 'console', 'register', 'login', 'help', 'contact', 'faq', 'tarifs',
+            '/cgu', '/cgv', '/mentions', '/privacy', '/about', '/tarifs', '/premium',
+            '/console', '/register', '/login', '/help', '/contact', '/faq',
+            '1fichier.com/cgu', '1fichier.com/cgv', '1fichier.com/mentions', 
+            '1fichier.com/privacy', '1fichier.com/about', '1fichier.com/tarifs',
+            '1fichier.com/premium', '1fichier.com/console', '1fichier.com/register',
+            '1fichier.com/login', '1fichier.com/help', '1fichier.com/contact', '1fichier.com/faq'
+        ]
         for keyword in exclude_keywords:
             if keyword in link.lower():
                 print(f"[DEBUG] 제외 키워드 발견: {keyword} -> {link}")
@@ -318,9 +346,15 @@ class FichierParser:
             # 점수 순으로 정렬
             scored_links.sort(reverse=True)
             
-            # 가장 높은 점수의 링크 반환
+            # 가장 높은 점수의 링크 반환 (추가 검증)
             for score, link in scored_links:
+                print(f"[DEBUG] 휴리스틱 후보 링크 검토: 점수={score}, 링크={link}")
                 if self._is_valid_download_link(link):
+                    # 최종 안전 검사 - cgu 관련 링크 차단
+                    if any(bad in link.lower() for bad in ['cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html']):
+                        print(f"[DEBUG] 휴리스틱에서 문제 링크 차단: {link}")
+                        continue
+                    print(f"[DEBUG] 휴리스틱 최종 선택: {link}")
                     return link
             
         except Exception as e:
@@ -417,11 +451,19 @@ class FichierParser:
         elif '1fichier.com' in link:
             score += 30   # 일반 1fichier 링크
         
-        # 제외할 링크들에 대한 페널티
-        exclude_keywords = ['console', 'abo', 'premium', 'register', 'login', 'help', 'contact', 'faq', 'tarifs', 'cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html']
+        # 제외할 링크들에 대한 강한 페널티 (강화됨)
+        exclude_keywords = [
+            'console', 'abo', 'premium', 'register', 'login', 'help', 'contact', 'faq', 'tarifs',
+            'cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html',
+            '/cgu', '/cgv', '/mentions', '/privacy', '/about', '/tarifs', '/premium',
+            '/console', '/register', '/login', '/help', '/contact', '/faq',
+            '1fichier.com/cgu', '1fichier.com/cgv', '1fichier.com/mentions',
+            '1fichier.com/privacy', '1fichier.com/about', '1fichier.com/tarifs',
+            '1fichier.com/premium', '1fichier.com/console'
+        ]
         for keyword in exclude_keywords:
             if keyword in link.lower():
-                score -= 50  # 큰 페널티
+                score -= 1000  # 매우 큰 페널티로 확실히 제외
         
         if link.startswith('https://'):
             score += 10

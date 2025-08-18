@@ -144,9 +144,18 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
         from .download_core import download_1fichier_file_new
         import threading
         
+        # 원래 프록시 설정 사용 (기본값 없이)
+        original_use_proxy = getattr(item, 'use_proxy', None)
+        if original_use_proxy is None:
+            # DB에 use_proxy가 없는 경우 (구버전 호환) - 기본값 False (로컬)
+            original_use_proxy = False
+            print(f"[LOG] use_proxy 설정이 없어 기본값 False(로컬) 사용: ID {download_id}")
+        else:
+            print(f"[LOG] 원래 프록시 설정 사용: use_proxy={original_use_proxy}, ID {download_id}")
+        
         thread = threading.Thread(
             target=download_1fichier_file_new,
-            args=(download_id, "ko", getattr(item, 'use_proxy', True)),
+            args=(download_id, "ko", original_use_proxy),
             daemon=True
         )
         thread.start()
@@ -213,9 +222,18 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
     from .download_core import download_1fichier_file_new
     import threading
     
+    # 원래 프록시 설정 사용 (기본값 없이)
+    original_use_proxy = getattr(item, 'use_proxy', None)
+    if original_use_proxy is None:
+        # DB에 use_proxy가 없는 경우 (구버전 호환) - 기본값 False (로컬)
+        original_use_proxy = False
+        print(f"[LOG] retry에서 use_proxy 설정이 없어 기본값 False(로컬) 사용: ID {download_id}")
+    else:
+        print(f"[LOG] retry에서 원래 프록시 설정 사용: use_proxy={original_use_proxy}, ID {download_id}")
+    
     thread = threading.Thread(
         target=download_1fichier_file_new,
-        args=(download_id, "ko", getattr(item, 'use_proxy', True)),
+        args=(download_id, "ko", original_use_proxy),
         daemon=True
     )
     thread.start()
