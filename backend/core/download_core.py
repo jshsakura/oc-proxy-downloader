@@ -141,7 +141,12 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             return
         
         if not direct_link:
-            raise Exception("Direct Link 파싱 실패")
+            error_msg = "Direct Link 파싱 실패"
+            print(f"[LOG] {error_msg}")
+            req.status = StatusEnum.failed
+            req.error = error_msg
+            db.commit()
+            raise Exception(error_msg)
         
         print(f"[LOG] Direct Link 획득: {direct_link}")
         req.direct_link = direct_link
