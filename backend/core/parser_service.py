@@ -335,18 +335,44 @@ def _detect_download_limits(html_content, original_url):
         # HTML 내용 디버깅
         print(f"[DEBUG] HTML 길이: {len(html_content)} 글자")
         
-        # HTML 일부 출력해서 실제 내용 확인
+        # HTML 전체 구조 분석을 위한 더 상세한 디버깅
         if len(html_content) > 500:
-            sample_start = html_content[:800]
-            sample_middle = html_content[len(html_content)//2:len(html_content)//2+500] 
-            print(f"[DEBUG] HTML 시작 부분: {sample_start}")
-            print(f"[DEBUG] HTML 중간 부분: {sample_middle}")
+            # HTML 전체를 여러 구간으로 나누어 분석
+            total_len = len(html_content)
+            chunk_size = 1000
             
-            # option 태그가 있는지 특별히 확인
-            if '<option' in html_content:
-                import re
-                option_matches = re.findall(r'<option[^>]*>.*?</option>', html_content, re.IGNORECASE | re.DOTALL)
-                print(f"[DEBUG] 발견된 option 태그들: {option_matches[:3]}")  # 처음 3개만
+            print(f"[DEBUG] ===== HTML 전체 분석 (총 {total_len}자) =====")
+            
+            # 첫 번째 1000자
+            print(f"[DEBUG] HTML 첫 1000자:")
+            print(html_content[:chunk_size])
+            
+            # 중간 1000자  
+            middle_start = total_len // 2 - chunk_size // 2
+            middle_end = middle_start + chunk_size
+            print(f"[DEBUG] HTML 중간 1000자 ({middle_start}-{middle_end}):")
+            print(html_content[middle_start:middle_end])
+            
+            # 마지막 1000자
+            print(f"[DEBUG] HTML 마지막 1000자:")
+            print(html_content[-chunk_size:])
+            
+            # 특별한 요소들 검사
+            script_matches = re.findall(r'<script[^>]*>(.*?)</script>', html_content, re.IGNORECASE | re.DOTALL)
+            if script_matches:
+                print(f"[DEBUG] 발견된 script 태그 수: {len(script_matches)}")
+                for i, script in enumerate(script_matches[:3]):  # 처음 3개 스크립트만
+                    print(f"[DEBUG] Script {i+1}: {script[:500]}...")
+            
+            # form, input, button 등 중요 요소들 검사
+            forms = re.findall(r'<form[^>]*>.*?</form>', html_content, re.IGNORECASE | re.DOTALL)
+            buttons = re.findall(r'<(?:button|input)[^>]*(?:button|submit)[^>]*>', html_content, re.IGNORECASE)
+            
+            print(f"[DEBUG] 발견된 form 수: {len(forms)}")
+            print(f"[DEBUG] 발견된 button/input 수: {len(buttons)}")
+            
+            if buttons:
+                print(f"[DEBUG] 버튼들: {buttons}")
         
         if 'dlw' in html_content:
             print(f"[DEBUG] HTML에서 'dlw' 발견됨")
@@ -363,32 +389,40 @@ def _detect_download_limits(html_content, original_url):
         
         # 1단계: JavaScript에서 카운트다운 시간 추출 (최우선)
         # 먼저 JavaScript 카운트다운 변수를 찾기 (dlw 버튼 유무와 관계없이)
-        js_countdown_match = re.search(r'var\s+ct\s*=\s*(\d+)', html_content)
-        if js_countdown_match:
-            countdown_seconds = int(js_countdown_match.group(1))
-            print(f"[LOG] JavaScript에서 카운트다운 감지: {countdown_seconds}초 (var ct = {countdown_seconds})")
-            return ("countdown", countdown_seconds)
-        
-        # 다른 JavaScript 패턴도 시도
-        js_patterns = [
-            r'countdown["\']?\s*[:=]\s*(\d+)',  # countdown: 60 또는 countdown = 60
-            r'timer["\']?\s*[:=]\s*(\d+)',     # timer: 45
-            r'wait["\']?\s*[:=]\s*(\d+)',      # wait: 25
-            r'var\s+\w*[tT]ime\w*\s*=\s*(\d+)', # var waitTime = 60, var countTime = 45
+        js_countdown_patterns = [
+            r'var\s+ct\s*=\s*(\d+)',              # var ct = 60
+            r'ct\s*=\s*(\d+)',                    # ct = 60
+            r'countdown\s*=\s*(\d+)',             # countdown = 45
+            r'timer\s*=\s*(\d+)',                 # timer = 30
+            r'waitTime\s*=\s*(\d+)',              # waitTime = 25
+            r'delay\s*=\s*(\d+)',                 # delay = 15
+            r'var\s+\w*[tT]ime\w*\s*=\s*(\d+)',   # var waitTime = 60, var countTime = 45
+            r'setTimeout\s*\(\s*\w+\s*,\s*(\d+)\s*\*\s*1000\s*\)', # setTimeout(func, 60 * 1000)
+            r'setInterval\s*\(\s*\w+\s*,\s*1000\s*\).*?(\d+)',     # setInterval과 함께 사용되는 숫자
         ]
         
-        for pattern in js_patterns:
+        for pattern in js_countdown_patterns:
             js_match = re.search(pattern, html_content, re.IGNORECASE)
             if js_match:
                 countdown_seconds = int(js_match.group(1))
-                print(f"[LOG] JavaScript 패턴에서 카운트다운 감지: {countdown_seconds}초")
-                return ("countdown", countdown_seconds)
+                # 합리적인 범위 체크 (5초~300초)
+                if 5 <= countdown_seconds <= 300:
+                    print(f"[LOG] JavaScript 패턴에서 카운트다운 감지: {countdown_seconds}초 (패턴: {pattern})")
+                    return ("countdown", countdown_seconds)
         
         # 2단계: dlw 버튼 확인 (JavaScript 시간이 없는 경우에만)
         if 'id="dlw"' in html_content and 'disabled' in html_content:
             print(f"[DEBUG] dlw 버튼이 disabled 상태로 발견됨 (JavaScript 시간 없음)")
         else:
             print(f"[DEBUG] dlw 버튼이나 disabled 속성을 찾을 수 없음")
+        
+        # JavaScript 또는 HTML에 특정 키워드가 있는지 확인
+        countdown_keywords = ['countdown', 'timer', 'wait', 'delay', 'second', 'sec', '초']
+        found_keywords = [kw for kw in countdown_keywords if kw in html_content.lower()]
+        if found_keywords:
+            print(f"[DEBUG] 카운트다운 관련 키워드 발견: {found_keywords}")
+        else:
+            print(f"[DEBUG] 카운트다운 관련 키워드를 찾을 수 없음")
         
         # 기존 패턴들도 시도
         countdown_patterns = [
@@ -436,18 +470,72 @@ def _detect_download_limits(html_content, original_url):
                     print(f"[LOG] HTML 패턴에서 카운트다운 감지: {countdown_seconds}초")
                     return ("countdown", countdown_seconds)
         
-        # 4단계: 프리미엄 페이지로 리다이렉트된 경우 (더 엄격한 조건)
-        # dlw 버튼이 있으면 카운트다운 페이지이므로 프리미엄 체크 건너뛰기
-        if 'id="dlw"' not in html_content:
-            premium_indicators = [
-                '/console/abo.pl' in html_content and 'id="dlw"' not in html_content,
-                'premium required' in html_content.lower(),
-                'premium account' in html_content.lower(), 
-                'upgrade to premium' in html_content.lower()
-            ]
-            if any(premium_indicators):
-                print(f"[DEBUG] 프리미엄 필요 감지됨 (dlw 버튼 없음)")
-                return ("다운로드 제한 - 프리미엄 필요", None)
+        # 4단계: 더 광범위한 텍스트 기반 카운트다운 감지
+        # HTML 텍스트에서 시간 표시를 찾기
+        text_time_patterns = [
+            r'(\d+)\s*second',                    # "60 second" 
+            r'(\d+)\s*sec',                       # "45 sec"
+            r'(\d+)\s*\s*초',                     # "30 초" (한국어)
+            r'Free\s+download\s+in\s+(\d+)',      # "Free download in 60"
+            r'Download\s+in\s+(\d+)',             # "Download in 45"
+            r'Please\s+wait\s+(\d+)',             # "Please wait 30"
+            r'Wait\s+(\d+)',                      # "Wait 25"
+            r'Countdown:\s*(\d+)',                # "Countdown: 20"
+        ]
+        
+        for pattern in text_time_patterns:
+            text_match = re.search(pattern, html_content, re.IGNORECASE)
+            if text_match:
+                countdown_seconds = int(text_match.group(1))
+                # 합리적인 범위 체크 (5초~300초)
+                if 5 <= countdown_seconds <= 300:
+                    print(f"[LOG] HTML 텍스트에서 카운트다운 감지: {countdown_seconds}초 (패턴: {pattern})")
+                    return ("countdown", countdown_seconds)
+        
+        # 5단계: 숫자 패턴 광범위 검색 (마지막 시도)
+        # 모든 숫자를 찾아서 카운트다운 후보 검사
+        all_numbers = re.findall(r'\b(\d{1,3})\b', html_content)
+        reasonable_countdown_numbers = [int(n) for n in all_numbers if 10 <= int(n) <= 120]
+        
+        if reasonable_countdown_numbers:
+            print(f"[DEBUG] HTML에서 발견된 카운트다운 후보 숫자들: {reasonable_countdown_numbers[:10]}")
+            # 가장 흔한 숫자나 특정 범위의 숫자를 카운트다운으로 추정
+            from collections import Counter
+            counter = Counter(reasonable_countdown_numbers)
+            most_common = counter.most_common(1)
+            if most_common:
+                candidate_countdown = most_common[0][0]
+                print(f"[LOG] 추정 카운트다운 시간: {candidate_countdown}초 (HTML 내 빈도 기반)")
+                return ("countdown", candidate_countdown)
+        
+        # 6단계: 다른 접근 - URL 패턴 분석
+        # 1fichier URL에서 특별한 패턴이나 파라미터 확인
+        if '1fichier.com' in original_url:
+            print(f"[DEBUG] 1fichier URL 확인됨. URL 패턴 분석...")
+            
+            # URL에서 특별한 매개변수나 패턴 확인
+            if '?download=' in original_url or '&download=' in original_url:
+                print(f"[DEBUG] Direct download URL 패턴 감지")
+                return (None, None)  # 제한 없음으로 처리
+            
+            # 일반적인 1fichier 파일 URL 패턴인 경우 기본 대기시간 적용
+            if re.match(r'https?://1fichier\.com/\?\w+', original_url):
+                print(f"[LOG] 표준 1fichier URL 패턴 - 기본 카운트다운 60초 적용")
+                return ("countdown", 60)
+        
+        # 7단계: 프리미엄 페이지로 리다이렉트된 경우 (최종 체크)
+        premium_indicators = [
+            '/console/abo.pl' in html_content,
+            'premium required' in html_content.lower(),
+            'premium account' in html_content.lower(), 
+            'upgrade to premium' in html_content.lower(),
+            'subscription' in html_content.lower() and 'payment' in html_content.lower()
+        ]
+        
+        # 매우 확실한 프리미엄 페이지 표시가 있는 경우에만
+        if any(premium_indicators) and 'countdown' not in html_content.lower() and 'timer' not in html_content.lower():
+            print(f"[DEBUG] 프리미엄 필요 감지됨 (카운트다운 관련 단어 없음)")
+            return ("다운로드 제한 - 프리미엄 필요", None)
         
         # 4단계: 기타 시간 제한 메시지들
         time_limit_patterns = [
@@ -487,6 +575,12 @@ def _detect_download_limits(html_content, original_url):
             if keyword.lower() in html_content.lower():
                 return ("IP 제한", None)
         
+        # 최종 fallback: 1fichier 사이트인데 명확한 다운로드 링크가 없다면 기본 대기시간 적용
+        if '1fichier.com' in original_url and 'download' not in html_content.lower():
+            print(f"[LOG] 1fichier 사이트에서 다운로드 링크를 찾을 수 없음 - 기본 대기시간 45초 적용")
+            return ("countdown", 45)
+        
+        print(f"[DEBUG] 어떤 제한도 감지되지 않음")
         return None
         
     except Exception as e:
