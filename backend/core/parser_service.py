@@ -173,7 +173,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     
     if r1.status_code not in [200, 500]:
         print(f"[LOG] GET 실패: {r1.status_code}")
-        return None
+        return None, None
     
     # 대기 시간 확인 및 실제 남은 시간 계산
     import re
@@ -272,6 +272,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     # print(f"[LOG] POST 응답: {r2.status_code}")
     
     if r2.status_code == 200:
+        print(f"[DEBUG] POST 응답 크기: {len(r2.text)} 문자")
+        
         # 1단계: 제한 상황 감지
         limit_detected = _detect_download_limits(r2.text, str(url))
         if limit_detected:
@@ -293,6 +295,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 r3 = scraper.post(url, data=payload, headers=headers_post, proxies=proxies, timeout=15)
                 
                 if r3.status_code == 200:
+                    print(f"[DEBUG] 재시도 POST 응답 크기: {len(r3.text)} 문자")
                     # 재시도 후 Direct Link 파싱
                     direct_link = fichier_parser.parse_download_link(r3.text, str(url))
                     if direct_link:
@@ -315,6 +318,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         
         # 2단계: 새로운 파서 사용 (제한이 없는 경우)
         else:
+            print(f"[DEBUG] 제한 없음 - 즉시 파싱 시도")
             direct_link = fichier_parser.parse_download_link(r2.text, str(url))
             if direct_link:
                 print(f"[LOG] Direct Link 발견: {direct_link}")
@@ -343,19 +347,31 @@ def _detect_download_limits(html_content, original_url):
             
             print(f"[DEBUG] ===== HTML 전체 분석 (총 {total_len}자) =====")
             
-            # 첫 번째 1000자
-            print(f"[DEBUG] HTML 첫 1000자:")
-            print(html_content[:chunk_size])
+            # 첫 번째 1000자 (안전한 출력)
+            try:
+                print(f"[DEBUG] HTML 첫 1000자:")
+                safe_content = html_content[:chunk_size].encode('utf-8', 'ignore').decode('utf-8')
+                print(safe_content)
+            except:
+                print("[DEBUG] HTML 첫 부분 출력 실패 (인코딩 문제)")
             
             # 중간 1000자  
-            middle_start = total_len // 2 - chunk_size // 2
-            middle_end = middle_start + chunk_size
-            print(f"[DEBUG] HTML 중간 1000자 ({middle_start}-{middle_end}):")
-            print(html_content[middle_start:middle_end])
+            try:
+                middle_start = total_len // 2 - chunk_size // 2
+                middle_end = middle_start + chunk_size
+                print(f"[DEBUG] HTML 중간 1000자 ({middle_start}-{middle_end}):")
+                safe_content = html_content[middle_start:middle_end].encode('utf-8', 'ignore').decode('utf-8')
+                print(safe_content)
+            except:
+                print("[DEBUG] HTML 중간 부분 출력 실패 (인코딩 문제)")
             
             # 마지막 1000자
-            print(f"[DEBUG] HTML 마지막 1000자:")
-            print(html_content[-chunk_size:])
+            try:
+                print(f"[DEBUG] HTML 마지막 1000자:")
+                safe_content = html_content[-chunk_size:].encode('utf-8', 'ignore').decode('utf-8')
+                print(safe_content)
+            except:
+                print("[DEBUG] HTML 마지막 부분 출력 실패 (인코딩 문제)")
             
             # 특별한 요소들 검사
             script_matches = re.findall(r'<script[^>]*>(.*?)</script>', html_content, re.IGNORECASE | re.DOTALL)

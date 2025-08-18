@@ -20,6 +20,20 @@ class FichierParser:
         'a[href*="cdn-"][href*=".1fichier.com"]',
         '//a[contains(@href, "cdn-") and contains(@href, ".1fichier.com")]',
         
+        # a-숫자 패턴 링크 (실제 다운로드 링크)
+        '//a[contains(@href, "a-") and contains(@href, ".1fichier.com")]',
+        '//a[contains(@href, "://a-") and contains(@href, ".1fichier.com")]',
+        
+        # 1fichier 전용 다운로드 도메인들
+        '//a[contains(@href, "download.1fichier.com")]',
+        '//a[contains(@href, "dl.1fichier.com")]',
+        '//a[contains(@href, "static.1fichier.com")]',
+        
+        # dlw 버튼 (가장 일반적인 다운로드 버튼)
+        '//a[@id="dlw"]',
+        '//a[@class="dlw"]',
+        '//*[@id="dlw"][@href]',
+        
         # 최신 1fichier 구조 (2024년 기준)
         '//a[contains(@class, "ok btn-general")]',
         '//a[contains(@class, "btn-general") and contains(@href, "cdn-")]',
@@ -81,6 +95,8 @@ class FichierParser:
         r'https?://[^/]*1fichier\.com/',  # 1fichier 도메인
         r'https?://[^/]*\.1fichier\.com/',  # 서브도메인
         r'https?://cdn-\d+\.1fichier\.com/',  # CDN 링크
+        r'https?://a-\d+\.1fichier\.com/',  # a-숫자 패턴 링크
+        r'https?://[a-z]-\d+\.1fichier\.com/',  # x-숫자 패턴 링크 (일반화)
         r'https?://[^/]*download[^/]*/',  # download가 포함된 도메인
     ]
     
@@ -98,6 +114,11 @@ class FichierParser:
         r'/console/abo\.pl',  # 프리미엄 결제 페이지
         r'/tarifs',           # 요금제 페이지
         r'/console/',         # 콘솔 페이지들
+        r'/cgu\.html',        # 이용약관 페이지
+        r'/cgv\.html',        # 판매약관 페이지
+        r'/mentions\.html',   # 법적고지 페이지
+        r'/privacy\.html',    # 개인정보보호 페이지
+        r'/about\.html',      # 회사소개 페이지
     ]
     
     def __init__(self):
@@ -115,39 +136,65 @@ class FichierParser:
             str: 다운로드 링크 또는 None
         """
         try:
+            print(f"[DEBUG] 파싱 시작 - HTML 길이: {len(html_content)} 문자")
+            
             # HTML 파싱
             doc = lxml.html.fromstring(html_content)
             
+            # 모든 링크 수집 (디버깅용)
+            all_links = doc.xpath('//a[@href]')
+            print(f"[DEBUG] 전체 링크 수: {len(all_links)}")
+            
+            # 특별히 a-숫자 패턴 링크들 확인
+            a_pattern_links = [a.get('href') for a in all_links if a.get('href') and 'a-' in a.get('href')]
+            if a_pattern_links:
+                print(f"[DEBUG] a-숫자 패턴 링크들:")
+                for link in a_pattern_links:
+                    print(f"[DEBUG]   {link}")
+            
+            # cgu.html 같은 문제 링크들 확인
+            problem_links = [a.get('href') for a in all_links if a.get('href') and any(x in a.get('href').lower() for x in ['cgu.html', 'tarifs', 'console'])]
+            if problem_links:
+                print(f"[DEBUG] 문제 링크들 (제외되어야 함):")
+                for link in problem_links:
+                    print(f"[DEBUG]   {link}")
+            
             # 각 선택자를 순서대로 시도
-            for selector in self.DOWNLOAD_SELECTORS:
+            for i, selector in enumerate(self.DOWNLOAD_SELECTORS):
                 try:
                     links = self._extract_links_by_selector(doc, selector)
+                    print(f"[DEBUG] 선택자 {i+1}: '{selector}' -> {len(links)}개 링크")
                     
                     for link in links:
+                        print(f"[DEBUG]   후보 링크: {link}")
+                        
                         # 상대 링크를 절대 링크로 변환
                         if base_url and not link.startswith('http'):
                             link = urljoin(base_url, link)
                         
                         # 링크 검증
                         if self._is_valid_download_link(link):
-                            logger.info(f"다운로드 링크 발견 (선택자: {selector}): {link}")
+                            print(f"[LOG] OK 다운로드 링크 발견 (선택자 {i+1}: {selector}): {link}")
                             return link
+                        else:
+                            print(f"[DEBUG]   FAIL 링크 검증 실패: {link}")
                             
                 except Exception as e:
-                    logger.debug(f"선택자 {selector} 실행 중 오류: {e}")
+                    print(f"[DEBUG] 선택자 {selector} 실행 중 오류: {e}")
                     continue
             
             # 모든 선택자가 실패한 경우, 휴리스틱 방법 시도
+            print(f"[DEBUG] 모든 선택자 실패 - 휴리스틱 방법 시도")
             fallback_link = self._heuristic_link_extraction(doc, base_url)
             if fallback_link:
-                logger.info(f"휴리스틱 방법으로 링크 발견: {fallback_link}")
+                print(f"[LOG] 휴리스틱 방법으로 링크 발견: {fallback_link}")
                 return fallback_link
             
-            logger.warning("다운로드 링크를 찾을 수 없습니다")
+            print(f"[ERROR] 다운로드 링크를 찾을 수 없습니다")
             return None
             
         except Exception as e:
-            logger.error(f"HTML 파싱 중 오류: {e}")
+            print(f"[ERROR] HTML 파싱 중 오류: {e}")
             return None
     
     def _extract_links_by_selector(self, doc, selector):
@@ -175,22 +222,59 @@ class FichierParser:
     def _is_valid_download_link(self, link):
         """다운로드 링크 유효성 검증"""
         if not link or not isinstance(link, str):
+            print(f"[DEBUG] 링크 검증 실패: 빈 링크 또는 잘못된 타입")
             return False
         
-        # 제외 패턴 확인
+        print(f"[DEBUG] 링크 검증 중: {link}")
+        
+        # 제외 패턴 확인 (먼저 체크)
         for pattern in self.EXCLUDE_PATTERNS:
             if re.search(pattern, link, re.IGNORECASE):
+                print(f"[DEBUG] 제외 패턴 매칭: {pattern} -> {link}")
                 return False
+        
+        # 확실히 제외해야 할 키워드들
+        exclude_keywords = ['cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html', 
+                           'premium', 'console', 'register', 'login', 'help', 'contact', 'faq', 'tarifs']
+        for keyword in exclude_keywords:
+            if keyword in link.lower():
+                print(f"[DEBUG] 제외 키워드 발견: {keyword} -> {link}")
+                return False
+        
+        # CDN 링크는 최우선 허용
+        if 'cdn-' in link and '.1fichier.com' in link:
+            print(f"[DEBUG] OK CDN 링크 허용: {link}")
+            return True
+        
+        # a-숫자 패턴 링크 허용 (실제 다운로드 링크)
+        if re.search(r'https?://[a-z]-\d+\.1fichier\.com/', link):
+            print(f"[DEBUG] OK a-숫자 패턴 링크 허용: {link}")
+            return True
+        
+        # 다운로드 전용 도메인들
+        download_domains = ['download.1fichier.com', 'dl.1fichier.com', 'static.1fichier.com']
+        for domain in download_domains:
+            if domain in link:
+                print(f"[DEBUG] OK 다운로드 도메인 허용: {domain} -> {link}")
+                return True
         
         # 유효한 패턴 확인
         for pattern in self.VALID_LINK_PATTERNS:
             if re.search(pattern, link, re.IGNORECASE):
+                print(f"[DEBUG] OK 유효한 패턴 매칭: {pattern} -> {link}")
                 return True
         
-        # HTTP/HTTPS 링크이고 파일 확장자가 있는 경우
-        if link.startswith('http') and ('.' in link.split('/')[-1] or 'download' in link.lower()):
+        # HTTP/HTTPS 링크이고 쿼리 파라미터가 있는 경우 (파일 다운로드 링크일 가능성)
+        if link.startswith('http') and '?' in link and 'download' in link.lower():
+            print(f"[DEBUG] OK 쿼리 파라미터 있는 다운로드 링크: {link}")
             return True
         
+        # HTTP/HTTPS 링크이고 파일 확장자가 있는 경우
+        if link.startswith('http') and '.' in link.split('/')[-1]:
+            print(f"[DEBUG] OK 파일 확장자 있는 링크: {link}")
+            return True
+        
+        print(f"[DEBUG] FAIL 링크 검증 실패: {link}")
         return False
     
     def _heuristic_link_extraction(self, doc, base_url):
@@ -310,7 +394,7 @@ class FichierParser:
             score += 30   # 일반 1fichier 링크
         
         # 제외할 링크들에 대한 페널티
-        exclude_keywords = ['console', 'abo', 'premium', 'register', 'login', 'help', 'contact', 'faq', 'tarifs']
+        exclude_keywords = ['console', 'abo', 'premium', 'register', 'login', 'help', 'contact', 'faq', 'tarifs', 'cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html']
         for keyword in exclude_keywords:
             if keyword in link.lower():
                 score -= 50  # 큰 페널티
