@@ -296,6 +296,92 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 
                 if r3.status_code == 200:
                     print(f"[DEBUG] 재시도 POST 응답 크기: {len(r3.text)} 문자")
+                    
+                    # 재시도 응답에서 더 정교한 분석
+                    print(f"[DEBUG] 재시도 응답 상세 분석 중...")
+                    import re
+                    
+                    # dlw 버튼의 onclick이나 href 찾기
+                    dlw_patterns = [
+                        r'<[^>]*id=["\']dlw["\'][^>]*onclick=["\']([^"\']+)["\'][^>]*>',
+                        r'<[^>]*id=["\']dlw["\'][^>]*href=["\']([^"\']+)["\'][^>]*>',
+                        r'<[^>]*id=["\']dlw["\'][^>]*>(.*?)</[^>]*>',
+                    ]
+                    
+                    for pattern in dlw_patterns:
+                        dlw_matches = re.findall(pattern, r3.text, re.IGNORECASE | re.DOTALL)
+                        if dlw_matches:
+                            print(f"[DEBUG] dlw 패턴 발견: {dlw_matches}")
+                            for match in dlw_matches:
+                                if 'a-' in match and '.1fichier.com' in match:
+                                    print(f"[LOG] dlw에서 Direct Link 발견{proxy_info}: {match}")
+                                    return match, r3.text
+                    
+                    # JavaScript location.href 찾기
+                    js_location_patterns = [
+                        r"location\.href\s*=\s*['\"]([^'\"]*a-[^'\"]*)['\"]",
+                        r"window\.location\s*=\s*['\"]([^'\"]*a-[^'\"]*)['\"]",
+                        r"document\.location\s*=\s*['\"]([^'\"]*a-[^'\"]*)['\"]",
+                    ]
+                    
+                    for pattern in js_location_patterns:
+                        js_matches = re.findall(pattern, r3.text, re.IGNORECASE)
+                        if js_matches:
+                            print(f"[DEBUG] JavaScript location 패턴 발견: {js_matches}")
+                            for match in js_matches:
+                                if match.startswith('/'):
+                                    match = f"https://1fichier.com{match}"
+                                print(f"[LOG] JavaScript에서 Direct Link 발견{proxy_info}: {match}")
+                                return match, r3.text
+                    
+                    # 폼 분석
+                    forms = re.findall(r'<form[^>]*>(.*?)</form>', r3.text, re.DOTALL | re.IGNORECASE)
+                    if forms:
+                        print(f"[DEBUG] 재시도 응답에서 {len(forms)}개 폼 발견")
+                        for i, form in enumerate(forms):
+                            # 폼 내 action 찾기
+                            action_match = re.search(r'action\s*=\s*[\'"]([^\'"]+)[\'"]', form, re.IGNORECASE)
+                            if action_match:
+                                action_url = action_match.group(1)
+                                print(f"[DEBUG] 폼 {i+1} action: {action_url}")
+                                if 'a-' in action_url and '.1fichier.com' in action_url:
+                                    print(f"[DEBUG] 폼 {i+1}에서 a-패턴 action 발견: {action_url}")
+                                    if action_url.startswith('/'):
+                                        action_url = f"https://1fichier.com{action_url}"
+                                    print(f"[LOG] 폼 action에서 Direct Link 발견{proxy_info}: {action_url}")
+                                    return action_url, r3.text
+                    
+                    # 최종 시도: dlw 폼 submit 시뮬레이션
+                    print(f"[DEBUG] dlw 폼 submit 시뮬레이션 시도...")
+                    
+                    # dlw 버튼과 연결된 폼 찾기
+                    form_match = re.search(r'<form[^>]*id=["\']f1["\'][^>]*>(.*?)</form>', r3.text, re.DOTALL | re.IGNORECASE)
+                    if form_match:
+                        form_content = form_match.group(1)
+                        print(f"[DEBUG] f1 폼 발견, submit 시도")
+                        
+                        # 폼 데이터 수집
+                        form_data = {}
+                        input_matches = re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\'][^>]*>', form_content, re.IGNORECASE)
+                        for name, value in input_matches:
+                            form_data[name] = value
+                        
+                        print(f"[DEBUG] 폼 데이터: {form_data}")
+                        
+                        # 세 번째 POST 요청 (폼 submit)
+                        try:
+                            r4 = scraper.post(url, data=form_data, headers=headers_post, proxies=proxies, timeout=15)
+                            if r4.status_code == 200:
+                                print(f"[DEBUG] 폼 submit 응답 크기: {len(r4.text)} 문자")
+                                
+                                # 최종 응답에서 다운로드 링크 찾기
+                                final_link = fichier_parser.parse_download_link(r4.text, str(url))
+                                if final_link:
+                                    print(f"[LOG] 폼 submit 후 Direct Link 발견{proxy_info}: {final_link}")
+                                    return final_link, r4.text
+                        except Exception as e:
+                            print(f"[DEBUG] 폼 submit 실패: {e}")
+                    
                     # 재시도 후 Direct Link 파싱
                     direct_link = fichier_parser.parse_download_link(r3.text, str(url))
                     if direct_link:

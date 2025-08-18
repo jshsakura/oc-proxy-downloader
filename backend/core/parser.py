@@ -269,8 +269,12 @@ class FichierParser:
             print(f"[DEBUG] OK 쿼리 파라미터 있는 다운로드 링크: {link}")
             return True
         
-        # HTTP/HTTPS 링크이고 파일 확장자가 있는 경우
+        # HTTP/HTTPS 링크이고 파일 확장자가 있는 경우 (단, 1fichier 메인 도메인은 제외)
         if link.startswith('http') and '.' in link.split('/')[-1]:
+            # 1fichier 메인 도메인은 제외 (파일이 아님)
+            if link.strip('/') in ['https://1fichier.com', 'http://1fichier.com']:
+                print(f"[DEBUG] FAIL 1fichier 메인 도메인 제외: {link}")
+                return False
             print(f"[DEBUG] OK 파일 확장자 있는 링크: {link}")
             return True
         
@@ -330,6 +334,7 @@ class FichierParser:
             # 모든 script 태그 찾기
             scripts = doc.xpath('//script/text()')
             
+            # 더 포괄적인 JavaScript 패턴들
             js_patterns = [
                 r'window\.location\s*=\s*[\'"]([^\'"]+)[\'"]',
                 r'document\.location\s*=\s*[\'"]([^\'"]+)[\'"]',
@@ -338,10 +343,28 @@ class FichierParser:
                 r'var\s+url\s*=\s*[\'"]([^\'"]+)[\'"]',
                 r'setTimeout\s*\(\s*function\s*\(\)\s*\{\s*location\s*=\s*[\'"]([^\'"]+)[\'"]',
                 r'href\s*=\s*[\'"]([^\'"]*cdn-[^\'"]*)[\'"]',
+                r'href\s*=\s*[\'"]([^\'"]*a-\d+[^\'"]*)[\'"]',  # a-숫자 패턴
+                r'[\'"]https://[a-z]-\d+\.1fichier\.com/[^\'"]*[\'"]',  # 직접 URL 패턴
+                r'submit\(\)\s*\}\s*\}\s*[;\s]*[\'"]([^\'"]*a-\d+[^\'"]*)[\'"]',  # submit 후 URL
+                r'\.click\(.*?\)\s*\}\s*\}\s*[;\s]*[\'"]([^\'"]*a-\d+[^\'"]*)[\'"]',  # click 후 URL
             ]
             
-            for script_content in scripts:
+            print(f"[DEBUG] JavaScript 링크 추출 시작 - {len(scripts)}개 스크립트")
+            
+            for i, script_content in enumerate(scripts):
                 if script_content:
+                    print(f"[DEBUG] Script {i+1} 분석 중... (길이: {len(script_content)})")
+                    
+                    # a-숫자 패턴 직접 검색
+                    a_pattern_matches = re.findall(r'https://[a-z]-\d+\.1fichier\.com/[^\s\'"<>]+', script_content)
+                    if a_pattern_matches:
+                        print(f"[DEBUG] Script에서 a-패턴 발견: {a_pattern_matches}")
+                        for match in a_pattern_matches:
+                            if self._is_valid_download_link(match):
+                                print(f"[DEBUG] JavaScript에서 a-패턴 링크 발견: {match}")
+                                return match
+                    
+                    # 기존 패턴들도 시도
                     for pattern in js_patterns:
                         matches = re.findall(pattern, script_content, re.IGNORECASE)
                         for match in matches:
@@ -350,10 +373,11 @@ class FichierParser:
                                 match = urljoin(base_url, match)
                             
                             if self._is_valid_download_link(match):
+                                print(f"[DEBUG] JavaScript 패턴 매칭: {pattern} -> {match}")
                                 return match
             
         except Exception as e:
-            logger.debug(f"JavaScript 링크 추출 중 오류: {e}")
+            print(f"[DEBUG] JavaScript 링크 추출 중 오류: {e}")
         
         return None
     
