@@ -137,6 +137,16 @@ class FichierParser:
         r'1fichier\.com/help',     # 1fichier 도메인의 help 관련
         r'1fichier\.com/faq',      # 1fichier 도메인의 faq 관련
         r'1fichier\.com/contact',  # 1fichier 도메인의 contact 관련
+        r'1fichier\.com/abus',     # 1fichier 도메인의 abus 관련 (신고)
+        r'1fichier\.com/hlp',      # 1fichier 도메인의 help 관련
+        r'/abus\.html',            # 신고 페이지
+        r'/hlp\.html',             # 도움말 페이지
+        r'abus\.html$',            # 신고 파일명 (경로 없이)
+        r'hlp\.html$',             # 도움말 파일명 (경로 없이)
+        r'/abus\.html$',           # 신고 페이지 (전체 경로)
+        r'/hlp\.html$',            # 도움말 페이지 (전체 경로)
+        r'1fichier\.com/abus\.html', # 1fichier 도메인의 abus.html (신고)
+        r'1fichier\.com/hlp\.html',  # 1fichier 도메인의 hlp.html (도움말)
         r'1fichier\.com/?$',       # 1fichier 메인 페이지 (파일이 아님)
         r'https?://1fichier\.com/?$', # 1fichier 메인 페이지 (전체 URL)
     ]
@@ -256,13 +266,15 @@ class FichierParser:
         # 확실히 제외해야 할 키워드들 (강화됨)
         exclude_keywords = [
             'cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html',
+            'abus.html', 'hlp.html',  # 신고, 도움말 페이지
             'premium', 'console', 'register', 'login', 'help', 'contact', 'faq', 'tarifs',
             '/cgu', '/cgv', '/mentions', '/privacy', '/about', '/tarifs', '/premium',
-            '/console', '/register', '/login', '/help', '/contact', '/faq',
+            '/console', '/register', '/login', '/help', '/contact', '/faq', '/abus', '/hlp',
             '1fichier.com/cgu', '1fichier.com/cgv', '1fichier.com/mentions', 
             '1fichier.com/privacy', '1fichier.com/about', '1fichier.com/tarifs',
             '1fichier.com/premium', '1fichier.com/console', '1fichier.com/register',
-            '1fichier.com/login', '1fichier.com/help', '1fichier.com/contact', '1fichier.com/faq'
+            '1fichier.com/login', '1fichier.com/help', '1fichier.com/contact', '1fichier.com/faq',
+            '1fichier.com/abus', '1fichier.com/hlp'  # 신고, 도움말 관련
         ]
         for keyword in exclude_keywords:
             if keyword in link.lower():
@@ -350,8 +362,9 @@ class FichierParser:
             for score, link in scored_links:
                 print(f"[DEBUG] 휴리스틱 후보 링크 검토: 점수={score}, 링크={link}")
                 if self._is_valid_download_link(link):
-                    # 최종 안전 검사 - cgu 관련 링크 차단
-                    if any(bad in link.lower() for bad in ['cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html']):
+                    # 최종 안전 검사 - 문제 링크들 차단
+                    bad_links = ['cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html', 'abus.html', 'hlp.html']
+                    if any(bad in link.lower() for bad in bad_links):
                         print(f"[DEBUG] 휴리스틱에서 문제 링크 차단: {link}")
                         continue
                     print(f"[DEBUG] 휴리스틱 최종 선택: {link}")
@@ -455,11 +468,12 @@ class FichierParser:
         exclude_keywords = [
             'console', 'abo', 'premium', 'register', 'login', 'help', 'contact', 'faq', 'tarifs',
             'cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html',
+            'abus.html', 'hlp.html',  # 신고, 도움말 페이지
             '/cgu', '/cgv', '/mentions', '/privacy', '/about', '/tarifs', '/premium',
-            '/console', '/register', '/login', '/help', '/contact', '/faq',
+            '/console', '/register', '/login', '/help', '/contact', '/faq', '/abus', '/hlp',
             '1fichier.com/cgu', '1fichier.com/cgv', '1fichier.com/mentions',
             '1fichier.com/privacy', '1fichier.com/about', '1fichier.com/tarifs',
-            '1fichier.com/premium', '1fichier.com/console'
+            '1fichier.com/premium', '1fichier.com/console', '1fichier.com/abus', '1fichier.com/hlp'
         ]
         for keyword in exclude_keywords:
             if keyword in link.lower():
