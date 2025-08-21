@@ -158,6 +158,24 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             req.status = StatusEnum.failed
             req.error = error_msg
             db.commit()
+            
+            # WebSocket으로 실패 상태 전송
+            send_websocket_message("status_update", {
+                "id": req.id,
+                "url": req.url,
+                "file_name": req.file_name,
+                "status": "failed",
+                "error": error_msg,
+                "downloaded_size": 0,
+                "total_size": 0,
+                "save_path": None,
+                "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+                "finished_at": None,
+                "password": req.password,
+                "direct_link": req.direct_link,
+                "use_proxy": req.use_proxy
+            })
+            
             raise Exception(error_msg)
         
         # 특별한 다운로드 모드 처리
@@ -228,6 +246,24 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 req.status = StatusEnum.failed
                 req.error = str(e)
                 db.commit()
+                
+                # WebSocket으로 실패 상태 전송
+                send_websocket_message("status_update", {
+                    "id": req.id,
+                    "url": req.url,
+                    "file_name": req.file_name,
+                    "status": "failed",
+                    "error": str(e),
+                    "downloaded_size": req.downloaded_size or 0,
+                    "total_size": req.file_size or 0,
+                    "save_path": req.save_path,
+                    "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+                    "finished_at": None,
+                    "password": req.password,
+                    "direct_link": req.direct_link,
+                    "use_proxy": req.use_proxy
+                })
+                
             else:
                 print(f"[LOG] 다운로드가 정지 상태이므로 실패 처리하지 않음: ID {request_id}")
     

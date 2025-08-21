@@ -33,7 +33,8 @@
       "Bash(dir:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(move proxy proxy_backup)",
-      "Bash(del test_*.py)"
+      "Bash(del test_*.py)",
+      "WebFetch(domain:1fichier.com)"
     ],
     "deny": []
   }

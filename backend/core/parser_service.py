@@ -600,9 +600,11 @@ def _detect_download_limits(html_content, original_url):
         # 1단계: JavaScript에서 카운트다운 시간 추출 (최우선)
         # 먼저 JavaScript 카운트다운 변수를 찾기 (dlw 버튼 유무와 관계없이)
         js_countdown_patterns = [
-            r'var\s+ct\s*=\s*(\d+)',              # var ct = 60
-            r'ct\s*=\s*(\d+)',                    # ct = 60
-            r'countdown\s*=\s*(\d+)',             # countdown = 45
+            r'var\s+ct\s*=\s*(\d+)\s*\*\s*(\d+)',  # var ct = 1*60 -> 곱셈 결과 계산
+            r'var\s+ct\s*=\s*(\d+)',               # var ct = 60
+            r'ct\s*=\s*(\d+)\s*\*\s*(\d+)',       # ct = 1*60 -> 곱셈 결과 계산
+            r'ct\s*=\s*(\d+)',                     # ct = 60
+            r'countdown\s*=\s*(\d+)',              # countdown = 45
             r'timer\s*=\s*(\d+)',                 # timer = 30
             r'waitTime\s*=\s*(\d+)',              # waitTime = 25
             r'delay\s*=\s*(\d+)',                 # delay = 15
@@ -614,7 +616,14 @@ def _detect_download_limits(html_content, original_url):
         for pattern in js_countdown_patterns:
             js_match = re.search(pattern, html_content, re.IGNORECASE)
             if js_match:
-                countdown_seconds = int(js_match.group(1))
+                # 곱셈 패턴인 경우 계산
+                if len(js_match.groups()) >= 2 and js_match.group(2):
+                    countdown_seconds = int(js_match.group(1)) * int(js_match.group(2))
+                    print(f"[LOG] JavaScript 곱셈 패턴 감지: {js_match.group(1)} * {js_match.group(2)} = {countdown_seconds}초")
+                else:
+                    countdown_seconds = int(js_match.group(1))
+                    print(f"[LOG] JavaScript 단순 패턴 감지: {countdown_seconds}초")
+                
                 # 합리적인 범위 체크 (5초~300초)
                 if 5 <= countdown_seconds <= 300:
                     print(f"[LOG] JavaScript 패턴에서 카운트다운 감지: {countdown_seconds}초 (패턴: {pattern})")

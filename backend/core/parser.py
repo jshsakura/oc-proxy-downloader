@@ -189,21 +189,58 @@ class FichierParser:
             print(f"[DEBUG] 파싱 시작 - HTML 길이: {len(html_content)} 문자")
             
             # 우선 정규식으로 직접 다운로드 링크 패턴 검색
+            print(f"[DEBUG] 정규식 패턴 검색 시작...")
             download_patterns = [
-                r'https?://a-\d+\.1fichier\.com/[a-zA-Z0-9]+',  # a-숫자.1fichier.com/해시
-                r'https?://cdn-\d+\.1fichier\.com/[a-zA-Z0-9]+',  # cdn-숫자.1fichier.com/해시
-                r'https?://[a-z]-\d+\.1fichier\.com/[a-zA-Z0-9]{10,}',  # 일반적 패턴
+                r'https?://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-]+',     # a-숫자.1fichier.com/해시
+                r'https?://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-]+',   # cdn-숫자.1fichier.com/해시
+                r'https?://[a-z]-\d+\.1fichier\.com/[a-zA-Z0-9_\-]{8,}', # 일반적 패턴
+                r'https?://\w+\.1fichier\.com/[a-zA-Z0-9_\-]{10,}',   # 모든 서브도메인
+                r'https://[^"\'>\s]*1fichier[^"\'>\s]*\?[^"\'>\s]{20,}', # 1fichier URL with long query
+                r'https://[^"\'>\s]*1fichier[^"\'>\s]*/[^"\'>\s]{15,}', # 1fichier URL with long path
             ]
             
             for i, pattern in enumerate(download_patterns):
                 matches = re.findall(pattern, html_content, re.IGNORECASE)
+                print(f"[DEBUG] 정규식 패턴 {i+1} ({pattern}) 검색 결과: {len(matches) if matches else 0}개")
                 if matches:
-                    print(f"[DEBUG] 정규식 패턴 {i+1} ({pattern}) 매칭: {matches}")
+                    print(f"[DEBUG] 정규식 패턴 {i+1} 매칭: {matches}")
                     for match in matches:
+                        print(f"[DEBUG] 링크 검증 중: {match}")
                         # 검증
                         if self._is_valid_download_link(match):
                             print(f"[LOG] 정규식으로 발견된 다운로드 링크: {match}")
                             return match
+                        else:
+                            print(f"[DEBUG] 링크 검증 실패: {match}")
+            
+            print(f"[DEBUG] 모든 정규식 패턴에서 유효한 다운로드 링크를 찾지 못함")
+            
+            # JavaScript 리다이렉트나 동적 생성 링크 확인
+            js_patterns = [
+                r'window\.location\s*=\s*["\']([^"\']+)["\']',
+                r'location\.href\s*=\s*["\']([^"\']+)["\']',
+                r'document\.location\s*=\s*["\']([^"\']+)["\']',
+                r'location\.replace\s*\(\s*["\']([^"\']+)["\']\s*\)',
+                r'window\.open\s*\(\s*["\']([^"\']+)["\']\s*\)',
+            ]
+            
+            for pattern in js_patterns:
+                js_matches = re.findall(pattern, html_content, re.IGNORECASE)
+                for js_match in js_matches:
+                    if '1fichier.com' in js_match and len(js_match) > 30:
+                        print(f"[DEBUG] JavaScript 리다이렉트 발견: {js_match}")
+                        if self._is_valid_download_link(js_match):
+                            print(f"[LOG] JavaScript에서 발견된 다운로드 링크: {js_match}")
+                            return js_match
+            
+            # Meta refresh 확인
+            meta_refresh = re.findall(r'<meta[^>]*http-equiv=["\']refresh["\'][^>]*content=["\'][^"\']*url=([^"\']+)["\']', html_content, re.IGNORECASE)
+            for meta_url in meta_refresh:
+                if '1fichier.com' in meta_url and len(meta_url) > 30:
+                    print(f"[DEBUG] Meta refresh 발견: {meta_url}")
+                    if self._is_valid_download_link(meta_url):
+                        print(f"[LOG] Meta refresh에서 발견된 다운로드 링크: {meta_url}")
+                        return meta_url
             
             # HTML 파싱
             doc = lxml.html.fromstring(html_content)
