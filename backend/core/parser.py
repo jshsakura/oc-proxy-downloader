@@ -16,6 +16,14 @@ class FichierParser:
     
     # 다운로드 링크를 찾기 위한 다양한 선택자들 (우선순위 순)
     DOWNLOAD_SELECTORS = [
+        # 실제 파일 다운로드 링크 패턴들 - 최우선
+        # 패턴: https://a-숫자.1fichier.com/해시
+        '//a[contains(@href, "://a-") and contains(@href, ".1fichier.com/") and string-length(@href) > 30]',
+        # 또는 CDN 패턴
+        '//a[contains(@href, "://cdn-") and contains(@href, ".1fichier.com/") and string-length(@href) > 30]',
+        # 일반적인 긴 토큰 패턴
+        '//a[contains(@href, ".1fichier.com") and string-length(@href) > 50 and contains(@href, "?") and not(contains(@href, "cgu")) and not(contains(@href, "cgv")) and not(contains(@href, "console")) and not(contains(@href, "tarifs")) and not(contains(@href, "revendeurs")) and not(contains(@href, "network")) and not(contains(@href, "hlp")) and not(contains(@href, "abus"))]',
+        
         # CDN 링크 우선 (가장 확실한 다운로드 링크)
         'a[href*="cdn-"][href*=".1fichier.com"]',
         '//a[contains(@href, "cdn-") and contains(@href, ".1fichier.com")]',
@@ -33,6 +41,12 @@ class FichierParser:
         '//a[@id="dlw" and not(contains(@href, "cgu")) and not(contains(@href, "cgv"))]',
         '//a[@class="dlw" and not(contains(@href, "cgu")) and not(contains(@href, "cgv"))]',
         '//*[@id="dlw"][@href and not(contains(@href, "cgu")) and not(contains(@href, "cgv"))]',
+        
+        # 최신 1fichier dlw 버튼 변형들 (2024-2025년 기준)
+        '//a[@id="dlw"]',  # disabled 상태라도 찾기 위함
+        '//button[@id="dlw"]',  # button 태그일 수도 있음
+        '//*[contains(@class, "dlw")]',  # 클래스에 dlw가 포함된 경우
+        '//a[contains(@onclick, "download")]',  # onclick 핸들러가 있는 경우
         
         # 최신 1fichier 구조 (2024년 기준)
         '//a[contains(@class, "ok btn-general")]',
@@ -86,8 +100,8 @@ class FichierParser:
         # JavaScript 패턴들
         '//script[contains(text(), "location.href") or contains(text(), "window.location")]',
         
-        # 마지막 수단: 모든 외부 링크
-        '//a[contains(@href, "http") and (contains(@href, ".") or contains(@href, "download"))]'
+        # 마지막 수단: 모든 외부 링크 (문제 페이지들 제외)
+        '//a[contains(@href, "http") and (contains(@href, ".") or contains(@href, "download")) and not(contains(@href, "cgu")) and not(contains(@href, "cgv")) and not(contains(@href, "console")) and not(contains(@href, "tarifs")) and not(contains(@href, "revendeurs")) and not(contains(@href, "network")) and not(contains(@href, "hlp")) and not(contains(@href, "abus")) and not(contains(@href, "register")) and not(contains(@href, "login")) and not(contains(@href, "contact")) and not(contains(@href, "premium"))]'
     ]
     
     # 다운로드 링크 검증을 위한 패턴들
@@ -139,6 +153,12 @@ class FichierParser:
         r'1fichier\.com/contact',  # 1fichier 도메인의 contact 관련
         r'1fichier\.com/abus',     # 1fichier 도메인의 abus 관련 (신고)
         r'1fichier\.com/hlp',      # 1fichier 도메인의 help 관련
+        r'1fichier\.com/revendeurs', # 리셀러 페이지
+        r'/revendeurs\.html',      # 리셀러 페이지
+        r'revendeurs\.html$',      # 리셀러 파일명
+        r'1fichier\.com/network',  # 네트워크 페이지
+        r'/network\.html',         # 네트워크 페이지
+        r'network\.html$',         # 네트워크 파일명
         r'/abus\.html',            # 신고 페이지
         r'/hlp\.html',             # 도움말 페이지
         r'abus\.html$',            # 신고 파일명 (경로 없이)
@@ -167,6 +187,23 @@ class FichierParser:
         """
         try:
             print(f"[DEBUG] 파싱 시작 - HTML 길이: {len(html_content)} 문자")
+            
+            # 우선 정규식으로 직접 다운로드 링크 패턴 검색
+            download_patterns = [
+                r'https?://a-\d+\.1fichier\.com/[a-zA-Z0-9]+',  # a-숫자.1fichier.com/해시
+                r'https?://cdn-\d+\.1fichier\.com/[a-zA-Z0-9]+',  # cdn-숫자.1fichier.com/해시
+                r'https?://[a-z]-\d+\.1fichier\.com/[a-zA-Z0-9]{10,}',  # 일반적 패턴
+            ]
+            
+            for i, pattern in enumerate(download_patterns):
+                matches = re.findall(pattern, html_content, re.IGNORECASE)
+                if matches:
+                    print(f"[DEBUG] 정규식 패턴 {i+1} ({pattern}) 매칭: {matches}")
+                    for match in matches:
+                        # 검증
+                        if self._is_valid_download_link(match):
+                            print(f"[LOG] 정규식으로 발견된 다운로드 링크: {match}")
+                            return match
             
             # HTML 파싱
             doc = lxml.html.fromstring(html_content)

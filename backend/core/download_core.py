@@ -141,7 +141,19 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             return
         
         if not direct_link:
-            error_msg = "Direct Link 파싱 실패"
+            # URL 유효성 체크를 통한 더 자세한 에러 메시지
+            try:
+                import requests
+                test_response = requests.head(req.url, timeout=5)
+                if test_response.status_code == 404:
+                    error_msg = "파일이 존재하지 않거나 삭제됨 (404 에러)"
+                elif test_response.status_code == 403:
+                    error_msg = "파일 접근이 거부됨 (403 에러)"
+                else:
+                    error_msg = f"Direct Link 파싱 실패 (HTTP {test_response.status_code})"
+            except:
+                error_msg = "Direct Link 파싱 실패 - URL에 접근할 수 없음"
+            
             print(f"[LOG] {error_msg}")
             req.status = StatusEnum.failed
             req.error = error_msg
@@ -423,6 +435,31 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                 return
             
             content_length = int(response.headers.get('Content-Length', 0))
+            content_type = response.headers.get('Content-Type', '').lower()
+            
+            # 응답 검증: HTML이나 빈 파일인지 확인
+            print(f"[LOG] 프록시 응답 분석 - Content-Length: {content_length}, Content-Type: {content_type}")
+            
+            # Content-Type이 HTML인 경우 에러 페이지일 가능성
+            if 'text/html' in content_type:
+                print(f"[LOG] HTML 응답 감지 - 다운로드 링크가 에러 페이지로 리다이렉트됨")
+                raise Exception("다운로드 링크가 에러 페이지로 리다이렉트됨 (HTML 응답)")
+            
+            # Content-Length가 너무 작은 경우 (1KB 미만)
+            if content_length < 1024 and initial_size == 0:
+                print(f"[LOG] 파일 크기가 너무 작음: {content_length} bytes - 에러 응답일 가능성")
+                # 작은 응답의 내용을 확인해봄
+                peek_content = response.content[:500]  # 처음 500바이트만 확인
+                try:
+                    peek_text = peek_content.decode('utf-8', errors='ignore').lower()
+                    # HTML 태그나 에러 메시지가 포함되어 있는지 확인
+                    error_indicators = ['<html', '<body', 'error', '404', '403', 'not found', 'access denied']
+                    if any(indicator in peek_text for indicator in error_indicators):
+                        print(f"[LOG] 응답에 에러 내용 감지: {peek_text[:100]}...")
+                        raise Exception(f"다운로드 실패 - 에러 응답 감지 (크기: {content_length} bytes)")
+                except:
+                    pass  # 디코딩 실패해도 계속 진행
+            
             if initial_size > 0:
                 # 이어받기: 전체 크기 = 기존 크기 + 남은 크기
                 total_size = initial_size + content_length
@@ -431,10 +468,15 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                 # 새 다운로드: 전체 크기 = Content-Length
                 total_size = content_length
             
+            # 파일 크기가 0인 경우 다운로드 중단
+            if total_size == 0:
+                print(f"[LOG] 파일 크기가 0 - 다운로드 중단")
+                raise Exception("파일 크기가 0입니다. 다운로드 링크가 올바르지 않습니다.")
+            
             req.total_size = total_size
             db.commit()
             
-            print(f"[LOG] 다운로드 시작 - 총 크기: {total_size} bytes")
+            print(f"[LOG] 프록시 다운로드 시작 - 총 크기: {total_size} bytes, Content-Type: {content_type}")
             
             with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
                 downloaded = initial_size
@@ -464,7 +506,28 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                 req.downloaded_size = downloaded
                 db.commit()
                 
-        print(f"[LOG] 다운로드 완료: {downloaded} bytes")
+        print(f"[LOG] 프록시 다운로드 완료: {downloaded} bytes")
+        
+        # 다운로드 완료 후 파일 검증
+        if downloaded == 0:
+            print(f"[LOG] 경고: 다운로드된 데이터가 0 bytes")
+            raise Exception("다운로드 실패 - 받은 데이터가 없습니다")
+        elif downloaded < 1024:
+            print(f"[LOG] 경고: 다운로드된 파일이 매우 작음 ({downloaded} bytes)")
+            # 작은 파일의 내용을 확인해봄
+            try:
+                with open(file_path, 'rb') as check_file:
+                    content = check_file.read(500)
+                    try:
+                        text_content = content.decode('utf-8', errors='ignore').lower()
+                        if any(indicator in text_content for indicator in ['<html', 'error', '404', '403']):
+                            print(f"[LOG] 다운로드된 파일이 에러 페이지임: {text_content[:100]}...")
+                            raise Exception(f"다운로드 실패 - 에러 페이지 받음 ({downloaded} bytes)")
+                    except:
+                        pass
+            except:
+                pass
+        
         mark_proxy_used(db, proxy_addr, success=True)
         
         # WebSocket으로 다운로드 성공 알림
@@ -521,6 +584,31 @@ def download_local(direct_link, file_path, initial_size, req, db):
                 return
             
             content_length = int(response.headers.get('Content-Length', 0))
+            content_type = response.headers.get('Content-Type', '').lower()
+            
+            # 응답 검증: HTML이나 빈 파일인지 확인
+            print(f"[LOG] 로컬 응답 분석 - Content-Length: {content_length}, Content-Type: {content_type}")
+            
+            # Content-Type이 HTML인 경우 에러 페이지일 가능성
+            if 'text/html' in content_type:
+                print(f"[LOG] HTML 응답 감지 - 다운로드 링크가 에러 페이지로 리다이렉트됨")
+                raise Exception("다운로드 링크가 에러 페이지로 리다이렉트됨 (HTML 응답)")
+            
+            # Content-Length가 너무 작은 경우 (1KB 미만)
+            if content_length < 1024 and initial_size == 0:
+                print(f"[LOG] 파일 크기가 너무 작음: {content_length} bytes - 에러 응답일 가능성")
+                # 작은 응답의 내용을 확인해봄
+                peek_content = response.content[:500]  # 처음 500바이트만 확인
+                try:
+                    peek_text = peek_content.decode('utf-8', errors='ignore').lower()
+                    # HTML 태그나 에러 메시지가 포함되어 있는지 확인
+                    error_indicators = ['<html', '<body', 'error', '404', '403', 'not found', 'access denied']
+                    if any(indicator in peek_text for indicator in error_indicators):
+                        print(f"[LOG] 응답에 에러 내용 감지: {peek_text[:100]}...")
+                        raise Exception(f"다운로드 실패 - 에러 응답 감지 (크기: {content_length} bytes)")
+                except:
+                    pass  # 디코딩 실패해도 계속 진행
+            
             if initial_size > 0:
                 # 이어받기: 전체 크기 = 기존 크기 + 남은 크기
                 total_size = initial_size + content_length
@@ -529,10 +617,15 @@ def download_local(direct_link, file_path, initial_size, req, db):
                 # 새 다운로드: 전체 크기 = Content-Length
                 total_size = content_length
             
+            # 파일 크기가 0인 경우 다운로드 중단
+            if total_size == 0:
+                print(f"[LOG] 파일 크기가 0 - 다운로드 중단")
+                raise Exception("파일 크기가 0입니다. 다운로드 링크가 올바르지 않습니다.")
+            
             req.total_size = total_size
             db.commit()
             
-            print(f"[LOG] 다운로드 시작 - 총 크기: {total_size} bytes")
+            print(f"[LOG] 로컬 다운로드 시작 - 총 크기: {total_size} bytes, Content-Type: {content_type}")
             
             with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
                 downloaded = initial_size
@@ -563,6 +656,26 @@ def download_local(direct_link, file_path, initial_size, req, db):
                 db.commit()
                 
         print(f"[LOG] 로컬 다운로드 완료: {downloaded} bytes")
+        
+        # 다운로드 완료 후 파일 검증
+        if downloaded == 0:
+            print(f"[LOG] 경고: 다운로드된 데이터가 0 bytes")
+            raise Exception("다운로드 실패 - 받은 데이터가 없습니다")
+        elif downloaded < 1024:
+            print(f"[LOG] 경고: 다운로드된 파일이 매우 작음 ({downloaded} bytes)")
+            # 작은 파일의 내용을 확인해봄
+            try:
+                with open(file_path, 'rb') as check_file:
+                    content = check_file.read(500)
+                    try:
+                        text_content = content.decode('utf-8', errors='ignore').lower()
+                        if any(indicator in text_content for indicator in ['<html', 'error', '404', '403']):
+                            print(f"[LOG] 다운로드된 파일이 에러 페이지임: {text_content[:100]}...")
+                            raise Exception(f"다운로드 실패 - 에러 페이지 받음 ({downloaded} bytes)")
+                    except:
+                        pass
+            except:
+                pass
         
     except Exception as e:
         print(f"[LOG] 로컬 다운로드 실패: {e}")
@@ -598,7 +711,38 @@ def cleanup_download_file(file_path):
     try:
         if str(file_path).endswith('.part'):
             final_path = str(file_path)[:-5]  # .part 제거
-            os.rename(file_path, final_path)
-            print(f"[LOG] 파일명 정리: {final_path}")
+            
+            # 파일 크기 확인
+            if os.path.exists(file_path):
+                file_size = os.path.getsize(file_path)
+                print(f"[LOG] 최종 파일 크기: {file_size} bytes")
+                
+                # 파일이 매우 작거나 빈 경우 내용 검증
+                if file_size < 1024:
+                    print(f"[LOG] 작은 파일 검증 중... ({file_size} bytes)")
+                    try:
+                        with open(file_path, 'rb') as f:
+                            content = f.read(500)
+                            try:
+                                text_content = content.decode('utf-8', errors='ignore').lower()
+                                error_indicators = ['<html', '<body', 'error', '404', '403', 'not found']
+                                if any(indicator in text_content for indicator in error_indicators):
+                                    print(f"[LOG] 에러 파일 감지 - 삭제함: {text_content[:100]}...")
+                                    os.remove(file_path)
+                                    raise Exception(f"다운로드 실패 - 에러 페이지 받음 ({file_size} bytes)")
+                            except UnicodeDecodeError:
+                                # 바이너리 파일인 경우 통과
+                                pass
+                    except Exception as e:
+                        if "에러 페이지" in str(e):
+                            raise e  # 에러 페이지인 경우 예외 전파
+                        pass  # 기타 파일 읽기 에러는 무시
+                
+                # 정상 파일인 경우 이름 변경
+                os.rename(file_path, final_path)
+                print(f"[LOG] 파일명 정리 완료: {final_path}")
+            else:
+                print(f"[LOG] 파일이 존재하지 않음: {file_path}")
     except Exception as e:
         print(f"[LOG] 파일 정리 실패: {e}")
+        raise e

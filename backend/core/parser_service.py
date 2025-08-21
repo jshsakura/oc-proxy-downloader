@@ -103,6 +103,21 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
         try:
             direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=65)
             return direct_link  # 기존 호환성 유지
+        except requests.exceptions.SSLError as e:
+            print(f"[LOG] SSL 에러 발생, 인증서 검증 비활성화하여 재시도: {e}")
+            # SSL 에러인 경우 인증서 검증을 완전히 비활성화하고 재시도
+            scraper.verify = False
+            import urllib3
+            urllib3.disable_warnings()
+            try:
+                direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=65)
+                return direct_link
+            except Exception as retry_e:
+                print(f"[LOG] SSL 비활성화 후에도 실패: {retry_e}")
+                raise retry_e
+        except requests.exceptions.ConnectionError as e:
+            print(f"[LOG] 연결 에러 발생: {e}")
+            raise e
         except Exception as e:
             print(f"[LOG] 로컬 파싱 실패: {e}")
             raise e
@@ -165,14 +180,37 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         raise e
 
 
-def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=None):
+def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=None, retry_count=3):
     """공통 파싱 로직"""
-    # 1단계: GET 요청으로 페이지 로드
-    r1 = scraper.get(url, headers=headers, proxies=proxies, timeout=15)
-    # print(f"[LOG] GET 응답: {r1.status_code}")
+    last_exception = None
     
-    if r1.status_code not in [200, 500]:
+    # 재시도 로직
+    for attempt in range(retry_count):
+        try:
+            print(f"[LOG] GET 요청 시도 {attempt + 1}/{retry_count}: {url}")
+            # 1단계: GET 요청으로 페이지 로드
+            r1 = scraper.get(url, headers=headers, proxies=proxies, timeout=15)
+            print(f"[LOG] GET 응답: {r1.status_code}")
+            break  # 성공하면 재시도 루프 탈출
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as e:
+            last_exception = e
+            print(f"[LOG] GET 요청 실패 (시도 {attempt + 1}/{retry_count}): {e}")
+            if attempt < retry_count - 1:
+                import time
+                time.sleep(1)  # 1초 대기 후 재시도
+                continue
+            else:
+                print(f"[LOG] 모든 재시도 실패")
+                raise last_exception
+    
+    if r1.status_code not in [200, 404, 500]:
         print(f"[LOG] GET 실패: {r1.status_code}")
+        return None, None
+    
+    # 404 에러인 경우 특별 처리
+    if r1.status_code == 404:
+        print(f"[LOG] GET 404 에러 - URL이 존재하지 않거나 잘못됨: {url}")
+        # 404인 경우 파일이 삭제되었거나 URL이 잘못된 것으로 간주
         return None, None
     
     # 대기 시간 확인 및 실제 남은 시간 계산
@@ -218,6 +256,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
             r'endTime\s*=\s*(\d+)',
         ]
         
+        import time
         current_timestamp = int(time.time() * 1000)  # 현재 시간 (밀리초)
         
         for pattern in js_time_patterns:
@@ -253,16 +292,58 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         
         # 로컬 연결인 경우 남은 전체 시간을 기다림
         if proxies is None:
+            import time
             time.sleep(remaining_time)
         else:
+            import time
             time.sleep(actual_wait)
     else:
         print(f"[LOG] 대기 시간 없음 - 즉시 진행")
     
     # 2단계: POST 요청으로 다운로드 링크 획득
-    payload = {'submit': 'Download'}
-    if password:
-        payload['pass'] = password
+    # GET 응답에서 실제 폼 구조를 파싱하여 올바른 파라미터 찾기
+    payload = {}
+    
+    try:
+        # HTML에서 폼 찾기
+        import re
+        forms = re.findall(r'<form[^>]*>(.*?)</form>', r1.text, re.DOTALL | re.IGNORECASE)
+        
+        for i, form in enumerate(forms):
+            print(f"[DEBUG] 폼 {i+1} 분석 중...")
+            
+            # 폼 내의 input 요소들 찾기
+            inputs = re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*(?:value=["\']([^"\']*)["\'])?[^>]*>', form, re.IGNORECASE)
+            
+            form_has_download = False
+            for name, value in inputs:
+                print(f"[DEBUG]   Input: {name} = {value}")
+                if any(keyword in name.lower() for keyword in ['submit', 'download', 'dlw']):
+                    payload[name] = value if value else 'Download'
+                    form_has_download = True
+                elif name.lower() in ['pass', 'password'] and password:
+                    payload[name] = password
+                else:
+                    # 기타 hidden 필드들도 포함
+                    if value:
+                        payload[name] = value
+            
+            if form_has_download:
+                print(f"[LOG] 다운로드 폼 발견! 사용할 파라미터: {payload}")
+                break
+        
+        # 폼에서 찾지 못한 경우 기본값 사용
+        if not payload:
+            payload['submit'] = 'Download'
+            if password:
+                payload['pass'] = password
+            print(f"[LOG] 기본 POST 파라미터 사용: {payload}")
+            
+    except Exception as e:
+        print(f"[DEBUG] 폼 파싱 실패, 기본값 사용: {e}")
+        payload['submit'] = 'Download'
+        if password:
+            payload['pass'] = password
     
     headers_post = headers.copy()
     headers_post['Referer'] = str(url)
@@ -287,6 +368,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 
                 # 안전하게 몇 초 더 대기
                 actual_wait = countdown_seconds + 2
+                import time
                 time.sleep(actual_wait)
                 
                 print(f"[LOG] 카운트다운 완료 - 재시도 중{proxy_info}")
@@ -705,8 +787,8 @@ def _detect_download_limits(html_content, original_url):
         
         # 최종 fallback: 1fichier 사이트인데 명확한 다운로드 링크가 없다면 기본 대기시간 적용
         if '1fichier.com' in original_url and 'download' not in html_content.lower():
-            print(f"[LOG] 1fichier 사이트에서 다운로드 링크를 찾을 수 없음 - 기본 대기시간 45초 적용")
-            return ("countdown", 45)
+            print(f"[LOG] 1fichier 사이트에서 다운로드 링크를 찾을 수 없음 - 기본 대기시간 60초 적용")
+            return ("countdown", 60)
         
         print(f"[DEBUG] 어떤 제한도 감지되지 않음")
         return None

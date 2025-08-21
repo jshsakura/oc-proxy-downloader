@@ -64,6 +64,12 @@ def create_download_task(request: DownloadRequestCreate, db: Session = Depends(g
     import sys
     sys.stdout.flush()  # 즉시 출력 강제
     
+    # URL 형식 기본 검증
+    url_str = str(request.url)
+    if not url_str.startswith('https://1fichier.com/'):
+        print(f"[LOG] 경고: 표준 1fichier URL 형식이 아님: {url_str}")
+        # 에러는 발생시키지 않고 계속 진행 (다른 도메인일 수도 있음)
+    
     db_req = DownloadRequest(
         url=str(request.url),
         status=StatusEnum.pending,
@@ -91,11 +97,11 @@ def create_download_task(request: DownloadRequestCreate, db: Session = Depends(g
             
             # 어떤 제한인지 확인
             if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
-                print(f"[LOG] 전체 다운로드 제한 도달 (5개). 대기 상태로 설정: {db_req.id}")
-                return {"id": db_req.id, "status": "waiting", "message": "전체 다운로드 제한 도달 (5개). 대기 중..."}
+                print(f"[LOG] 전체 다운로드 제한 도달 ({download_manager.MAX_TOTAL_DOWNLOADS}개). 대기 상태로 설정: {db_req.id}")
+                return {"id": db_req.id, "status": "waiting", "message": f"전체 다운로드 제한 도달 ({download_manager.MAX_TOTAL_DOWNLOADS}개). 대기 중..."}
             else:
-                print(f"[LOG] 1fichier 로컬 다운로드 제한 도달 (2개). 대기 상태로 설정: {db_req.id}")
-                return {"id": db_req.id, "status": "waiting", "message": "1fichier 로컬 다운로드 제한 도달 (2개). 대기 중..."}
+                print(f"[LOG] 1fichier 로컬 다운로드 제한 도달 ({download_manager.MAX_LOCAL_DOWNLOADS}개). 대기 상태로 설정: {db_req.id}")
+                return {"id": db_req.id, "status": "waiting", "message": f"1fichier 로컬 다운로드 제한 도달 ({download_manager.MAX_LOCAL_DOWNLOADS}개). 대기 중..."}
     
     thread = threading.Thread(
         target=download_1fichier_file_new,
