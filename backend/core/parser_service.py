@@ -348,7 +348,9 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     headers_post = headers.copy()
     headers_post['Referer'] = str(url)
     
-    # 2단계: POST 요청
+    # 2단계: POST 요청 (쿠키 세팅을 위해 좀 더 구체적인 헤더 사용)
+    headers_post['Content-Type'] = 'application/x-www-form-urlencoded'
+    headers_post['Origin'] = 'https://1fichier.com'
     r2 = scraper.post(url, data=payload, headers=headers_post, proxies=proxies, timeout=15)
     # print(f"[LOG] POST 응답: {r2.status_code}")
     
@@ -373,8 +375,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 
                 print(f"[LOG] 카운트다운 완료 - 재시도 중{proxy_info}")
                 
-                # 3단계: 재시도 (같은 폼으로 POST 요청)
-                r3 = scraper.post(url, data=payload, headers=headers_post, proxies=proxies, timeout=15)
+                # 3단계: 재시도 (카운트다운 후 GET 요청으로 실제 다운로드 페이지 확인)
+                r3 = scraper.get(url, headers=headers, proxies=proxies, timeout=15)
                 
                 if r3.status_code == 200:
                     print(f"[DEBUG] 재시도 POST 응답 크기: {len(r3.text)} 문자")

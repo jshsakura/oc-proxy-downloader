@@ -104,14 +104,13 @@ class FichierParser:
         '//a[contains(@href, "http") and (contains(@href, ".") or contains(@href, "download")) and not(contains(@href, "cgu")) and not(contains(@href, "cgv")) and not(contains(@href, "console")) and not(contains(@href, "tarifs")) and not(contains(@href, "revendeurs")) and not(contains(@href, "network")) and not(contains(@href, "hlp")) and not(contains(@href, "abus")) and not(contains(@href, "register")) and not(contains(@href, "login")) and not(contains(@href, "contact")) and not(contains(@href, "premium"))]'
     ]
     
-    # 다운로드 링크 검증을 위한 패턴들
+    # 다운로드 링크 검증을 위한 패턴들 (우선순위 순)
     VALID_LINK_PATTERNS = [
-        r'https?://[^/]*1fichier\.com/',  # 1fichier 도메인
-        r'https?://[^/]*\.1fichier\.com/',  # 서브도메인
-        r'https?://cdn-\d+\.1fichier\.com/',  # CDN 링크
-        r'https?://a-\d+\.1fichier\.com/',  # a-숫자 패턴 링크
-        r'https?://[a-z]-\d+\.1fichier\.com/',  # x-숫자 패턴 링크 (일반화)
+        r'https?://cdn-\d+\.1fichier\.com/',  # CDN 링크 (최우선)
+        r'https?://a-\d+\.1fichier\.com/',  # a-숫자 패턴 링크 (최우선)
+        r'https?://[a-z]-\d+\.1fichier\.com/',  # x-숫자 패턴 링크 (최우선)
         r'https?://[^/]*download[^/]*/',  # download가 포함된 도메인
+        r'https?://[^/]*\.1fichier\.com/[a-zA-Z0-9_\-]{10,}',  # 서브도메인 + 긴 경로
     ]
     
     # 제외할 링크 패턴들 (강화됨)
@@ -194,12 +193,12 @@ class FichierParser:
             # 우선 정규식으로 직접 다운로드 링크 패턴 검색
             print(f"[DEBUG] 정규식 패턴 검색 시작...")
             download_patterns = [
-                r'https?://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-]+',     # a-숫자.1fichier.com/해시
-                r'https?://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-]+',   # cdn-숫자.1fichier.com/해시
-                r'https?://[a-z]-\d+\.1fichier\.com/[a-zA-Z0-9_\-]{8,}', # 일반적 패턴
-                r'https?://\w+\.1fichier\.com/[a-zA-Z0-9_\-]{10,}',   # 모든 서브도메인
-                r'https://[^"\'>\s]*1fichier[^"\'>\s]*\?[^"\'>\s]{20,}', # 1fichier URL with long query
-                r'https://[^"\'>\s]*1fichier[^"\'>\s]*/[^"\'>\s]{15,}', # 1fichier URL with long path
+                r'https?://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',     # a-숫자.1fichier.com/해시
+                r'https?://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',   # cdn-숫자.1fichier.com/해시
+                r'https?://[a-z]-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]{8,}', # 일반적 패턴
+                r'https?://[a-z]\d+\.1fichier\.com/[a-zA-Z0-9_\-/]{8,}', # s17.1fichier.com 등
+                r'https?://\w+\d+\.1fichier\.com/[a-zA-Z0-9_\-/]{10,}', # 모든 서브도메인+숫자
+                r'https://[^"\'>\s]*\.1fichier\.com/[^"\'>\s]{15,}',   # 서브도메인 + 긴 경로
             ]
             
             for i, pattern in enumerate(download_patterns):
@@ -376,7 +375,12 @@ class FichierParser:
                 print(f"[DEBUG] OK 다운로드 도메인 허용: {domain} -> {link}")
                 return True
         
-        # 유효한 패턴 확인
+        # 원본 1fichier URL은 절대 허용하지 않음 (다운로드 링크가 아님)
+        if re.match(r'https?://1fichier\.com/\?[a-zA-Z0-9]+$', link):
+            print(f"[DEBUG] FAIL 원본 1fichier URL 제외 (다운로드 링크 아님): {link}")
+            return False
+        
+        # 유효한 패턴 확인 (우선순위 순)
         for pattern in self.VALID_LINK_PATTERNS:
             if re.search(pattern, link, re.IGNORECASE):
                 print(f"[DEBUG] OK 유효한 패턴 매칭: {pattern} -> {link}")

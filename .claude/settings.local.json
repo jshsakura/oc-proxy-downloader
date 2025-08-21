@@ -34,7 +34,8 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(move proxy proxy_backup)",
       "Bash(del test_*.py)",
-      "WebFetch(domain:1fichier.com)"
+      "WebFetch(domain:1fichier.com)",
+      "Bash(del /C/Users/WIN11/Documents/workspace/oc-proxy-downloader/test_1fichier_parsing.py)"
     ],
     "deny": [],
     "additionalDirectories": [
