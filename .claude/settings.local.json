@@ -32,7 +32,8 @@
       "Bash(powershell:*)",
       "Bash(dir:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(move proxy proxy_backup)"
+      "Bash(move proxy proxy_backup)",
+      "Bash(del test_*.py)"
     ],
     "deny": []
   }
