@@ -30,7 +30,9 @@
       "Bash(git push:*)",
       "Bash(mkdir:*)",
       "Bash(powershell:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(move proxy proxy_backup)"
     ],
     "deny": []
   }

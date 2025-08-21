@@ -1,0 +1,14 @@
+# 직접 프록시 목록 URL들
+# 실제 IP:PORT가 바로 들어있는 파일들의 URL
+
+# SOCKS5 직접 목록들
+https://raw.githubusercontent.com/r00tee/Proxy-List/main/Socks5.txt
+https://raw.githubusercontent.com/NikolaiT/free-proxy-list/refs/heads/main/proxies/socks5_working.txt
+
+# HTTPS 직접 목록들  
+https://raw.githubusercontent.com/claude89757/free_https_proxies/refs/heads/main/https_proxies.txt
+https://raw.githubusercontent.com/gfpcom/free-proxy-list/main/list/https.txt
+https://raw.githubusercontent.com/r00tee/Proxy-List/main/Https.txt
+
+# 추가 직접 프록시 목록
+# https://raw.githubusercontent.com/other-repo/direct-proxy-list.txt

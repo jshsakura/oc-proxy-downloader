@@ -1,0 +1,5 @@
+# HTTP 프록시 목록
+# 형식: ip:port 또는 user:pass@ip:port
+# 예시:
+# 192.168.1.100:8080
+# username:password@proxy.example.com:3128

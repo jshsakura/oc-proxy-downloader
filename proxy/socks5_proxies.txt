@@ -1,0 +1,5 @@
+# SOCKS5 프록시 목록
+# 형식: ip:port 또는 user:pass@ip:port
+# 예시:
+# 127.0.0.1:1080
+# user:pass@socks5.example.com:1080
