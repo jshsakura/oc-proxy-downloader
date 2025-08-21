@@ -255,7 +255,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     "status": "failed",
                     "error": str(e),
                     "downloaded_size": req.downloaded_size or 0,
-                    "total_size": req.file_size or 0,
+                    "total_size": req.total_size or 0,
                     "save_path": req.save_path,
                     "requested_at": req.requested_at.isoformat() if req.requested_at else None,
                     "finished_at": None,

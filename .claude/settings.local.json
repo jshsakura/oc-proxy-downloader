@@ -36,6 +36,9 @@
       "Bash(del test_*.py)",
       "WebFetch(domain:1fichier.com)"
     ],
-    "deny": []
+    "deny": [],
+    "additionalDirectories": [
+      "C:\\C\\Users\\WIN11\\Documents\\workspace"
+    ]
   }
 }

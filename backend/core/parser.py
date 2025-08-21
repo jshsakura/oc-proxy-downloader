@@ -169,6 +169,9 @@ class FichierParser:
         r'1fichier\.com/hlp\.html',  # 1fichier 도메인의 hlp.html (도움말)
         r'1fichier\.com/?$',       # 1fichier 메인 페이지 (파일이 아님)
         r'https?://1fichier\.com/?$', # 1fichier 메인 페이지 (전체 URL)
+        r'https?://img\.1fichier\.com/', # 이미지 서버 (logo-footer 등)
+        r'/logo-footer',           # 로고 이미지
+        r'logo-footer$',           # 로고 이미지 파일명
     ]
     
     def __init__(self):
@@ -348,7 +351,8 @@ class FichierParser:
             '1fichier.com/privacy', '1fichier.com/about', '1fichier.com/tarifs',
             '1fichier.com/premium', '1fichier.com/console', '1fichier.com/register',
             '1fichier.com/login', '1fichier.com/help', '1fichier.com/contact', '1fichier.com/faq',
-            '1fichier.com/abus', '1fichier.com/hlp'  # 신고, 도움말 관련
+            '1fichier.com/abus', '1fichier.com/hlp',  # 신고, 도움말 관련
+            'img.1fichier.com', 'logo-footer'  # 이미지 서버와 로고
         ]
         for keyword in exclude_keywords:
             if keyword in link.lower():
