@@ -41,7 +41,15 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     """단순화된 1fichier Direct Link 파싱"""
     # print(f"[LOG] Direct Link 파싱 시작: {url}")
     
-    scraper = cloudscraper.create_scraper()
+    # 도커 환경을 위한 강화된 CloudScraper 설정
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        },
+        delay=1  # 요청 간 지연 추가
+    )
     scraper.verify = False  # SSL 검증 비활성화
     
     # SSL 컨텍스트 설정 (hostname 체크 비활성화)
@@ -63,13 +71,23 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     
     scraper.mount('https://', NoSSLVerifyHTTPAdapter())
     
+    # 도커 환경을 위한 더 완전한 브라우저 헤더
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Encoding': 'gzip, deflate, br, zstd',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+        'DNT': '1',
+        'Sec-CH-UA': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        'Sec-CH-UA-Mobile': '?0',
+        'Sec-CH-UA-Platform': '"Windows"'
     }
     
     # 프록시를 사용하는 경우
@@ -125,7 +143,16 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
 
 def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_addr=None):
     """파일 정보와 함께 Direct Link 파싱"""
-    scraper = cloudscraper.create_scraper()
+    
+    # 도커 환경을 위한 강화된 CloudScraper 설정
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        },
+        delay=1  # 요청 간 지연 추가
+    )
     scraper.verify = False  # SSL 검증 비활성화
     
     # SSL 컨텍스트 설정 (hostname 체크 비활성화)
@@ -147,13 +174,23 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
     
     scraper.mount('https://', NoSSLVerifyHTTPAdapter())
     
+    # 도커 환경을 위한 더 완전한 브라우저 헤더
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Encoding': 'gzip, deflate, br, zstd',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+        'DNT': '1',
+        'Sec-CH-UA': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        'Sec-CH-UA-Mobile': '?0',
+        'Sec-CH-UA-Platform': '"Windows"'
     }
     
     # 프록시 설정
@@ -351,6 +388,14 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     # 2단계: POST 요청 (쿠키 세팅을 위해 좀 더 구체적인 헤더 사용)
     headers_post['Content-Type'] = 'application/x-www-form-urlencoded'
     headers_post['Origin'] = 'https://1fichier.com'
+    headers_post['Sec-Fetch-Dest'] = 'document'
+    headers_post['Sec-Fetch-Mode'] = 'navigate'
+    headers_post['Sec-Fetch-Site'] = 'same-origin'
+    headers_post['Sec-Fetch-User'] = '?1'
+    
+    # 도커 환경에서 안정성을 위한 세션 쿠키 관리
+    import time
+    time.sleep(0.5)  # 1차 요청 후 잠시 대기
     r2 = scraper.post(url, data=payload, headers=headers_post, proxies=proxies, timeout=15)
     # print(f"[LOG] POST 응답: {r2.status_code}")
     

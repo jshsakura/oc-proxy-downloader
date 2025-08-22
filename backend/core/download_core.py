@@ -715,6 +715,24 @@ def download_local(direct_link, file_path, initial_size, req, db):
         
     except Exception as e:
         print(f"[LOG] 로컬 다운로드 실패: {e}")
+        
+        # WebSocket으로 로컬 다운로드 실패 상태 전송
+        send_websocket_message("status_update", {
+            "id": req.id,
+            "url": req.url,
+            "file_name": req.file_name,
+            "status": "failed",
+            "error": str(e),
+            "downloaded_size": req.downloaded_size or 0,
+            "total_size": req.total_size or 0,
+            "save_path": req.save_path,
+            "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+            "finished_at": None,
+            "password": req.password,
+            "direct_link": req.direct_link,
+            "use_proxy": req.use_proxy
+        })
+        
         raise e
 
 
