@@ -7,7 +7,7 @@ import json
 CONFIG_DIR = Path(os.environ.get("CONFIG_PATH", Path(__file__).parent.parent))
 CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_CONFIG = {
-    "download_path": "./downloads",
+    "download_path": "/downloads",
     "theme": "light",
     "language": "ko"
 }

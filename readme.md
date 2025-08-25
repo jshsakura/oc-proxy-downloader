@@ -47,7 +47,7 @@ mkdir -p downloads backend/config
 docker run -d \
   --name oc-proxy-downloader \
   -p 8000:8000 \
-  -v ./downloads:/app/backend/downloads \
+  -v ./downloads:/downloads \
   -v ./backend/config:/config \
   -e TZ=Asia/Seoul \
   -e PUID=1000 \
@@ -63,7 +63,7 @@ docker run -d \
 | `TZ` | `UTC` | 타임존 설정 (예: `Asia/Seoul`) | ❌ |
 | `PUID` | `1000` | 사용자 ID (파일 권한용) | ❌ |
 | `PGID` | `1000` | 그룹 ID (파일 권한용) | ❌ |
-| `DOWNLOAD_PATH` | `/app/backend/downloads` | 컨테이너 내 다운로드 경로 | ❌ |
+| `DOWNLOAD_PATH` | `/downloads` | 컨테이너 내 다운로드 경로 | ❌ |
 | `CONFIG_PATH` | `/config` | 컨테이너 내 설정 경로 | ❌ |
 
 ### 📁 볼륨 매핑 가이드
@@ -72,7 +72,7 @@ docker run -d \
 ```yaml
 volumes:
   # 다운로드 파일 저장소 (필수)
-  - ./downloads:/app/backend/downloads
+  - ./downloads:/downloads
   
   # 설정 및 데이터베이스 (권장)
   - ./backend/config:/config
@@ -106,10 +106,10 @@ services:
       - TZ=Asia/Seoul
       - PUID=1000
       - PGID=1000
-      - DOWNLOAD_PATH=/app/backend/downloads
+      - DOWNLOAD_PATH=/downloads
       - CONFIG_PATH=/config
     volumes:
-      - ./downloads:/app/backend/downloads
+      - ./downloads:/downloads
       - ./backend/config:/config
     ports:
       - "8000:8000"
@@ -132,7 +132,7 @@ services:
       - CUSTOM_CONFIG=value
     volumes:
       # 추가 볼륨 매핑
-      - ./logs:/app/logs
+      - ./logs:/logs
       - ./custom-config.json:/config/config.json
     networks:
       - proxy-network
@@ -177,7 +177,7 @@ docker build -t oc-proxy-downloader:local .
 docker run -d \
   --name oc-proxy-downloader \
   -p 8000:8000 \
-  -v ./downloads:/app/backend/downloads \
+  -v ./downloads:/downloads \
   -v ./backend/config:/config \
   oc-proxy-downloader:local
 ```

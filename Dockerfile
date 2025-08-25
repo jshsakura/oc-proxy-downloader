@@ -34,10 +34,10 @@ COPY backend/ ./backend/
 COPY --from=frontend-build /app/frontend/dist ./backend/static
 
 # 필요한 디렉토리 생성
-RUN mkdir -p /app/backend/downloads /config
+RUN mkdir -p /downloads /config
 
 # 환경변수 기본값
-ENV DOWNLOAD_PATH=/app/backend/downloads \
+ENV DOWNLOAD_PATH=/downloads \
     CONFIG_PATH=/config \
     PUID=1000 \
     PGID=1000 \

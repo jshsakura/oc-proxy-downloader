@@ -8,10 +8,10 @@ services:
       - TZ=Asia/Seoul
       - PUID=1000
       - PGID=1000
-      - DOWNLOAD_PATH=/backend/downloads
+      - DOWNLOAD_PATH=/downloads
       - CONFIG_PATH=/config
     volumes:
-      - ./downloads:/backend/downloads  # 다운로드 파일 저장
+      - ./downloads:/downloads  # 다운로드 파일 저장
       - ./backend/config:/config  # 설정 및 데이터베이스 파일
     ports:
       - "8000:8000"
