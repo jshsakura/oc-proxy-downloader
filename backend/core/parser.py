@@ -600,13 +600,66 @@ class FichierParser:
                 'type': None
             }
             
-            # 파일명 추출 시도
+            # 파일명 추출 시도 (1fichier 사이트 구조에 맞게 강화)
             name_selectors = [
-                '//h1[contains(@class, "file")]//text()',
+                # 1fichier premium 테이블 구조 (유연한 접근법)
+                # 파일 정보 테이블의 볼드체 텍스트
+                '//table[contains(@class, "premium")]//span[contains(@style, "font-weight") and contains(@style, "bold")]/text()',
+                '//table[contains(@class, "premium")]//span[@style="font-weight:bold"]/text()',
+                '//table[contains(@class, "premium")]//td[contains(@class, "normal")]//span[contains(@style, "bold")]/text()',
+                '//table[contains(@class, "premium")]//td[contains(@class, "normal")]//span[1]/text()[string-length(.) > 10]',
+                
+                # 일반적인 볼드체 span 찾기 (광고 테이블 제외)
+                '//table//span[contains(@style, "font-weight:bold") and string-length(text()) > 5]/text()',
+                '//table//span[contains(@style, "font-weight") and contains(@style, "bold") and string-length(text()) > 5]/text()',
+                
+                # QR코드가 있는 테이블의 볼드 텍스트 (더 구체적)
+                '//table//tr[td//img[contains(@src, "qr.pl")]]//span[contains(@style, "bold")]/text()',
+                '//table[.//img[contains(@src, "qr.pl")]]//span[contains(@style, "bold")]/text()',
+                
+                # 테이블 구조 기반 (첫 번째 셀은 이미지, 두 번째 셀에 파일 정보)
+                '//table//tr[td//img]//td[position()=2]//span[1]/text()[string-length(.) > 5]',
+                '//table//tr[td[@rowspan]]//td[position()=2]//span[1]/text()',
+                
+                # 1fichier 최신 구조 (2024-2025)
+                '//div[@class="ct_warn"]//h1/text()',
+                '//div[@class="ct_warn"]//h2/text()',
+                '//div[@class="ct_warn"]//strong/text()',
+                '//div[contains(@class, "content")]//h1/text()',
+                '//div[contains(@class, "content")]//h2/text()',
+                '//div[contains(@class, "content")]//strong/text()',
+                
+                # 일반적인 제목/헤더 요소
+                '//h1//text()',
+                '//h2//text()',
+                '//h3//text()',
+                
+                # 파일명 클래스들
                 '//div[contains(@class, "filename")]//text()',
                 '//span[contains(@class, "filename")]//text()',
+                '//*[contains(@class, "file-name")]//text()',
+                '//*[contains(@class, "fname")]//text()',
+                
+                # 타이틀에서 추출
                 '//title/text()',
-                '//*[contains(text(), ".")]//text()'
+                
+                # 다운로드 버튼 주변 텍스트
+                '//*[@id="dlw"]/following-sibling::*/text()',
+                '//*[@id="dlw"]/preceding-sibling::*/text()',
+                
+                # 모든 텍스트에서 파일 확장자 포함된 것 찾기
+                '//*[contains(text(), ".zip")]//text()',
+                '//*[contains(text(), ".rar")]//text()',
+                '//*[contains(text(), ".7z")]//text()',
+                '//*[contains(text(), ".tar")]//text()',
+                '//*[contains(text(), ".mp4")]//text()',
+                '//*[contains(text(), ".mkv")]//text()',
+                '//*[contains(text(), ".avi")]//text()',
+                '//*[contains(text(), ".pdf")]//text()',
+                '//*[contains(text(), ".doc")]//text()',
+                '//*[contains(text(), ".exe")]//text()',
+                '//*[contains(text(), ".iso")]//text()',
+                '//*[contains(text(), ".")]//text()[string-length(.) < 200]'
             ]
             
             for selector in name_selectors:
@@ -614,29 +667,109 @@ class FichierParser:
                     texts = doc.xpath(selector)
                     for text in texts:
                         text = text.strip()
-                        if text and '.' in text and len(text) < 200:
-                            file_info['name'] = text
-                            break
+                        # 더 정교한 파일명 검증 (광고 텍스트 필터링 강화)
+                        if text and len(text) > 3 and len(text) < 200:
+                            # 광고/프로모션 텍스트 제외 (더 포괄적)
+                            ad_keywords = [
+                                '1fichier', 'download', 'télécharger', 'click', 'here', 'cliquez', 'http', 'www',
+                                'summer', 'offer', 'subscription', 'premium', 'gold', 'year', 'month', 'unlimited',
+                                'guest', 'registered', 'ssl', 'encryption', 'sharing', 'advertisement', 'captcha',
+                                'waiting', 'speed', 'concurrent', 'manager', 'resume', 'storage', 'cdn', 'vpn',
+                                'removal', 'inline', 'folder', 'security', 'statistics', 'remote', 'upload',
+                                'ftp', 'api', 'support', 'basic', '€', '$', 'price', 'tarif', 'free'
+                            ]
+                            
+                            # 파일 확장자가 있는지 확인 (더 포괄적으로)
+                            if ('.' in text and 
+                                # 일반적인 파일 확장자 패턴
+                                (re.search(r'\.\w{2,5}$', text) or
+                                 # 파일명처럼 보이는 패턴
+                                 re.search(r'\w+\.\w+', text)) and
+                                # 광고/프로모션 텍스트 제외
+                                not any(keyword in text.lower() for keyword in ad_keywords) and
+                                # 너무 짧거나 의미없는 텍스트 제외
+                                len(text.replace('.', '').replace(' ', '')) > 3):
+                                
+                                # 타이틀에서 온 경우 정리
+                                if 'title' in selector.lower():
+                                    # "filename - 1fichier.com" 형태에서 파일명만 추출
+                                    text = re.sub(r'\s*-\s*1fichier\.com.*$', '', text, flags=re.IGNORECASE)
+                                    text = re.sub(r'\s*\|\s*1fichier.*$', '', text, flags=re.IGNORECASE)
+                                
+                                file_info['name'] = text.strip()
+                                print(f"[DEBUG] 파일명 추출 성공: '{file_info['name']}' (선택자: {selector})")
+                                break
                     if file_info['name']:
                         break
-                except:
+                except Exception as e:
+                    print(f"[DEBUG] 선택자 '{selector}' 실패: {e}")
                     continue
             
-            # 파일 크기 추출 시도
-            size_patterns = [
-                r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)',
-                r'Size:\s*(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)',
-                r'크기:\s*(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)'
+            # 파일 크기 추출 시도 (유연한 접근법)
+            size_selectors = [
+                # 정확한 스타일 매치 (가장 확실한 방법)
+                '//table[contains(@class, "premium")]//span[@style="font-size:0.9em;font-style:italic"]/text()',
+                '//table[contains(@class, "premium")]//span[contains(@style, "font-style:italic") and contains(@style, "font-size:0.9em")]/text()',
+                
+                # 이탤릭 스타일로 된 크기 정보
+                '//table[contains(@class, "premium")]//span[contains(@style, "font-style:italic")]/text()[contains(., "GB") or contains(., "MB") or contains(., "KB") or contains(., "TB")]',
+                '//table//span[contains(@style, "italic")]/text()[contains(., "GB") or contains(., "MB") or contains(., "KB") or contains(., "TB")]',
+                
+                # QR코드가 있는 테이블의 두 번째 span (크기 정보)
+                '//table[.//img[contains(@src, "qr.pl")]]//td[contains(@class, "normal")]//span[2]/text()',
+                '//table//tr[td//img[contains(@src, "qr.pl")]]//td[position()=2]//span[2]/text()',
+                
+                # 볼드체 다음에 오는 span (일반적으로 크기 정보)
+                '//table//span[contains(@style, "bold")]/following-sibling::*/text()[contains(., "GB") or contains(., "MB") or contains(., "KB") or contains(., "TB")]',
+                '//table//span[contains(@style, "bold")]/following-sibling::text()[contains(., "GB") or contains(., "MB") or contains(., "KB") or contains(., "TB")]',
+                
+                # br 태그 다음에 오는 크기 정보
+                '//table//br/following-sibling::span/text()[contains(., "GB") or contains(., "MB") or contains(., "KB") or contains(., "TB")]',
+                '//table//br/following-sibling::text()[contains(., "GB") or contains(., "MB") or contains(., "KB") or contains(., "TB")]',
+                
+                # 위치 기반 (두 번째 span이 크기일 가능성)
+                '//table[contains(@class, "premium")]//td[contains(@class, "normal")]//span[2]/text()',
+                '//table//tr[td[@rowspan]]//td[position()=2]//span[2]/text()',
+                
+                # 모든 테이블에서 크기 패턴 찾기 (광범위한 폴백)
+                '//table//span/text()[contains(., "GB") or contains(., "MB") or contains(., "KB") or contains(., "TB")]'
             ]
             
-            html_text = lxml.html.tostring(doc, encoding='unicode')
-            for pattern in size_patterns:
-                match = re.search(pattern, html_text, re.IGNORECASE)
-                if match:
-                    size_value = float(match.group(1))
-                    size_unit = match.group(2).upper()
-                    file_info['size'] = f"{size_value} {size_unit}"
-                    break
+            for selector in size_selectors:
+                try:
+                    texts = doc.xpath(selector)
+                    for text in texts:
+                        text = text.strip()
+                        # 파일 크기 패턴 확인
+                        size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB|Ko|Mo|Go|To)', text, re.IGNORECASE)
+                        if size_match:
+                            size_value = float(size_match.group(1))
+                            size_unit = size_match.group(2).upper().replace('O', 'B')  # Ko -> KB, Mo -> MB
+                            file_info['size'] = f"{size_value} {size_unit}"
+                            print(f"[DEBUG] 파일 크기 추출 성공: '{file_info['size']}' (선택자: {selector})")
+                            break
+                    if file_info['size']:
+                        break
+                except Exception as e:
+                    print(f"[DEBUG] 크기 선택자 '{selector}' 실패: {e}")
+                    continue
+            
+            # 2. 전체 HTML에서 크기 패턴 찾기 (폴백)
+            if not file_info['size']:
+                size_patterns = [
+                    r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB|Ko|Mo|Go|To)',
+                    r'Size:\s*(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)',
+                    r'크기:\s*(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)'
+                ]
+                
+                html_text = lxml.html.tostring(doc, encoding='unicode')
+                for pattern in size_patterns:
+                    match = re.search(pattern, html_text, re.IGNORECASE)
+                    if match:
+                        size_value = float(match.group(1))
+                        size_unit = match.group(2).upper().replace('O', 'B')  # Ko -> KB, Mo -> MB
+                        file_info['size'] = f"{size_value} {size_unit}"
+                        break
             
             return file_info
             

@@ -237,6 +237,38 @@
 
         // 상태 업데이트 후 활성 다운로드 목록 갱신
         fetchActiveDownloads();
+      } else if (message.type === "progress_update") {
+        // 실시간 진행률 업데이트
+        const progressData = message.data;
+        console.log("Progress update received:", progressData);
+        
+        // downloads 배열에서 해당 다운로드 찾기
+        const index = downloads.findIndex((d) => d.id === progressData.id);
+        console.log("Found download at index:", index, "for ID:", progressData.id);
+        
+        if (index !== -1) {
+          console.log("Before update:", {
+            downloaded_size: downloads[index].downloaded_size,
+            total_size: downloads[index].total_size,
+            progress: downloads[index].progress
+          });
+          
+          // 진행률만 업데이트 (전체 객체 교체하지 않음)
+          downloads[index].downloaded_size = progressData.downloaded_size;
+          downloads[index].total_size = progressData.total_size;
+          downloads[index].progress = progressData.progress;
+          
+          console.log("After update:", {
+            downloaded_size: downloads[index].downloaded_size,
+            total_size: downloads[index].total_size,
+            progress: downloads[index].progress
+          });
+          
+          // Svelte의 반응성을 위해 배열 재할당
+          downloads = [...downloads];
+        } else {
+          console.log("Download not found in list. Current downloads:", downloads.map(d => ({ id: d.id, url: d.url })));
+        }
       } else if (message.type === "proxy_trying") {
         // 프록시 시도 중 상태
         console.log("Proxy trying:", message.data);
@@ -589,10 +621,15 @@
   }
 
   function getDownloadProgress(download) {
+    // progress_update에서 직접 받은 진행률이 있으면 우선 사용
+    if (download.progress !== undefined && download.progress !== null) {
+      return Math.round(download.progress);
+    }
+    
     const downloaded = Number(
       download.downloaded_size ?? download.downloaded ?? 0
     );
-    const total = Number(download.file_size ?? download.total_size ?? 0);
+    const total = Number(download.total_size ?? download.file_size ?? 0);
     if (total === 0 || download.status === "pending") return 0;
     if (download.status === "done") return 100;
     return Math.round((downloaded / total) * 100);
@@ -1435,6 +1472,36 @@
 
   .grid-proxy-toggle.proxy .local-icon {
     opacity: 0.5;
+  }
+
+  /* 프로그레스 바 - 실시간 업데이트용 */
+  .progress-container {
+    position: relative;
+    width: 100px;
+    height: 20px;
+    background-color: #e0e0e0;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50 0%, #81C784 100%);
+    border-radius: 10px;
+    transition: width 0.3s ease-out; /* 부드러운 애니메이션 */
+    min-width: 0;
+  }
+
+  .progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    font-weight: bold;
+    color: #333;
+    text-shadow: 1px 1px 1px rgba(255, 255, 255, 0.8);
+    z-index: 2;
   }
 
   /* 게이지 컨테이너 */
