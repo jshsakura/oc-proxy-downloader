@@ -174,7 +174,7 @@
               </div>
               <div class="title-text">
                 <h2>{$t("settings_title")}</h2>
-                <p class="subtitle">애플리케이션 설정</p>
+                <p class="subtitle">{$t("settings_subtitle")}</p>
               </div>
             </div>
             <button class="close-button" on:click={closeModal}>

@@ -552,44 +552,44 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             
             try:
                 with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
-                downloaded = initial_size
-                last_update_size = downloaded
-                
-                chunk_count = 0
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        chunk_count += 1
-                        
-                        # 매 64KB마다(8개 청크) 정지 상태 체크
-                        if chunk_count % 8 == 0:
-                            db.refresh(req)
-                            if req.status == StatusEnum.stopped:
-                                print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
-                                return
-                        
-                        # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
-                        if downloaded - last_update_size >= 524288:  # 512KB
-                            req.downloaded_size = downloaded
-                            db.commit()
-                            last_update_size = downloaded
+                    downloaded = initial_size
+                    last_update_size = downloaded
+                    
+                    chunk_count = 0
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            chunk_count += 1
                             
-                            progress = (downloaded / total_size * 100) if total_size > 0 else 0
-                            print(f"[LOG] 프록시 진행률: {progress:.1f}% ({downloaded}/{total_size})")
+                            # 매 64KB마다(8개 청크) 정지 상태 체크
+                            if chunk_count % 8 == 0:
+                                db.refresh(req)
+                                if req.status == StatusEnum.stopped:
+                                    print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
+                                    return
                             
-                            # WebSocket으로 실시간 진행률 전송
-                            print(f"[LOG] WebSocket 진행률 전송: ID={req.id}, progress={progress:.1f}%")
-                            send_websocket_message("progress_update", {
-                                "id": req.id,
-                                "downloaded_size": downloaded,
-                                "total_size": total_size,
-                                "progress": round(progress, 1),
-                                "status": "downloading"
-                            })
-                
-                req.downloaded_size = downloaded
-                db.commit()
+                            # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
+                            if downloaded - last_update_size >= 524288:  # 512KB
+                                req.downloaded_size = downloaded
+                                db.commit()
+                                last_update_size = downloaded
+                                
+                                progress = (downloaded / total_size * 100) if total_size > 0 else 0
+                                print(f"[LOG] 프록시 진행률: {progress:.1f}% ({downloaded}/{total_size})")
+                                
+                                # WebSocket으로 실시간 진행률 전송
+                                print(f"[LOG] WebSocket 진행률 전송: ID={req.id}, progress={progress:.1f}%")
+                                send_websocket_message("progress_update", {
+                                    "id": req.id,
+                                    "downloaded_size": downloaded,
+                                    "total_size": total_size,
+                                    "progress": round(progress, 1),
+                                    "status": "downloading"
+                                })
+                    
+                    req.downloaded_size = downloaded
+                    db.commit()
                 
             except Exception as file_error:
                 raise Exception(f"파일 쓰기 실패: {file_error}")
@@ -724,44 +724,44 @@ def download_local(direct_link, file_path, initial_size, req, db):
             
             try:
                 with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
-                downloaded = initial_size
-                last_update_size = downloaded
-                
-                chunk_count = 0
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        chunk_count += 1
-                        
-                        # 매 64KB마다(8개 청크) 정지 상태 체크
-                        if chunk_count % 8 == 0:
-                            db.refresh(req)
-                            if req.status == StatusEnum.stopped:
-                                print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
-                                return
-                        
-                        # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
-                        if downloaded - last_update_size >= 524288:  # 512KB
-                            req.downloaded_size = downloaded
-                            db.commit()
-                            last_update_size = downloaded
+                    downloaded = initial_size
+                    last_update_size = downloaded
+                    
+                    chunk_count = 0
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            chunk_count += 1
                             
-                            progress = (downloaded / total_size * 100) if total_size > 0 else 0
-                            print(f"[LOG] 로컬 진행률: {progress:.1f}% ({downloaded}/{total_size})")
+                            # 매 64KB마다(8개 청크) 정지 상태 체크
+                            if chunk_count % 8 == 0:
+                                db.refresh(req)
+                                if req.status == StatusEnum.stopped:
+                                    print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
+                                    return
                             
-                            # WebSocket으로 실시간 진행률 전송
-                            print(f"[LOG] WebSocket 진행률 전송: ID={req.id}, progress={progress:.1f}%")
-                            send_websocket_message("progress_update", {
-                                "id": req.id,
-                                "downloaded_size": downloaded,
-                                "total_size": total_size,
-                                "progress": round(progress, 1),
-                                "status": "downloading"
-                            })
-                
-                req.downloaded_size = downloaded
-                db.commit()
+                            # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
+                            if downloaded - last_update_size >= 524288:  # 512KB
+                                req.downloaded_size = downloaded
+                                db.commit()
+                                last_update_size = downloaded
+                                
+                                progress = (downloaded / total_size * 100) if total_size > 0 else 0
+                                print(f"[LOG] 로컬 진행률: {progress:.1f}% ({downloaded}/{total_size})")
+                                
+                                # WebSocket으로 실시간 진행률 전송
+                                print(f"[LOG] WebSocket 진행률 전송: ID={req.id}, progress={progress:.1f}%")
+                                send_websocket_message("progress_update", {
+                                    "id": req.id,
+                                    "downloaded_size": downloaded,
+                                    "total_size": total_size,
+                                    "progress": round(progress, 1),
+                                    "status": "downloading"
+                                })
+                    
+                    req.downloaded_size = downloaded
+                    db.commit()
                 
             except Exception as file_error:
                 raise Exception(f"파일 쓰기 실패: {file_error}")

@@ -14,7 +14,7 @@
   <div class="local-info">
     <div class="local-label">
       <span class="label-icon"><FolderIcon /></span>
-      <span class="label-text">로컬</span>
+      <span class="label-text">{$t("local_title")}</span>
     </div>
     <span class="local-count">{$t("local_progress_text", { count: localDownloadCount })}</span>
     <div class="local-indicator">

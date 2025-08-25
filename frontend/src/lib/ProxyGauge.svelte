@@ -44,7 +44,7 @@
   <div class="proxy-info">
     <div class="proxy-label">
       <span class="label-icon"><NetworkIcon /></span>
-      <span class="label-text">프록시</span>
+      <span class="label-text">{$t("proxy_title")}</span>
     </div>
     <span class="proxy-count">{availableProxies}/{totalProxies}</span>
     <div class="gauge-bar">

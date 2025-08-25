@@ -505,7 +505,8 @@
           });
           if (response.ok) {
             showToastMsg("다운로드가 삭제되었습니다.");
-            fetchDownloads(currentPage);
+            // 해당 항목만 리스트에서 제거 (전체 재조회 대신)
+            downloads = downloads.filter(download => download.id !== id);
           } else {
             const errorData = await response.json();
             showToastMsg(`삭제 실패: ${errorData.detail}`);
@@ -549,19 +550,19 @@
       };
       
       const icon = statusIcon[proxyInfo.status] || '●';
-      let tooltip = `${icon} 프록시: ${proxyInfo.proxy}\n단계: ${proxyInfo.step}`;
+      let tooltip = `${icon} ${$t("proxy_tooltip_proxy")}: ${proxyInfo.proxy}\n${$t("proxy_tooltip_step")}: ${proxyInfo.step}`;
       
       if (proxyInfo.current && proxyInfo.total) {
-        tooltip += `\n진행: ${proxyInfo.current}/${proxyInfo.total}`;
+        tooltip += `\n${$t("proxy_tooltip_progress")}: ${proxyInfo.current}/${proxyInfo.total}`;
       }
       
       if (proxyInfo.status === 'trying') {
         const timeSince = Math.floor((Date.now() - proxyInfo.timestamp) / 1000);
-        tooltip += `\n시도 중... (${timeSince}초)`;
+        tooltip += `\n${$t("proxy_tooltip_trying")} (${timeSince}${$t("proxy_tooltip_seconds")})`;
       }
       
       if (proxyInfo.error) {
-        tooltip += `\n오류: ${proxyInfo.error}`;
+        tooltip += `\n${$t("proxy_tooltip_error")}: ${proxyInfo.error}`;
       }
       
       return tooltip;
@@ -569,12 +570,12 @@
     
     // 기본 상태별 툴팁
     const statusTooltips = {
-      'pending': '대기 중...',
-      'proxying': '프록시 연결 중...',
-      'downloading': '다운로드 중...',
-      'done': '완료',
-      'stopped': '정지',
-      'failed': '실패'
+      'pending': $t("download_pending"),
+      'proxying': $t("download_proxying"), 
+      'downloading': $t("download_downloading"),
+      'done': $t("download_done"),
+      'stopped': $t("download_stopped"),
+      'failed': $t("download_failed")
     };
     
     return statusTooltips[download.status.toLowerCase()] || download.status;
