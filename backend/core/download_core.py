@@ -660,8 +660,36 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
         })
         
     except Exception as e:
+        error_str = str(e)
         print(f"[LOG] 프록시 다운로드 실패: {e}")
         mark_proxy_used(db, proxy_addr, success=False)
+        
+        # DNS 오류 감지 시 재파싱 시도 (프록시에서도)
+        if any(dns_error in error_str for dns_error in [
+            "NameResolutionError", "Failed to resolve", "Name or service not known", 
+            "No address associated with hostname", "nodename nor servname provided"
+        ]):
+            print(f"[LOG] 프록시에서 DNS 해상도 오류 감지 - 다운로드 링크 재파싱 시도")
+            try:
+                from .parser_service import parse_direct_link_simple
+                
+                # 기존 direct_link 초기화
+                req.direct_link = None
+                db.commit()
+                
+                # 재파싱 시도 (프록시 사용)
+                new_direct_link = parse_direct_link_simple(req.url, req.password, use_proxy=True, proxy_addr=proxy_addr)
+                if new_direct_link and new_direct_link != direct_link:
+                    print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 성공: {new_direct_link}")
+                    req.direct_link = new_direct_link
+                    db.commit()
+                    
+                    # 재파싱된 링크로 다시 다운로드 시도
+                    return download_with_proxy(new_direct_link, file_path, proxy_addr, initial_size, req, db)
+                else:
+                    print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 실패")
+            except Exception as reparse_error:
+                print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 중 예외: {reparse_error}")
         
         # WebSocket으로 다운로드 실패 알림
         send_websocket_message("proxy_failed", {
@@ -844,7 +872,35 @@ def download_local(direct_link, file_path, initial_size, req, db):
                 pass
         
     except Exception as e:
+        error_str = str(e)
         print(f"[LOG] 로컬 다운로드 실패: {e}")
+        
+        # DNS 오류 감지 시 재파싱 시도
+        if any(dns_error in error_str for dns_error in [
+            "NameResolutionError", "Failed to resolve", "Name or service not known", 
+            "No address associated with hostname", "nodename nor servname provided"
+        ]):
+            print(f"[LOG] DNS 해상도 오류 감지 - 다운로드 링크 재파싱 시도")
+            try:
+                from .parser_service import parse_direct_link_simple
+                
+                # 기존 direct_link 초기화
+                req.direct_link = None
+                db.commit()
+                
+                # 재파싱 시도
+                new_direct_link = parse_direct_link_simple(req.url, req.password, use_proxy=False)
+                if new_direct_link and new_direct_link != direct_link:
+                    print(f"[LOG] DNS 오류 후 재파싱 성공: {new_direct_link}")
+                    req.direct_link = new_direct_link
+                    db.commit()
+                    
+                    # 재파싱된 링크로 다시 다운로드 시도
+                    return download_local(new_direct_link, file_path, initial_size, req, db)
+                else:
+                    print(f"[LOG] DNS 오류 후 재파싱 실패")
+            except Exception as reparse_error:
+                print(f"[LOG] DNS 오류 후 재파싱 중 예외: {reparse_error}")
         
         # WebSocket으로 로컬 다운로드 실패 상태 전송
         send_websocket_message("status_update", {

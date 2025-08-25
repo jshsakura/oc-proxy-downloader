@@ -123,6 +123,7 @@ async def lifespan(app: FastAPI):
         
         for req in downloading_requests:
             req.status = StatusEnum.stopped
+            req.direct_link = None  # 서버 재시작 시 파싱 상태 초기화
             db.commit()
             
             # 각 다운로드의 상태 변경을 WebSocket으로 알림
