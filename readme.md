@@ -34,7 +34,7 @@
 
 ```bash
 # docker-compose.yml 다운로드
-curl -O https://raw.githubusercontent.com/your-repo/oc-proxy-downloader/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docker-compose.yml
 
 # 이미지 pull 및 실행
 docker-compose up -d
@@ -161,7 +161,7 @@ networks:
 #### 1. 저장소 클론
 
 ```bash
-git clone https://github.com/your-repo/oc-proxy-downloader.git
+git clone https://github.com/jshsakura/oc-proxy-downloader.git
 cd oc-proxy-downloader
 ```
 
@@ -322,8 +322,8 @@ npm run dev
 
 ## 📞 지원 및 문의
 
-- 📋 **이슈 보고**: [GitHub Issues](https://github.com/your-repo/oc-proxy-downloader/issues)
-- 💬 **토론**: [GitHub Discussions](https://github.com/your-repo/oc-proxy-downloader/discussions)
+- 📋 **이슈 보고**: [GitHub Issues](https://github.com/jshsakura/oc-proxy-downloader/issues)
+- 💬 **토론**: [GitHub Discussions](https://github.com/jshsakura/oc-proxy-downloader/discussions)
 - 📖 **문서**: 각 폴더의 README 파일 참조
 
 ## 📄 라이선스
