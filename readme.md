@@ -1,5 +1,6 @@
 <div align="center">
   <img src="https://github.com/jshsakura/oc-proxy-downloader/blob/main/docs/preview/preview1.png?raw=true" alt="OC Proxy Downloader 미리보기" style="max-width: 700px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin-bottom: 1rem;" />
+  <img src="https://github.com/jshsakura/oc-proxy-downloader/blob/main/docs/preview/preview2.png?raw=true" alt="OC Proxy Downloader 미리보기" style="max-width: 700px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin-bottom: 1rem;" />
   <br/>
   <b>OC Proxy Downloader</b>
   <p>1fichier 파일 다운로드를 위한 프록시 지원 웹 애플리케이션</p>
@@ -30,6 +31,7 @@
 가장 빠르고 쉬운 방법입니다.
 
 #### docker-compose.yml 사용
+
 ```bash
 # docker-compose.yml 다운로드
 curl -O https://raw.githubusercontent.com/your-repo/oc-proxy-downloader/main/docker-compose.yml
@@ -39,6 +41,7 @@ docker-compose up -d
 ```
 
 #### 단일 Docker 명령어
+
 ```bash
 # 필요한 디렉토리 생성
 mkdir -p downloads backend/config
@@ -58,27 +61,29 @@ docker run -d \
 
 ### 🔧 환경 변수 설정
 
-| 변수명 | 기본값 | 설명 | 필수 |
-|--------|--------|------|------|
-| `TZ` | `UTC` | 타임존 설정 (예: `Asia/Seoul`) | ❌ |
-| `PUID` | `1000` | 사용자 ID (파일 권한용) | ❌ |
-| `PGID` | `1000` | 그룹 ID (파일 권한용) | ❌ |
-| `DOWNLOAD_PATH` | `/downloads` | 컨테이너 내 다운로드 경로 | ❌ |
-| `CONFIG_PATH` | `/config` | 컨테이너 내 설정 경로 | ❌ |
+| 변수명          | 기본값       | 설명                           | 필수 |
+| --------------- | ------------ | ------------------------------ | ---- |
+| `TZ`            | `UTC`        | 타임존 설정 (예: `Asia/Seoul`) | ❌   |
+| `PUID`          | `1000`       | 사용자 ID (파일 권한용)        | ❌   |
+| `PGID`          | `1000`       | 그룹 ID (파일 권한용)          | ❌   |
+| `DOWNLOAD_PATH` | `/downloads` | 컨테이너 내 다운로드 경로      | ❌   |
+| `CONFIG_PATH`   | `/config`    | 컨테이너 내 설정 경로          | ❌   |
 
 ### 📁 볼륨 매핑 가이드
 
 #### 필수 볼륨
+
 ```yaml
 volumes:
   # 다운로드 파일 저장소 (필수)
   - ./downloads:/downloads
-  
+
   # 설정 및 데이터베이스 (권장)
   - ./backend/config:/config
 ```
 
 #### 권한 설정 (Linux/macOS)
+
 ```bash
 # 디렉토리 생성 및 권한 설정
 mkdir -p downloads backend/config
@@ -87,6 +92,7 @@ chmod -R 755 downloads backend/config
 ```
 
 #### Windows에서의 권한 설정
+
 ```powershell
 # PowerShell에서 디렉토리 생성
 New-Item -ItemType Directory -Path "downloads" -Force
@@ -96,8 +102,9 @@ New-Item -ItemType Directory -Path "backend\config" -Force
 ### 🏗️ 커스텀 Docker Compose 설정
 
 #### 기본 설정 (docker-compose.yml)
+
 ```yaml
-version: '3.8'
+version: "3.8"
 services:
   oc-proxy-downloader:
     image: your-dockerhub-id/oc-proxy-downloader:latest
@@ -123,8 +130,9 @@ services:
 ```
 
 #### 고급 설정 (docker-compose.override.yml)
+
 ```yaml
-version: '3.8'
+version: "3.8"
 services:
   oc-proxy-downloader:
     environment:
@@ -140,7 +148,7 @@ services:
       # Traefik 라벨 (리버스 프록시용)
       - "traefik.enable=true"
       - "traefik.http.routers.downloader.rule=Host(`downloader.example.com`)"
-    
+
 networks:
   proxy-network:
     external: true
@@ -151,12 +159,14 @@ networks:
 소스코드를 수정했거나 최신 개발 버전을 사용하려는 경우:
 
 #### 1. 저장소 클론
+
 ```bash
 git clone https://github.com/your-repo/oc-proxy-downloader.git
 cd oc-proxy-downloader
 ```
 
 #### 2. Docker Compose로 빌드 및 실행
+
 ```bash
 # 빌드 및 실행
 docker-compose up -d --build
@@ -169,6 +179,7 @@ docker-compose down
 ```
 
 #### 3. 수동 Docker 빌드
+
 ```bash
 # 이미지 빌드
 docker build -t oc-proxy-downloader:local .
@@ -187,12 +198,14 @@ docker run -d \
 AMD64, ARM64 등 다양한 아키텍처 지원:
 
 #### Linux/macOS
+
 ```bash
 chmod +x build-multiplatform.sh
 ./build-multiplatform.sh
 ```
 
 #### Windows
+
 ```powershell
 .\build-multiplatform.ps1
 ```
@@ -200,6 +213,7 @@ chmod +x build-multiplatform.sh
 ### 🔧 문제 해결
 
 #### 컨테이너가 시작되지 않는 경우
+
 ```bash
 # 로그 확인
 docker-compose logs oc-proxy-downloader
@@ -209,12 +223,14 @@ docker ps -a
 ```
 
 #### 포트 충돌
+
 ```bash
 # 다른 포트 사용
 docker-compose up -d -p 8080:8000
 ```
 
 #### 볼륨 권한 문제
+
 ```bash
 # 권한 수정 (Linux/macOS)
 sudo chown -R $USER:$USER downloads backend/config
@@ -224,6 +240,7 @@ sudo setsebool -P container_manage_cgroup on
 ```
 
 #### 캐시 문제로 인한 빌드 실패
+
 ```bash
 # 캐시 없이 재빌드
 docker-compose build --no-cache
@@ -235,6 +252,7 @@ docker system prune -af
 ### 📊 모니터링 및 관리
 
 #### 컨테이너 상태 확인
+
 ```bash
 # 실행 중인 컨테이너 확인
 docker ps
@@ -247,6 +265,7 @@ docker inspect oc-proxy-downloader | grep Health -A 10
 ```
 
 #### 로그 관리
+
 ```bash
 # 실시간 로그
 docker-compose logs -f
@@ -265,11 +284,13 @@ docker-compose logs --since="2023-01-01T10:00:00"
 Docker 없이 로컬 환경에서 개발하는 경우:
 
 ### 📋 요구사항
+
 - Python 3.8+
 - Node.js 16+
 - npm 또는 yarn
 
 ### 🔧 백엔드 설정
+
 ```bash
 cd backend
 python -m venv venv
@@ -277,7 +298,7 @@ python -m venv venv
 # Windows
 .\venv\Scripts\activate
 
-# macOS/Linux  
+# macOS/Linux
 source venv/bin/activate
 
 pip install -r requirements.txt
@@ -285,6 +306,7 @@ python main.py
 ```
 
 ### 🎨 프론트엔드 설정
+
 ```bash
 cd frontend
 npm install
@@ -292,6 +314,7 @@ npm run dev
 ```
 
 자세한 설정은 각각의 README를 참조하세요:
+
 - [백엔드 README](./backend/README.md)
 - [프론트엔드 README](./frontend/README.md)
 
