@@ -171,6 +171,9 @@ class FichierParser:
         r'https?://img\.1fichier\.com/', # 이미지 서버 (logo-footer 등)
         r'/logo-footer',           # 로고 이미지
         r'logo-footer$',           # 로고 이미지 파일명
+        r'/api\.html',             # API 문서 페이지
+        r'api\.html$',             # API 문서 파일명
+        r'1fichier\.com/api\.html', # 1fichier API 문서 페이지
     ]
     
     def __init__(self):
@@ -351,7 +354,8 @@ class FichierParser:
             '1fichier.com/premium', '1fichier.com/console', '1fichier.com/register',
             '1fichier.com/login', '1fichier.com/help', '1fichier.com/contact', '1fichier.com/faq',
             '1fichier.com/abus', '1fichier.com/hlp',  # 신고, 도움말 관련
-            'img.1fichier.com', 'logo-footer'  # 이미지 서버와 로고
+            'img.1fichier.com', 'logo-footer',  # 이미지 서버와 로고
+            'api.html', '1fichier.com/api.html'  # API 문서 페이지
         ]
         for keyword in exclude_keywords:
             if keyword in link.lower():
@@ -445,7 +449,7 @@ class FichierParser:
                 print(f"[DEBUG] 휴리스틱 후보 링크 검토: 점수={score}, 링크={link}")
                 if self._is_valid_download_link(link):
                     # 최종 안전 검사 - 문제 링크들 차단
-                    bad_links = ['cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html', 'abus.html', 'hlp.html']
+                    bad_links = ['cgu.html', 'cgv.html', 'mentions.html', 'privacy.html', 'about.html', 'abus.html', 'hlp.html', 'api.html']
                     if any(bad in link.lower() for bad in bad_links):
                         print(f"[DEBUG] 휴리스틱에서 문제 링크 차단: {link}")
                         continue
@@ -555,7 +559,8 @@ class FichierParser:
             '/console', '/register', '/login', '/help', '/contact', '/faq', '/abus', '/hlp',
             '1fichier.com/cgu', '1fichier.com/cgv', '1fichier.com/mentions',
             '1fichier.com/privacy', '1fichier.com/about', '1fichier.com/tarifs',
-            '1fichier.com/premium', '1fichier.com/console', '1fichier.com/abus', '1fichier.com/hlp'
+            '1fichier.com/premium', '1fichier.com/console', '1fichier.com/abus', '1fichier.com/hlp',
+            'api.html', '1fichier.com/api.html'  # API 문서 페이지
         ]
         for keyword in exclude_keywords:
             if keyword in link.lower():

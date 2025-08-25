@@ -140,8 +140,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             if not direct_link:
                 direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=True)
             
-            # 파일 정보가 추출되면 DB에 저장
-            if file_info and file_info['name'] and not req.file_name:
+            # 파일 정보가 추출되면 DB에 저장 (기존 파일명이 없거나 빈 문자열인 경우)
+            if file_info and file_info['name'] and (not req.file_name or req.file_name.strip() == ''):
                 req.file_name = file_info['name']
                 print(f"[LOG] 파일명 추출: {file_info['name']}")
                 db.commit()
@@ -321,15 +321,21 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                 "url": req.url
             })
             
-            # 프록시로 파싱 시도 (카운트다운 처리 포함)
+            # 프록시로 파싱 시도 (카운트다운 처리 포함) - 파일 정보도 함께 추출
             try:
-                direct_link = get_or_parse_direct_link(
-                    req, 
-                    proxies=None, 
+                from .parser_service import parse_direct_link_with_file_info
+                direct_link, file_info = parse_direct_link_with_file_info(
+                    req.url, 
+                    req.password, 
                     use_proxy=True, 
-                    force_reparse=force_reparse, 
                     proxy_addr=working_proxy
                 )
+                
+                # 파일 정보가 추출되면 DB에 저장 (기존 파일명이 없거나 빈 문자열인 경우)
+                if file_info and file_info['name'] and (not req.file_name or req.file_name.strip() == ''):
+                    req.file_name = file_info['name']
+                    print(f"[LOG] 프록시 모드에서 파일명 추출: {file_info['name']}")
+                    db.commit()
             except Exception as e:
                 error_msg = str(e)
                 # 카운트다운 제한인 경우 프록시 문제가 아님
@@ -382,14 +388,21 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                 "url": req.url
             })
             
-            # 프록시로 파싱 시도 (카운트다운 감지)
+            # 프록시로 파싱 시도 (카운트다운 감지) - 파일 정보도 함께 추출
             try:
-                direct_link = get_or_parse_direct_link(
-                    req, 
+                from .parser_service import parse_direct_link_with_file_info
+                direct_link, file_info = parse_direct_link_with_file_info(
+                    req.url, 
+                    req.password, 
                     use_proxy=True, 
-                    force_reparse=force_reparse, 
                     proxy_addr=proxy_addr
                 )
+                
+                # 파일 정보가 추출되면 DB에 저장 (기존 파일명이 없거나 빈 문자열인 경우)
+                if file_info and file_info['name'] and (not req.file_name or req.file_name.strip() == ''):
+                    req.file_name = file_info['name']
+                    print(f"[LOG] 프록시 모드에서 파일명 추출: {file_info['name']}")
+                    db.commit()
             except Exception as e:
                 error_msg = str(e)
                 # 카운트다운 제한인 경우 모든 프록시에서 동일할 것
@@ -505,10 +518,31 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             # 응답 검증: HTML이나 빈 파일인지 확인
             print(f"[LOG] 프록시 응답 분석 - Content-Length: {content_length}, Content-Type: {content_type}")
             
-            # Content-Type이 HTML인 경우 에러 페이지일 가능성
+            # Content-Type이 HTML인 경우 - 내용을 확인해서 실제 HTML인지 판단
             if 'text/html' in content_type:
-                print(f"[LOG] HTML 응답 감지 - 다운로드 링크가 에러 페이지로 리다이렉트됨")
-                raise Exception("다운로드 링크가 에러 페이지로 리다이렉트됨 (HTML 응답)")
+                print(f"[LOG] HTML Content-Type 감지 - 내용 검사 중...")
+                # 처음 1024바이트를 확인해서 실제 HTML인지 판단
+                peek_content = response.content[:1024] if hasattr(response, 'content') else b''
+                try:
+                    peek_text = peek_content.decode('utf-8', errors='ignore').lower()
+                    # 실제 HTML 태그와 에러 메시지가 있는지 확인
+                    html_indicators = ['<html', '<body', '<head', '<!doctype']
+                    error_indicators = ['error', '404', '403', 'not found', 'access denied', 'forbidden']
+                    
+                    has_html_tags = any(indicator in peek_text for indicator in html_indicators)
+                    has_error_msg = any(indicator in peek_text for indicator in error_indicators)
+                    
+                    # HTML 태그가 있고 에러 메시지도 있으면 실제 에러 페이지
+                    if has_html_tags and has_error_msg:
+                        print(f"[LOG] 실제 HTML 에러 페이지 감지: {peek_text[:100]}...")
+                        raise Exception("다운로드 링크가 에러 페이지로 리다이렉트됨 (HTML 응답)")
+                    elif has_html_tags:
+                        print(f"[LOG] HTML 페이지지만 에러가 아닐 수 있음 - 계속 진행")
+                    else:
+                        print(f"[LOG] HTML Content-Type이지만 실제 파일 데이터로 보임 - 계속 진행")
+                except:
+                    print(f"[LOG] HTML 내용 검사 실패 - 계속 진행")
+                    pass
             
             # Content-Length가 너무 작은 경우 (1KB 미만)
             if content_length < 1024 and initial_size == 0:
@@ -677,10 +711,31 @@ def download_local(direct_link, file_path, initial_size, req, db):
             # 응답 검증: HTML이나 빈 파일인지 확인
             print(f"[LOG] 로컬 응답 분석 - Content-Length: {content_length}, Content-Type: {content_type}")
             
-            # Content-Type이 HTML인 경우 에러 페이지일 가능성
+            # Content-Type이 HTML인 경우 - 내용을 확인해서 실제 HTML인지 판단
             if 'text/html' in content_type:
-                print(f"[LOG] HTML 응답 감지 - 다운로드 링크가 에러 페이지로 리다이렉트됨")
-                raise Exception("다운로드 링크가 에러 페이지로 리다이렉트됨 (HTML 응답)")
+                print(f"[LOG] HTML Content-Type 감지 - 내용 검사 중...")
+                # 처음 1024바이트를 확인해서 실제 HTML인지 판단
+                peek_content = response.content[:1024] if hasattr(response, 'content') else b''
+                try:
+                    peek_text = peek_content.decode('utf-8', errors='ignore').lower()
+                    # 실제 HTML 태그와 에러 메시지가 있는지 확인
+                    html_indicators = ['<html', '<body', '<head', '<!doctype']
+                    error_indicators = ['error', '404', '403', 'not found', 'access denied', 'forbidden']
+                    
+                    has_html_tags = any(indicator in peek_text for indicator in html_indicators)
+                    has_error_msg = any(indicator in peek_text for indicator in error_indicators)
+                    
+                    # HTML 태그가 있고 에러 메시지도 있으면 실제 에러 페이지
+                    if has_html_tags and has_error_msg:
+                        print(f"[LOG] 실제 HTML 에러 페이지 감지: {peek_text[:100]}...")
+                        raise Exception("다운로드 링크가 에러 페이지로 리다이렉트됨 (HTML 응답)")
+                    elif has_html_tags:
+                        print(f"[LOG] HTML 페이지지만 에러가 아닐 수 있음 - 계속 진행")
+                    else:
+                        print(f"[LOG] HTML Content-Type이지만 실제 파일 데이터로 보임 - 계속 진행")
+                except:
+                    print(f"[LOG] HTML 내용 검사 실패 - 계속 진행")
+                    pass
             
             # Content-Length가 너무 작은 경우 (1KB 미만)
             if content_length < 1024 and initial_size == 0:
