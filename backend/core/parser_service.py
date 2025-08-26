@@ -346,6 +346,27 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         # 1초씩 나누어서 대기하면서 실시간 업데이트
         for i in range(int(wait_duration)):
             time.sleep(1)
+            
+            # 정지 상태 체크 (URL로 request 찾아서 체크)
+            try:
+                from .db import SessionLocal
+                from .models import StatusEnum, DownloadRequest
+                temp_db = SessionLocal()
+                
+                # URL로 다운로드 요청 찾기 (모든 상태)
+                active_req = temp_db.query(DownloadRequest).filter(
+                    DownloadRequest.url == url
+                ).order_by(DownloadRequest.requested_at.desc()).first()
+                
+                if active_req and active_req.status == StatusEnum.stopped:
+                    print(f"[LOG] 대기 중 정지됨: URL {url}")
+                    temp_db.close()
+                    return None  # 정지된 경우 파싱 중단
+                    
+                temp_db.close()
+            except Exception as e:
+                print(f"[LOG] 정지 상태 체크 실패: {e}")
+            
             remaining_seconds = int(wait_duration - i - 1)
             if remaining_seconds >= 0:
                 try:
@@ -460,6 +481,27 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 # 실시간 카운트다운으로 대기
                 for i in range(actual_wait):
                     time.sleep(1)
+                    
+                    # 정지 상태 체크 (URL로 request 찾아서 체크)
+                    try:
+                        from .db import SessionLocal
+                        from .models import StatusEnum, DownloadRequest
+                        temp_db = SessionLocal()
+                        
+                        # URL로 다운로드 요청 찾기 (모든 상태)
+                        active_req = temp_db.query(DownloadRequest).filter(
+                            DownloadRequest.url == url
+                        ).order_by(DownloadRequest.requested_at.desc()).first()
+                        
+                        if active_req and active_req.status == StatusEnum.stopped:
+                            print(f"[LOG] 카운트다운 대기 중 정지됨: URL {url}")
+                            temp_db.close()
+                            return None  # 정지된 경우 파싱 중단
+                            
+                        temp_db.close()
+                    except Exception as e:
+                        print(f"[LOG] 정지 상태 체크 실패: {e}")
+                    
                     remaining_seconds = actual_wait - i - 1
                     if remaining_seconds >= 0:
                         try:

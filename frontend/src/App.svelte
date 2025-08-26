@@ -229,6 +229,15 @@
         if (updatedDownload.status === "failed" && updatedDownload.error) {
           showToastMsg(`다운로드 실패: ${updatedDownload.error}`);
         }
+        
+        // 정지/완료/실패 상태인 경우 대기시간 정보 제거
+        if (["stopped", "done", "failed"].includes(updatedDownload.status)) {
+          if (downloadWaitInfo[updatedDownload.id]) {
+            delete downloadWaitInfo[updatedDownload.id];
+            downloadWaitInfo = { ...downloadWaitInfo };
+            console.log(`대기시간 정보 제거: ID ${updatedDownload.id}, 상태: ${updatedDownload.status}`);
+          }
+        }
       } else if (message.type === "proxy_update") {
         // 프록시 상태 변경 알림
         console.log("Proxy status update:", message.data);
@@ -966,8 +975,8 @@
                       class="status status-{download.status.toLowerCase()} interactive-status"
                       title={getStatusTooltip(download)}
                     >
-                      {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
-                        <!-- 대기시간 카운트다운 표시 -->
+                      {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
+                        <!-- 대기시간 카운트다운 표시 (활성 상태에서만) -->
                         <span class="wait-countdown">
                           대기중 ({downloadWaitInfo[download.id].remaining_time}초)
                         </span>
