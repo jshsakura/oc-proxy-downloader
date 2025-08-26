@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from "svelte";
-  import { t } from "./i18n.js";
+  import { t, formatTimestamp } from "./i18n.js";
   import InfoIcon from "../icons/InfoIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
@@ -135,7 +135,7 @@
               <th>{$t("detail_requested_at")}</th>
               <td>
                 {#if download.requested_at}
-                  {new Date(download.requested_at).toLocaleString()}
+                  {formatTimestamp(download.requested_at)}
                 {:else}
                   {$t("detail_not_available")}
                 {/if}
@@ -173,7 +173,7 @@
               <th>{$t("detail_finished_at")}</th>
               <td>
                 {#if download.finished_at}
-                  {new Date(download.finished_at).toLocaleString()}
+                  {formatTimestamp(download.finished_at)}
                 {:else}
                   {$t("detail_not_available")}
                 {/if}
@@ -214,7 +214,7 @@
             </span>
             {#if download.requested_at}
               <span class="timestamp">
-                {new Date(download.requested_at).toLocaleString()}
+                {formatTimestamp(download.requested_at)}
               </span>
             {/if}
           </div>
@@ -678,7 +678,7 @@
   }
 
   .detail-table th {
-    flex: 0 0 150px;
+    flex: 0 0 180px;
     font-weight: 600;
     color: var(--text-secondary);
     text-align: center;

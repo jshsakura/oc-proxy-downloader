@@ -327,13 +327,41 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         actual_wait = min(remaining_time, wait_time_limit)
         print(f"[LOG] 남은 대기 시간: {remaining_time:.1f}초 (실제 대기: {actual_wait:.1f}초)")
         
-        # 로컬 연결인 경우 남은 전체 시간을 기다림
-        if proxies is None:
-            import time
-            time.sleep(remaining_time)
-        else:
-            import time
-            time.sleep(actual_wait)
+        # WebSocket으로 대기시간 전송
+        try:
+            from .download_core import send_websocket_message
+            send_websocket_message("wait_countdown", {
+                "remaining_time": int(remaining_time),
+                "total_wait_time": int(initial_wait_seconds) if initial_wait_ms > 0 else int(remaining_time),
+                "proxy_addr": proxy_addr,
+                "url": url
+            })
+        except Exception as e:
+            print(f"[LOG] 대기시간 WebSocket 전송 실패: {e}")
+        
+        # 실시간 카운트다운으로 대기
+        import time
+        wait_duration = remaining_time if proxies is None else actual_wait
+        
+        # 1초씩 나누어서 대기하면서 실시간 업데이트
+        for i in range(int(wait_duration)):
+            time.sleep(1)
+            remaining_seconds = int(wait_duration - i - 1)
+            if remaining_seconds >= 0:
+                try:
+                    send_websocket_message("wait_countdown", {
+                        "remaining_time": remaining_seconds,
+                        "total_wait_time": int(initial_wait_seconds) if initial_wait_ms > 0 else int(remaining_time),
+                        "proxy_addr": proxy_addr,
+                        "url": url
+                    })
+                except Exception as e:
+                    print(f"[LOG] 실시간 카운트다운 WebSocket 전송 실패: {e}")
+        
+        # 남은 소수점 시간 대기
+        remaining_fraction = wait_duration - int(wait_duration)
+        if remaining_fraction > 0:
+            time.sleep(remaining_fraction)
     else:
         print(f"[LOG] 대기 시간 없음 - 즉시 진행")
     
@@ -413,10 +441,36 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 proxy_info = f" (프록시: {proxy_addr})" if proxy_addr else " (로컬 연결)"
                 print(f"[LOG] 카운트다운 감지{proxy_info}: {countdown_seconds}초 대기 후 재시도")
                 
+                # WebSocket으로 대기시간 전송
+                try:
+                    from .download_core import send_websocket_message
+                    send_websocket_message("wait_countdown", {
+                        "remaining_time": countdown_seconds,
+                        "total_wait_time": countdown_seconds,
+                        "proxy_addr": proxy_addr,
+                        "url": url
+                    })
+                except Exception as e:
+                    print(f"[LOG] 카운트다운 WebSocket 전송 실패: {e}")
+                
                 # 안전하게 몇 초 더 대기
                 actual_wait = countdown_seconds + 2
                 import time
-                time.sleep(actual_wait)
+                
+                # 실시간 카운트다운으로 대기
+                for i in range(actual_wait):
+                    time.sleep(1)
+                    remaining_seconds = actual_wait - i - 1
+                    if remaining_seconds >= 0:
+                        try:
+                            send_websocket_message("wait_countdown", {
+                                "remaining_time": remaining_seconds,
+                                "total_wait_time": countdown_seconds,
+                                "proxy_addr": proxy_addr,
+                                "url": url
+                            })
+                        except Exception as e:
+                            print(f"[LOG] 실시간 카운트다운 WebSocket 전송 실패: {e}")
                 
                 print(f"[LOG] 카운트다운 완료 - 재시도 중{proxy_info}")
                 
@@ -888,5 +942,15 @@ def is_direct_link_expired(direct_link, use_proxy=False, proxy_addr=None):
             print(f"[LOG] 예상치 못한 응답: {response.status_code}")
             return True
     except Exception as e:
+        error_str = str(e)
         print(f"[LOG] Direct Link 유효성 검사 실패: {e}")
-        return True
+        
+        # DNS 오류인 경우 확실히 만료된 것으로 판단
+        if any(dns_error in error_str for dns_error in [
+            "NameResolutionError", "Failed to resolve", "Name or service not known", 
+            "No address associated with hostname", "nodename nor servname provided",
+            "dstorage.fr"  # 특별히 dstorage.fr DNS 오류 감지
+        ]):
+            print(f"[LOG] DNS 해상도 오류로 인한 링크 만료 확정: {error_str}")
+            
+        return True  # 기타 에러 시 만료로 간주

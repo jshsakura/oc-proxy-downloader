@@ -9,6 +9,7 @@
     isLoading,
     initializeLocale,
     loadTranslations,
+    formatTimestamp,
   } from "./lib/i18n.js";
   import DetailModal from "./lib/DetailModal.svelte";
   import PauseIcon from "./icons/PauseIcon.svelte";
@@ -85,6 +86,9 @@
 
   // 다운로드별 프록시 상태 추적
   let downloadProxyInfo = {}; // {downloadId: {proxy, step, current, total, error}}
+  
+  // 다운로드별 대기시간 정보 추적
+  let downloadWaitInfo = {}; // {downloadId: {remaining_time, total_wait_time}}
 
   let showConfirm = false;
   let confirmMessage = "";
@@ -344,6 +348,29 @@
           };
           downloadProxyInfo = { ...downloadProxyInfo };
         }
+      } else if (message.type === "wait_countdown") {
+        // 대기시간 카운트다운 처리
+        console.log("Wait countdown:", message.data);
+        
+        // URL별 다운로드 찾기
+        const matchingDownload = downloads.find(d => d.url === message.data.url);
+        if (matchingDownload) {
+          downloadWaitInfo[matchingDownload.id] = {
+            remaining_time: message.data.remaining_time,
+            total_wait_time: message.data.total_wait_time,
+            proxy_addr: message.data.proxy_addr,
+            timestamp: Date.now()
+          };
+          downloadWaitInfo = { ...downloadWaitInfo };
+          
+          // 대기시간이 0이 되면 정보 제거
+          if (message.data.remaining_time <= 0) {
+            setTimeout(() => {
+              delete downloadWaitInfo[matchingDownload.id];
+              downloadWaitInfo = { ...downloadWaitInfo };
+            }, 2000); // 2초 후 제거
+          }
+        }
       }
     };
 
@@ -583,30 +610,20 @@
 
   function formatDate(dateString) {
     if (!dateString) return "-";
+    // Use formatTimestamp but only show the date part
+    const currentLocale = localStorage.getItem('lang') || 'en';
     const date = new Date(dateString);
-    return (
-      date.getFullYear() +
-      "-" +
-      String(date.getMonth() + 1).padStart(2, "0") +
-      "-" +
-      String(date.getDate()).padStart(2, "0")
-    );
+    const localeCode = currentLocale === 'ko' ? 'ko-KR' : 'en-US';
+    
+    return date.toLocaleDateString(localeCode, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
   }
 
   function formatFullDateTime(dateString) {
-    if (!dateString) return "-";
-    const date = new Date(dateString);
-    const dateStr = date.getFullYear() +
-      "-" +
-      String(date.getMonth() + 1).padStart(2, "0") +
-      "-" +
-      String(date.getDate()).padStart(2, "0");
-    const timeStr = String(date.getHours()).padStart(2, "0") +
-      ":" +
-      String(date.getMinutes()).padStart(2, "0") +
-      ":" +
-      String(date.getSeconds()).padStart(2, "0");
-    return `${dateStr} ${timeStr}`;
+    return formatTimestamp(dateString) || "-";
   }
 
   function formatTime(dateString) {
@@ -949,9 +966,16 @@
                       class="status status-{download.status.toLowerCase()} interactive-status"
                       title={getStatusTooltip(download)}
                     >
-                      {$t(`download_${download.status.toLowerCase()}`)}
-                      {#if downloadProxyInfo[download.id] && (download.status.toLowerCase() === 'downloading' || download.status.toLowerCase() === 'proxying')}
-                        <span class="proxy-indicator"></span>
+                      {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
+                        <!-- 대기시간 카운트다운 표시 -->
+                        <span class="wait-countdown">
+                          대기중 ({downloadWaitInfo[download.id].remaining_time}초)
+                        </span>
+                      {:else}
+                        {$t(`download_${download.status.toLowerCase()}`)}
+                        {#if downloadProxyInfo[download.id] && (download.status.toLowerCase() === 'downloading' || download.status.toLowerCase() === 'proxying')}
+                          <span class="proxy-indicator"></span>
+                        {/if}
                       {/if}
                     </span>
                   </td>
@@ -1259,6 +1283,18 @@
 
   .status-done.interactive-status {
     border: 1px solid var(--success-color);
+  }
+  
+  /* 대기시간 카운트다운 스타일 */
+  .wait-countdown {
+    color: var(--warning-color);
+    font-weight: bold;
+    animation: waitPulse 1.5s ease-in-out infinite;
+  }
+  
+  @keyframes waitPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
   }
 
   /* 카드 내부 탭 스타일 */

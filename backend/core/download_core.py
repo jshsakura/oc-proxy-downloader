@@ -124,21 +124,28 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             print(f"[LOG] 프록시 모드로 Direct Link 파싱 시작")
             req.status = StatusEnum.proxying
             db.commit()
-            direct_link, used_proxy_addr = parse_with_proxy_cycling(req, db, force_reparse=initial_downloaded_size > 0)
+            # 재시도이거나 이어받기인 경우 항상 강제 재파싱 (원본 URL로 새로 파싱)
+            force_reparse = initial_downloaded_size > 0 or req.direct_link is None
+            print(f"[LOG] 강제 재파싱 모드: {force_reparse} (이어받기: {initial_downloaded_size > 0}, 링크없음: {req.direct_link is None})")
+            direct_link, used_proxy_addr = parse_with_proxy_cycling(req, db, force_reparse=force_reparse)
         else:
             print(f"[LOG] 로컬 모드로 Direct Link 파싱")
             req.status = StatusEnum.downloading
             db.commit()
             
-            # 로컬 모드에서는 파일 정보와 함께 파싱 (이어받기 시 항상 재파싱)
+            # 재시도이거나 이어받기인 경우 항상 강제 재파싱 (원본 URL로 새로 파싱)
+            force_reparse = initial_downloaded_size > 0 or req.direct_link is None
+            print(f"[LOG] 강제 재파싱 모드: {force_reparse} (이어받기: {initial_downloaded_size > 0}, 링크없음: {req.direct_link is None})")
+            
+            # 로컬 모드에서는 파일 정보와 함께 파싱
             from .parser_service import parse_direct_link_with_file_info
             direct_link, file_info = parse_direct_link_with_file_info(
                 req.url, req.password, use_proxy=False
             )
             
-            # 이어받기가 아닌 경우에만 기존 파싱 로직도 사용
+            # 파일 정보 파싱 실패 시 기존 파싱 로직 사용
             if not direct_link:
-                direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=True)
+                direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=force_reparse)
             
             # 파일 정보가 추출되면 DB에 저장 (기존 파일명이 없거나 빈 문자열인 경우)
             if file_info and file_info['name'] and (not req.file_name or req.file_name.strip() == ''):
@@ -670,26 +677,45 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             "No address associated with hostname", "nodename nor servname provided"
         ]):
             print(f"[LOG] 프록시에서 DNS 해상도 오류 감지 - 다운로드 링크 재파싱 시도")
+            print(f"[LOG] 만료된 링크: {direct_link}")
+            
             try:
-                from .parser_service import parse_direct_link_simple
-                
-                # 기존 direct_link 초기화
+                # 기존 direct_link 완전 초기화
                 req.direct_link = None
                 db.commit()
                 
-                # 재파싱 시도 (프록시 사용)
-                new_direct_link = parse_direct_link_simple(req.url, req.password, use_proxy=True, proxy_addr=proxy_addr)
+                # 강제 재파싱 시도 (여러 프록시로 시도)
+                print(f"[LOG] 원본 URL로 강제 재파싱 시도: {req.url}")
+                new_direct_link, used_proxy = parse_with_proxy_cycling(req, db, force_reparse=True)
+                
                 if new_direct_link and new_direct_link != direct_link:
                     print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 성공: {new_direct_link}")
                     req.direct_link = new_direct_link
                     db.commit()
                     
                     # 재파싱된 링크로 다시 다운로드 시도
-                    return download_with_proxy(new_direct_link, file_path, proxy_addr, initial_size, req, db)
+                    if used_proxy:
+                        return download_with_proxy(new_direct_link, file_path, used_proxy, initial_size, req, db)
+                    else:
+                        return download_local(new_direct_link, file_path, initial_size, req, db)
                 else:
-                    print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 실패")
+                    print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 실패 - 프록시 순환으로도 새 링크 획득 불가")
+                    
             except Exception as reparse_error:
                 print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 중 예외: {reparse_error}")
+                
+                # 마지막 시도: 로컬 연결로 재파싱
+                try:
+                    print(f"[LOG] 마지막 시도: 로컬 연결로 재파싱")
+                    from .parser_service import parse_direct_link_simple
+                    local_direct_link = parse_direct_link_simple(req.url, req.password, use_proxy=False)
+                    if local_direct_link and local_direct_link != direct_link:
+                        print(f"[LOG] 로컬 연결로 재파싱 성공: {local_direct_link}")
+                        req.direct_link = local_direct_link
+                        db.commit()
+                        return download_local(local_direct_link, file_path, initial_size, req, db)
+                except Exception as local_error:
+                    print(f"[LOG] 로컬 연결 재파싱도 실패: {local_error}")
         
         # WebSocket으로 다운로드 실패 알림
         send_websocket_message("proxy_failed", {
@@ -881,24 +907,43 @@ def download_local(direct_link, file_path, initial_size, req, db):
             "No address associated with hostname", "nodename nor servname provided"
         ]):
             print(f"[LOG] DNS 해상도 오류 감지 - 다운로드 링크 재파싱 시도")
+            print(f"[LOG] 만료된 링크: {direct_link}")
+            
             try:
-                from .parser_service import parse_direct_link_simple
-                
-                # 기존 direct_link 초기화
+                # 기존 direct_link 완전 초기화
                 req.direct_link = None
                 db.commit()
                 
-                # 재파싱 시도
+                # 우선 로컬 연결로 재파싱 시도
+                print(f"[LOG] 로컬 연결으로 강제 재파싱 시도: {req.url}")
+                from .parser_service import parse_direct_link_simple
                 new_direct_link = parse_direct_link_simple(req.url, req.password, use_proxy=False)
+                
                 if new_direct_link and new_direct_link != direct_link:
-                    print(f"[LOG] DNS 오류 후 재파싱 성공: {new_direct_link}")
+                    print(f"[LOG] 로컬 연결 DNS 오류 후 재파싱 성공: {new_direct_link}")
                     req.direct_link = new_direct_link
                     db.commit()
-                    
-                    # 재파싱된 링크로 다시 다운로드 시도
                     return download_local(new_direct_link, file_path, initial_size, req, db)
                 else:
-                    print(f"[LOG] DNS 오류 후 재파싱 실패")
+                    print(f"[LOG] 로컬 재파싱 실패 - 프록시 순환 시도")
+                    
+                    # 로컬 재파싱 실패 시 프록시로 시도
+                    try:
+                        new_direct_link, used_proxy = parse_with_proxy_cycling(req, db, force_reparse=True)
+                        if new_direct_link and new_direct_link != direct_link:
+                            print(f"[LOG] 프록시 순환으로 재파싱 성공: {new_direct_link}")
+                            req.direct_link = new_direct_link
+                            db.commit()
+                            
+                            if used_proxy:
+                                return download_with_proxy(new_direct_link, file_path, used_proxy, initial_size, req, db)
+                            else:
+                                return download_local(new_direct_link, file_path, initial_size, req, db)
+                        else:
+                            print(f"[LOG] 프록시 순환 재파싱도 실패")
+                    except Exception as proxy_error:
+                        print(f"[LOG] 프록시 순환 재파싱 중 예외: {proxy_error}")
+                        
             except Exception as reparse_error:
                 print(f"[LOG] DNS 오류 후 재파싱 중 예외: {reparse_error}")
         

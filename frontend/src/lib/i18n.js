@@ -403,4 +403,25 @@ function initializeLocale() {
     return loadTranslations(lang);
 }
 
-export { t, locale, isLoading, initializeLocale, loadTranslations };
+// Format timestamp according to current locale
+function formatTimestamp(dateString) {
+    if (!dateString) return '';
+    
+    const currentLocale = localStorage.getItem('lang') || 'en';
+    const date = new Date(dateString);
+    
+    // Use the app's locale setting instead of browser locale
+    const localeCode = currentLocale === 'ko' ? 'ko-KR' : 'en-US';
+    
+    return date.toLocaleString(localeCode, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: currentLocale !== 'ko' // Korean uses 24-hour format
+    });
+}
+
+export { t, locale, isLoading, initializeLocale, loadTranslations, formatTimestamp };
