@@ -139,9 +139,11 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             
             # 로컬 모드에서는 파일 정보와 함께 파싱
             from .parser_service import parse_direct_link_with_file_info
+            print(f"[LOG] parse_direct_link_with_file_info 시작: {req.url}")
             direct_link, file_info = parse_direct_link_with_file_info(
                 req.url, req.password, use_proxy=False
             )
+            print(f"[LOG] parse_direct_link_with_file_info 결과: direct_link={direct_link}, file_info={file_info}")
             
             # 파일 정보 파싱 실패 시 기존 파싱 로직 사용
             if not direct_link:
@@ -158,6 +160,23 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         if req.status == StatusEnum.stopped:
             print(f"[LOG] 다운로드 정지됨 (파싱 후): ID {request_id}")
             return
+        
+        # direct_link 유효성 체크 (DNS 오류 등으로 인한 만료된 링크 감지)
+        if direct_link:
+            print(f"[LOG] Direct Link 유효성 체크: {direct_link}")
+            from .parser_service import is_direct_link_expired
+            if is_direct_link_expired(direct_link, use_proxy=use_proxy):
+                print(f"[LOG] Direct Link 만료 감지 - 강제 재파싱 시도: {direct_link}")
+                req.direct_link = None
+                db.commit()
+                
+                # 강제 재파싱
+                if use_proxy:
+                    direct_link, used_proxy_addr = parse_with_proxy_cycling(req, db, force_reparse=True)
+                else:
+                    direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=True)
+                
+                print(f"[LOG] 재파싱 결과: {direct_link}")
         
         if not direct_link:
             # URL 유효성 체크를 통한 더 자세한 에러 메시지

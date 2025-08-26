@@ -732,7 +732,7 @@
         body: JSON.stringify({ 
           url: download.url, 
           password: "", // 기존 패스워드는 저장되지 않으므로 빈 값
-          use_proxy: download.use_proxy || true
+          use_proxy: download.use_proxy || false
         }),
       });
       if (response.ok) {

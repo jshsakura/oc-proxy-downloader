@@ -206,6 +206,11 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit, proxy_addr=proxy_addr)
         
         if direct_link and html_content:
+            # Direct Link 유효성 체크
+            if is_direct_link_expired(direct_link, use_proxy=use_proxy, proxy_addr=proxy_addr):
+                print(f"[LOG] parse_direct_link_with_file_info에서 만료된 링크 감지: {direct_link}")
+                return None, None
+                
             # 파일 정보 추출
             file_info = fichier_parser.extract_file_info(html_content)
             return direct_link, file_info
