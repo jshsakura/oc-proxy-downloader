@@ -377,7 +377,27 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         
         # 3단계: 완료 처리
         req.status = StatusEnum.done
+        import datetime
+        req.finished_at = datetime.datetime.utcnow()
         db.commit()
+        
+        # WebSocket으로 완료 상태 전송
+        send_websocket_message("status_update", {
+            "id": req.id,
+            "url": req.url,
+            "file_name": req.file_name,
+            "status": "done",
+            "error": None,
+            "downloaded_size": req.downloaded_size or 0,
+            "total_size": req.total_size or 0,
+            "save_path": req.save_path,
+            "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+            "finished_at": req.finished_at.isoformat() if req.finished_at else None,
+            "password": req.password,
+            "direct_link": req.direct_link,
+            "use_proxy": req.use_proxy
+        })
+        
         cleanup_download_file(file_path)
         print(f"[LOG] 다운로드 완료: {req.file_name}")
         

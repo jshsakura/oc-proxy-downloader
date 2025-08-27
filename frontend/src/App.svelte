@@ -249,6 +249,17 @@
           showToastMsg(`다운로드 실패: ${updatedDownload.error}`);
         }
         
+        // 완료 상태인 경우 토스트 메시지 표시하고 완료 탭으로 자동 이동
+        if (updatedDownload.status === "done") {
+          showToastMsg(`다운로드 완료: ${updatedDownload.file_name || "파일"}`);
+          // 현재 진행중 탭에 있다면 완료 탭으로 자동 이동
+          if (currentTab === "working") {
+            setTimeout(() => {
+              currentTab = "completed";
+            }, 1500); // 1.5초 후 자동 이동
+          }
+        }
+        
         // 정지/완료/실패 상태인 경우 대기시간 정보 제거
         if (["stopped", "done", "failed"].includes(updatedDownload.status)) {
           if (downloadWaitInfo[updatedDownload.id]) {
