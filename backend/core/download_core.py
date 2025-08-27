@@ -713,6 +713,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             
             # 파일 경로 검증 및 디렉토리 생성
             try:
+                download_path = Path(file_path).parent
                 download_path.mkdir(parents=True, exist_ok=True)
                 print(f"[LOG] 파일 저장 경로: {file_path}")
             except Exception as e:
@@ -953,6 +954,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
             
             # 파일 경로 검증 및 디렉토리 생성
             try:
+                download_path = Path(file_path).parent
                 download_path.mkdir(parents=True, exist_ok=True)
                 print(f"[LOG] 파일 저장 경로: {file_path}")
             except Exception as e:
