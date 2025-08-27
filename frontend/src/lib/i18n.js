@@ -413,15 +413,27 @@ function formatTimestamp(dateString) {
     // Use the app's locale setting instead of browser locale
     const localeCode = currentLocale === 'ko' ? 'ko-KR' : 'en-US';
     
-    return date.toLocaleString(localeCode, {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: currentLocale !== 'ko' // Korean uses 24-hour format
-    });
+    if (currentLocale === 'ko') {
+        return date.toLocaleString(localeCode, {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false // Korean uses 24-hour format
+        });
+    } else {
+        return date.toLocaleString(localeCode, {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
+    }
 }
 
 export { t, locale, isLoading, initializeLocale, loadTranslations, formatTimestamp };

@@ -32,6 +32,31 @@ class DownloadRequest(Base):
     retry_count = Column(Integer, default=0)  # 재시도 횟수
     max_retries = Column(Integer, default=1)  # 최대 재시도 횟수
 
+    def as_dict(self):
+        data = {}
+        for c in self.__table__.columns:
+            value = getattr(self, c.name)
+            if isinstance(value, datetime.datetime):
+                data[c.name] = value.isoformat() if value else None
+            elif isinstance(value, StatusEnum):
+                data[c.name] = value.value
+            elif c.name == 'status' and isinstance(value, str) and value == 'paused':
+                # Handle legacy 'paused' status for backward compatibility
+                data[c.name] = 'stopped'
+            elif c.name in ['downloaded_size', 'total_size'] and value is None:
+                data[c.name] = 0 # Ensure these are always numbers
+            elif c.name == 'error' and value:
+                # Clean error messages to avoid encoding issues
+                try:
+                    # Remove problematic Unicode characters that can cause cp949 encoding errors
+                    cleaned_value = value.encode('ascii', 'ignore').decode('ascii')
+                    data[c.name] = cleaned_value if cleaned_value else str(value)
+                except:
+                    data[c.name] = "Encoding error in error message"
+            else:
+                data[c.name] = value
+        return data
+
 
 class UserProxy(Base):
     __tablename__ = "user_proxies"

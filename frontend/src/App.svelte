@@ -643,11 +643,19 @@
     const date = new Date(dateString);
     const localeCode = currentLocale === 'ko' ? 'ko-KR' : 'en-US';
     
-    return date.toLocaleDateString(localeCode, {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    });
+    if (currentLocale === 'ko') {
+      return date.toLocaleDateString(localeCode, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } else {
+      return date.toLocaleDateString(localeCode, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+    }
   }
 
   function formatFullDateTime(dateString) {
@@ -960,12 +968,12 @@
           <thead>
             <tr>
               <th>{$t("table_header_file_name")}</th>
-              <th>{$t("table_header_status")}</th>
-              <th>{$t("table_header_size")}</th>
-              <th>{$t("table_header_progress")}</th>
+              <th class="center-align">{$t("table_header_status")}</th>
+              <th class="center-align">{$t("table_header_size")}</th>
+              <th class="center-align">{$t("table_header_progress")}</th>
               <th class="center-align">{$t("table_header_requested_date")}</th>
-              <th>{$t("table_header_proxy")}</th>
-              <th class="actions-header">{$t("table_header_actions")}</th>
+              <th class="center-align">{$t("table_header_proxy")}</th>
+              <th class="center-align actions-header">{$t("table_header_actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -990,7 +998,7 @@
                   <td class="filename" title={download.url}>
                     {download.file_name || $t("file_name_na")}
                   </td>
-                  <td>
+                  <td class="center-align">
                     <span
                       class="status status-{download.status.toLowerCase()} interactive-status"
                       title={getStatusTooltip(download)}
@@ -1008,12 +1016,12 @@
                       {/if}
                     </span>
                   </td>
-                  <td>
+                  <td class="center-align">
                     {download.total_size
                       ? formatBytes(download.total_size)
                       : "-"}
                   </td>
-                  <td>
+                  <td class="center-align">
                     <div class="progress-container">
                       <div
                         class="progress-bar"
@@ -1048,7 +1056,7 @@
                       </div>
                     </button>
                   </td>
-                  <td class="actions">
+                  <td class="actions-cell">
                     {#if currentTab === "completed"}
                       <!-- 완료 탭에서는 재다운로드 버튼만 표시 -->
                       <button
@@ -1239,8 +1247,38 @@
   .proxy-toggle-cell {
     text-align: center;
   }
+  
+  .proxy-toggle-cell .grid-proxy-toggle {
+    margin: 0 auto;
+    display: block;
+  }
+  table {
+    table-layout: auto;
+  }
+  
   table th {
     text-align: center;
+  }
+  
+  table th:nth-child(4),
+  table td:nth-child(4) {
+    width: 90px !important;
+    min-width: 90px !important;
+  }
+  
+  table td {
+    vertical-align: middle;
+    height: 60px;
+    padding: 12px 8px;
+  }
+  
+  .actions-cell {
+    text-align: center;
+  }
+  
+  .actions-cell .button-icon {
+    display: inline-block;
+    margin: 0 2px;
   }
 
   /* 테이블 컨테이너 높이 제한 (app.css에서 기본 스타일 상속) */
@@ -1555,18 +1593,20 @@
   /* 프로그레스 바 - 실시간 업데이트용 */
   .progress-container {
     position: relative;
-    width: 100px;
-    height: 20px;
-    background-color: #e0e0e0;
-    border-radius: 10px;
+    width: calc(100% - 10px);
+    min-width: 80px;
+    margin: 0 auto;
+    height: 24px;
+    background-color: var(--card-border);
+    border-radius: 12px;
     overflow: hidden;
   }
 
   .progress-bar {
     height: 100%;
-    background: linear-gradient(90deg, #4CAF50 0%, #81C784 100%);
+    background-color: var(--success-color);
     border-radius: 10px;
-    transition: width 0.3s ease-out; /* 부드러운 애니메이션 */
+    transition: width 0.3s ease-out;
     min-width: 0;
   }
 
@@ -1577,8 +1617,10 @@
     transform: translate(-50%, -50%);
     font-size: 12px;
     font-weight: bold;
-    color: #333;
-    text-shadow: 1px 1px 1px rgba(255, 255, 255, 0.8);
+    color: #ffffff;
+    text-shadow: 
+      0 0 2px rgba(0, 0, 0, 0.3),
+      1px 1px 1px rgba(0, 0, 0, 0.2);
     z-index: 2;
   }
 

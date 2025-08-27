@@ -38,9 +38,36 @@ def send_websocket_message(message_type: str, data: dict):
 
 def should_retry_download(req, error_message: str) -> bool:
     """다운로드 재시도 여부를 판단하는 함수"""
+    
+    # 네트워크 오류 검사 먼저 수행
+    retry_network_errors = [
+        "nameresolutionerror",
+        "getaddrinfo failed",
+        "failed to resolve",
+        "connection timeout",
+        "connection refused",
+        "network is unreachable",
+        "temporary failure in name resolution",
+        "max retries exceeded",
+        "connection aborted",
+        "connection reset",
+        "httpsconnectionpool",
+        "dstorage.fr",
+        "errno 11001",
+        "name or service not known",
+        "nodename nor servname provided",
+        "dns resolution failed"
+    ]
+    
+    error_lower = error_message.lower()
+    is_network_error = any(retry_error in error_lower for retry_error in retry_network_errors)
+    
+    # 네트워크 오류인 경우 최대 3번까지 재시도 허용
+    max_retries_for_error = 3 if is_network_error else req.max_retries
+    
     # 재시도 한도 확인
-    if req.retry_count >= req.max_retries:
-        print(f"[LOG] 재시도 한도 초과: {req.retry_count}/{req.max_retries}")
+    if req.retry_count >= max_retries_for_error:
+        print(f"[LOG] 재시도 한도 초과: {req.retry_count}/{max_retries_for_error} (네트워크 오류: {is_network_error})")
         return False
     
     # 재시도 불가능한 오류들
@@ -58,13 +85,17 @@ def should_retry_download(req, error_message: str) -> bool:
         "forbidden"
     ]
     
-    error_lower = error_message.lower()
+    # 네트워크 오류인지 이미 위에서 확인했으므로, 재시도 불가능한 오류만 체크
     for no_retry_error in no_retry_errors:
         if no_retry_error in error_lower:
             print(f"[LOG] 재시도 불가능한 오류: {error_message}")
             return False
     
-    print(f"[LOG] 재시도 가능한 오류: {error_message}")
+    if is_network_error:
+        print(f"[LOG] 재시도 가능한 네트워크 오류: {error_message}")
+    else:
+        print(f"[LOG] 재시도 가능한 일반 오류: {error_message}")
+    
     return True
 
 
@@ -325,13 +356,18 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         print(f"[LOG] 다운로드 완료: {req.file_name}")
         
     except Exception as e:
-        print(f"[LOG] 다운로드 실패: {e}")
+        error_str = str(e)
+        print(f"[ERROR] 다운로드 실패: {error_str}")
+        print(f"[DEBUG] 에러 타입: {type(e).__name__}")
+        print(f"[DEBUG] 에러 세부사항: {repr(e)}")
+        
         if req:
             # 정지 상태가 아닐 때만 실패로 처리
             db.refresh(req)
             if req.status != StatusEnum.stopped:
                 # 재시도 로직 확인
-                should_retry = should_retry_download(req, str(e))
+                should_retry = should_retry_download(req, error_str)
+                print(f"[LOG] 재시도 여부 결정: {should_retry} (현재 재시도: {req.retry_count}/{req.max_retries})")
                 
                 if should_retry:
                     req.retry_count += 1

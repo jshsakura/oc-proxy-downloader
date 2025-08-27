@@ -41,6 +41,7 @@
   "download_cancelled": "Download has been cancelled.",
   "cancel_failed": "Failed to cancel download.",
   "settings_title": "Settings",
+  "settings_subtitle": "Application Settings",
   "settings_download_path": "Download Path",
   "settings_theme": "Theme",
   "theme_light": "Light",

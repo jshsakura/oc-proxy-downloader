@@ -141,7 +141,24 @@
   }
 
   function formatDate(dateString) {
-    return new Date(dateString).toLocaleDateString();
+    if (!dateString) return "-";
+    const currentLocale = localStorage.getItem('lang') || 'en';
+    const date = new Date(dateString);
+    const localeCode = currentLocale === 'ko' ? 'ko-KR' : 'en-US';
+    
+    if (currentLocale === 'ko') {
+      return date.toLocaleDateString(localeCode, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } else {
+      return date.toLocaleDateString(localeCode, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+    }
   }
 
   async function copyToClipboard(text) {

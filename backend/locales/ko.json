@@ -67,6 +67,7 @@
   "theme_dracula": "드라큘라",
   "theme_system": "시스템",
   "settings_title": "설정",
+  "settings_subtitle": "애플리케이션 설정",
   "settings_download_path": "다운로드 경로",
   "use_proxy_label": "프록시 사용",
   "adding_download": "다운로드 추가 중...",
