@@ -133,9 +133,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         print(f"[LOG] URL: {req.url}")
         print(f"[LOG] 파일명: {req.file_name}")
         
-        # 로컬 다운로드 등록 (1fichier만)
-        if not use_proxy:
-            download_manager.register_local_download(request_id, req.url)
+        # 다운로드 등록 (1fichier만)
+        download_manager.register_download(request_id, req.url)
         
         # 다운로드 경로 설정
         download_path = get_download_path()
@@ -159,6 +158,11 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         
         file_path = download_path / safe_filename
         part_file_path = download_path / (safe_filename + ".part")
+        
+        # DB에 저장 경로 업데이트
+        req.save_path = str(file_path)
+        db.commit()
+        print(f"[LOG] 저장 경로 설정: {file_path}")
         
         # 기존 파일 확인
         initial_downloaded_size = 0
@@ -217,6 +221,28 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 req.file_name = file_info['name']
                 print(f"[LOG] 파일명 추출: {file_info['name']}")
                 db.commit()
+            
+            # 파일명이 여전히 없으면 URL에서 추출 시도
+            if not req.file_name or req.file_name.strip() == '':
+                try:
+                    from urllib.parse import urlparse, unquote
+                    import re
+                    
+                    # URL에서 파일명 힌트 찾기
+                    url_path = urlparse(req.url).path
+                    if url_path and url_path != '/':
+                        # URL 디코딩
+                        decoded_path = unquote(url_path)
+                        # 파일명 추출 (경로의 마지막 부분)
+                        potential_filename = decoded_path.split('/')[-1]
+                        
+                        # 1fichier ID 패턴이면 무시
+                        if not re.match(r'^[a-z0-9]+$', potential_filename):
+                            req.file_name = potential_filename[:100]  # 최대 100자
+                            print(f"[LOG] URL에서 파일명 추출: {req.file_name}")
+                            db.commit()
+                except Exception as e:
+                    print(f"[LOG] URL 파일명 추출 실패: {e}")
         
         # 정지 상태 체크 (파싱 후)
         db.refresh(req)
@@ -431,9 +457,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 print(f"[LOG] 다운로드가 정지 상태이므로 실패 처리하지 않음: ID {request_id}")
     
     finally:
-        # 로컬 다운로드 해제
-        if not use_proxy:
-            download_manager.unregister_local_download(request_id)
+        # 다운로드 해제
+        download_manager.unregister_download(request_id)
         db.close()
 
 

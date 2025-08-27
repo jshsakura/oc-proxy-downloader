@@ -42,6 +42,7 @@ class DownloadRequestCreate(BaseModel):
     url: HttpUrl
     password: str = ""
     use_proxy: bool = True
+    file_name: str = None  # 재다운로드시 기존 파일명 전달용
 
 @router.post("/download/")
 def create_download_task(request: DownloadRequestCreate, db: Session = Depends(get_db)):
