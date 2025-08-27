@@ -226,7 +226,6 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             if not req.file_name or req.file_name.strip() == '':
                 try:
                     from urllib.parse import urlparse, unquote
-                    import re
                     
                     # URL에서 파일명 힌트 찾기
                     url_path = urlparse(req.url).path
