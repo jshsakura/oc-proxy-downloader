@@ -1271,10 +1271,16 @@
     text-align: center;
   }
   
+  table th:nth-child(3),
+  table td:nth-child(3) {
+    width: 72px;
+    min-width: 72px;
+  }
+  
   table th:nth-child(4),
   table td:nth-child(4) {
-    width: 90px !important;
-    min-width: 90px !important;
+    width: 90px;
+    min-width: 90px;
   }
   
   table td {
