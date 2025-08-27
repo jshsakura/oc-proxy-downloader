@@ -44,7 +44,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, HttpUrl
 from core.models import Base, DownloadRequest, StatusEnum, ProxyStatus
 from core.db import engine, get_db
-from core.common import get_all_proxies, convert_size
+from core.common import convert_size
+from core.proxy_manager import get_unused_proxies, get_user_proxy_list, mark_proxy_used, reset_proxy_usage, test_proxy
 import requests
 import os
 import datetime
@@ -356,108 +357,6 @@ class DownloadRequestCreate(BaseModel):
     password: Optional[str] = None
     use_proxy: Optional[bool] = True
 
-def get_unused_proxies(db: Session):
-    """사용하지 않은 프록시 목록을 반환 (성공한 프록시 우선)"""
-    # 최근 24시간 내에 사용된 프록시들
-    cutoff_time = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
-    
-    used_proxies = db.query(ProxyStatus).filter(
-        ProxyStatus.last_used_at > cutoff_time
-    ).all()
-    
-    used_proxy_addresses = {f"{p.ip}:{p.port}" for p in used_proxies}
-    
-    # 전체 프록시 목록에서 사용된 것들 제외
-    all_proxies = get_all_proxies()
-    unused_proxies = [p for p in all_proxies if p not in used_proxy_addresses]
-    
-    # 과거에 성공했던 프록시들을 우선적으로 배치
-    successful_proxies = db.query(ProxyStatus).filter(
-        ProxyStatus.last_status == 'success',
-        ProxyStatus.last_used_at <= cutoff_time  # 24시간 지난 성공 프록시들
-    ).order_by(desc(ProxyStatus.last_used_at)).all()
-    
-    priority_proxies = [f"{p.ip}:{p.port}" for p in successful_proxies if f"{p.ip}:{p.port}" in unused_proxies]
-    other_proxies = [p for p in unused_proxies if p not in priority_proxies]
-    
-    # 성공했던 프록시를 앞에 배치
-    final_proxies = priority_proxies + other_proxies
-    
-    print(f"[LOG] 전체 프록시: {len(all_proxies)}개, 사용된 프록시: {len(used_proxy_addresses)}개")
-    print(f"[LOG] 미사용 프록시: {len(unused_proxies)}개 (우선순위: {len(priority_proxies)}개)")
-    
-    return final_proxies
-
-def mark_proxy_used(db: Session, proxy_addr: str, success: bool):
-    """프록시 사용 기록을 DB에 저장"""
-    try:
-        ip, port = proxy_addr.split(':')
-        port = int(port)
-        
-        # 기존 레코드 찾기 또는 새로 생성
-        proxy_status = db.query(ProxyStatus).filter(
-            ProxyStatus.ip == ip,
-            ProxyStatus.port == port
-        ).first()
-        
-        if not proxy_status:
-            proxy_status = ProxyStatus(ip=ip, port=port)
-            db.add(proxy_status)
-        
-        proxy_status.last_used_at = datetime.datetime.utcnow()
-        proxy_status.last_status = 'success' if success else 'fail'
-        
-        if not success:
-            proxy_status.last_failed_at = datetime.datetime.utcnow()
-        
-        db.commit()
-        print(f"[LOG] 프록시 {proxy_addr} 사용 기록 저장: {'성공' if success else '실패'}")
-        
-        # 프록시 상태 변경을 WebSocket으로 알림
-        try:
-            import json
-            status_queue.put(json.dumps({
-                "type": "proxy_update", 
-                "data": {"proxy_addr": proxy_addr, "success": success}
-            }, ensure_ascii=False))
-        except Exception as ws_e:
-            print(f"[LOG] 프록시 상태 WebSocket 알림 실패: {ws_e}")
-        
-    except Exception as e:
-        print(f"[LOG] 프록시 사용 기록 저장 실패: {e}")
-        db.rollback()
-
-def reset_proxy_usage(db: Session):
-    """모든 프록시 사용 기록 초기화 (모든 프록시를 다 써버렸을 때)"""
-    try:
-        db.query(ProxyStatus).delete()
-        db.commit()
-        print(f"[LOG] 모든 프록시 사용 기록 초기화 완료")
-        
-        # 프록시 리셋을 WebSocket으로 알림
-        try:
-            import json
-            status_queue.put(json.dumps({
-                "type": "proxy_reset", 
-                "data": {"message": "All proxies reset"}
-            }, ensure_ascii=False))
-        except Exception as ws_e:
-            print(f"[LOG] 프록시 리셋 WebSocket 알림 실패: {ws_e}")
-    except Exception as e:
-        print(f"[LOG] 프록시 사용 기록 초기화 실패: {e}")
-        db.rollback()
-
-def test_proxy(proxy_addr, timeout=1):
-    """프록시가 작동하는지 빠르게 테스트"""
-    try:
-        proxy_config = {"http": f"http://{proxy_addr}", "https": f"http://{proxy_addr}"}
-        # 1fichier 접근 테스트로 변경 (더 정확한 검증)
-        response = requests.get("https://1fichier.com", proxies=proxy_config, timeout=timeout, verify=False)
-        print(f"[LOG] 프록시 {proxy_addr} 테스트 결과: {response.status_code}")
-        return response.status_code in [200, 403]  # 403도 허용 (차단되었지만 연결은 됨)
-    except Exception as e:
-        print(f"[LOG] 프록시 {proxy_addr} 테스트 실패: {e}")
-        return False
 
 def parse_direct_link(url, password=None, proxies=None, req_id=None, use_proxy=True):
     """1fichier에서 직접 다운로드 링크를 파싱하는 함수 (강화된 버전)"""
@@ -1404,8 +1303,9 @@ def get_lang(request: Request):
 # websocket, SPA 라우팅, app 설정 등만 남김
 
 @api_router.get("/proxies/")
-def get_proxies(req: Request):
-    return get_all_proxies()
+def get_proxies(req: Request, db: Session = Depends(get_db)):
+    user_proxies = get_user_proxy_list(db)
+    return user_proxies
 
 @api_router.post("/proxies/")
 def add_proxy(req: Request, proxy: str = Body(..., embed=True)):
@@ -1420,7 +1320,8 @@ def add_proxy(req: Request, proxy: str = Body(..., embed=True)):
 
 @api_router.delete("/proxies/")
 def delete_proxy(req: Request, proxy: str = Body(..., embed=True)):
-    proxies = get_all_proxies()
+    # 이 엔드포인트는 더 이상 사용되지 않습니다. proxy_manager.py의 API를 사용하세요.
+    return {"success": False, "error": "Deprecated endpoint. Use /api/proxies instead."}
     if proxy in proxies:
         proxies.remove(proxy)
         try:
@@ -1556,9 +1457,9 @@ def get_proxy_status(req: Request, db: Session = Depends(get_db)):
             ProxyStatus.last_used_at > cutoff_time
         ).order_by(desc(ProxyStatus.last_used_at)).all()
         
-        # 전체 프록시 개수
-        all_proxies = get_all_proxies()
-        total_proxies = len(all_proxies)
+        # 전체 프록시 개수 (사용자 프록시만)
+        user_proxies = get_user_proxy_list(db)
+        total_proxies = len(user_proxies)
         used_count = len(used_proxies)
         available_count = total_proxies - used_count
         
@@ -1835,7 +1736,8 @@ def simple_connection_test():
     
     # 3. 프록시 개수 확인
     try:
-        proxy_count = len(get_all_proxies())
+        user_proxies = get_user_proxy_list(db)
+        proxy_count = len(user_proxies)
         test_results["proxy_count"] = proxy_count
     except Exception as e:
         test_results["proxy_error"] = str(e)
@@ -1949,6 +1851,10 @@ async def pause_download(download_id: int, db: Session = Depends(get_db)):
 
 app.include_router(api_router)
 app.include_router(proxy_stats_router, prefix="/api")
+
+# 프록시 관리 라우터 추가
+from core.proxy_manager import router as proxy_manager_router
+app.include_router(proxy_manager_router, prefix="/api")
 
 # Catch-all route for SPA routing (정적 파일보다 먼저 정의)
 @app.get("/{full_path:path}")

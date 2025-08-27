@@ -5,11 +5,14 @@
   import HomeIcon from "../icons/HomeIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
+  import CopyIcon from "../icons/CopyIcon.svelte";
   import { toastMessage, showToast, showToastMsg } from "./toast.js";
   import { onMount, onDestroy } from "svelte";
 
   // --- Icons ---
   // icons 객체 완전히 삭제
+
+  const dispatch = createEventDispatcher();
 
   const themeIcons = {
     light: "☀️",
@@ -26,6 +29,12 @@
   let selectedLocale = settings.language || "ko";
   let selectedLocaleWasSet = false;
   let initialSettingsLoaded = false;
+
+  // 프록시 관리 관련 변수
+  let userProxies = [];
+  let newProxyAddress = "";
+  let newProxyDescription = "";
+  let isAddingProxy = false;
 
   // settings 초기 로드 시에만 동기화 (중복 동기화 방지)
   $: if (currentSettings && currentSettings.download_path && !initialSettingsLoaded) {
@@ -46,10 +55,122 @@
     initialSettingsLoaded = false; // 모달이 닫히면 초기화 플래그 리셋
   }
 
-  const dispatch = createEventDispatcher();
-
   function closeModal() {
     dispatch("close");
+  }
+
+  // 프록시 관리 함수들
+  async function loadUserProxies() {
+    try {
+      const response = await fetch("/api/proxies");
+      if (response.ok) {
+        userProxies = await response.json();
+      }
+    } catch (error) {
+      console.error("프록시 목록 로드 실패:", error);
+    }
+  }
+
+  async function addProxy() {
+    if (!newProxyAddress.trim()) {
+      showToastMsg("프록시 주소를 입력하세요", "error");
+      return;
+    }
+
+    isAddingProxy = true;
+    try {
+      const response = await fetch("/api/proxies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: newProxyAddress.trim(),
+          description: newProxyDescription.trim()
+        })
+      });
+
+      if (response.ok) {
+        showToastMsg("프록시가 추가되었습니다", "success");
+        newProxyAddress = "";
+        newProxyDescription = "";
+        await loadUserProxies();
+        dispatch('proxyChanged'); // 부모 컴포넌트에 프록시 변경 알림
+      } else {
+        const error = await response.text();
+        showToastMsg(`프록시 추가 실패: ${error}`, "error");
+      }
+    } catch (error) {
+      showToastMsg("프록시 추가 중 오류가 발생했습니다", "error");
+    } finally {
+      isAddingProxy = false;
+    }
+  }
+
+  async function deleteProxy(proxyId) {
+    try {
+      const response = await fetch(`/api/proxies/${proxyId}`, {
+        method: "DELETE"
+      });
+
+      if (response.ok) {
+        showToastMsg("프록시가 삭제되었습니다", "success");
+        await loadUserProxies();
+        dispatch('proxyChanged'); // 부모 컴포넌트에 프록시 변경 알림
+      } else {
+        showToastMsg("프록시 삭제 실패", "error");
+      }
+    } catch (error) {
+      showToastMsg("프록시 삭제 중 오류가 발생했습니다", "error");
+    }
+  }
+
+  async function toggleProxy(proxyId) {
+    try {
+      const response = await fetch(`/api/proxies/${proxyId}/toggle`, {
+        method: "PUT"
+      });
+
+      if (response.ok) {
+        await loadUserProxies();
+        dispatch('proxyChanged'); // 부모 컴포넌트에 프록시 변경 알림
+      } else {
+        showToastMsg("프록시 상태 변경 실패", "error");
+      }
+    } catch (error) {
+      showToastMsg("프록시 상태 변경 중 오류가 발생했습니다", "error");
+    }
+  }
+
+  function formatDate(dateString) {
+    return new Date(dateString).toLocaleDateString();
+  }
+
+  async function copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for older browsers or non-HTTPS
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+      }
+      showToastMsg($t("copy_success") || "복사되었습니다", "success");
+    } catch (error) {
+      console.error("클립보드 복사 실패:", error);
+      showToastMsg($t("copy_failed") || "복사에 실패했습니다", "error");
+    }
+  }
+
+  // 모달이 열릴 때 프록시 목록 로드
+  $: if (showModal) {
+    loadUserProxies();
   }
 
   async function saveSettings() {
@@ -281,6 +402,115 @@
               </label>
             </div>
           </fieldset>
+
+          <!-- 프록시 관리 섹션 -->
+          <fieldset class="form-group proxy-management">
+            <legend>{$t("proxy_management")}</legend>
+            
+            <!-- 프록시 추가 -->
+            <div class="proxy-add-section">
+              <div class="proxy-input-group">
+                <input
+                  type="text"
+                  class="input proxy-address-input"
+                  bind:value={newProxyAddress}
+                  placeholder={$t("proxy_add_address")}
+                />
+                <input
+                  type="text"
+                  class="input proxy-description-input"
+                  bind:value={newProxyDescription}
+                  placeholder={$t("proxy_add_description")}
+                />
+                <button
+                  class="button button-primary proxy-add-button"
+                  on:click={addProxy}
+                  disabled={isAddingProxy}
+                >
+                  {isAddingProxy ? "추가 중..." : $t("proxy_add_button")}
+                </button>
+              </div>
+            </div>
+
+            <!-- 프록시 목록 -->
+            <div class="proxy-list-section">
+              {#if userProxies.length === 0}
+                <div class="proxy-empty-state">
+                  <p>{$t("proxy_empty_message")}</p>
+                  <small>{$t("proxy_empty_description")}</small>
+                </div>
+              {:else}
+                <div class="proxy-table-container">
+                  <table class="proxy-table">
+                    <thead>
+                      <tr>
+                        <th>{$t("proxy_address")}</th>
+                        <th class="text-center">{$t("proxy_type")}</th>
+                        <th class="text-center">{$t("proxy_status")}</th>
+                        <th class="text-center">{$t("proxy_added_date")}</th>
+                        <th class="text-center">{$t("proxy_actions")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each userProxies as proxy (proxy.id)}
+                        <tr class="proxy-row {proxy.is_active ? 'active' : 'inactive'}">
+                          <td class="proxy-address" title={proxy.address}>
+                            <div class="proxy-address-content">
+                              <span class="proxy-url">{proxy.address}</span>
+                              <button 
+                                class="copy-proxy-button" 
+                                on:click={() => copyToClipboard(proxy.address)}
+                                title={$t("proxy_copy_address")}
+                                type="button"
+                              >
+                                <CopyIcon />
+                              </button>
+                            </div>
+                            {#if proxy.description}
+                              <small class="proxy-description">{proxy.description}</small>
+                            {/if}
+                          </td>
+                          <td class="text-center">
+                            <span class="proxy-type-badge {proxy.proxy_type}">
+                              {proxy.proxy_type === 'list' ? $t("proxy_type_list") : $t("proxy_type_single")}
+                            </span>
+                          </td>
+                          <td class="text-center">
+                            <span class="proxy-status-badge {proxy.is_active ? 'active' : 'inactive'}">
+                              {proxy.is_active ? $t("proxy_status_active") : $t("proxy_status_inactive")}
+                            </span>
+                          </td>
+                          <td class="proxy-date text-center">
+                            {formatDate(proxy.added_at)}
+                          </td>
+                          <td class="proxy-actions">
+                            <div class="proxy-action-buttons">
+                              <button
+                                class="proxy-action-btn toggle-btn {proxy.is_active ? 'active' : 'inactive'}"
+                                on:click={() => toggleProxy(proxy.id)}
+                                title={proxy.is_active ? $t("proxy_toggle_inactive") : $t("proxy_toggle_active")}
+                                type="button"
+                              >
+                                {proxy.is_active ? '⏸' : '▶'}
+                              </button>
+                              <button
+                                class="proxy-action-btn delete-btn"
+                                on:click={() => deleteProxy(proxy.id)}
+                                title={$t("proxy_delete")}
+                                type="button"
+                              >
+                                🗑
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            </div>
+          </fieldset>
         </div>
 
         <!-- 모던 푸터 -->
@@ -341,8 +571,8 @@
     box-shadow: 
       0 25px 50px -12px rgba(0, 0, 0, 0.25),
       0 0 0 1px rgba(255, 255, 255, 0.05);
-    width: 90vw;
-    max-width: 650px;
+    width: 95vw;
+    max-width: 800px;
     max-height: 90vh;
     min-height: 400px;
     overflow: hidden;
@@ -780,6 +1010,294 @@
     .button {
       width: 100%;
       justify-content: center;
+    }
+  }
+
+  /* 프록시 관리 스타일 */
+  .proxy-management {
+    margin-top: 1.5rem;
+  }
+
+  .proxy-add-section {
+    margin-bottom: 1rem;
+  }
+
+  .proxy-input-group {
+    display: grid;
+    grid-template-columns: 2fr 1fr auto;
+    gap: 0.5rem;
+    align-items: end;
+  }
+
+  .proxy-address-input {
+    grid-column: 1;
+  }
+
+  .proxy-description-input {
+    grid-column: 2;
+  }
+
+  .proxy-add-button {
+    grid-column: 3;
+    white-space: nowrap;
+    padding: 0.5rem 1rem;
+  }
+
+  .proxy-empty-state {
+    text-align: center;
+    padding: 2rem;
+    background: var(--bg-secondary, #f8f9fa);
+    border-radius: 8px;
+    color: var(--text-secondary);
+  }
+
+  .proxy-empty-state p {
+    margin: 0 0 0.5rem 0;
+    font-weight: 500;
+  }
+
+  .proxy-empty-state small {
+    opacity: 0.7;
+  }
+
+  .proxy-table-container {
+    max-height: 250px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .proxy-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+  }
+
+  .proxy-table th,
+  .proxy-table td {
+    padding: 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid var(--card-border);
+    font-size: 0.85rem;
+    vertical-align: middle;
+  }
+
+  .text-center {
+    text-align: center !important;
+  }
+
+  .proxy-table th:nth-child(1), .proxy-table td:nth-child(1) { width: 35%; } /* 주소 */
+  .proxy-table th:nth-child(2), .proxy-table td:nth-child(2) { width: 12%; } /* 타입 */
+  .proxy-table th:nth-child(3), .proxy-table td:nth-child(3) { width: 12%; } /* 상태 */
+  .proxy-table th:nth-child(4), .proxy-table td:nth-child(4) { width: 26%; } /* 추가일시 */
+  .proxy-table th:nth-child(5), .proxy-table td:nth-child(5) { width: 15%; } /* 작업 */
+
+  /* 모든 테이블 셀에 기본 오버플로우 처리 */
+  .proxy-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 주소 컬럼은 특별 처리 */
+  .proxy-table td:nth-child(1) {
+    white-space: normal;
+  }
+
+  .proxy-table th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    text-align: center;
+    border-bottom: 2px solid var(--card-border) !important;
+  }
+
+  .proxy-table th:first-child {
+    text-align: left;
+  }
+
+  .proxy-address {
+    position: relative;
+  }
+
+  .proxy-address-content {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: 100%;
+  }
+
+  .proxy-url {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .copy-proxy-button {
+    background: var(--card-background);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 6px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    max-width: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .copy-proxy-button:hover {
+    background-color: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+    transform: scale(1.05);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .copy-proxy-button:active {
+    transform: scale(0.95);
+  }
+
+  .copy-proxy-button :global(svg) {
+    width: 14px;
+    height: 14px;
+  }
+
+  .proxy-description {
+    display: block;
+    opacity: 0.7;
+    font-style: italic;
+    margin-top: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .proxy-actions {
+    padding: 0.25rem !important;
+  }
+
+  .proxy-action-buttons {
+    display: flex;
+    gap: 0.25rem;
+    justify-content: center;
+  }
+
+  .proxy-action-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    transition: all 0.2s;
+    min-width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .proxy-action-btn:hover {
+    transform: scale(1.05);
+  }
+
+  .toggle-btn.active {
+    background-color: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+  }
+
+  .toggle-btn.inactive {
+    background-color: rgba(156, 163, 175, 0.1);
+    color: #9ca3af;
+  }
+
+  .delete-btn {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+  }
+
+  .delete-btn:hover {
+    background-color: #ef4444;
+    color: white;
+  }
+
+  .proxy-type-badge,
+  .proxy-status-badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  .proxy-type-badge.list {
+    background: #e1f5fe;
+    color: #0277bd;
+  }
+
+  .proxy-type-badge.single {
+    background: #f3e5f5;
+    color: #7b1fa2;
+  }
+
+  .proxy-status-badge.active {
+    background: #e8f5e8;
+    color: #2e7d32;
+  }
+
+  .proxy-status-badge.inactive {
+    background: #fafafa;
+    color: #616161;
+  }
+
+  .proxy-date {
+    white-space: nowrap;
+  }
+
+  .proxy-actions {
+    white-space: nowrap;
+  }
+
+  /* 이전 스타일 제거됨 - 새로운 proxy-action-btn 스타일 사용 */
+
+  .proxy-row.inactive {
+    opacity: 0.6;
+  }
+
+  @media (max-width: 768px) {
+    .proxy-input-group {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto auto;
+    }
+
+    .proxy-address-input,
+    .proxy-description-input,
+    .proxy-add-button {
+      grid-column: 1;
+    }
+
+    .proxy-table-container {
+      font-size: 0.8rem;
+    }
+
+    .proxy-address {
+      max-width: 120px;
     }
   }
 </style>

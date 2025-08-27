@@ -43,7 +43,9 @@
     ],
     "deny": [],
     "additionalDirectories": [
-      "C:\\C\\Users\\WIN11\\Documents\\workspace"
+      "C:\\C\\Users\\WIN11\\Documents\\workspace",
+      "C:\\C\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\core",
+      "C:\\C\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\frontend\\src\\lib"
     ]
   }
 }

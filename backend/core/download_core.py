@@ -36,6 +36,38 @@ def send_websocket_message(message_type: str, data: dict):
         print(f"[LOG] WebSocket 메시지 전송 실패: {e}")
 
 
+def should_retry_download(req, error_message: str) -> bool:
+    """다운로드 재시도 여부를 판단하는 함수"""
+    # 재시도 한도 확인
+    if req.retry_count >= req.max_retries:
+        print(f"[LOG] 재시도 한도 초과: {req.retry_count}/{req.max_retries}")
+        return False
+    
+    # 재시도 불가능한 오류들
+    no_retry_errors = [
+        "404",  # 파일을 찾을 수 없음
+        "not found",
+        "file not found",
+        "invalid url",
+        "invalid link",
+        "파일을 찾을 수 없습니다",
+        "잘못된 링크",
+        "permission denied",
+        "access denied",
+        "unauthorized",
+        "forbidden"
+    ]
+    
+    error_lower = error_message.lower()
+    for no_retry_error in no_retry_errors:
+        if no_retry_error in error_lower:
+            print(f"[LOG] 재시도 불가능한 오류: {error_message}")
+            return False
+    
+    print(f"[LOG] 재시도 가능한 오류: {error_message}")
+    return True
+
+
 def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: bool = True):
     """
     새로운 프록시 순환 로직을 사용한 1fichier 다운로드 함수
@@ -298,26 +330,66 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             # 정지 상태가 아닐 때만 실패로 처리
             db.refresh(req)
             if req.status != StatusEnum.stopped:
-                req.status = StatusEnum.failed
-                req.error = str(e)
-                db.commit()
+                # 재시도 로직 확인
+                should_retry = should_retry_download(req, str(e))
                 
-                # WebSocket으로 실패 상태 전송
-                send_websocket_message("status_update", {
-                    "id": req.id,
-                    "url": req.url,
-                    "file_name": req.file_name,
-                    "status": "failed",
-                    "error": str(e),
-                    "downloaded_size": req.downloaded_size or 0,
-                    "total_size": req.total_size or 0,
-                    "save_path": req.save_path,
-                    "requested_at": req.requested_at.isoformat() if req.requested_at else None,
-                    "finished_at": None,
-                    "password": req.password,
-                    "direct_link": req.direct_link,
-                    "use_proxy": req.use_proxy
-                })
+                if should_retry:
+                    req.retry_count += 1
+                    req.status = StatusEnum.pending  # 다시 대기 상태로
+                    req.error = f"재시도 {req.retry_count}/{req.max_retries}: {str(e)}"
+                    db.commit()
+                    
+                    print(f"[LOG] 다운로드 재시도 예약: {req.retry_count}/{req.max_retries}")
+                    
+                    # WebSocket으로 재시도 상태 전송
+                    send_websocket_message("status_update", {
+                        "id": req.id,
+                        "url": req.url,
+                        "file_name": req.file_name,
+                        "status": "pending",
+                        "error": req.error,
+                        "downloaded_size": req.downloaded_size or 0,
+                        "total_size": req.total_size or 0,
+                        "save_path": req.save_path,
+                        "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+                        "finished_at": None,
+                        "password": req.password,
+                        "direct_link": req.direct_link,
+                        "use_proxy": req.use_proxy
+                    })
+                    
+                    # 3초 후 재시도
+                    def retry_download():
+                        time.sleep(3)
+                        print(f"[LOG] 재시도 시작: ID {request_id}")
+                        download_1fichier_file_new(request_id, lang, use_proxy)
+                    
+                    retry_thread = threading.Thread(target=retry_download)
+                    retry_thread.daemon = True
+                    retry_thread.start()
+                    
+                else:
+                    # 재시도 한도 초과 또는 재시도 불가능한 오류
+                    req.status = StatusEnum.failed
+                    req.error = str(e)
+                    db.commit()
+                    
+                    # WebSocket으로 실패 상태 전송
+                    send_websocket_message("status_update", {
+                        "id": req.id,
+                        "url": req.url,
+                        "file_name": req.file_name,
+                        "status": "failed",
+                        "error": str(e),
+                        "downloaded_size": req.downloaded_size or 0,
+                        "total_size": req.total_size or 0,
+                        "save_path": req.save_path,
+                        "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+                        "finished_at": None,
+                        "password": req.password,
+                        "direct_link": req.direct_link,
+                        "use_proxy": req.use_proxy
+                    })
                 
             else:
                 print(f"[LOG] 다운로드가 정지 상태이므로 실패 처리하지 않음: ID {request_id}")

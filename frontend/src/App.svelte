@@ -64,6 +64,7 @@
   let downloadPath = ""; // Declare downloadPath here
   let prevLang = null;
   let useProxy = false;  // 기본값을 로컬로 설정
+  let proxyAvailable = false;  // 프록시 사용 가능 여부
 
   // 프록시 상태 변수들
   let proxyStats = {
@@ -152,6 +153,7 @@
     connectWebSocket();
     fetchActiveDownloads(); // 웹소켓 연결 후 활성 다운로드 목록 가져오기
     fetchProxyStatus(); // 프록시 상태 초기화
+    checkProxyAvailability(); // 프록시 사용 가능 여부 확인
 
     const unsubscribe = t.subscribe((t_func) => {
       document.title = t_func("title");
@@ -188,6 +190,23 @@
       }
     } catch (error) {
       console.error('프록시 상태 가져오기 실패:', error);
+    }
+  }
+
+  async function checkProxyAvailability() {
+    try {
+      const response = await fetch('/api/proxies/available');
+      if (response.ok) {
+        const data = await response.json();
+        proxyAvailable = data.available;
+        // 프록시가 없으면 useProxy를 false로 설정
+        if (!proxyAvailable && useProxy) {
+          useProxy = false;
+        }
+      }
+    } catch (error) {
+      console.error('프록시 가용성 확인 실패:', error);
+      proxyAvailable = false;
     }
   }
 
@@ -855,9 +874,10 @@
         <div class="proxy-toggle-container">
           <button
             type="button"
-            class="proxy-toggle-button {useProxy ? 'proxy' : 'local'}"
-            on:click={() => useProxy = !useProxy}
-            title={useProxy ? "프록시 모드 (클릭하여 로컬로 변경)" : "로컬 모드 (클릭하여 프록시로 변경)"}
+            class="proxy-toggle-button {useProxy ? 'proxy' : 'local'} {!proxyAvailable ? 'disabled' : ''}"
+            on:click={() => proxyAvailable && (useProxy = !useProxy)}
+            disabled={!proxyAvailable}
+            title={!proxyAvailable ? "프록시를 사용할 수 없습니다. 설정에서 프록시를 추가하세요." : useProxy ? "프록시 모드 (클릭하여 로컬로 변경)" : "로컬 모드 (클릭하여 프록시로 변경)"}
           >
             <div class="proxy-toggle-slider"></div>
             <div class="proxy-toggle-icons">
@@ -1173,6 +1193,7 @@
     bind:showModal={showSettingsModal}
     {currentSettings}
     on:settingsChanged={handleSettingsChanged}
+    on:proxyChanged={checkProxyAvailability}
     on:close={() => (showSettingsModal = false)}
   />
 
@@ -1404,6 +1425,17 @@
   .proxy-toggle-button.proxy {
     background-color: #FFB74D;
     border-color: #FFA726;
+  }
+
+  .proxy-toggle-button.disabled {
+    background-color: #9E9E9E !important;
+    border-color: #757575 !important;
+    cursor: not-allowed !important;
+    opacity: 0.6;
+  }
+
+  .proxy-toggle-button.disabled .proxy-toggle-slider {
+    background-color: #BDBDBD !important;
   }
 
   .proxy-toggle-slider {

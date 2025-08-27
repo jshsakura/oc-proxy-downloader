@@ -29,6 +29,20 @@ class DownloadRequest(Base):
     password = Column(String, nullable=True)
     direct_link = Column(String, nullable=True)
     use_proxy = Column(Boolean, default=True)  # 프록시 사용 여부
+    retry_count = Column(Integer, default=0)  # 재시도 횟수
+    max_retries = Column(Integer, default=1)  # 최대 재시도 횟수
+
+
+class UserProxy(Base):
+    __tablename__ = "user_proxies"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    address = Column(String, nullable=False)  # 프록시 주소 (URL 또는 IP:PORT)
+    proxy_type = Column(String, default="list")  # "list" 또는 "single"
+    is_active = Column(Boolean, default=True)  # 활성 상태
+    added_at = Column(DateTime, default=datetime.datetime.utcnow)
+    last_used = Column(DateTime, nullable=True)
+    description = Column(String, nullable=True)  # 사용자 설명
 
     def as_dict(self):
         data = {}

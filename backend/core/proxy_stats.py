@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .db import get_db
 from .models import ProxyStatus
-from .common import get_all_proxies
+from .proxy_manager import get_user_proxy_list
 
 router = APIRouter()
 
@@ -10,9 +10,9 @@ router = APIRouter()
 def get_proxy_status(db: Session = Depends(get_db)):
     """프록시 상태 정보를 반환"""
     try:
-        # 전체 프록시 개수 (중복 제거된)
-        all_proxies = get_all_proxies()
-        total_proxies = len(all_proxies)
+        # 전체 프록시 개수 (사용자 프록시만)
+        user_proxies = get_user_proxy_list(db)
+        total_proxies = len(user_proxies)
         
         # 사용된 프록시 개수
         used_proxies = db.query(ProxyStatus).count()
@@ -53,9 +53,8 @@ def reset_proxy_status(db: Session = Depends(get_db)):
         # 2. 프록시 목록 재로드 (새로운 프록시 목록 가져오기)
         try:
             print("[LOG] 프록시 목록 재로드 시작")
-            # get_all_proxies() 함수가 새로운 프록시 목록을 가져옴
-            from .common import get_all_proxies
-            new_proxies = get_all_proxies()
+            # 사용자 프록시 목록 확인
+            new_proxies = get_user_proxy_list(db)
             print(f"[LOG] {len(new_proxies)}개의 새로운 프록시 로드 완료")
         except Exception as reload_e:
             print(f"[LOG] 프록시 재로드 중 오류 (계속 진행): {reload_e}")

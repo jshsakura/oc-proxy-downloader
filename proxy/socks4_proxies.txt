@@ -1,5 +1,0 @@
-# SOCKS4 프록시 목록
-# 형식: ip:port
-# 예시:
-# 127.0.0.1:1080
-# socks4.example.com:1080
