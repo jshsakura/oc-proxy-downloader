@@ -10,6 +10,11 @@ services:
       - PGID=1000
       - DOWNLOAD_PATH=/downloads
       - CONFIG_PATH=/config
+      # 시스템 최적화 설정
+      - LOG_LEVEL=WARNING                     # 로그 레벨: DEBUG, INFO, WARNING, ERROR (기본: WARNING)
+      - PARENT_CHECK_INTERVAL=5               # 부모 프로세스 체크 간격(초) - CPU 최적화
+      - MAX_WEBSOCKET_CONNECTIONS=10          # WebSocket 최대 연결 수 (비정상 접근 차단용)
+      - MAX_TOTAL_DOWNLOADS=5                 # 최대 동시 다운로드 수
     volumes:
       - ./downloads:/downloads  # 다운로드 파일 저장
       - ./backend/config:/config  # 설정 및 데이터베이스 파일

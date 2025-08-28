@@ -39,7 +39,8 @@
       "Bash(docker-compose exec:*)",
       "Bash(docker compose exec:*)",
       "Bash(del test_parser_fix.py)",
-      "Bash(del test_proxy_parsing.py)"
+      "Bash(del test_proxy_parsing.py)",
+      "Bash(del:*)"
     ],
     "deny": [],
     "additionalDirectories": [

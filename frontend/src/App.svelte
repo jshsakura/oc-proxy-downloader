@@ -825,8 +825,9 @@
   })();
 
   // 활성 다운로드 개수 계산 (ProxyGauge용)
-  $: activeDownloadCount = downloads.filter(d => 
-    ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
+  // 프록시 다운로드만 카운트 (use_proxy: true)
+  $: activeProxyDownloadCount = downloads.filter(d => 
+    d.use_proxy && ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
   ).length;
 </script>
 
@@ -936,7 +937,7 @@
           currentIndex={proxyStats.currentIndex || 0}
           totalAttempting={proxyStats.totalAttempting || 0}
           lastError={proxyStats.lastError || ""}
-          activeDownloadCount={activeDownloadCount}
+          activeDownloadCount={activeProxyDownloadCount}
         />
       </div>
 

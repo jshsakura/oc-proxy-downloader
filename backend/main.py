@@ -23,10 +23,29 @@ def force_print(*args, **kwargs):
     sys.stdout.write(f"{message}\n")
     sys.stdout.flush()
 
-# 기존 print를 force_print로 대체
+# 로깅 레벨 설정 (환경변수로 제어 가능)
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'WARNING').upper()  # 기본값을 WARNING으로 변경
+
+# 로그 레벨에 따른 메시지 필터링
+def smart_print(*args, **kwargs):
+    message = ' '.join(str(arg) for arg in args)
+    
+    # LOG_LEVEL에 따른 필터링
+    if LOG_LEVEL == 'ERROR' and not any(tag in message for tag in ['[ERROR]']):
+        return
+    elif LOG_LEVEL == 'WARNING' and not any(tag in message for tag in ['[ERROR]', '[WARNING]']):
+        return
+    elif LOG_LEVEL == 'INFO' and not any(tag in message for tag in ['[ERROR]', '[WARNING]', '[LOG]']):
+        return
+    # DEBUG 레벨이면 모든 메시지 출력
+    
+    sys.stdout.write(f"{message}\n")
+    sys.stdout.flush()
+
+# 기존 print를 smart_print로 대체
 import builtins
 original_print = builtins.print
-builtins.print = force_print
+builtins.print = smart_print
 
 # Python 경로 설정 (Docker 환경 대응)
 backend_path = os.path.dirname(os.path.abspath(__file__))
@@ -188,14 +207,27 @@ api_router.include_router(downloader_router)
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
+        self.max_connections = int(os.getenv('MAX_WEBSOCKET_CONNECTIONS', '10'))  # 기본 10개로 축소
+        self.connection_count = 0
 
     async def connect(self, websocket: WebSocket):
+        # 연결 수 제한 확인 (극단적인 경우만 차단)
+        if len(self.active_connections) >= self.max_connections:
+            print(f"[WARNING] WebSocket 연결 수 제한 도달: {self.max_connections}개 (비정상적 접근 의심)")
+            await websocket.close(code=1008, reason="Too many connections")
+            return False
+        
         await websocket.accept()
         self.active_connections.append(websocket)
+        self.connection_count += 1
+        
+        print(f"[LOG] WebSocket 연결됨: {len(self.active_connections)}개")
+        return True
 
     def disconnect(self, websocket: WebSocket):
         try:
             self.active_connections.remove(websocket)
+            print(f"[LOG] WebSocket 연결 해제됨: {len(self.active_connections)}개 남음")
         except ValueError:
             # 이미 제거된 경우 무시
             pass
@@ -311,7 +343,10 @@ if not hasattr(cleanup_and_exit, '_handlers_registered'):
 
 @app.websocket("/ws/status")
 async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+    connected = await manager.connect(websocket)
+    if not connected:
+        return  # 연결 제한으로 인해 연결 실패
+    
     try:
         while True:
             await asyncio.sleep(10)  # keep alive
@@ -618,12 +653,15 @@ def get_or_parse_direct_link(req, proxies=None, use_proxy=True, force_reparse=Fa
 def exit_if_parent_dead():
     """부모 프로세스가 종료되면 자식 프로세스도 종료하는 함수"""
     parent_pid = os.getppid()
+    check_interval = int(os.getenv('PARENT_CHECK_INTERVAL', '5'))  # 기본 5초
+    print(f"[LOG] 부모 프로세스 모니터링 시작 (체크 간격: {check_interval}초)")
+    
     while True:
         if os.getppid() != parent_pid:
             print("[LOG] 부모 프로세스가 종료됨. 자식 프로세스도 종료.")
             # 임시 파일 정리는 스킵 (부모가 종료되면서 이미 처리됨)
             os._exit(0)
-        time.sleep(1)
+        time.sleep(check_interval)
 
 def cleanup_incomplete_file(file_path, is_complete=False):
     """다운로드가 완료되지 않은 파일 정리"""
@@ -1848,6 +1886,15 @@ async def pause_download(download_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"[ERROR] 다운로드 정지 실패: {e}")
         raise HTTPException(status_code=500, detail=f"다운로드 정지 실패: {str(e)}")
+
+
+@api_router.get("/websocket/stats")
+async def get_websocket_stats():
+    """WebSocket 연결 통계 조회"""
+    return {
+        "active_connections": len(manager.active_connections),
+        "max_connections": manager.max_connections
+    }
 
 app.include_router(api_router)
 app.include_router(proxy_stats_router, prefix="/api")

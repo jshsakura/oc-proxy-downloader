@@ -142,7 +142,9 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
 
 
 def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_addr=None):
-    """파일 정보와 함께 Direct Link 파싱"""
+    """파일 정보와 함께 Direct Link 파싱 - 파일명을 최대한 빨리 추출하여 보존"""
+    
+    print(f"[LOG] 파일 정보 우선 파싱 시작: {url}")
     
     # 도커 환경을 위한 강화된 CloudScraper 설정
     scraper = cloudscraper.create_scraper(
@@ -202,6 +204,48 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         }
     
     try:
+        # STEP 1: 먼저 페이지에 접근하여 파일 정보를 최대한 빨리 추출
+        print(f"[LOG] 1단계: 파일명 우선 추출을 위한 초기 페이지 로드")
+        try:
+            initial_response = scraper.get(url, headers=headers, proxies=proxies, timeout=15)
+            if initial_response.status_code == 200:
+                print(f"[LOG] 초기 페이지 로드 성공 - 파일 정보 추출 시도")
+                
+                # 파일 정보를 가능한 한 빨리 추출
+                early_file_info = fichier_parser.extract_file_info(initial_response.text)
+                if early_file_info and early_file_info.get('name'):
+                    print(f"[LOG] ★ 파일명 조기 추출 성공: '{early_file_info['name']}'")
+                    
+                    # URL로 DB에서 해당 다운로드 요청을 찾아 파일명 즉시 저장
+                    try:
+                        from .db import SessionLocal
+                        from .models import DownloadRequest
+                        temp_db = SessionLocal()
+                        
+                        # URL로 다운로드 요청 찾기 (최신 순)
+                        download_req = temp_db.query(DownloadRequest).filter(
+                            DownloadRequest.url == url
+                        ).order_by(DownloadRequest.requested_at.desc()).first()
+                        
+                        if download_req and (not download_req.file_name or download_req.file_name.strip() == ''):
+                            download_req.file_name = early_file_info['name']
+                            temp_db.commit()
+                            print(f"[LOG] ★ 파일명 DB 조기 저장 완료: '{early_file_info['name']}'")
+                        
+                        temp_db.close()
+                        
+                    except Exception as db_e:
+                        print(f"[LOG] 파일명 DB 조기 저장 실패: {db_e}")
+                else:
+                    print(f"[LOG] 초기 페이지에서 파일명을 추출할 수 없음")
+            else:
+                print(f"[LOG] 초기 페이지 로드 실패: {initial_response.status_code}")
+                
+        except Exception as early_e:
+            print(f"[LOG] 파일명 조기 추출 실패: {early_e}")
+        
+        # STEP 2: 이제 정상적인 다운로드 링크 파싱 진행
+        print(f"[LOG] 2단계: 다운로드 링크 파싱 진행")
         wait_time_limit = 10 if use_proxy else 65
         direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit, proxy_addr=proxy_addr)
         
@@ -211,9 +255,20 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                 print(f"[LOG] parse_direct_link_with_file_info에서 만료된 링크 감지: {direct_link}")
                 return None, None
                 
-            # 파일 정보 추출
+            # 파일 정보 추출 (최종 확인 및 보완)
             file_info = fichier_parser.extract_file_info(html_content)
+            
+            # 조기 추출한 정보와 비교하여 더 완전한 정보 사용
+            if not file_info.get('name') and 'early_file_info' in locals() and early_file_info.get('name'):
+                file_info['name'] = early_file_info['name']
+                print(f"[LOG] ★ 조기 추출한 파일명 복원: '{file_info['name']}'")
+            
             return direct_link, file_info
+        
+        # 다운로드 링크를 찾지 못했지만 파일 정보는 있는 경우
+        if 'early_file_info' in locals() and early_file_info.get('name'):
+            print(f"[LOG] 다운로드 링크 실패, 하지만 파일명은 보존: '{early_file_info['name']}'")
+            return None, early_file_info
         
         return None, None
         
@@ -266,66 +321,62 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         if 1000 <= time_ms <= 65000:  # 1초~65초
             initial_wait_ms = max(initial_wait_ms, time_ms)
     
-    # 2단계: 현재 남은 시간을 화면에서 추출
+    # 2단계: 가장 신뢰할 수 있는 방법으로 남은 시간 추출 (안정화)
     remaining_time = 0
+    time_extraction_method = "none"
     
-    # countdown, timer 관련 요소에서 남은 시간 추출
-    countdown_patterns = [
-        r'countdown["\']?\s*:\s*(\d+)',  # countdown: 60
-        r'timer["\']?\s*:\s*(\d+)',     # timer: 45
-        r'(\d+)\s*seconds?\s*remaining', # 30 seconds remaining
-        r'wait["\']?\s*:\s*(\d+)',      # wait: 25
-        r'timeLeft["\']?\s*:\s*(\d+)',  # timeLeft: 20
+    print(f"[DEBUG] 대기시간 추출 시작 - 초기 설정: {initial_wait_ms}ms")
+    
+    # JavaScript 카운트다운 변수 우선 (가장 정확함)
+    js_countdown_patterns = [
+        (r'var\s+ct\s*=\s*(\d+)', 'JavaScript ct 변수'),
+        (r'countdown\s*=\s*(\d+)', 'JavaScript countdown 변수'),
+        (r'timer\s*=\s*(\d+)', 'JavaScript timer 변수'),
     ]
     
-    for pattern in countdown_patterns:
-        matches = re.findall(pattern, r1.text, re.IGNORECASE)
-        for match in matches:
-            remaining_seconds = int(match)
-            if 0 <= remaining_seconds <= 65:
-                remaining_time = max(remaining_time, remaining_seconds)
+    for pattern, method_name in js_countdown_patterns:
+        match = re.search(pattern, r1.text, re.IGNORECASE)
+        if match:
+            js_remaining = int(match.group(1))
+            if 5 <= js_remaining <= 120:  # 합리적인 범위
+                remaining_time = js_remaining
+                time_extraction_method = method_name
+                print(f"[DEBUG] {method_name}에서 대기시간 추출: {remaining_time}초")
                 break
-        if remaining_time > 0:
-            break
     
-    # 3단계: JavaScript에서 동적 계산되는 시간 추출
+    # JavaScript에서 찾지 못한 경우에만 다른 방법 시도
     if remaining_time == 0:
-        # 현재 시간과 시작 시간의 차이로 계산하는 패턴
-        js_time_patterns = [
-            r'var\s+startTime\s*=\s*(\d+)',
-            r'startTime\s*=\s*(\d+)',
-            r'var\s+endTime\s*=\s*(\d+)',
-            r'endTime\s*=\s*(\d+)',
+        # HTML 텍스트 패턴 (두 번째 우선순위)
+        html_patterns = [
+            (r'(\d+)\s*seconds?\s*remaining', 'HTML seconds remaining'),
+            (r'wait["\']?\s*:\s*(\d+)', 'HTML wait 속성'),
+            (r'timeLeft["\']?\s*:\s*(\d+)', 'HTML timeLeft 속성'),
         ]
         
-        import time
-        current_timestamp = int(time.time() * 1000)  # 현재 시간 (밀리초)
-        
-        for pattern in js_time_patterns:
-            matches = re.findall(pattern, r1.text)
-            for match in matches:
-                start_or_end_time = int(match)
-                # 시작 시간이라면
-                if start_or_end_time <= current_timestamp:
-                    elapsed_ms = current_timestamp - start_or_end_time
-                    if initial_wait_ms > elapsed_ms:
-                        remaining_time = (initial_wait_ms - elapsed_ms) / 1000
-                        break
-                # 끝나는 시간이라면
-                else:
-                    remaining_ms = start_or_end_time - current_timestamp
-                    if 0 < remaining_ms <= 65000:
-                        remaining_time = remaining_ms / 1000
-                        break
-            if remaining_time > 0:
-                break
+        for pattern, method_name in html_patterns:
+            match = re.search(pattern, r1.text, re.IGNORECASE)
+            if match:
+                html_remaining = int(match.group(1))
+                if 5 <= html_remaining <= 120:
+                    remaining_time = html_remaining
+                    time_extraction_method = method_name
+                    print(f"[DEBUG] {method_name}에서 대기시간 추출: {remaining_time}초")
+                    break
     
-    # 4단계: 남은 시간이 없다면 초기 설정값의 일부만 사용
+    # 위 방법들이 모두 실패한 경우에만 초기값 기반 계산
     if remaining_time == 0 and initial_wait_ms > 0:
         initial_wait_seconds = initial_wait_ms / 1000
-        # 페이지 로딩에 걸린 시간을 추정 (보통 1-3초)
+        # 페이지 로딩 시간 추정 (1-3초)
         estimated_loading_time = 2
-        remaining_time = max(0, initial_wait_seconds - estimated_loading_time)
+        remaining_time = max(5, initial_wait_seconds - estimated_loading_time)  # 최소 5초
+        time_extraction_method = "초기값 기반 추정"
+        print(f"[DEBUG] {time_extraction_method}: {remaining_time}초 (원래 {initial_wait_seconds}초 - {estimated_loading_time}초 로딩시간)")
+    
+    # 최종 검증 및 안정화
+    if remaining_time > 0:
+        # 합리적인 범위로 제한
+        remaining_time = min(max(remaining_time, 5), 120)  # 5초~120초
+        print(f"[LOG] 대기시간 확정: {remaining_time}초 (방법: {time_extraction_method})")
     
     # 5단계: 실제 대기 처리
     if remaining_time > 0:
@@ -344,15 +395,19 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         except Exception as e:
             print(f"[LOG] 대기시간 WebSocket 전송 실패: {e}")
         
-        # 실시간 카운트다운으로 대기
+        # 안정화된 카운트다운으로 대기
         import time
         wait_duration = remaining_time if proxies is None else actual_wait
+        total_wait_time = int(remaining_time)
         
-        # 1초씩 나누어서 대기하면서 실시간 업데이트
+        print(f"[LOG] 안정화된 카운트다운 시작: {wait_duration}초")
+        
+        # 안정화된 카운트다운 (정수로 고정)
         for i in range(int(wait_duration)):
             time.sleep(1)
             
             # 정지 상태 체크 (URL로 request 찾아서 체크)
+            temp_db = None
             try:
                 from .db import SessionLocal
                 from .models import StatusEnum, DownloadRequest
@@ -368,19 +423,23 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                     temp_db.close()
                     return None  # 정지된 경우 파싱 중단
                     
-                temp_db.close()
             except Exception as e:
                 print(f"[LOG] 정지 상태 체크 실패: {e}")
+            finally:
+                if temp_db:
+                    temp_db.close()
             
-            remaining_seconds = int(wait_duration - i - 1)
+            # 안정화된 카운트다운 계산 (정수만 사용)
+            remaining_seconds = total_wait_time - i - 1
             if remaining_seconds >= 0:
                 try:
                     send_websocket_message("wait_countdown", {
                         "remaining_time": remaining_seconds,
-                        "total_wait_time": int(initial_wait_seconds) if initial_wait_ms > 0 else int(remaining_time),
+                        "total_wait_time": total_wait_time,
                         "proxy_addr": proxy_addr,
                         "url": url
                     })
+                    print(f"[DEBUG] 카운트다운: {remaining_seconds}초 남음")
                 except Exception as e:
                     print(f"[LOG] 실시간 카운트다운 WebSocket 전송 실패: {e}")
         
@@ -488,6 +547,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                     time.sleep(1)
                     
                     # 정지 상태 체크 (URL로 request 찾아서 체크)
+                    temp_db = None
                     try:
                         from .db import SessionLocal
                         from .models import StatusEnum, DownloadRequest
@@ -503,9 +563,11 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                             temp_db.close()
                             return None  # 정지된 경우 파싱 중단
                             
-                        temp_db.close()
                     except Exception as e:
                         print(f"[LOG] 정지 상태 체크 실패: {e}")
+                    finally:
+                        if temp_db:
+                            temp_db.close()
                     
                     remaining_seconds = actual_wait - i - 1
                     if remaining_seconds >= 0:
@@ -645,11 +707,11 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         return direct_link, r3.text
                     else:
                         print(f"[LOG] 재시도 후에도 Direct Link를 찾을 수 없음{proxy_info}")
-                        # 재시도 후에도 실패하면 카운트다운 에러로 처리
-                        raise Exception(f"카운트다운 감지: {countdown_seconds}초 대기 후에도 파싱 실패")
+                        # 재시도 후에도 실패하면 파싱 실패로 명확히 처리 (재시도 방지)
+                        raise Exception(f"다운로드 링크 파싱 실패 - {countdown_seconds}초 대기 후에도 링크를 찾을 수 없음")
                 else:
                     print(f"[LOG] 재시도 POST 실패{proxy_info}: {r3.status_code}")
-                    raise Exception(f"카운트다운 감지: {countdown_seconds}초 대기 후 재시도 실패 (HTTP {r3.status_code})")
+                    raise Exception(f"다운로드 링크 파싱 실패 - 카운트다운 후 서버 응답 실패 (HTTP {r3.status_code})")
             else:
                 # 카운트다운이 아닌 다른 제한사항
                 error_msg = f"1fichier 제한 감지: {limit_type}"
@@ -667,6 +729,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 return direct_link, r2.text  # HTML도 함께 반환하여 파일명 추출용
             else:
                 print(f"[LOG] Direct Link를 찾을 수 없음")
+                # 파싱 실패를 명확히 표시하여 재시도 방지
+                raise Exception("다운로드 링크 파싱 실패 - 1fichier 페이지에서 다운로드 링크를 찾을 수 없음")
     else:
         print(f"[LOG] POST 실패: {r2.status_code}")
     

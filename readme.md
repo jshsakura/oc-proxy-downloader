@@ -61,6 +61,8 @@ docker run -d \
 
 ### 🔧 환경 변수 설정
 
+#### 기본 설정
+
 | 변수명          | 기본값       | 설명                           | 필수 |
 | --------------- | ------------ | ------------------------------ | ---- |
 | `TZ`            | `UTC`        | 타임존 설정 (예: `Asia/Seoul`) | ❌   |
@@ -68,6 +70,31 @@ docker run -d \
 | `PGID`          | `1000`       | 그룹 ID (파일 권한용)          | ❌   |
 | `DOWNLOAD_PATH` | `/downloads` | 컨테이너 내 다운로드 경로      | ❌   |
 | `CONFIG_PATH`   | `/config`    | 컨테이너 내 설정 경로          | ❌   |
+
+#### 시스템 최적화 설정
+
+| 변수명                     | 기본값    | 설명                                   | 필수 |
+| -------------------------- | --------- | -------------------------------------- | ---- |
+| `LOG_LEVEL`                | `WARNING` | 로그 출력 레벨                         | ❌   |
+| `PARENT_CHECK_INTERVAL`    | `5`       | 부모 프로세스 체크 간격(초) - CPU 최적화 | ❌   |
+| `MAX_WEBSOCKET_CONNECTIONS`| `10`      | WebSocket 최대 연결 수 (비정상 접근 차단용) | ❌   |
+| `MAX_TOTAL_DOWNLOADS`      | `5`       | 최대 동시 다운로드 수                   | ❌   |
+
+#### 📊 로그 레벨 설명
+
+| 레벨      | 출력 내용                    | 사용 시기              |
+| --------- | ---------------------------- | ---------------------- |
+| `DEBUG`   | 모든 로그 (상세한 디버그 정보) | 개발, 문제 진단       |
+| `INFO`    | 일반 정보 이상               | 테스트 환경           |
+| `WARNING` | 경고 이상만 (기본값)         | **운영 환경 권장**    |
+| `ERROR`   | 오류만                       | 최소 로그가 필요한 경우 |
+
+#### 💡 WebSocket 연결 제한이 필요한 이유
+
+일반적으로 사용자당 **브라우저 탭 1~2개**만 연결되지만:
+- **비정상적 접근 차단**: 봇이나 악의적 스크립트 방지
+- **메모리 보호**: 무제한 연결로 인한 시스템 부하 방지
+- **기본 10개 제한**: 정상 사용에는 충분하며, 필요시 조정 가능
 
 ### 📁 볼륨 매핑 가이드
 
@@ -115,6 +142,11 @@ services:
       - PGID=1000
       - DOWNLOAD_PATH=/downloads
       - CONFIG_PATH=/config
+      # 시스템 최적화 설정
+      - LOG_LEVEL=WARNING                     # 로그 레벨: DEBUG, INFO, WARNING, ERROR (기본: WARNING)
+      - PARENT_CHECK_INTERVAL=5               # 부모 프로세스 체크 간격(초) - CPU 최적화
+      - MAX_WEBSOCKET_CONNECTIONS=10          # WebSocket 최대 연결 수 (비정상 접근 차단용)
+      - MAX_TOTAL_DOWNLOADS=5                 # 최대 동시 다운로드 수
     volumes:
       - ./downloads:/downloads
       - ./backend/config:/config
@@ -262,6 +294,9 @@ docker stats oc-proxy-downloader
 
 # 헬스체크 확인
 docker inspect oc-proxy-downloader | grep Health -A 10
+
+# WebSocket 연결 통계 확인
+curl http://localhost:8000/api/websocket/stats
 ```
 
 #### 로그 관리
