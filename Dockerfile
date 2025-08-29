@@ -30,8 +30,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # 백엔드 소스 복사 (중복 제거)
 COPY backend/ ./backend/
 
-# 프론트엔드 빌드 결과 복사
-COPY --from=frontend-build /app/frontend/dist ./backend/static
+# 프론트엔드 빌드 결과 복사 (Vite는 build 폴더에 출력)
+COPY --from=frontend-build /app/frontend/build ./backend/static
 
 # 필요한 디렉토리 생성
 RUN mkdir -p /downloads /config
