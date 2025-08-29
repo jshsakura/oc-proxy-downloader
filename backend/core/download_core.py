@@ -239,6 +239,14 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 req.file_name = file_info['name']
                 print(f"[LOG] 파일명 추출: {file_info['name']}")
                 db.commit()
+                
+                # WebSocket으로 파일명 업데이트 전송
+                send_websocket_message("filename_update", {
+                    "id": req.id,
+                    "file_name": req.file_name,
+                    "url": req.url,
+                    "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
+                })
             
             # 파일명이 여전히 없으면 다단계 폴백 메커니즘 사용
             if not req.file_name or req.file_name.strip() == '':
@@ -247,6 +255,14 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     req.file_name = fallback_filename
                     print(f"[LOG] 폴백 메커니즘으로 파일명 추출: {req.file_name}")
                     db.commit()
+                    
+                    # WebSocket으로 파일명 업데이트 전송
+                    send_websocket_message("filename_update", {
+                        "id": req.id,
+                        "file_name": req.file_name,
+                        "url": req.url,
+                        "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
+                    })
         
         # 정지 상태 체크 (파싱 후)
         db.refresh(req)
@@ -394,6 +410,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             "error": None,
             "downloaded_size": req.downloaded_size or 0,
             "total_size": req.total_size or 0,
+            "progress": 100.0,  # 완료 시 명시적으로 100% 설정
             "save_path": req.save_path,
             "requested_at": req.requested_at.isoformat() if req.requested_at else None,
             "finished_at": req.finished_at.isoformat() if req.finished_at else None,
@@ -436,6 +453,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         "error": req.error,
                         "downloaded_size": req.downloaded_size or 0,
                         "total_size": req.total_size or 0,
+                        "progress": 0.0,  # 재시도 시 진행률 초기화
                         "save_path": req.save_path,
                         "requested_at": req.requested_at.isoformat() if req.requested_at else None,
                         "finished_at": None,
@@ -469,6 +487,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         "error": str(e),
                         "downloaded_size": req.downloaded_size or 0,
                         "total_size": req.total_size or 0,
+                        "progress": 0.0,  # 실패 시 진행률을 0으로 설정
                         "save_path": req.save_path,
                         "requested_at": req.requested_at.isoformat() if req.requested_at else None,
                         "finished_at": None,
@@ -476,6 +495,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         "direct_link": req.direct_link,
                         "use_proxy": req.use_proxy
                     })
+                    
+                    print(f"[LOG] 다운로드 실패로 매니저에서 해제됨: {request_id}")
                 
             else:
                 print(f"[LOG] 다운로드가 정지 상태이므로 실패 처리하지 않음: ID {request_id}")
@@ -519,6 +540,14 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                     req.file_name = file_info['name']
                     print(f"[LOG] 프록시 모드에서 파일명 추출: {file_info['name']}")
                     db.commit()
+                    
+                    # WebSocket으로 파일명 업데이트 전송
+                    send_websocket_message("filename_update", {
+                        "id": req.id,
+                        "file_name": req.file_name,
+                        "url": req.url,
+                        "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
+                    })
             except Exception as e:
                 error_msg = str(e)
                 # 카운트다운 제한인 경우 프록시 문제가 아님
@@ -586,6 +615,14 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                     req.file_name = file_info['name']
                     print(f"[LOG] 프록시 모드에서 파일명 추출: {file_info['name']}")
                     db.commit()
+                    
+                    # WebSocket으로 파일명 업데이트 전송
+                    send_websocket_message("filename_update", {
+                        "id": req.id,
+                        "file_name": req.file_name,
+                        "url": req.url,
+                        "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
+                    })
             except Exception as e:
                 error_msg = str(e)
                 # 카운트다운 제한인 경우 모든 프록시에서 동일할 것

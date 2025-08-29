@@ -231,6 +231,23 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                             download_req.file_name = early_file_info['name']
                             temp_db.commit()
                             print(f"[LOG] ★ 파일명 DB 조기 저장 완료: '{early_file_info['name']}'")
+                            
+                            # WebSocket으로 파일명 업데이트 전송
+                            try:
+                                from core.shared import status_queue
+                                import json
+                                message = json.dumps({
+                                    "type": "filename_update",
+                                    "data": {
+                                        "id": download_req.id,
+                                        "file_name": download_req.file_name,
+                                        "url": download_req.url,
+                                        "status": download_req.status.value if hasattr(download_req.status, 'value') else str(download_req.status)
+                                    }
+                                }, ensure_ascii=False)
+                                status_queue.put(message)
+                            except Exception as ws_e:
+                                print(f"[LOG] WebSocket 파일명 업데이트 전송 실패: {ws_e}")
                         
                         temp_db.close()
                         

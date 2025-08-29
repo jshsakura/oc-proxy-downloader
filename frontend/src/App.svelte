@@ -410,6 +410,15 @@
             }, 2000); // 2초 후 제거
           }
         }
+      } else if (message.type === "filename_update") {
+        // 파일명 업데이트 메시지 처리
+        console.log("Filename update received:", message.data);
+        const index = downloads.findIndex((d) => d.id === message.data.id);
+        if (index !== -1) {
+          downloads[index].file_name = message.data.file_name;
+          downloads = [...downloads]; // Trigger Svelte reactivity
+          console.log(`Updated filename for download ${message.data.id}: ${message.data.file_name}`);
+        }
       }
     };
 
