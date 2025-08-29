@@ -37,70 +37,185 @@ def get_or_parse_direct_link(req, proxies=None, use_proxy=False, force_reparse=F
     return req.direct_link
 
 
-def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, proxy_addr=None):
-    """단순화된 1fichier Direct Link 파싱"""
-    # print(f"[LOG] Direct Link 파싱 시작: {url}")
+def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, proxy_addr=None, max_retries=5):
+    """단순화된 1fichier Direct Link 파싱 - 리다이렉트 차단 강화"""
+    print(f"[LOG] Direct Link 파싱 시작: {url} (최대 {max_retries}회 재시도)")
     
-    # 도커 환경을 위한 강화된 CloudScraper 설정
-    scraper = cloudscraper.create_scraper(
-        browser={
-            'browser': 'chrome',
-            'platform': 'windows',
-            'desktop': True
-        },
-        delay=1  # 요청 간 지연 추가
-    )
-    scraper.verify = False  # SSL 검증 비활성화
+    # 1fichier 정상 도메인 화이트리스트
+    VALID_1FICHIER_DOMAINS = [
+        '1fichier.com',
+        's1.1fichier.com',
+        's2.1fichier.com',
+        's3.1fichier.com',
+        'download.1fichier.com',
+        'cdn.1fichier.com'
+    ]
     
-    # SSL 컨텍스트 설정 (hostname 체크 비활성화)
-    import ssl
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    # 광고/악성 도메인 블랙리스트 (자동 확장)
+    BLOCKED_DOMAINS = [
+        'dstorage.fr',
+        'adsystem.com',
+        'popads.net',
+        'propellerads.com',
+        'exoclick.com',
+        'adnxs.com',
+        'doubleclick.net',
+        'googleadservices.com',
+        'googlesyndication.com',
+        'adsystem.com',
+        'advertiserurl.com',
+        'adfly.com',
+        'bit.ly',
+        'tinyurl.com',
+        'shorte.st',
+        'ouo.io',
+        'adf.ly',
+        'linkvertise.com',
+        't.co',
+        'ow.ly'
+    ]
     
-    # requests 세션의 SSL 설정 변경
-    from requests.adapters import HTTPAdapter
-    from urllib3.util.ssl_ import create_urllib3_context
+    def is_valid_1fichier_url(check_url):
+        """URL이 정상적인 1fichier 도메인인지 확인"""
+        if not check_url:
+            return False
+        
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(check_url)
+            domain = parsed.netloc.lower()
+            
+            # 정확한 1fichier 도메인 매칭
+            return any(domain.endswith(valid_domain) for valid_domain in VALID_1FICHIER_DOMAINS)
+        except:
+            return False
     
-    class NoSSLVerifyHTTPAdapter(HTTPAdapter):
-        def init_poolmanager(self, *args, **kwargs):
-            context = create_urllib3_context()
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            kwargs['ssl_context'] = context
-            return super().init_poolmanager(*args, **kwargs)
+    def is_blocked_domain(check_url):
+        """URL이 차단해야 할 도메인인지 확인"""  
+        if not check_url:
+            return False
+            
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(check_url)
+            domain = parsed.netloc.lower()
+            
+            # 블랙리스트 도메인 체크
+            return any(blocked_domain in domain for blocked_domain in BLOCKED_DOMAINS)
+        except:
+            return False
     
-    scraper.mount('https://', NoSSLVerifyHTTPAdapter())
+    # 재시도 로직 실행
+    for retry_attempt in range(max_retries):
+        try:
+            print(f"[LOG] 파싱 시도 {retry_attempt + 1}/{max_retries}")
+            
+            # 도커 환경을 위한 강화된 CloudScraper 설정 (매번 새로 생성)
+            scraper = cloudscraper.create_scraper(
+                browser={
+                    'browser': 'chrome',
+                    'platform': 'windows',
+                    'desktop': True
+                },
+                delay=1  # 요청 간 지연 추가
+            )
+            scraper.verify = False  # SSL 검증 비활성화
+            
+            # 리다이렉트 추적 비활성화 (수동 처리)
+            scraper.max_redirects = 0
     
-    # 도커 환경을 위한 더 완전한 브라우저 헤더
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br, zstd',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
-        'DNT': '1',
-        'Sec-CH-UA': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-        'Sec-CH-UA-Mobile': '?0',
-        'Sec-CH-UA-Platform': '"Windows"'
-    }
+            # SSL 컨텍스트 설정 (hostname 체크 비활성화)
+            import ssl
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            
+            # requests 세션의 SSL 설정 변경
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.ssl_ import create_urllib3_context
+            
+            class NoSSLVerifyHTTPAdapter(HTTPAdapter):
+                def init_poolmanager(self, *args, **kwargs):
+                    context = create_urllib3_context()
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+                    kwargs['ssl_context'] = context
+                    return super().init_poolmanager(*args, **kwargs)
+            
+            scraper.mount('https://', NoSSLVerifyHTTPAdapter())
+            
+            # 도커 환경을 위한 더 완전한 브라우저 헤더
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br, zstd',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0',
+                'DNT': '1',
+                'Sec-CH-UA': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                'Sec-CH-UA-Mobile': '?0',
+                'Sec-CH-UA-Platform': '"Windows"'
+            }
+            
+            # 강력한 리다이렉트 차단 및 재파싱 로직 실행
+            result = _parse_with_redirect_protection(
+                scraper, url, password, headers, proxies, 
+                use_proxy, proxy_addr, is_valid_1fichier_url, is_blocked_domain
+            )
+            
+            if result:
+                print(f"[LOG] ✅ 파싱 성공 (시도 {retry_attempt + 1}/{max_retries}): {result}")
+                return result
+            else:
+                print(f"[LOG] ❌ 파싱 실패 (시도 {retry_attempt + 1}/{max_retries})")
+                if retry_attempt < max_retries - 1:
+                    print(f"[LOG] 🔄 재시도 준비 중... (다음 시도: {retry_attempt + 2}/{max_retries})")
+                    import time
+                    time.sleep(2)  # 2초 대기 후 재시도
+                    continue
+                else:
+                    print(f"[LOG] ⚠️ 모든 재시도 실패")
+                    
+        except Exception as e:
+            print(f"[LOG] 파싱 예외 (시도 {retry_attempt + 1}/{max_retries}): {e}")
+            if retry_attempt < max_retries - 1:
+                print(f"[LOG] 🔄 예외 후 재시도... (다음 시도: {retry_attempt + 2}/{max_retries})")
+                import time
+                time.sleep(2)
+                continue
+            else:
+                print(f"[LOG] ⚠️ 최종 실패 - 예외 발생")
+                raise e
+    
+    # 모든 재시도가 실패한 경우
+    print(f"[LOG] ❌ 1fichier 파싱 완전 실패 - {max_retries}회 시도 모두 실패")
+    raise Exception(f"1fichier 파싱 실패: {max_retries}회 재시도 후에도 유효한 다운로드 링크를 찾을 수 없음")
+
+
+def _parse_with_redirect_protection(scraper, url, password, headers, proxies, use_proxy, proxy_addr, 
+                                   is_valid_1fichier_url, is_blocked_domain):
+    """리다이렉트 차단이 강화된 파싱 로직"""
     
     # 프록시를 사용하는 경우
     if use_proxy and proxies:
-        # print(f"[LOG] 지정된 프록시로 파싱 시도: {proxies}")
+        print(f"[LOG] 프록시로 리다이렉트 보호 파싱: {proxy_addr}")
         try:
-            direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=proxy_addr)
-            return direct_link  # 기존 호환성 유지
+            result = _parse_with_connection_protected(
+                scraper, url, password, headers, proxies, wait_time_limit=10, 
+                proxy_addr=proxy_addr, is_valid_1fichier_url=is_valid_1fichier_url, 
+                is_blocked_domain=is_blocked_domain
+            )
+            return result
         except (requests.exceptions.ConnectTimeout, 
                 requests.exceptions.ReadTimeout, 
                 requests.exceptions.Timeout) as e:
-            print(f"[LOG] 타임아웃: {e}")
-            raise e  # 프록시 순환 로직에서 처리하도록 raise
+            print(f"[LOG] 프록시 타임아웃: {e}")
+            raise e
         except requests.exceptions.ProxyError as e:
             error_msg = str(e)
             proxy_display = proxy_addr if proxy_addr else 'Unknown'
@@ -110,17 +225,21 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
                 print(f"[LOG] 프록시 연결 불가: {proxy_display}")
             else:
                 print(f"[LOG] 프록시 연결 오류 ({proxy_display}): {e}")
-            raise e  # 프록시 순환 로직에서 처리하도록 raise
+            raise e
         except Exception as e:
-            print(f"[LOG] 파싱 예외: {e}")
+            print(f"[LOG] 프록시 파싱 예외: {e}")
             raise e
     
     # 로컬 연결을 사용하는 경우
     else:
-        print(f"[LOG] 로컬 연결로 파싱 시도")
+        print(f"[LOG] 로컬 연결로 리다이렉트 보호 파싱")
         try:
-            direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=65)
-            return direct_link  # 기존 호환성 유지
+            result = _parse_with_connection_protected(
+                scraper, url, password, headers, None, wait_time_limit=65,
+                proxy_addr=None, is_valid_1fichier_url=is_valid_1fichier_url,
+                is_blocked_domain=is_blocked_domain
+            )
+            return result
         except requests.exceptions.SSLError as e:
             print(f"[LOG] SSL 에러 발생, 인증서 검증 비활성화하여 재시도: {e}")
             # SSL 에러인 경우 인증서 검증을 완전히 비활성화하고 재시도
@@ -128,8 +247,12 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
             import urllib3
             urllib3.disable_warnings()
             try:
-                direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=65)
-                return direct_link
+                result = _parse_with_connection_protected(
+                    scraper, url, password, headers, None, wait_time_limit=65,
+                    proxy_addr=None, is_valid_1fichier_url=is_valid_1fichier_url,
+                    is_blocked_domain=is_blocked_domain
+                )
+                return result
             except Exception as retry_e:
                 print(f"[LOG] SSL 비활성화 후에도 실패: {retry_e}")
                 raise retry_e
@@ -292,6 +415,408 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
     except Exception as e:
         print(f"[LOG] 파일 정보와 함께 파싱 실패: {e}")
         raise e
+
+
+def _parse_with_connection_protected(scraper, url, password, headers, proxies, wait_time_limit=10, 
+                                    proxy_addr=None, is_valid_1fichier_url=None, is_blocked_domain=None, retry_count=3):
+    """리다이렉트 차단이 강화된 공통 파싱 로직"""
+    last_exception = None
+    
+    print(f"[LOG] 🛡️ 보호된 연결로 파싱 시작: {url}")
+    
+    # 재시도 로직
+    for attempt in range(retry_count):
+        try:
+            print(f"[LOG] GET 요청 시도 {attempt + 1}/{retry_count}: {url}")
+            
+            # 1단계: GET 요청으로 페이지 로드 (리다이렉트 수동 처리)
+            r1 = scraper.get(url, headers=headers, proxies=proxies, timeout=15, allow_redirects=False)
+            print(f"[LOG] GET 응답: {r1.status_code}")
+            
+            # 리다이렉트 처리 로직
+            if r1.status_code in [301, 302, 303, 307, 308]:
+                redirect_url = r1.headers.get('Location')
+                if redirect_url:
+                    print(f"[LOG] 🔄 리다이렉트 감지: {redirect_url}")
+                    
+                    # 상대 URL을 절대 URL로 변환
+                    if redirect_url.startswith('/'):
+                        from urllib.parse import urlparse
+                        parsed_original = urlparse(url)
+                        redirect_url = f"{parsed_original.scheme}://{parsed_original.netloc}{redirect_url}"
+                        print(f"[LOG] 상대 URL 변환: {redirect_url}")
+                    
+                    # 리다이렉트 URL 검증
+                    if is_blocked_domain and is_blocked_domain(redirect_url):
+                        print(f"[LOG] ❌ 차단된 도메인으로 리다이렉트 시도 감지: {redirect_url}")
+                        print(f"[LOG] 🚫 광고/악성 사이트 리다이렉트 차단됨")
+                        raise Exception(f"광고 사이트 리다이렉트 차단: {redirect_url}")
+                    
+                    elif is_valid_1fichier_url and not is_valid_1fichier_url(redirect_url):
+                        print(f"[LOG] ❌ 1fichier가 아닌 도메인으로 리다이렉트 시도: {redirect_url}")
+                        print(f"[LOG] 🚫 비정상 도메인 리다이렉트 차단됨")
+                        raise Exception(f"비정상 도메인 리다이렉트 차단: {redirect_url}")
+                    
+                    else:
+                        print(f"[LOG] ✅ 유효한 리다이렉트 허용: {redirect_url}")
+                        # 유효한 리다이렉트인 경우 수동으로 따라가기
+                        r1 = scraper.get(redirect_url, headers=headers, proxies=proxies, timeout=15)
+                        print(f"[LOG] 리다이렉트 후 응답: {r1.status_code}")
+                        url = redirect_url  # URL 업데이트
+            
+            break  # 성공하면 재시도 루프 탈출
+            
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as e:
+            last_exception = e
+            print(f"[LOG] GET 요청 실패 (시도 {attempt + 1}/{retry_count}): {e}")
+            if attempt < retry_count - 1:
+                import time
+                time.sleep(1)  # 1초 대기 후 재시도
+                continue
+            else:
+                print(f"[LOG] 모든 재시도 실패")
+                raise last_exception
+    
+    if r1.status_code not in [200, 404, 500]:
+        print(f"[LOG] GET 실패: {r1.status_code}")
+        return None
+    
+    # 404 에러인 경우 특별 처리
+    if r1.status_code == 404:
+        print(f"[LOG] GET 404 에러 - URL이 존재하지 않거나 잘못됨: {url}")
+        return None
+    
+    # 응답 내용 검증 (추가 보안)
+    if is_blocked_domain and any(blocked_domain in r1.text.lower() for blocked_domain in ['dstorage.fr', 'adsystem', 'popads']):
+        print(f"[LOG] ❌ 응답 내용에서 광고/악성 도메인 감지됨")
+        raise Exception("응답 내용에서 광고/악성 도메인 감지")
+    
+    # 기존 대기시간 로직과 POST 요청 로직 계속 실행
+    return _continue_parsing_after_get(scraper, r1, url, password, headers, proxies, wait_time_limit, proxy_addr)
+
+
+def _continue_parsing_after_get(scraper, r1, url, password, headers, proxies, wait_time_limit, proxy_addr):
+    """GET 요청 후 계속되는 파싱 로직"""
+    
+    # 대기 시간 확인 및 실제 남은 시간 계산
+    import re
+    
+    # 1단계: 초기 대기시간 설정 값 찾기
+    timer_matches = re.findall(r'setTimeout\s*\([^,]+,\s*(\d+)', r1.text)
+    initial_wait_ms = 0
+    for match in timer_matches:
+        time_ms = int(match)
+        if 1000 <= time_ms <= 65000:  # 1초~65초
+            initial_wait_ms = max(initial_wait_ms, time_ms)
+    
+    # 2단계: 가장 신뢰할 수 있는 방법으로 남은 시간 추출 (안정화)
+    remaining_time = 0
+    time_extraction_method = "none"
+    
+    print(f"[DEBUG] 대기시간 추출 시작 - 초기 설정: {initial_wait_ms}ms")
+    
+    # JavaScript 카운트다운 변수 우선 (가장 정확함)
+    js_countdown_patterns = [
+        (r'var\s+ct\s*=\s*(\d+)', 'JavaScript ct 변수'),
+        (r'countdown\s*=\s*(\d+)', 'JavaScript countdown 변수'),
+        (r'timer\s*=\s*(\d+)', 'JavaScript timer 변수'),
+    ]
+    
+    for pattern, method_name in js_countdown_patterns:
+        match = re.search(pattern, r1.text, re.IGNORECASE)
+        if match:
+            js_remaining = int(match.group(1))
+            if 5 <= js_remaining <= 120:  # 합리적인 범위
+                remaining_time = js_remaining
+                time_extraction_method = method_name
+                print(f"[DEBUG] {method_name}에서 대기시간 추출: {remaining_time}초")
+                break
+    
+    # JavaScript에서 찾지 못한 경우에만 다른 방법 시도
+    if remaining_time == 0:
+        # HTML 텍스트 패턴 (두 번째 우선순위)
+        html_patterns = [
+            (r'(\d+)\s*seconds?\s*remaining', 'HTML seconds remaining'),
+            (r'wait["\']?\s*:\s*(\d+)', 'HTML wait 속성'),
+            (r'timeLeft["\']?\s*:\s*(\d+)', 'HTML timeLeft 속성'),
+        ]
+        
+        for pattern, method_name in html_patterns:
+            match = re.search(pattern, r1.text, re.IGNORECASE)
+            if match:
+                html_remaining = int(match.group(1))
+                if 5 <= html_remaining <= 120:
+                    remaining_time = html_remaining
+                    time_extraction_method = method_name
+                    print(f"[DEBUG] {method_name}에서 대기시간 추출: {remaining_time}초")
+                    break
+    
+    # 위 방법들이 모두 실패한 경우에만 초기값 기반 계산
+    if remaining_time == 0 and initial_wait_ms > 0:
+        initial_wait_seconds = initial_wait_ms / 1000
+        # 페이지 로딩 시간 추정 (1-3초)
+        estimated_loading_time = 2
+        remaining_time = max(5, initial_wait_seconds - estimated_loading_time)  # 최소 5초
+        time_extraction_method = "초기값 기반 추정"
+        print(f"[DEBUG] {time_extraction_method}: {remaining_time}초 (원래 {initial_wait_seconds}초 - {estimated_loading_time}초 로딩시간)")
+    
+    # 최종 검증 및 안정화
+    if remaining_time > 0:
+        # 합리적인 범위로 제한
+        remaining_time = min(max(remaining_time, 5), 120)  # 5초~120초
+        print(f"[LOG] 대기시간 확정: {remaining_time}초 (방법: {time_extraction_method})")
+    
+    # 5단계: 실제 대기 처리
+    if remaining_time > 0:
+        actual_wait = min(remaining_time, wait_time_limit)
+        print(f"[LOG] 남은 대기 시간: {remaining_time:.1f}초 (실제 대기: {actual_wait:.1f}초)")
+        
+        # WebSocket으로 대기시간 전송
+        try:
+            from .download_core import send_websocket_message
+            send_websocket_message("wait_countdown", {
+                "remaining_time": int(remaining_time),
+                "total_wait_time": int(initial_wait_seconds) if initial_wait_ms > 0 else int(remaining_time),
+                "proxy_addr": proxy_addr,
+                "url": url
+            })
+        except Exception as e:
+            print(f"[LOG] 대기시간 WebSocket 전송 실패: {e}")
+        
+        # 안정화된 카운트다운으로 대기
+        import time
+        wait_duration = remaining_time if proxies is None else actual_wait
+        total_wait_time = int(remaining_time)
+        
+        print(f"[LOG] 안정화된 카운트다운 시작: {wait_duration}초")
+        
+        # 안정화된 카운트다운 (정수로 고정)
+        for i in range(int(wait_duration)):
+            time.sleep(1)
+            
+            # 정지 상태 체크 (URL로 request 찾아서 체크)
+            temp_db = None
+            try:
+                from .db import SessionLocal
+                from .models import StatusEnum, DownloadRequest
+                temp_db = SessionLocal()
+                
+                # URL로 다운로드 요청 찾기 (모든 상태)
+                active_req = temp_db.query(DownloadRequest).filter(
+                    DownloadRequest.url == url
+                ).order_by(DownloadRequest.requested_at.desc()).first()
+                
+                if active_req and active_req.status == StatusEnum.stopped:
+                    print(f"[LOG] 대기 중 정지됨: URL {url}")
+                    temp_db.close()
+                    return None  # 정지된 경우 파싱 중단
+                    
+            except Exception as e:
+                print(f"[LOG] 정지 상태 체크 실패: {e}")
+            finally:
+                if temp_db:
+                    temp_db.close()
+            
+            # 안정화된 카운트다운 계산 (정수만 사용)
+            remaining_seconds = total_wait_time - i - 1
+            if remaining_seconds >= 0:
+                try:
+                    send_websocket_message("wait_countdown", {
+                        "remaining_time": remaining_seconds,
+                        "total_wait_time": total_wait_time,
+                        "proxy_addr": proxy_addr,
+                        "url": url
+                    })
+                    print(f"[DEBUG] 카운트다운: {remaining_seconds}초 남음")
+                except Exception as e:
+                    print(f"[LOG] 실시간 카운트다운 WebSocket 전송 실패: {e}")
+        
+        # 남은 소수점 시간 대기
+        remaining_fraction = wait_duration - int(wait_duration)
+        if remaining_fraction > 0:
+            time.sleep(remaining_fraction)
+    else:
+        print(f"[LOG] 대기 시간 없음 - 즉시 진행")
+    
+    # 2단계: POST 요청으로 다운로드 링크 획득 (기존 로직 계속)
+    return _execute_post_request(scraper, r1, url, password, headers, proxies, proxy_addr)
+
+
+def _execute_post_request(scraper, r1, url, password, headers, proxies, proxy_addr):
+    """POST 요청 실행 및 링크 추출"""
+    
+    # GET 응답에서 실제 폼 구조를 파싱하여 올바른 파라미터 찾기
+    payload = {}
+    
+    try:
+        # HTML에서 폼 찾기
+        import re
+        forms = re.findall(r'<form[^>]*>(.*?)</form>', r1.text, re.DOTALL | re.IGNORECASE)
+        
+        for i, form in enumerate(forms):
+            print(f"[DEBUG] 폼 {i+1} 분석 중...")
+            
+            # 폼 내의 input 요소들 찾기
+            inputs = re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*(?:value=["\']([^"\']*)["\'])?[^>]*>', form, re.IGNORECASE)
+            
+            form_has_download = False
+            for name, value in inputs:
+                print(f"[DEBUG]   Input: {name} = {value}")
+                if any(keyword in name.lower() for keyword in ['submit', 'download', 'dlw']):
+                    payload[name] = value if value else 'Download'
+                    form_has_download = True
+                elif name.lower() in ['pass', 'password'] and password:
+                    payload[name] = password
+                else:
+                    # 기타 hidden 필드들도 포함
+                    if value:
+                        payload[name] = value
+            
+            if form_has_download:
+                print(f"[LOG] 다운로드 폼 발견! 사용할 파라미터: {payload}")
+                break
+        
+        # 폼에서 찾지 못한 경우 기본값 사용
+        if not payload:
+            payload['submit'] = 'Download'
+            if password:
+                payload['pass'] = password
+            print(f"[LOG] 기본 POST 파라미터 사용: {payload}")
+            
+    except Exception as e:
+        print(f"[DEBUG] 폼 파싱 실패, 기본값 사용: {e}")
+        payload['submit'] = 'Download'
+        if password:
+            payload['pass'] = password
+    
+    headers_post = headers.copy()
+    headers_post['Referer'] = str(url)
+    
+    # 2단계: POST 요청 (쿠키 세팅을 위해 좀 더 구체적인 헤더 사용)
+    headers_post['Content-Type'] = 'application/x-www-form-urlencoded'
+    headers_post['Origin'] = 'https://1fichier.com'
+    headers_post['Sec-Fetch-Dest'] = 'document'
+    headers_post['Sec-Fetch-Mode'] = 'navigate'
+    headers_post['Sec-Fetch-Site'] = 'same-origin'
+    headers_post['Sec-Fetch-User'] = '?1'
+    
+    # 도커 환경에서 안정성을 위한 세션 쿠키 관리
+    import time
+    time.sleep(0.5)  # 1차 요청 후 잠시 대기
+    r2 = scraper.post(url, data=payload, headers=headers_post, proxies=proxies, timeout=15)
+    
+    if r2.status_code == 200:
+        print(f"[DEBUG] POST 응답 크기: {len(r2.text)} 문자")
+        
+        # 1단계: 제한 상황 감지
+        limit_detected = _detect_download_limits(r2.text, str(url))
+        if limit_detected:
+            limit_type, remaining_time = limit_detected
+            
+            # 카운트다운인 경우 대기 후 재시도
+            if limit_type == "countdown" and isinstance(remaining_time, int):
+                countdown_seconds = remaining_time
+                proxy_info = f" (프록시: {proxy_addr})" if proxy_addr else " (로컬 연결)"
+                print(f"[LOG] 카운트다운 감지{proxy_info}: {countdown_seconds}초 대기 후 재시도")
+                
+                # WebSocket으로 대기시간 전송
+                try:
+                    from .download_core import send_websocket_message
+                    send_websocket_message("wait_countdown", {
+                        "remaining_time": countdown_seconds,
+                        "total_wait_time": countdown_seconds,
+                        "proxy_addr": proxy_addr,
+                        "url": url
+                    })
+                except Exception as e:
+                    print(f"[LOG] 카운트다운 WebSocket 전송 실패: {e}")
+                
+                # 안전하게 몇 초 더 대기
+                actual_wait = countdown_seconds + 2
+                import time
+                
+                # 실시간 카운트다운으로 대기
+                for i in range(actual_wait):
+                    time.sleep(1)
+                    
+                    # 정지 상태 체크 (URL로 request 찾아서 체크)
+                    temp_db = None
+                    try:
+                        from .db import SessionLocal
+                        from .models import StatusEnum, DownloadRequest
+                        temp_db = SessionLocal()
+                        
+                        # URL로 다운로드 요청 찾기 (모든 상태)
+                        active_req = temp_db.query(DownloadRequest).filter(
+                            DownloadRequest.url == url
+                        ).order_by(DownloadRequest.requested_at.desc()).first()
+                        
+                        if active_req and active_req.status == StatusEnum.stopped:
+                            print(f"[LOG] 카운트다운 대기 중 정지됨: URL {url}")
+                            temp_db.close()
+                            return None  # 정지된 경우 파싱 중단
+                            
+                    except Exception as e:
+                        print(f"[LOG] 정지 상태 체크 실패: {e}")
+                    finally:
+                        if temp_db:
+                            temp_db.close()
+                    
+                    remaining_seconds = actual_wait - i - 1
+                    if remaining_seconds >= 0:
+                        try:
+                            send_websocket_message("wait_countdown", {
+                                "remaining_time": remaining_seconds,
+                                "total_wait_time": countdown_seconds,
+                                "proxy_addr": proxy_addr,
+                                "url": url
+                            })
+                        except Exception as e:
+                            print(f"[LOG] 실시간 카운트다운 WebSocket 전송 실패: {e}")
+                
+                print(f"[LOG] 카운트다운 완료 - 재시도 중{proxy_info}")
+                
+                # 3단계: 재시도 (카운트다운 후 GET 요청으로 실제 다운로드 페이지 확인)
+                r3 = scraper.get(url, headers=headers, proxies=proxies, timeout=15)
+                
+                if r3.status_code == 200:
+                    print(f"[DEBUG] 재시도 POST 응답 크기: {len(r3.text)} 문자")
+                    
+                    # 재시도 후 Direct Link 파싱
+                    direct_link = fichier_parser.parse_download_link(r3.text, str(url))
+                    if direct_link:
+                        print(f"[LOG] 재시도 후 Direct Link 발견{proxy_info}: {direct_link}")
+                        return direct_link
+                    else:
+                        print(f"[LOG] 재시도 후에도 Direct Link를 찾을 수 없음{proxy_info}")
+                        # 재시도 후에도 실패하면 파싱 실패로 명확히 처리 (재시도 방지)
+                        raise Exception(f"다운로드 링크 파싱 실패 - {countdown_seconds}초 대기 후에도 링크를 찾을 수 없음")
+                else:
+                    print(f"[LOG] 재시도 POST 실패{proxy_info}: {r3.status_code}")
+                    raise Exception(f"다운로드 링크 파싱 실패 - 카운트다운 후 서버 응답 실패 (HTTP {r3.status_code})")
+            else:
+                # 카운트다운이 아닌 다른 제한사항
+                error_msg = f"1fichier 제한 감지: {limit_type}"
+                if remaining_time:
+                    error_msg += f" (남은 시간: {remaining_time})"
+                print(f"[LOG] {error_msg}")
+                raise Exception(error_msg)
+        
+        # 2단계: 새로운 파서 사용 (제한이 없는 경우)
+        else:
+            print(f"[DEBUG] 제한 없음 - 즉시 파싱 시도")
+            direct_link = fichier_parser.parse_download_link(r2.text, str(url))
+            if direct_link:
+                print(f"[LOG] Direct Link 발견: {direct_link}")
+                return direct_link  
+            else:
+                print(f"[LOG] Direct Link를 찾을 수 없음")
+                # 파싱 실패를 명확히 표시하여 재시도 방지
+                raise Exception("다운로드 링크 파싱 실패 - 1fichier 페이지에서 다운로드 링크를 찾을 수 없음")
+    else:
+        print(f"[LOG] POST 실패: {r2.status_code}")
+    
+    return None
 
 
 def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=None, retry_count=3):
@@ -1057,9 +1582,16 @@ def is_direct_link_expired(direct_link, use_proxy=False, proxy_addr=None):
     }
     
     try:
-        # HEAD 요청으로 링크 유효성 확인
-        response = requests.head(direct_link, headers=headers, timeout=(1, 3), allow_redirects=True, proxies=proxies)
+        # HEAD 요청으로 링크 유효성 확인 (더 짧은 타임아웃)
+        response = requests.head(direct_link, headers=headers, timeout=(0.5, 1), allow_redirects=False, proxies=proxies)
         print(f"[LOG] Direct Link 유효성 검사: {response.status_code}")
+        
+        # 리다이렉트 체크 (dstorage.fr 등으로 리다이렉트되면 만료로 판단)
+        if response.status_code in [301, 302, 303, 307, 308]:
+            location = response.headers.get('Location', '').lower()
+            if 'dstorage' in location or not location.startswith('http'):
+                print(f"[LOG] 의심스러운 리다이렉트 감지: {location}")
+                return True
         
         if response.status_code in [200, 206]:  # 200 OK 또는 206 Partial Content
             return False

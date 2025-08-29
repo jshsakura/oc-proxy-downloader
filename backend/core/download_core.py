@@ -297,22 +297,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             print(f"[LOG] 다운로드 정지됨 (파싱 후): ID {request_id}")
             return
         
-        # direct_link 유효성 체크 (DNS 오류 등으로 인한 만료된 링크 감지)
-        if direct_link:
-            print(f"[LOG] Direct Link 유효성 체크: {direct_link}")
-            from .parser_service import is_direct_link_expired
-            if is_direct_link_expired(direct_link, use_proxy=use_proxy):
-                print(f"[LOG] Direct Link 만료 감지 - 강제 재파싱 시도: {direct_link}")
-                req.direct_link = None
-                db.commit()
-                
-                # 강제 재파싱
-                if use_proxy:
-                    direct_link, used_proxy_addr = parse_with_proxy_cycling(req, db, force_reparse=True)
-                else:
-                    direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=True)
-                
-                print(f"[LOG] 재파싱 결과: {direct_link}")
+        # direct_link 유효성 체크 비활성화 (dstorage.fr 오류 방지)
+        # 원본 1fichier URL은 만료되지 않고, 파싱 직후 direct_link도 즉시 사용되므로 체크 불필요
+        print(f"[LOG] Direct Link 사용 준비: {direct_link}")
         
         if not direct_link:
             # URL 유효성 체크를 통한 더 자세한 에러 메시지
