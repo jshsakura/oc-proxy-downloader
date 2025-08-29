@@ -3,10 +3,7 @@
   import FolderIcon from "../icons/FolderIcon.svelte";
 
   export let localDownloadCount = 0;
-  export let localStatus = ""; // "downloading", "waiting", "completed", "failed"
-  export let localCurrentFile = "";
-  export let localProgress = 0;
-  export let localWaitTime = 0;
+  export let localStatus = ""; // "downloading", "waiting", "idle"
 </script>
 
 <div class="local-gauge">
@@ -21,45 +18,17 @@
     </div>
   </div>
   
-  <!-- 로컬 다운로드 상태 표시 -->
-  <div class="local-status" class:downloading={localStatus === "downloading"} class:waiting={localStatus === "waiting"} class:completed={localStatus === "completed"} class:failed={localStatus === "failed"} class:idle={!localStatus || localDownloadCount === 0}>
-    {#if localStatus === "waiting" && localWaitTime > 0}
-      <span class="status-icon waiting-icon"></span>
-      <span class="status-text">
-        {$t("local_wait_time", { time: localWaitTime })}
-        {#if localCurrentFile}
-          - {localCurrentFile}
-        {/if}
-      </span>
-    {:else if localStatus === "downloading"}
+  <!-- 로컬 다운로드 상태 표시 (단순화) -->
+  <div class="local-status" class:downloading={localStatus === "downloading"} class:waiting={localStatus === "waiting"} class:idle={!localStatus || localDownloadCount === 0}>
+    {#if localStatus === "downloading"}
       <span class="status-icon downloading-icon"></span>
-      <span class="status-text">
-        {$t("local_downloading")} {localProgress}%
-        {#if localCurrentFile}
-          - {localCurrentFile}
-        {/if}
-      </span>
-    {:else if localStatus === "completed"}
-      <span class="status-icon completed-icon"></span>
-      <span class="status-text">
-        {$t("local_completed")}
-        {#if localCurrentFile}
-          - {localCurrentFile}
-        {/if}
-      </span>
-    {:else if localStatus === "failed"}
-      <span class="status-icon failed-icon"></span>
-      <span class="status-text">
-        {$t("local_failed")}
-        {#if localCurrentFile}
-          - {localCurrentFile}
-        {/if}
-      </span>
+      <span class="status-text">{$t("local_downloading")}</span>
+    {:else if localStatus === "waiting"}
+      <span class="status-icon waiting-icon"></span>
+      <span class="status-text">{$t("local_waiting")}</span>
     {:else}
       <span class="status-icon idle-icon"></span>
-      <span class="status-text">
-        {$t("local_idle")}
-      </span>
+      <span class="status-text">{$t("local_idle")}</span>
     {/if}
   </div>
 </div>
@@ -135,15 +104,7 @@
     animation: blink 1s infinite;
   }
 
-  .local-dot.completed {
-    background-color: var(--success-color);
-  }
-
-  .local-dot.failed {
-    background-color: var(--danger-color);
-  }
-
-  .local-dot:not(.downloading):not(.waiting):not(.completed):not(.failed) {
+  .local-dot:not(.downloading):not(.waiting) {
     background-color: var(--text-secondary);
     opacity: 0.3;
   }
@@ -175,17 +136,6 @@
     border: 1px solid #FF9800;
   }
 
-  .local-status.completed {
-    background-color: var(--success-color);
-    color: white;
-    border: 1px solid var(--success-color);
-  }
-
-  .local-status.failed {
-    background-color: var(--danger-color);
-    color: white;
-    border: 1px solid var(--danger-color);
-  }
 
   .local-status.idle {
     background-color: var(--card-background);
@@ -215,45 +165,6 @@
     animation: blink 1s infinite;
   }
   
-  .completed-icon {
-    position: relative;
-    border-radius: 50%;
-    background: currentColor;
-  }
-  
-  .completed-icon::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 4px;
-    width: 3px;
-    height: 6px;
-    border: solid white;
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-  }
-  
-  .failed-icon {
-    position: relative;
-    border-radius: 50%;
-    background: currentColor;
-  }
-  
-  .failed-icon::before,
-  .failed-icon::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 8px;
-    height: 2px;
-    background: white;
-    transform: translate(-50%, -50%) rotate(45deg);
-  }
-  
-  .failed-icon::after {
-    transform: translate(-50%, -50%) rotate(-45deg);
-  }
   
   .idle-icon {
     position: relative;
@@ -283,9 +194,7 @@
   }
   
   .local-status.downloading .status-text,
-  .local-status.waiting .status-text,
-  .local-status.completed .status-text,
-  .local-status.failed .status-text {
+  .local-status.waiting .status-text {
     color: white;
   }
   
@@ -293,40 +202,6 @@
     color: var(--text-secondary);
   }
 
-  .active-downloads {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    background-color: rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    font-size: 0.75rem;
-  }
-
-  .download-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.25rem;
-  }
-
-  .download-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-right: 0.5rem;
-  }
-
-  .download-progress {
-    font-weight: 600;
-    min-width: 40px;
-    text-align: right;
-  }
-
-  .more-downloads {
-    text-align: center;
-    opacity: 0.7;
-    font-style: italic;
-  }
 
   @keyframes spin {
     from { transform: rotate(0deg); }

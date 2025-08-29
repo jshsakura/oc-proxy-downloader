@@ -75,14 +75,10 @@
     failCount: 0
   };
 
-  // 로컬 다운로드 상태 변수들
+  // 로컬 다운로드 상태 변수들 (단순화)
   let localStats = {
     localDownloadCount: 0,
     localStatus: "",
-    localCurrentFile: "",
-    localProgress: 0,
-    localWaitTime: 0,
-    activeLocalDownloads: [],
   };
 
   // 다운로드별 프록시 상태 추적
@@ -473,42 +469,24 @@
     // 로컬 다운로드 (use_proxy: false)인 항목들 필터링
     const localDownloads = downloadsData.filter(d => !d.use_proxy);
     
-    // 진행중인 로컬 다운로드 수
+    // 진행중인 로컬 다운로드 수 (downloading, pending, waiting 포함)
     const activeLocalDownloads = localDownloads.filter(d => 
-      ['downloading', 'pending'].includes(d.status?.toLowerCase())
+      ['downloading', 'pending', 'waiting'].includes(d.status?.toLowerCase())
     );
     
     // 현재 다운로드 중인 파일 찾기
     const currentDownloading = activeLocalDownloads.find(d => d.status?.toLowerCase() === 'downloading');
     
     localStats.localDownloadCount = activeLocalDownloads.length;
-    localStats.localCurrentFile = currentDownloading?.file_name || 
-                                  activeLocalDownloads[0]?.file_name || "";
     
+    // 상태 결정: 단순하게 다운로드 중이면 "downloading", 대기 중이면 "waiting", 없으면 ""
     if (currentDownloading) {
       localStats.localStatus = "downloading";
-      // 진행률 계산 (downloaded_size / total_size * 100)
-      if (currentDownloading.total_size > 0 && currentDownloading.downloaded_size >= 0) {
-        localStats.localProgress = Math.round(
-          (currentDownloading.downloaded_size / currentDownloading.total_size) * 100
-        );
-      } else {
-        localStats.localProgress = 0;
-      }
     } else if (activeLocalDownloads.length > 0) {
       localStats.localStatus = "waiting";
-      localStats.localProgress = 0;
     } else {
       localStats.localStatus = "";
-      localStats.localProgress = 0;
     }
-    
-    // 활성 로컬 다운로드 목록
-    localStats.activeLocalDownloads = activeLocalDownloads.map(d => ({
-      file_name: d.file_name,
-      progress: d.total_size > 0 ? Math.round((d.downloaded_size / d.total_size) * 100) : 0,
-      status: d.status
-    }));
     
     // 반응성 트리거
     localStats = { ...localStats };
@@ -942,12 +920,7 @@
           usedProxies={proxyStats.usedProxies}
           successCount={proxyStats.successCount}
           failCount={proxyStats.failCount}
-          currentProxy={proxyStats.currentProxy || ""}
-          currentStep={proxyStats.currentStep || ""}
           status={proxyStats.status || ""}
-          currentIndex={proxyStats.currentIndex || 0}
-          totalAttempting={proxyStats.totalAttempting || 0}
-          lastError={proxyStats.lastError || ""}
           activeDownloadCount={activeProxyDownloadCount}
         />
       </div>
@@ -957,10 +930,6 @@
         <LocalGauge 
           localDownloadCount={localStats.localDownloadCount}
           localStatus={localStats.localStatus}
-          localCurrentFile={localStats.localCurrentFile}
-          localProgress={localStats.localProgress}
-          localWaitTime={localStats.localWaitTime}
-          activeLocalDownloads={localStats.activeLocalDownloads}
         />
       </div>
     </div>

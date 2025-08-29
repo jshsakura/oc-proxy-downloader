@@ -8,12 +8,8 @@
   export let successCount = 0;
   export let failCount = 0;
   
-  // 실시간 프록시 상태
-  export let currentProxy = "";
-  export let currentStep = "";
-  export let status = ""; // "trying", "success", "failed", ""
-  export let currentIndex = 0;
-  export let totalAttempting = 0;
+  // 실시간 프록시 상태 (단순화)
+  export let status = ""; // "trying", "idle"
   export let activeDownloadCount = 0;
 
   $: usagePercentage = totalProxies > 0 ? ((totalProxies - availableProxies) / totalProxies) * 100 : 0;
@@ -86,40 +82,16 @@
   </div>
   
   <!-- 실시간 프록시 상태 표시 (항상 표시) -->
-  <div class="proxy-status" class:trying={status === "trying"} class:success={status === "success"} class:failed={status === "failed"} class:idle={!status || !currentProxy}>
-    {#if activeDownloadCount > 1}
-      <!-- 다중 다운로드 진행 중일 때 -->
+  <div class="proxy-status" class:trying={status === "trying"} class:idle={!status || activeDownloadCount === 0}>
+    {#if status === "trying" || activeDownloadCount > 0}
       <span class="status-icon trying-icon"></span>
       <span class="status-text">
-        {$t("proxy_multi_download", { count: activeDownloadCount })}
-        {#if currentProxy}
-          - {currentProxy}
-        {/if}
-      </span>
-    {:else if status === "trying" && currentProxy}
-      <span class="status-icon trying-icon"></span>
-      <span class="status-text">
-        {currentStep === "parsing" ? $t("proxy_link_parsing") : $t("proxy_downloading")} {$t("proxy_in_progress")}... 
-        ({currentIndex}/{totalAttempting}) {currentProxy}
-      </span>
-    {:else if status === "success" && currentProxy}
-      <span class="status-icon success-icon"></span>
-      <span class="status-text">
-        {currentStep === "parsing" ? $t("proxy_link_parsing") : $t("proxy_downloading")} {$t("proxy_success_msg")}! {currentProxy}
-      </span>
-    {:else if status === "failed" && currentProxy}
-      <span class="status-icon failed-icon"></span>
-      <span class="status-text">
-        {currentStep === "parsing" ? $t("proxy_link_parsing") : $t("proxy_downloading")} {$t("proxy_failed_msg")}: {currentProxy}
+        {$t("proxy_multiple_downloads", { count: activeDownloadCount })}
       </span>
     {:else}
       <span class="status-icon idle-icon"></span>
       <span class="status-text">
-        {#if activeDownloadCount === 0}
-          {$t("proxy_idle")}
-        {:else}
-          {$t("proxy_downloading")}
-        {/if}
+        {$t("proxy_idle")}
       </span>
     {/if}
   </div>
