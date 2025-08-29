@@ -946,6 +946,8 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                         return download_local(new_direct_link, file_path, initial_size, req, db)
                 else:
                     print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 실패 - 프록시 순환으로도 새 링크 획득 불가")
+                    # 사용자에게 더 명확한 메시지 전송
+                    error_msg = "1fichier 다운로드 링크가 만료되었습니다. 새로운 링크를 얻을 수 없습니다."
                     
             except Exception as reparse_error:
                 print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 중 예외: {reparse_error}")
@@ -963,11 +965,20 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                 except Exception as local_error:
                     print(f"[LOG] 로컬 연결 재파싱도 실패: {local_error}")
         
+        # DNS 오류인지 확인하여 사용자 친화적인 메시지 사용
+        error_str = str(e).lower()
+        user_friendly_error = str(e)
+        
+        if any(dns_error in error_str for dns_error in [
+            "dstorage.fr", "nameresolutionerror", "failed to resolve", "no address associated with hostname"
+        ]):
+            user_friendly_error = "1fichier 다운로드 링크가 만료되었습니다. 파일 링크를 새로 받아서 다시 시도해주세요."
+        
         # WebSocket으로 다운로드 실패 알림
         send_websocket_message("proxy_failed", {
             "proxy": proxy_addr,
             "step": "다운로드 실패",
-            "error": str(e),
+            "error": user_friendly_error,
             "url": req.url
         })
         
@@ -1194,13 +1205,22 @@ def download_local(direct_link, file_path, initial_size, req, db):
             except Exception as reparse_error:
                 print(f"[LOG] DNS 오류 후 재파싱 중 예외: {reparse_error}")
         
+        # DNS 오류인지 확인하여 사용자 친화적인 메시지 사용
+        error_str = str(e).lower()
+        user_friendly_error = str(e)
+        
+        if any(dns_error in error_str for dns_error in [
+            "dstorage.fr", "nameresolutionerror", "failed to resolve", "no address associated with hostname"
+        ]):
+            user_friendly_error = "1fichier 다운로드 링크가 만료되었습니다. 파일 링크를 새로 받아서 다시 시도해주세요."
+        
         # WebSocket으로 로컬 다운로드 실패 상태 전송
         send_websocket_message("status_update", {
             "id": req.id,
             "url": req.url,
             "file_name": req.file_name,
             "status": "failed",
-            "error": str(e),
+            "error": user_friendly_error,
             "downloaded_size": req.downloaded_size or 0,
             "total_size": req.total_size or 0,
             "save_path": req.save_path,
