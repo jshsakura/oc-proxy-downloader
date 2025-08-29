@@ -1,0 +1,103 @@
+name: Create Multi-Arch Manifest
+
+# AMD64와 ARM64 빌드가 완료된 후 매니페스트 생성
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to create manifest for (e.g., 1.0.0 or latest)'
+        required: true
+        default: 'latest'
+      include_arm64:
+        description: 'Include ARM64 in manifest'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ github.repository_owner }}/oc-proxy-downloader
+
+jobs:
+  create-manifest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Check image availability
+      id: check
+      run: |
+        VERSION="${{ inputs.version }}"
+        
+        # AMD64 이미지 확인
+        if docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:amd64-${VERSION} >/dev/null 2>&1; then
+          echo "amd64_exists=true" >> $GITHUB_OUTPUT
+          echo "✅ AMD64 image exists: amd64-${VERSION}"
+        else
+          echo "amd64_exists=false" >> $GITHUB_OUTPUT
+          echo "❌ AMD64 image not found: amd64-${VERSION}"
+        fi
+        
+        # ARM64 이미지 확인 (조건부)
+        if [[ "${{ inputs.include_arm64 }}" == "true" ]]; then
+          if docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:arm64-${VERSION} >/dev/null 2>&1; then
+            echo "arm64_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ ARM64 image exists: arm64-${VERSION}"
+          else
+            echo "arm64_exists=false" >> $GITHUB_OUTPUT
+            echo "❌ ARM64 image not found: arm64-${VERSION}"
+          fi
+        else
+          echo "arm64_exists=false" >> $GITHUB_OUTPUT
+          echo "⏭️ Skipping ARM64 check (not requested)"
+        fi
+
+    - name: Create multi-platform manifest
+      if: steps.check.outputs.amd64_exists == 'true'
+      run: |
+        VERSION="${{ inputs.version }}"
+        
+        if [[ "${{ inputs.include_arm64 }}" == "true" && "${{ steps.check.outputs.arm64_exists }}" == "true" ]]; then
+          echo "🏗️ Creating multi-platform manifest (AMD64 + ARM64)"
+          
+          docker buildx imagetools create \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:amd64-${VERSION} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:arm64-${VERSION}
+            
+        else
+          echo "⚡ Creating AMD64-only manifest"
+          
+          docker buildx imagetools create \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:amd64-${VERSION}
+        fi
+
+    - name: Manifest summary
+      if: steps.check.outputs.amd64_exists == 'true'
+      run: |
+        VERSION="${{ inputs.version }}"
+        
+        echo "🎉 Manifest Created!"
+        echo "==================="
+        echo "Tag: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
+        
+        if [[ "${{ inputs.include_arm64 }}" == "true" && "${{ steps.check.outputs.arm64_exists }}" == "true" ]]; then
+          echo "Platforms: linux/amd64, linux/arm64"
+        else
+          echo "Platforms: linux/amd64"
+        fi
+        
+        echo "==================="
+        echo ""
+        echo "Usage:"
+        echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"

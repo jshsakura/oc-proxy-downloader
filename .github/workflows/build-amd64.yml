@@ -1,18 +1,19 @@
-name: Main Build (AMD64 Only)
+name: Build AMD64 (Fast)
 
-# 메인 빌드는 AMD64만 (빠른 개발용)
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 env:
   REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository_owner }}/oc-proxy-downloader
 
 jobs:
-  build:
+  build-amd64:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -36,10 +37,17 @@ jobs:
     - name: Generate version
       id: version
       run: |
-        DATE=$(date +'%Y.%m.%d')
-        SHORT_SHA=${GITHUB_SHA::7}
-        VERSION="${DATE}-${SHORT_SHA}"
-        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        if [[ "${{ github.ref }}" == "refs/tags/"* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "is_release=true" >> $GITHUB_OUTPUT
+        else
+          DATE=$(date +'%Y.%m.%d')
+          SHORT_SHA=${GITHUB_SHA::7}
+          VERSION="${DATE}-${SHORT_SHA}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "is_release=false" >> $GITHUB_OUTPUT
+        fi
         echo "Generated version: ${VERSION}"
 
     - name: Extract metadata
@@ -50,12 +58,12 @@ jobs:
         tags: |
           type=ref,event=branch
           type=ref,event=pr
-          type=raw,value=latest,enable={{is_default_branch}}
-          type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name != 'pull_request' }}
-        flavor: |
-          latest=auto
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=amd64-latest,enable={{is_default_branch}}
+          type=raw,value=amd64-${{ steps.version.outputs.version }},enable=${{ github.event_name != 'pull_request' }}
 
-    - name: Build and push (AMD64)
+    - name: Build and push AMD64
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -64,9 +72,9 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: |
-          type=gha,scope=main-amd64
-          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-        cache-to: type=gha,mode=max,scope=main-amd64
+          type=gha,scope=amd64
+          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:amd64-latest
+        cache-to: type=gha,mode=max,scope=amd64
         build-args: |
           BUILDKIT_INLINE_CACHE=1
           VERSION=${{ steps.version.outputs.version }}
@@ -76,12 +84,11 @@ jobs:
     - name: Build summary
       if: github.event_name != 'pull_request'
       run: |
-        echo "⚡ Main Build Complete (AMD64)"
-        echo "============================="
+        echo "⚡ AMD64 Build Complete!"
+        echo "======================="
         echo "Version: ${{ steps.version.outputs.version }}"
-        echo "Platform: linux/amd64 (fast build)"
+        echo "Platform: linux/amd64"
         echo "Tags built:"
         echo "${{ steps.meta.outputs.tags }}" | sed 's/^/  - /'
-        echo ""
-        echo "💡 For ARM64 support, run 'Build ARM64' workflow manually"
-        echo "============================="
+        echo "Build time: ~5-7 minutes"
+        echo "======================="
