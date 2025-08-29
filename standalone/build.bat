@@ -28,31 +28,40 @@ if not exist "..\frontend\build" (
     echo ✅ Frontend already built
 )
 
-echo 📦 Step 2: Installing PyInstaller...
-pip install pyinstaller
+echo 📦 Step 2: Activating virtual environment...
+if not exist "..\venv\Scripts\activate.bat" (
+    echo ❌ Virtual environment not found. Please run: python -m venv venv
+    pause
+    exit /b 1
+)
+call ..\venv\Scripts\activate.bat
+echo ✅ Virtual environment activated
+
+echo 📦 Step 3: Installing PyInstaller...
+python -m pip install pyinstaller
 if errorlevel 1 (
     echo ❌ PyInstaller installation failed
     pause
     exit /b 1
 )
 
-echo 📦 Step 3: Installing backend dependencies...
-pip install -r ..\backend\requirements.txt
+echo 📦 Step 4: Installing backend dependencies...
+python -m pip install -r ..\backend\requirements.txt
 if errorlevel 1 (
     echo ❌ Backend dependencies installation failed
     pause
     exit /b 1
 )
 
-echo 🏗️ Step 4: Building EXE with PyInstaller...
-pyinstaller build.spec
+echo 🏗️ Step 5: Building EXE with PyInstaller...
+python -m PyInstaller build.spec
 if errorlevel 1 (
     echo ❌ EXE build failed
     pause
     exit /b 1
 )
 
-echo 📁 Step 5: Creating distribution folder...
+echo 📁 Step 6: Creating distribution folder...
 if exist "release" rmdir /s /q "release"
 mkdir release
 mkdir release\config
@@ -67,7 +76,10 @@ echo 다운로드 폴더: 사용자 다운로드 폴더 (C:\Users\사용자명\D
 echo config/ - 설정 저장 폴더 >> release\README.txt
 echo. >> release\README.txt
 echo 주의: 첫 실행 시 Windows Defender에서 차단할 수 있습니다. >> release\README.txt
-echo      "추가 정보" > "실행" 을 클릭하여 실행하세요. >> release\README.txt
+echo      "추가 정보" ^> "실행" 을 클릭하여 실행하세요. >> release\README.txt
+echo. >> release\README.txt
+echo 포트: 8759 (웹 버전과 충돌 방지) >> release\README.txt
+echo 버전: Standalone EXE v1.0 >> release\README.txt
 
 echo ✅ Standalone EXE build completed!
 echo 📦 결과물: release\oc-proxy-downloader.exe

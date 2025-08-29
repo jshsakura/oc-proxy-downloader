@@ -5,6 +5,7 @@ import enum
 
 class StatusEnum(str, enum.Enum):
     pending = "pending"
+    waiting = "waiting"  # 대기열에서 대기 중
     proxying = "proxying"
     downloading = "downloading"
     stopped = "stopped"  # paused를 stopped로 변경
