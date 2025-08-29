@@ -150,31 +150,47 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         
         print(f"[LOG] URL: {req.url}")
         print(f"[LOG] 파일명: {req.file_name}")
+        print(f"[DEBUG] ★ DB에서 조회한 req.file_name 타입: {type(req.file_name)}")
+        print(f"[DEBUG] ★ DB에서 조회한 req.file_name 값: '{req.file_name}'")
         
         # 다운로드 등록 (1fichier만)
         download_manager.register_download(request_id, req.url)
         
+        
         # 다운로드 경로 설정
         download_path = get_download_path()
-        base_filename = req.file_name if req.file_name else f"download_{request_id}"
         
-        # Windows에서 파일명에 사용할 수 없는 문자 제거 (강화)
+        # ★ 디버그: 파일명 상태 확인
+        print(f"[DEBUG] 다운로드 실행 전 req.file_name: '{req.file_name}'")
+        print(f"[DEBUG] req.file_name 타입: {type(req.file_name)}")
+        print(f"[DEBUG] req.file_name이 None인가: {req.file_name is None}")
+        print(f"[DEBUG] req.file_name이 빈 문자열인가: {req.file_name == '' if req.file_name else 'N/A'}")
+        print(f"[DEBUG] req.file_name.strip()이 비어있나: {req.file_name.strip() == '' if req.file_name else 'N/A'}")
+        
+        base_filename = req.file_name if req.file_name and req.file_name.strip() else f"download_{request_id}"
+        print(f"[DEBUG] 결정된 base_filename: '{base_filename}'")
+        
+        # Windows에서 파일명에 사용할 수 없는 문자 제거 (간단하게)
         safe_filename = re.sub(r'[<>:"/\\|?*]', '_', base_filename)
-        # 추가 Windows 제한사항 처리
-        safe_filename = re.sub(r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)', r'\1_\2', safe_filename, flags=re.IGNORECASE)
-        # 파일명 끝의 점과 공백 제거 (Windows 제한)
-        safe_filename = safe_filename.rstrip('. ')
-        # 파일명이 너무 길면 자르기 (Windows 경로 제한 고려)
-        if len(safe_filename) > 200:
-            name_part, ext_part = safe_filename.rsplit('.', 1) if '.' in safe_filename else (safe_filename, '')
-            safe_filename = name_part[:200-len(ext_part)-1] + ('.' + ext_part if ext_part else '')
+        safe_filename = safe_filename.strip('. ')  # 앞뒤 공백과 점 제거
+        
         # 빈 파일명 방지
-        if not safe_filename or safe_filename == '.':
+        if not safe_filename:
             safe_filename = f"download_{request_id}"
+            print(f"[DEBUG] 빈 파일명 방지로 fallback: '{safe_filename}'")
             
         print(f"[LOG] 원본 파일명: '{base_filename}', 안전한 파일명: '{safe_filename}'")
         
-        file_path = download_path / safe_filename
+        # 중복 파일명 방지
+        final_path = download_path / safe_filename
+        counter = 1
+        while final_path.exists():
+            name, ext = os.path.splitext(safe_filename)
+            safe_filename = f"{name}_{counter}{ext}"
+            final_path = download_path / safe_filename
+            counter += 1
+        
+        file_path = final_path
         part_file_path = download_path / (safe_filename + ".part")
         
         # DB에 저장 경로 업데이트
@@ -248,22 +264,33 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
                 })
             
-            # 파일명이 여전히 없으면 다단계 폴백 메커니즘 사용
-            if not req.file_name or req.file_name.strip() == '':
-                fallback_filename = _extract_filename_fallback(req.url, req.direct_link, req.id)
-                if fallback_filename:
-                    req.file_name = fallback_filename
-                    print(f"[LOG] 폴백 메커니즘으로 파일명 추출: {req.file_name}")
-                    db.commit()
-                    
-                    # WebSocket으로 파일명 업데이트 전송
-                    send_websocket_message("filename_update", {
-                        "id": req.id,
-                        "file_name": req.file_name,
-                        "url": req.url,
-                        "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
-                    })
         
+        # 파싱 완료 후 파일명 확인 (프록시/로컬 공통)
+        print(f"[LOG] 파싱 완료 후 파일명 체크: req.file_name='{req.file_name}', type={type(req.file_name)}, len={len(req.file_name) if req.file_name else 'None'}")
+        print(f"[LOG] 파일명 조건 체크: not req.file_name={not req.file_name}, strip()==''{req.file_name.strip() == '' if req.file_name else 'N/A'}, equals_cloud_storage={req.file_name == '1fichier.com: Cloud Storage' if req.file_name else 'N/A'}")
+        
+        if not req.file_name or req.file_name.strip() == '' or req.file_name == '1fichier.com: Cloud Storage':
+            print(f"[LOG] 파싱 완료 후에도 파일명을 알 수 없음 ('{req.file_name}'). 다운로드 중단.")
+            req.status = StatusEnum.failed
+            req.error = "Unable to determine filename"
+            db.commit()
+            
+            send_websocket_message("status_update", {
+                "id": req.id,
+                "url": req.url,
+                "file_name": req.file_name or "Unknown",
+                "status": "failed",
+                "error": "Unable to determine filename",
+                "downloaded_size": 0,
+                "total_size": 0,
+                "progress": 0,
+                "save_path": None,
+                "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+                "finished_at": None,
+                "password": req.password,
+            })
+            return
+
         # 정지 상태 체크 (파싱 후)
         db.refresh(req)
         if req.status == StatusEnum.stopped:
@@ -396,9 +423,15 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             return
         
         # 3단계: 완료 처리
+        # 파일 정리 먼저 수행 (.part 제거)
+        final_file_path = cleanup_download_file(file_path)
+        
+        # DB 업데이트
         req.status = StatusEnum.done
         import datetime
         req.finished_at = datetime.datetime.utcnow()
+        if final_file_path:
+            req.save_path = str(final_file_path)
         db.commit()
         
         # WebSocket으로 완료 상태 전송
@@ -419,7 +452,6 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             "use_proxy": req.use_proxy
         })
         
-        cleanup_download_file(file_path)
         print(f"[LOG] 다운로드 완료: {req.file_name}")
         
     except Exception as e:
@@ -1207,10 +1239,13 @@ def download_from_stream(proxy_addr, file_path, initial_size, req, db, use_proxy
 
 
 def cleanup_download_file(file_path):
-    """다운로드 완료 후 파일 정리"""
+    """다운로드 완료 후 파일 정리 - .part 확장자 제거"""
     try:
-        if str(file_path).endswith('.part'):
-            final_path = str(file_path)[:-5]  # .part 제거
+        file_path_str = str(file_path)
+        
+        if file_path_str.endswith('.part'):
+            final_path = file_path_str[:-5]  # .part 제거
+            print(f"[LOG] .part 파일을 최종 파일명으로 변경: {file_path} -> {final_path}")
             
             # 파일 크기 확인
             if os.path.exists(file_path):
@@ -1238,134 +1273,27 @@ def cleanup_download_file(file_path):
                             raise e  # 에러 페이지인 경우 예외 전파
                         pass  # 기타 파일 읽기 에러는 무시
                 
-                # 정상 파일인 경우 이름 변경
+                # .part 확장자 제거하여 최종 파일명으로 변경
+                if os.path.exists(final_path):
+                    # 중복 파일 처리
+                    counter = 1
+                    base_name, ext = os.path.splitext(final_path)
+                    while os.path.exists(f"{base_name}_{counter}{ext}"):
+                        counter += 1
+                    final_path = f"{base_name}_{counter}{ext}"
+                    print(f"[LOG] 중복 파일 방지: {final_path}")
+                
                 os.rename(file_path, final_path)
                 print(f"[LOG] 파일명 정리 완료: {final_path}")
+                return final_path
             else:
                 print(f"[LOG] 파일이 존재하지 않음: {file_path}")
+                return None
+        else:
+            print(f"[LOG] .part 확장자가 아닌 파일은 그대로 유지: {file_path}")
+            return file_path
     except Exception as e:
         print(f"[LOG] 파일 정리 실패: {e}")
         raise e
 
 
-def _extract_filename_fallback(original_url, direct_link=None, request_id=None):
-    """다단계 파일명 추출 폴백 메커니즘"""
-    try:
-        from urllib.parse import urlparse, unquote
-        import re
-        import requests
-        
-        print(f"[LOG] 파일명 폴백 메커니즘 시작 - URL: {original_url}")
-        
-        # 1단계: URL 경로에서 파일명 추출 시도
-        try:
-            url_path = urlparse(original_url).path
-            if url_path and url_path != '/':
-                # URL 디코딩
-                decoded_path = unquote(url_path)
-                # 파일명 추출 (경로의 마지막 부분)
-                potential_filename = decoded_path.split('/')[-1]
-                
-                # 1fichier ID 패턴이면 무시
-                if not re.match(r'^[a-z0-9]+$', potential_filename) and '.' in potential_filename:
-                    print(f"[LOG] URL 경로에서 파일명 추출: {potential_filename}")
-                    return potential_filename[:100]  # 최대 100자
-        except Exception as e:
-            print(f"[LOG] URL 경로 파일명 추출 실패: {e}")
-        
-        # 2단계: Direct Link의 Content-Disposition 헤더에서 추출
-        if direct_link:
-            try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': '*/*',
-                    'Range': 'bytes=0-0'  # 첫 1바이트만 요청하여 헤더만 확인
-                }
-                
-                response = requests.head(direct_link, headers=headers, timeout=5)
-                if response.status_code in [200, 206]:
-                    content_disposition = response.headers.get('Content-Disposition', '')
-                    if content_disposition:
-                        # filename= 패턴 찾기
-                        filename_match = re.search(r'filename\*?=(?:UTF-8\'\')?(?:"([^"]+)"|([^;]+))', content_disposition, re.IGNORECASE)
-                        if filename_match:
-                            filename = filename_match.group(1) or filename_match.group(2)
-                            filename = unquote(filename.strip())
-                            print(f"[LOG] Content-Disposition에서 파일명 추출: {filename}")
-                            return filename[:100]
-            except Exception as e:
-                print(f"[LOG] Content-Disposition 파일명 추출 실패: {e}")
-        
-        # 3단계: 1fichier URL에서 재파싱 시도 (가벼운 요청)
-        try:
-            if '1fichier.com' in original_url:
-                import cloudscraper
-                
-                scraper = cloudscraper.create_scraper()
-                scraper.verify = False
-                
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-                
-                # 빠른 HEAD 요청으로 기본 정보만 확인
-                response = scraper.head(original_url, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    # HEAD 요청으로 확인 후 실제 GET 요청 (첫 1KB만)
-                    headers['Range'] = 'bytes=0-1023'  # 첫 1KB만 요청
-                    partial_response = scraper.get(original_url, headers=headers, timeout=10)
-                    
-                    if partial_response.status_code in [200, 206]:
-                        # 파일명 패턴 찾기 (간단한 정규식)
-                        filename_patterns = [
-                            r'<span[^>]*style="font-weight:bold"[^>]*>([^<]+)</span>',
-                            r'<title>([^<]+)</title>',
-                            r'filename["\']?\s*:\s*["\']([^"\']+)["\']'
-                        ]
-                        
-                        for pattern in filename_patterns:
-                            match = re.search(pattern, partial_response.text, re.IGNORECASE)
-                            if match:
-                                filename = match.group(1).strip()
-                                # 파일 확장자가 있는지 확인
-                                if '.' in filename and len(filename) > 3:
-                                    # 1fichier 사이트명 제거
-                                    filename = re.sub(r'\s*-\s*1fichier\.com.*$', '', filename, flags=re.IGNORECASE)
-                                    filename = re.sub(r'\s*\|\s*1fichier.*$', '', filename, flags=re.IGNORECASE)
-                                    print(f"[LOG] 1fichier 재파싱에서 파일명 추출: {filename}")
-                                    return filename[:100]
-        except Exception as e:
-            print(f"[LOG] 1fichier 재파싱 실패: {e}")
-        
-        # 4단계: URL 쿼리 파라미터에서 추출
-        try:
-            parsed_url = urlparse(original_url)
-            if parsed_url.query:
-                # URL 쿼리에서 파일명 관련 파라미터 찾기
-                from urllib.parse import parse_qs
-                query_params = parse_qs(parsed_url.query)
-                
-                filename_keys = ['filename', 'name', 'file', 'f', 'title']
-                for key in filename_keys:
-                    if key in query_params and query_params[key]:
-                        filename = query_params[key][0]
-                        if '.' in filename:
-                            print(f"[LOG] URL 쿼리에서 파일명 추출: {filename}")
-                            return filename[:100]
-        except Exception as e:
-            print(f"[LOG] URL 쿼리 파일명 추출 실패: {e}")
-        
-        # 5단계: 요청 ID 기반 기본 파일명 생성
-        if request_id:
-            import time
-            timestamp = int(time.time())
-            default_filename = f"download_{request_id}_{timestamp}.file"
-            print(f"[LOG] 기본 파일명 생성: {default_filename}")
-            return default_filename
-        
-        print(f"[LOG] 모든 폴백 메커니즘 실패 - 파일명을 추출할 수 없음")
-        return None
-        
-    except Exception as e:
-        print(f"[LOG] 파일명 폴백 메커니즘 오류: {e}")
-        return None

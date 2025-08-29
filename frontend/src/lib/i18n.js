@@ -127,6 +127,8 @@ async function loadTranslations(lang) {
             "clipboard_empty": lang === 'ko' ? "클립보드가 비어있습니다" : "Clipboard is empty",
             "clipboard_read_failed": lang === 'ko' ? "클립보드 읽기에 실패했습니다" : "Failed to read clipboard",
             "adding_download": lang === 'ko' ? "다운로드 추가 중..." : "Adding download...",
+            "download_waiting": lang === 'ko' ? "대기중" : "Waiting",
+            "time_seconds": lang === 'ko' ? "초" : "s",
             "tab_working": lang === 'ko' ? "진행 중" : "Working",
             "tab_completed": lang === 'ko' ? "완료됨" : "Completed",
             "table_header_size": lang === 'ko' ? "크기" : "Size",
@@ -342,6 +344,12 @@ const t = derived(translations, ($translations) => {
                     break;
                 case 'download_started':
                     text = 'Download started';
+                    break;
+                case 'download_waiting':
+                    text = 'Waiting';
+                    break;
+                case 'time_seconds':
+                    text = 's';
                     break;
                 case 'settings_download_path':
                     text = 'Download Path';

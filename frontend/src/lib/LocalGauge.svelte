@@ -7,7 +7,6 @@
   export let localCurrentFile = "";
   export let localProgress = 0;
   export let localWaitTime = 0;
-  export let activeLocalDownloads = [];
 </script>
 
 <div class="local-gauge">

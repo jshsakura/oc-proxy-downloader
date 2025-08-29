@@ -28,7 +28,7 @@
 
 {#if showModal}
   <div class="modal-backdrop" role="dialog" aria-modal="true" tabindex="0">
-    <div class="modal" on:click|stopPropagation>
+    <div class="modal" on:click|stopPropagation on:keydown={() => {}} role="dialog" tabindex="-1">
       <div class="modal-header">
         <div class="modal-title-group">
           {#if icon}

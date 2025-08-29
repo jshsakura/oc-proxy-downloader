@@ -5,7 +5,6 @@
 
   export let totalProxies = 0;
   export let availableProxies = 0;
-  export let usedProxies = 0;
   export let successCount = 0;
   export let failCount = 0;
   
@@ -15,7 +14,6 @@
   export let status = ""; // "trying", "success", "failed", ""
   export let currentIndex = 0;
   export let totalAttempting = 0;
-  export let lastError = "";
   export let activeDownloadCount = 0;
 
   $: usagePercentage = totalProxies > 0 ? ((totalProxies - availableProxies) / totalProxies) * 100 : 0;
@@ -76,6 +74,7 @@
       on:click={refreshProxies}
       disabled={availableProxies > 0}
       title={$t("proxy_refresh")}
+      aria-label="프록시 새로고침"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
@@ -177,10 +176,6 @@
     flex-wrap: wrap;
   }
 
-  .proxy-title {
-    font-weight: 600;
-    color: var(--text-primary);
-  }
 
   .proxy-count {
     font-weight: 700;
@@ -241,10 +236,6 @@
     border: 1px solid rgba(239, 68, 68, 0.2);
   }
 
-  .divider {
-    color: var(--text-secondary);
-    opacity: 0.5;
-  }
 
   .refresh-btn {
     background-color: var(--button-secondary-background);

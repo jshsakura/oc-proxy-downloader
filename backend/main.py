@@ -1919,4 +1919,11 @@ app.mount("/static", StaticFiles(directory=frontend_dist_path), name="static")
 if __name__ == "__main__":
     multiprocessing.freeze_support()
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    
+    # 포트 설정 (환경변수로 오버라이드 가능)
+    port = int(os.getenv('UVICORN_PORT', '8000'))
+    host = os.getenv('UVICORN_HOST', '0.0.0.0')
+    
+    print(f"[LOG] 서버 시작: http://{host}:{port}")
+    
+    uvicorn.run("main:app", host=host, port=port, reload=False)

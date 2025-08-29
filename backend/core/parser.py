@@ -702,7 +702,9 @@ class FichierParser:
                                     text = re.sub(r'\s*\|\s*1fichier.*$', '', text, flags=re.IGNORECASE)
                                 
                                 file_info['name'] = text.strip()
-                                print(f"[DEBUG] 파일명 추출 성공: '{file_info['name']}' (선택자: {selector})")
+                                print(f"[DEBUG] ★ 파일명 추출 성공: '{file_info['name']}' (선택자: {selector})")
+                                print(f"[DEBUG] ★ 추출된 파일명 길이: {len(file_info['name'])} 문자")
+                                print(f"[DEBUG] ★ 추출된 파일명 타입: {type(file_info['name'])}")
                                 break
                     if file_info['name']:
                         break

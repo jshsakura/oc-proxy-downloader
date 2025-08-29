@@ -296,7 +296,7 @@
       if (e.key === "Escape") closeModal();
     }}
   >
-    <div class="modern-modal" on:click|stopPropagation>
+    <div class="modern-modal" on:click|stopPropagation on:keydown={() => {}} role="dialog" tabindex="-1">
       {#if isLoading}
         <div class="modal-loading-container">
           <div class="modal-spinner"></div>

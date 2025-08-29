@@ -241,8 +241,9 @@
           // If the download is new, add it to the beginning of the list
           downloads = [updatedDownload, ...downloads];
         }
-        // 다운로드 상태가 변경될 때마다 프록시 상태도 업데이트
+        // 다운로드 상태가 변경될 때마다 프록시 상태와 로컬 상태도 업데이트
         fetchProxyStatus();
+        updateLocalStats(downloads);
 
         // 실패 상태인 경우 토스트 메시지 표시
         if (updatedDownload.status === "failed" && updatedDownload.error) {
@@ -418,6 +419,7 @@
           downloads[index].file_name = message.data.file_name;
           downloads = [...downloads]; // Trigger Svelte reactivity
           console.log(`Updated filename for download ${message.data.id}: ${message.data.file_name}`);
+          updateLocalStats(downloads); // 파일명 업데이트 후 로컬 상태도 업데이트
         }
       }
     };
@@ -761,7 +763,7 @@
   }
 
   async function copyDownloadLink(download) {
-    const link = download.direct_link || download.url;
+    const link = download.url; // 항상 오리지널 URL 복사
     try {
       await navigator.clipboard.writeText(link);
       showToastMsg(`클립보드에 [${link}] 이 복사되었습니다.`);
@@ -1027,7 +1029,7 @@
                       {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
                         <!-- 대기시간 카운트다운 표시 (활성 상태에서만) -->
                         <span class="wait-countdown">
-                          대기중 ({downloadWaitInfo[download.id].remaining_time}초)
+                          {$t("download_waiting")} ({downloadWaitInfo[download.id].remaining_time}{$t("time_seconds")})
                         </span>
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
@@ -1418,18 +1420,7 @@
     border-bottom: none;
   }
 
-  /* 다크/드라큘라 테마에서의 탭 스타일 */
-  html.dark .tab,
-  html.dracula .tab {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  html.dark .tab:hover,
-  html.dracula .tab:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.15);
-  }
+  /* 탭 스타일 (다크 테마는 현재 사용되지 않으므로 제거) */
 
   .tab:hover {
     color: var(--text-primary);
@@ -1448,11 +1439,6 @@
     z-index: 1;
   }
 
-  /* 다크/드라큘라 테마에서는 좀 더 진한 그림자 */
-  html.dark .tab.active,
-  html.dracula .tab.active {
-    box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.15);
-  }
 
   .tab.active:hover {
     color: var(--primary-color);
@@ -1536,13 +1522,7 @@
     transition: opacity 0.3s ease;
   }
 
-  .proxy-toggle-button.local .proxy-icon {
-    opacity: 0.5;
-  }
-
-  .proxy-toggle-button.proxy .local-icon {
-    opacity: 0.5;
-  }
+  /* 프록시 토글 아이콘 스타일 제거 (미사용) */
 
   /* 그리드 프록시 토글 버튼 */
   .grid-proxy-toggle {
@@ -1609,13 +1589,7 @@
     transition: opacity 0.3s ease;
   }
 
-  .grid-proxy-toggle.local .proxy-icon {
-    opacity: 0.5;
-  }
-
-  .grid-proxy-toggle.proxy .local-icon {
-    opacity: 0.5;
-  }
+  /* 그리드 프록시 토글 아이콘 스타일 제거 (미사용) */
 
   /* 프로그레스 바 - 실시간 업데이트용 */
   .progress-container {

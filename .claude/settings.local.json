@@ -40,7 +40,9 @@
       "Bash(docker compose exec:*)",
       "Bash(del test_parser_fix.py)",
       "Bash(del test_proxy_parsing.py)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(xcopy:*)",
+      "Bash(move standalone-exe standalone)"
     ],
     "deny": [],
     "additionalDirectories": [

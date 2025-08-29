@@ -70,7 +70,7 @@
       if (e.key === "Escape") closeModal();
     }}
   >
-    <div class="modern-modal" on:click|stopPropagation>
+    <div class="modern-modal" on:click|stopPropagation on:keydown={() => {}} role="dialog" tabindex="-1">
       <!-- 모던 헤더 -->
       <div class="modal-header">
         <div class="header-content">

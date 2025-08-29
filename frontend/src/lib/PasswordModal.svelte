@@ -39,7 +39,7 @@
       if (e.key === "Escape") closeModal();
     }}
   >
-    <div class="modal" on:click|stopPropagation>
+    <div class="modal" on:click|stopPropagation on:keydown={() => {}} role="dialog" tabindex="-1">
       <div class="modal-header">
         <div class="modal-title-group">
           <LockIcon />
