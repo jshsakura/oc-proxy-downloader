@@ -33,7 +33,7 @@
         window.location.reload();
       }
     } catch (error) {
-      console.error('프록시 리셋 실패:', error);
+      console.error($t('proxy_reset_failed'), error);
     }
   }
 </script>
@@ -74,7 +74,7 @@
       on:click={refreshProxies}
       disabled={availableProxies > 0}
       title={$t("proxy_refresh")}
-      aria-label="프록시 새로고침"
+      aria-label={$t("proxy_refresh")}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>

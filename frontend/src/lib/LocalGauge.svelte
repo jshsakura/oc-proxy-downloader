@@ -4,9 +4,6 @@
 
   export let localDownloadCount = 0;
   export let localStatus = ""; // "downloading", "waiting", "completed", "failed"
-  export let localCurrentFile = "";
-  export let localProgress = 0;
-  export let localWaitTime = 0;
 </script>
 
 <div class="local-gauge">
@@ -21,39 +18,26 @@
     </div>
   </div>
   
-  <!-- 로컬 다운로드 상태 표시 -->
   <div class="local-status" class:downloading={localStatus === "downloading"} class:waiting={localStatus === "waiting"} class:completed={localStatus === "completed"} class:failed={localStatus === "failed"} class:idle={!localStatus || localDownloadCount === 0}>
-    {#if localStatus === "waiting" && localWaitTime > 0}
+    {#if localStatus === "waiting"}
       <span class="status-icon waiting-icon"></span>
       <span class="status-text">
-        {$t("local_wait_time", { time: localWaitTime })}
-        {#if localCurrentFile}
-          - {localCurrentFile}
-        {/if}
+        {$t("local_waiting")}
       </span>
     {:else if localStatus === "downloading"}
       <span class="status-icon downloading-icon"></span>
       <span class="status-text">
-        {$t("local_downloading")} {localProgress}%
-        {#if localCurrentFile}
-          - {localCurrentFile}
-        {/if}
+        {$t("local_downloading")}
       </span>
     {:else if localStatus === "completed"}
       <span class="status-icon completed-icon"></span>
       <span class="status-text">
         {$t("local_completed")}
-        {#if localCurrentFile}
-          - {localCurrentFile}
-        {/if}
       </span>
     {:else if localStatus === "failed"}
       <span class="status-icon failed-icon"></span>
       <span class="status-text">
         {$t("local_failed")}
-        {#if localCurrentFile}
-          - {localCurrentFile}
-        {/if}
       </span>
     {:else}
       <span class="status-icon idle-icon"></span>

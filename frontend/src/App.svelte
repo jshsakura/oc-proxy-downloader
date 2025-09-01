@@ -31,7 +31,7 @@
   import LocalGauge from "./lib/LocalGauge.svelte";
 
   console.log(
-    "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
+    '%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n' +
       "██    ███         ██   ████   ████    ████ ██  ██  ██    ██   ████    ████     ██████   ███    ██    ████   ████   ████     ██   ██ \n" +
       "██    ████        ██████ ██████ ██    ██ ███    ████     ██   ████    ████  █  ████ ██  ███    ██    ███████████   ███████  ██████  \n" +
       "██    ███         ██     ██   ████    ████ ██    ██      ██   ████    ████ ███ ████  ██ ███    ██    ████   ████   ████     ██   ██ \n" +
@@ -41,32 +41,31 @@
     "color: #474BDF; font-weight: bold; font-size: 12px;"
   );
   console.log(
-    "%cBy Husband of Rebekah",
+    '%cBy Husband of Rebekah',
     "color: #bd93f9; font-weight: bold; font-size: 12px;"
   );
 
-  let downloads = []; // 다운로드 목록
+  let downloads = [];
   let url = "";
   let password = "";
   let ws;
   let currentPage = 1;
   let totalPages = 1;
   let isDownloadsLoading = false;
-  let isAddingDownload = false; // 다운로드 추가 중 로딩 상태
-  let activeDownloads = []; // 활성 다운로드 목록
+  let isAddingDownload = false;
+  let activeDownloads = [];
 
   let showSettingsModal = false;
   let showPasswordModal = false;
   let showDetailModal = false;
   let currentSettings = {};
-  let hasPassword = false; // To track if a password has been set
+  let hasPassword = false;
   let selectedDownload = {};
-  let downloadPath = ""; // Declare downloadPath here
+  let downloadPath = "";
   let prevLang = null;
-  let useProxy = false;  // 기본값을 로컬로 설정
-  let proxyAvailable = false;  // 프록시 사용 가능 여부
+  let useProxy = false;
+  let proxyAvailable = false;
 
-  // 프록시 상태 변수들
   let proxyStats = {
     totalProxies: 0,
     availableProxies: 0,
@@ -75,7 +74,6 @@
     failCount: 0
   };
 
-  // 로컬 다운로드 상태 변수들
   let localStats = {
     localDownloadCount: 0,
     localStatus: "",
@@ -85,11 +83,8 @@
     activeLocalDownloads: [],
   };
 
-  // 다운로드별 프록시 상태 추적
-  let downloadProxyInfo = {}; // {downloadId: {proxy, step, current, total, error}}
-  
-  // 다운로드별 대기시간 정보 추적
-  let downloadWaitInfo = {}; // {downloadId: {remaining_time, total_wait_time}}
+  let downloadProxyInfo = {};
+  let downloadWaitInfo = {};
 
   let showConfirm = false;
   let confirmMessage = "";
@@ -102,8 +97,7 @@
   let isDark =
     typeof document !== "undefined" && document.body.classList.contains("dark");
 
-  // 탭 관련 변수
-  let currentTab = "working"; // "working", "completed"
+  let currentTab = "working";
 
   function openConfirm({
     message,
@@ -134,7 +128,6 @@
 
   onMount(async () => {
     await fetchSettings();
-    // 최초 진입 시 settings.language가 있으면 localStorage.lang을 덮어씀
     if (currentSettings.language) {
       localStorage.setItem("lang", currentSettings.language);
       await loadTranslations(currentSettings.language);
@@ -151,9 +144,9 @@
     }
     fetchDownloads(currentPage);
     connectWebSocket();
-    fetchActiveDownloads(); // 웹소켓 연결 후 활성 다운로드 목록 가져오기
-    fetchProxyStatus(); // 프록시 상태 초기화
-    checkProxyAvailability(); // 프록시 사용 가능 여부 확인
+    fetchActiveDownloads();
+    fetchProxyStatus();
+    checkProxyAvailability();
 
     const unsubscribe = t.subscribe((t_func) => {
       document.title = t_func("title");
@@ -189,7 +182,7 @@
         };
       }
     } catch (error) {
-      console.error('프록시 상태 가져오기 실패:', error);
+      console.error($t('proxy_status_fetch_failed'), error);
     }
   }
 
@@ -199,20 +192,18 @@
       if (response.ok) {
         const data = await response.json();
         proxyAvailable = data.available;
-        // 프록시가 없으면 useProxy를 false로 설정
         if (!proxyAvailable && useProxy) {
           useProxy = false;
         }
       }
     } catch (error) {
-      console.error('프록시 가용성 확인 실패:', error);
+      console.error($t('proxy_availability_check_failed'), error);
       proxyAvailable = false;
     }
   }
 
   function connectWebSocket() {
     console.log("Attempting to connect WebSocket...");
-    // HTTPS 환경에서는 반드시 wss를 사용
     const isHttps = window.location.protocol === "https:";
     const wsProtocol = isHttps ? "wss" : "ws";
     const wsUrl = `${wsProtocol}://${window.location.host}/ws/status`;
@@ -233,60 +224,48 @@
         const index = downloads.findIndex((d) => d.id === updatedDownload.id);
         console.log("Found index:", index);
         if (index !== -1) {
-          // Replace the item and create a new array reference to ensure reactivity
           downloads = downloads.map((d, i) =>
             i === index ? updatedDownload : d
           );
         } else {
-          // If the download is new, add it to the beginning of the list
           downloads = [updatedDownload, ...downloads];
         }
-        // 다운로드 상태가 변경될 때마다 프록시 상태와 로컬 상태도 업데이트
         fetchProxyStatus();
         updateLocalStats(downloads);
 
-        // 실패 상태인 경우 토스트 메시지 표시
         if (updatedDownload.status === "failed" && updatedDownload.error) {
-          showToastMsg(`다운로드 실패: ${updatedDownload.error}`);
+          showToastMsg($t('download_failed_with_error', {error: updatedDownload.error}));
         }
         
-        // 완료 상태인 경우 토스트 메시지 표시하고 완료 탭으로 자동 이동
         if (updatedDownload.status === "done") {
-          showToastMsg(`다운로드 완료: ${updatedDownload.file_name || "파일"}`);
-          // 현재 진행중 탭에 있다면 완료 탭으로 자동 이동
+          showToastMsg($t('download_complete_with_filename', {filename: updatedDownload.file_name || $t('file')}));
           if (currentTab === "working") {
             setTimeout(() => {
               currentTab = "completed";
-            }, 1500); // 1.5초 후 자동 이동
+            }, 1500);
           }
         }
         
-        // 정지/완료/실패 상태인 경우 대기시간 정보 제거
         if (["stopped", "done", "failed"].includes(updatedDownload.status)) {
           if (downloadWaitInfo[updatedDownload.id]) {
             delete downloadWaitInfo[updatedDownload.id];
             downloadWaitInfo = { ...downloadWaitInfo };
-            console.log(`대기시간 정보 제거: ID ${updatedDownload.id}, 상태: ${updatedDownload.status}`);
+            console.log($t('wait_info_removed', {id: updatedDownload.id, status: updatedDownload.status}));
           }
         }
       } else if (message.type === "proxy_update") {
-        // 프록시 상태 변경 알림
         console.log("Proxy status update:", message.data);
-        fetchProxyStatus(); // 프록시 상태 다시 가져오기
+        fetchProxyStatus();
       } else if (message.type === "proxy_reset") {
-        // 프록시 리셋 알림
         console.log("Proxy reset:", message.data);
-        fetchProxyStatus(); // 프록시 상태 다시 가져오기
-        showToastMsg("프록시가 리셋되었습니다", "success");
+        fetchProxyStatus();
+        showToastMsg($t('proxy_reset_success'), "success");
 
-        // 상태 업데이트 후 활성 다운로드 목록 갱신
         fetchActiveDownloads();
       } else if (message.type === "progress_update") {
-        // 실시간 진행률 업데이트
         const progressData = message.data;
         console.log("Progress update received:", progressData);
         
-        // downloads 배열에서 해당 다운로드 찾기
         const index = downloads.findIndex((d) => d.id === progressData.id);
         console.log("Found download at index:", index, "for ID:", progressData.id);
         
@@ -297,7 +276,6 @@
             progress: downloads[index].progress
           });
           
-          // 진행률만 업데이트 (전체 객체 교체하지 않음)
           downloads[index].downloaded_size = progressData.downloaded_size;
           downloads[index].total_size = progressData.total_size;
           downloads[index].progress = progressData.progress;
@@ -308,24 +286,20 @@
             progress: downloads[index].progress
           });
           
-          // Svelte의 반응성을 위해 배열 재할당
           downloads = [...downloads];
         } else {
           console.log("Download not found in list. Current downloads:", downloads.map(d => ({ id: d.id, url: d.url })));
         }
       } else if (message.type === "proxy_trying") {
-        // 프록시 시도 중 상태
         console.log("Proxy trying:", message.data);
         
-        // 전역 프록시 상태 업데이트
         proxyStats.currentProxy = message.data.proxy;
         proxyStats.currentStep = message.data.step;
         proxyStats.currentIndex = message.data.current;
         proxyStats.totalAttempting = message.data.total;
         proxyStats.status = "trying";
-        proxyStats = { ...proxyStats }; // 반응성 트리거
+        proxyStats = { ...proxyStats };
         
-        // URL별 프록시 정보 저장 (다운로드 ID 찾기)
         const matchingDownload = downloads.find(d => d.url === message.data.url);
         if (matchingDownload) {
           downloadProxyInfo[matchingDownload.id] = {
@@ -340,17 +314,14 @@
         }
         
       } else if (message.type === "proxy_success") {
-        // 프록시 성공 상태
         console.log("Proxy success:", message.data);
         
-        // 전역 프록시 상태 업데이트
         proxyStats.currentProxy = message.data.proxy;
         proxyStats.currentStep = message.data.step;
         proxyStats.status = "success";
-        proxyStats = { ...proxyStats }; // 반응성 트리거
-        fetchProxyStatus(); // 최신 통계 갱신
+        proxyStats = { ...proxyStats };
+        fetchProxyStatus();
         
-        // URL별 프록시 정보 업데이트
         const matchingDownload = downloads.find(d => d.url === message.data.url);
         if (matchingDownload) {
           downloadProxyInfo[matchingDownload.id] = {
@@ -364,18 +335,15 @@
         }
         
       } else if (message.type === "proxy_failed") {
-        // 프록시 실패 상태
         console.log("Proxy failed:", message.data);
         
-        // 전역 프록시 상태 업데이트
         proxyStats.currentProxy = message.data.proxy;
         proxyStats.currentStep = message.data.step;
         proxyStats.status = "failed";
         proxyStats.lastError = message.data.error;
-        proxyStats = { ...proxyStats }; // 반응성 트리거
-        fetchProxyStatus(); // 최신 통계 갱신
+        proxyStats = { ...proxyStats };
+        fetchProxyStatus();
         
-        // URL별 프록시 정보 업데이트
         const matchingDownload = downloads.find(d => d.url === message.data.url);
         if (matchingDownload) {
           downloadProxyInfo[matchingDownload.id] = {
@@ -389,10 +357,8 @@
           downloadProxyInfo = { ...downloadProxyInfo };
         }
       } else if (message.type === "wait_countdown") {
-        // 대기시간 카운트다운 처리
         console.log("Wait countdown:", message.data);
         
-        // URL별 다운로드 찾기
         const matchingDownload = downloads.find(d => d.url === message.data.url);
         if (matchingDownload) {
           downloadWaitInfo[matchingDownload.id] = {
@@ -403,23 +369,21 @@
           };
           downloadWaitInfo = { ...downloadWaitInfo };
           
-          // 대기시간이 0이 되면 정보 제거
           if (message.data.remaining_time <= 0) {
             setTimeout(() => {
               delete downloadWaitInfo[matchingDownload.id];
               downloadWaitInfo = { ...downloadWaitInfo };
-            }, 2000); // 2초 후 제거
+            }, 2000);
           }
         }
       } else if (message.type === "filename_update") {
-        // 파일명 업데이트 메시지 처리
         console.log("Filename update received:", message.data);
         const index = downloads.findIndex((d) => d.id === message.data.id);
         if (index !== -1) {
           downloads[index].file_name = message.data.file_name;
-          downloads = [...downloads]; // Trigger Svelte reactivity
+          downloads = [...downloads];
           console.log(`Updated filename for download ${message.data.id}: ${message.data.file_name}`);
-          updateLocalStats(downloads); // 파일명 업데이트 후 로컬 상태도 업데이트
+          updateLocalStats(downloads);
         }
       }
     };
@@ -444,11 +408,10 @@
           console.log("First download status:", data[0].status);
           console.log("All download statuses:", data.map(d => d.status));
         }
-        downloads = data; // 백엔드에서 배열을 직접 반환하므로 data.items가 아님
+        downloads = data;
         currentPage = 1;
         totalPages = 1;
         
-        // 로컬 다운로드 상태 업데이트
         updateLocalStats(data);
       } else {
         console.error("History API failed with status:", response.status);
@@ -470,15 +433,12 @@
   function updateLocalStats(downloadsData) {
     if (!downloadsData) return;
     
-    // 로컬 다운로드 (use_proxy: false)인 항목들 필터링
     const localDownloads = downloadsData.filter(d => !d.use_proxy);
     
-    // 진행중인 로컬 다운로드 수
     const activeLocalDownloads = localDownloads.filter(d => 
       ['downloading', 'pending'].includes(d.status?.toLowerCase())
     );
     
-    // 현재 다운로드 중인 파일 찾기
     const currentDownloading = activeLocalDownloads.find(d => d.status?.toLowerCase() === 'downloading');
     
     localStats.localDownloadCount = activeLocalDownloads.length;
@@ -487,7 +447,6 @@
     
     if (currentDownloading) {
       localStats.localStatus = "downloading";
-      // 진행률 계산 (downloaded_size / total_size * 100)
       if (currentDownloading.total_size > 0 && currentDownloading.downloaded_size >= 0) {
         localStats.localProgress = Math.round(
           (currentDownloading.downloaded_size / currentDownloading.total_size) * 100
@@ -503,14 +462,12 @@
       localStats.localProgress = 0;
     }
     
-    // 활성 로컬 다운로드 목록
     localStats.activeLocalDownloads = activeLocalDownloads.map(d => ({
       file_name: d.file_name,
       progress: d.total_size > 0 ? Math.round((d.downloaded_size / d.total_size) * 100) : 0,
       status: d.status
     }));
     
-    // 반응성 트리거
     localStats = { ...localStats };
   }
 
@@ -525,18 +482,22 @@
       });
       if (response.ok) {
         const newDownload = await response.json();
+        if (newDownload.status === 'waiting' && newDownload.message_key) {
+          showToastMsg($t(newDownload.message_key, newDownload.message_args));
+        } else {
+          showToastMsg($t("download_added_successfully"));
+        }
         url = "";
-        password = ""; // Clear password after successful download
-        hasPassword = false; // Reset password status
-        showToastMsg($t("download_added_successfully"));
-        fetchDownloads(currentPage); // 다운로드 추가 후 목록 갱신
+        password = "";
+        hasPassword = false;
+        fetchDownloads(currentPage);
       } else {
         const errorData = await response.json();
-        showToastMsg(`다운로드 추가 실패: ${errorData.detail}`);
+        showToastMsg($t('add_download_failed', {detail: errorData.detail}));
       }
     } catch (error) {
       console.error("Error adding download:", error);
-      showToastMsg("다운로드 추가 중 오류가 발생했습니다.");
+      showToastMsg($t('add_download_error'));
     } finally {
       isAddingDownload = false;
     }
@@ -558,14 +519,12 @@
     try {
       const response = await fetch(endpoint, { method: "POST" });
       if (response.ok && downloadId !== null && newStatus !== null) {
-        // Optimistic UI update
         const index = downloads.findIndex((d) => d.id === downloadId);
         if (index !== -1) {
           downloads[index].status = newStatus;
-          downloads = [...downloads]; // Trigger Svelte reactivity
+          downloads = [...downloads];
         }
       }
-      // API 호출 후 활성 다운로드 목록 갱신
       await fetchActiveDownloads();
     } catch (error) {
       console.error(`Error calling ${endpoint}:`, error);
@@ -581,22 +540,22 @@
             method: "DELETE",
           });
           if (response.ok) {
-            showToastMsg("다운로드가 삭제되었습니다.");
-            // 해당 항목만 리스트에서 제거 (전체 재조회 대신)
+            showToastMsg($t('download_deleted_success'));
             downloads = downloads.filter(download => download.id !== id);
           } else {
             const errorData = await response.json();
-            showToastMsg(`삭제 실패: ${errorData.detail}`);
+            showToastMsg($t('delete_failed_with_detail', {detail: errorData.detail}));
           }
         } catch (error) {
           console.error("Error deleting download:", error);
-          showToastMsg("삭제 중 오류가 발생했습니다.");
+          showToastMsg($t('delete_error'));
         }
       },
       title: $t("confirm_delete_title"),
       icon: '<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>',
       confirmText: $t("button_delete"),
       cancelText: $t("button_cancel"),
+      isDeleteAction: true,
     });
   }
 
@@ -614,7 +573,7 @@
     
     if (download.status.toLowerCase() === "failed" && download.error) {
       if (proxyInfo && proxyInfo.error) {
-        return `실패: ${download.error}\n마지막 시도 프록시: ${proxyInfo.proxy}\n오류: ${proxyInfo.error}`;
+        return $t('status_tooltip_failed_with_proxy', {error: download.error, proxy: proxyInfo.proxy, proxy_error: proxyInfo.error});
       }
       return download.error;
     }
@@ -645,7 +604,6 @@
       return tooltip;
     }
     
-    // 기본 상태별 툴팁
     const statusTooltips = {
       'pending': $t("download_pending"),
       'proxying': $t("download_proxying"), 
@@ -660,7 +618,6 @@
 
   function formatDate(dateString) {
     if (!dateString) return "-";
-    // Use formatTimestamp but only show the date part
     const currentLocale = localStorage.getItem('lang') || 'en';
     const date = new Date(dateString);
     const localeCode = currentLocale === 'ko' ? 'ko-KR' : 'en-US';
@@ -697,7 +654,6 @@
   }
 
   function getDownloadProgress(download) {
-    // progress_update에서 직접 받은 진행률이 있으면 우선 사용
     if (download.progress !== undefined && download.progress !== null) {
       return Math.round(download.progress);
     }
@@ -731,7 +687,7 @@
 
   function handlePasswordSet(event) {
     password = event.detail.password;
-    hasPassword = !!password; // Set to true if password is not empty
+    hasPassword = !!password;
     showPasswordModal = false;
   }
 
@@ -747,7 +703,6 @@
         const data = await response.json();
         if (data.path) {
           downloadPath = data.path;
-          // Optionally, save the new download path to backend immediately
           await fetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -763,64 +718,58 @@
   }
 
   async function copyDownloadLink(download) {
-    const link = download.url; // 항상 오리지널 URL 복사
+    const link = download.url;
     try {
       await navigator.clipboard.writeText(link);
-      showToastMsg(`클립보드에 [${link}] 이 복사되었습니다.`);
+      showToastMsg($t('clipboard_copy_success_with_link', {link}));
     } catch (e) {
-      showToastMsg("클립보드 복사 실패");
+      showToastMsg($t('clipboard_copy_failed'));
     }
   }
 
   async function redownload(download) {
-    // 완료된 다운로드를 다시 다운로드 요청
     try {
       const response = await fetch("/api/download/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           url: download.url, 
-          password: "", // 기존 패스워드는 저장되지 않으므로 빈 값
+          password: "",
           use_proxy: download.use_proxy || false
         }),
       });
       if (response.ok) {
-        showToastMsg("재다운로드가 요청되었습니다.");
+        showToastMsg($t('redownload_requested'));
         fetchDownloads(currentPage);
-        // 재다운로드 후 진행중 탭으로 이동
         currentTab = "working";
       } else {
         const errorData = await response.json();
-        showToastMsg(`재다운로드 실패: ${errorData.detail}`);
+        showToastMsg($t('redownload_failed_with_detail', {detail: errorData.detail}));
       }
     } catch (error) {
       console.error("Error redownloading:", error);
-      showToastMsg("재다운로드 중 오류가 발생했습니다.");
+      showToastMsg($t('redownload_error'));
     }
   }
 
   async function handleSettingsChanged(event) {
-    console.log("[DEBUG] 설정 변경됨:", event.detail);
+    console.log("[DEBUG] Settings changed:", event.detail);
     
-    // 새로운 설정으로 currentSettings 업데이트
     if (event.detail) {
       currentSettings = { ...event.detail };
       downloadPath = currentSettings.download_path || "";
     }
     
-    // 언어 변경 처리
     const lang = localStorage.getItem("lang");
     if (lang && lang !== prevLang) {
       loadTranslations(lang);
       prevLang = lang;
     }
     
-    // 서버에서 최신 설정 다시 가져오기 (확실히 하기 위해)
     await fetchSettings();
   }
 
 
-  // 탭별 개수 계산
   $: workingCount = downloads.filter(d => 
     ["pending", "downloading", "proxying", "stopped", "failed"].includes(d.status?.toLowerCase?.() || "")
   ).length;
@@ -835,8 +784,6 @@
     }
   })();
 
-  // 활성 다운로드 개수 계산 (ProxyGauge용)
-  // 프록시 다운로드만 카운트 (use_proxy: true)
   $: activeProxyDownloadCount = downloads.filter(d => 
     d.use_proxy && ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
   ).length;
@@ -853,7 +800,7 @@
         type="button"
         class="logo-button"
         on:click={() => (window.location.href = "/")}
-        aria-label="메인으로 새로고침"
+        aria-label={$t("main_refresh_aria")}
       >
         <img src={logo} alt="Logo" class="logo" />
       </button>
@@ -862,7 +809,7 @@
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
-          aria-label="Settings"
+          aria-label={$t("settings_title")}
         >
           <SettingsIcon />
         </button>
@@ -908,11 +855,11 @@
             class="proxy-toggle-button {useProxy ? 'proxy' : 'local'} {!proxyAvailable ? 'disabled' : ''}"
             on:click={() => proxyAvailable && (useProxy = !useProxy)}
             disabled={!proxyAvailable}
-            title={!proxyAvailable ? "프록시를 사용할 수 없습니다. 설정에서 프록시를 추가하세요." : useProxy ? "프록시 모드 (클릭하여 로컬로 변경)" : "로컬 모드 (클릭하여 프록시로 변경)"}
+            title={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
+            aria-label={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
           >
             <div class="proxy-toggle-slider"></div>
             <div class="proxy-toggle-icons">
-              <!-- 아이콘 제거 -->
             </div>
           </button>
         </div>
@@ -932,9 +879,7 @@
       </form>
     </div>
 
-    <!-- 게이지 컨테이너 -->
     <div class="gauge-container">
-      <!-- 프록시 게이지 -->
       <div class="gauge-item">
         <ProxyGauge 
           totalProxies={proxyStats.totalProxies}
@@ -952,7 +897,6 @@
         />
       </div>
 
-      <!-- 로컬 게이지 -->
       <div class="gauge-item">
         <LocalGauge 
           localDownloadCount={localStats.localDownloadCount}
@@ -966,7 +910,6 @@
     </div>
 
     <div class="card">
-      <!-- 탭 네비게이션을 카드 안으로 이동 -->
       <div class="tabs-container">
         <div class="tabs">
           <button 
@@ -1027,7 +970,6 @@
                       title={getStatusTooltip(download)}
                     >
                       {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
-                        <!-- 대기시간 카운트다운 표시 (활성 상태에서만) -->
                         <span class="wait-countdown">
                           {$t("download_waiting")} ({downloadWaitInfo[download.id].remaining_time}{$t("time_seconds")})
                         </span>
@@ -1063,25 +1005,23 @@
                       type="button"
                       class="grid-proxy-toggle {download.use_proxy ? 'proxy' : 'local'}"
                       disabled={download.status.toLowerCase() !== "stopped"}
-                      title={download.use_proxy ? "프록시 모드" : "로컬 모드"}
+                      title={download.use_proxy ? $t('proxy_mode') : $t('local_mode')}
                       on:click={() => {
-                        // 토글 버튼 클릭 시 배열 갱신
                         downloads = downloads.map((d) =>
                           d.id === download.id
                             ? { ...d, use_proxy: !d.use_proxy }
                             : d
                         );
                       }}
+                      aria-label={download.use_proxy ? $t('proxy_mode') : $t('local_mode')}
                     >
                       <div class="grid-toggle-slider"></div>
                       <div class="grid-toggle-icons">
-                        <!-- 아이콘 제거 -->
                       </div>
                     </button>
                   </td>
                   <td class="actions-cell">
                     {#if currentTab === "completed"}
-                      <!-- 완료 탭에서는 재다운로드 버튼만 표시 -->
                       <button
                         class="button-icon"
                         title={$t("redownload")}
@@ -1092,9 +1032,9 @@
                       </button>
                       <button
                         class="button-icon"
-                        title="다운로드 링크 복사"
+                        title={$t("copy_download_link")}
                         on:click={() => copyDownloadLink(download)}
-                        aria-label="다운로드 링크 복사"
+                        aria-label={$t("copy_download_link")}
                       >
                         <LinkCopyIcon />
                       </button>
@@ -1102,6 +1042,7 @@
                         class="button-icon"
                         title={$t("action_details")}
                         on:click={() => openDetailModal(download)}
+                        aria-label={$t("action_details")}
                       >
                         <InfoIcon />
                       </button>
@@ -1109,11 +1050,11 @@
                         class="button-icon"
                         title={$t("action_delete")}
                         on:click={() => deleteDownload(download.id)}
+                        aria-label={$t("action_delete")}
                       >
                         <DeleteIcon />
                       </button>
                     {:else}
-                      <!-- 현재작업/전체 탭에서는 기존 버튼들 표시 -->
                       {#if download.status
                         .toLowerCase()
                         .includes("downloading") || download.status
@@ -1128,6 +1069,7 @@
                               download.id,
                               "stopped"
                             )}
+                          aria-label={$t("action_pause")}
                         >
                           <StopIcon />
                         </button>
@@ -1147,6 +1089,7 @@
                               download.id,
                               download.use_proxy ? "proxying" : "downloading"
                             )}
+                          aria-label={$t("action_resume")}
                         >
                           <ResumeIcon />
                         </button>
@@ -1161,15 +1104,16 @@
                               download.id,
                               download.use_proxy ? "proxying" : "downloading"
                             )}
+                          aria-label={$t("action_retry")}
                         >
                           <RetryIcon />
                         </button>
                       {/if}
                       <button
                         class="button-icon"
-                        title="다운로드 링크 복사"
+                        title={$t("copy_download_link")}
                         on:click={() => copyDownloadLink(download)}
-                        aria-label="다운로드 링크 복사"
+                        aria-label={$t("copy_download_link")}
                       >
                         <LinkCopyIcon />
                       </button>
@@ -1177,6 +1121,7 @@
                         class="button-icon"
                         title={$t("action_details")}
                         on:click={() => openDetailModal(download)}
+                        aria-label={$t("action_details")}
                       >
                         <InfoIcon />
                       </button>
@@ -1184,6 +1129,7 @@
                         class="button-icon"
                         title={$t("action_delete")}
                         on:click={() => deleteDownload(download.id)}
+                        aria-label={$t("action_delete")}
                       >
                         <DeleteIcon />
                       </button>
@@ -1310,21 +1256,18 @@
     margin: 0 2px;
   }
 
-  /* 테이블 컨테이너 높이 제한 (app.css에서 기본 스타일 상속) */
   .table-container {
-    height: auto; /* 콘텐츠에 맞게 자동 조정 */
-    min-height: 200px; /* 최소 높이만 설정 */
+    height: auto;
+    min-height: 200px;
   }
 
-  /* 빈 테이블일 때 더 작은 높이 */
   .table-container.empty-table {
-    height: fit-content; /* 콘텐츠에 정확히 맞춤 */
-    min-height: auto; /* 최소 높이 제거 */
-    max-height: none; /* 최대 높이 제한 제거 */
-    overflow: hidden; /* 스크롤바 완전 제거 */
+    height: fit-content;
+    min-height: auto;
+    max-height: none;
+    overflow: hidden;
   }
 
-  /* 인터랙티브 상태 라벨 스타일 */
   .interactive-status {
     position: relative;
     cursor: help;
@@ -1354,7 +1297,6 @@
     to { transform: rotate(360deg); }
   }
 
-  /* 상태별 특별한 스타일 */
   .status-proxying.interactive-status,
   .status-downloading.interactive-status {
     animation: pulse 2s ease-in-out infinite;
@@ -1365,7 +1307,6 @@
     50% { opacity: 0.8; transform: scale(1.02); }
   }
 
-  /* 상태별 테두리 색상 */
   .status-proxying.interactive-status {
     border: 1px solid var(--warning-color);
   }
@@ -1382,7 +1323,6 @@
     border: 1px solid var(--success-color);
   }
   
-  /* 대기시간 카운트다운 스타일 */
   .wait-countdown {
     color: var(--warning-color);
     font-weight: bold;
@@ -1394,7 +1334,6 @@
     50% { opacity: 0.6; }
   }
 
-  /* 카드 내부 탭 스타일 */
   .tabs-container {
     margin: -1.5rem -1.5rem 0 -1.5rem;
     padding: 1rem 1.5rem 0 1.5rem;
@@ -1420,8 +1359,6 @@
     border-bottom: none;
   }
 
-  /* 탭 스타일 (다크 테마는 현재 사용되지 않으므로 제거) */
-
   .tab:hover {
     color: var(--text-primary);
     background-color: rgba(var(--primary-color-rgb), 0.05);
@@ -1445,7 +1382,6 @@
     background-color: var(--card-background);
   }
 
-  /* 프록시 토글 버튼 스타일 */
   .proxy-toggle-container {
     display: flex;
     align-items: center;
@@ -1522,9 +1458,6 @@
     transition: opacity 0.3s ease;
   }
 
-  /* 프록시 토글 아이콘 스타일 제거 (미사용) */
-
-  /* 그리드 프록시 토글 버튼 */
   .grid-proxy-toggle {
     position: relative;
     display: flex;
@@ -1589,9 +1522,6 @@
     transition: opacity 0.3s ease;
   }
 
-  /* 그리드 프록시 토글 아이콘 스타일 제거 (미사용) */
-
-  /* 프로그레스 바 - 실시간 업데이트용 */
   .progress-container {
     position: relative;
     width: calc(100% - 10px);
@@ -1625,7 +1555,6 @@
     z-index: 2;
   }
 
-  /* 게이지 컨테이너 */
   .gauge-container {
     display: flex;
     gap: 1rem;
@@ -1634,10 +1563,9 @@
 
   .gauge-item {
     flex: 1;
-    min-height: 100px; /* 최소 높이로 통일 */
+    min-height: 100px;
   }
 
-  /* 태블릿에서 세로 배치 */
   @media (max-width: 1024px) {
     .gauge-container {
       flex-direction: column;

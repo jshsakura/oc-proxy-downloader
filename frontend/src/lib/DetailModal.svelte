@@ -43,10 +43,10 @@
         document.execCommand('copy');
         textArea.remove();
       }
-      showToastMsg($t("copy_success") || "복사되었습니다", "success");
+      showToastMsg($t("copy_success"), "success");
     } catch (err) {
-      console.error("클립보드 복사 실패:", err);
-      showToastMsg($t("copy_failed") || "복사에 실패했습니다", "error");
+      console.error($t("clipboard_copy_failed"), err);
+      showToastMsg($t("copy_failed"), "error");
     }
   }
 
@@ -101,7 +101,7 @@
                   <button 
                     class="copy-button"
                     on:click={() => copyToClipboard(download.url)}
-                    title={$t("copy_url") || "URL 복사"}
+                    title={$t("copy_url")}
                   >
                     <CopyIcon />
                   </button>
@@ -117,7 +117,7 @@
                     <button 
                       class="copy-button"
                       on:click={() => copyToClipboard(download.direct_link)}
-                      title={$t("copy_url") || "URL 복사"}
+                      title={$t("copy_url")}
                     >
                       <CopyIcon />
                     </button>
@@ -193,7 +193,7 @@
                     <button 
                       class="copy-button"
                       on:click={() => copyToClipboard(download.error)}
-                      title={$t("copy_error") || "에러 메시지 복사"}
+                      title={$t("copy_error")}
                     >
                       <CopyIcon />
                     </button>

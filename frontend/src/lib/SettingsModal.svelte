@@ -9,9 +9,6 @@
   import { toastMessage, showToast, showToastMsg } from "./toast.js";
   import { onMount, onDestroy } from "svelte";
 
-  // --- Icons ---
-  // icons 객체 완전히 삭제
-
   const dispatch = createEventDispatcher();
 
   const themeIcons = {
@@ -30,20 +27,17 @@
   let selectedLocaleWasSet = false;
   let initialSettingsLoaded = false;
 
-  // 프록시 관리 관련 변수
   let userProxies = [];
   let newProxyAddress = "";
   let newProxyDescription = "";
   let isAddingProxy = false;
 
-  // settings 초기 로드 시에만 동기화 (중복 동기화 방지)
   $: if (currentSettings && currentSettings.download_path && !initialSettingsLoaded) {
     settings = { ...currentSettings };
     selectedTheme = settings.theme || $theme;
     initialSettingsLoaded = true;
   }
 
-  // settings가 로드되면 로딩 false (download_path가 없어도 설정 가능하도록)
   $: isLoading = !settings;
 
   $: if (showModal && !selectedLocaleWasSet) {
@@ -52,14 +46,13 @@
   }
   $: if (!showModal) {
     selectedLocaleWasSet = false;
-    initialSettingsLoaded = false; // 모달이 닫히면 초기화 플래그 리셋
+    initialSettingsLoaded = false;
   }
 
   function closeModal() {
     dispatch("close");
   }
 
-  // 프록시 관리 함수들
   async function loadUserProxies() {
     try {
       const response = await fetch("/api/proxies");
@@ -67,13 +60,13 @@
         userProxies = await response.json();
       }
     } catch (error) {
-      console.error("프록시 목록 로드 실패:", error);
+      console.error("Proxy list load failed:", error);
     }
   }
 
   async function addProxy() {
     if (!newProxyAddress.trim()) {
-      showToastMsg("프록시 주소를 입력하세요", "error");
+      showToastMsg($t("proxy_address_placeholder"), "error");
       return;
     }
 
@@ -89,17 +82,17 @@
       });
 
       if (response.ok) {
-        showToastMsg("프록시가 추가되었습니다", "success");
+        showToastMsg($t("proxy_added_success"), "success");
         newProxyAddress = "";
         newProxyDescription = "";
         await loadUserProxies();
-        dispatch('proxyChanged'); // 부모 컴포넌트에 프록시 변경 알림
+        dispatch('proxyChanged');
       } else {
         const error = await response.text();
-        showToastMsg(`프록시 추가 실패: ${error}`, "error");
+        showToastMsg($t("proxy_add_failed", { error }), "error");
       }
     } catch (error) {
-      showToastMsg("프록시 추가 중 오류가 발생했습니다", "error");
+      showToastMsg($t("proxy_add_error"), "error");
     } finally {
       isAddingProxy = false;
     }
@@ -112,14 +105,14 @@
       });
 
       if (response.ok) {
-        showToastMsg("프록시가 삭제되었습니다", "success");
+        showToastMsg($t("proxy_deleted_success"), "success");
         await loadUserProxies();
-        dispatch('proxyChanged'); // 부모 컴포넌트에 프록시 변경 알림
+        dispatch('proxyChanged');
       } else {
-        showToastMsg("프록시 삭제 실패", "error");
+        showToastMsg($t("proxy_delete_failed"), "error");
       }
     } catch (error) {
-      showToastMsg("프록시 삭제 중 오류가 발생했습니다", "error");
+      showToastMsg($t("proxy_delete_error"), "error");
     }
   }
 
@@ -131,12 +124,12 @@
 
       if (response.ok) {
         await loadUserProxies();
-        dispatch('proxyChanged'); // 부모 컴포넌트에 프록시 변경 알림
+        dispatch('proxyChanged');
       } else {
-        showToastMsg("프록시 상태 변경 실패", "error");
+        showToastMsg($t("proxy_toggle_failed"), "error");
       }
     } catch (error) {
-      showToastMsg("프록시 상태 변경 중 오류가 발생했습니다", "error");
+      showToastMsg($t("proxy_toggle_error"), "error");
     }
   }
 
@@ -166,7 +159,6 @@
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
       } else {
-        // Fallback for older browsers or non-HTTPS
         const textArea = document.createElement("textarea");
         textArea.value = text;
         textArea.style.position = "fixed";
@@ -178,27 +170,24 @@
         document.execCommand('copy');
         textArea.remove();
       }
-      showToastMsg($t("copy_success") || "복사되었습니다", "success");
+      showToastMsg($t("copy_success"), "success");
     } catch (error) {
-      console.error("클립보드 복사 실패:", error);
-      showToastMsg($t("copy_failed") || "복사에 실패했습니다", "error");
+      console.error("Clipboard copy failed:", error);
+      showToastMsg($t("copy_failed"), "error");
     }
   }
 
-  // 모달이 열릴 때 프록시 목록 로드
   $: if (showModal) {
     loadUserProxies();
   }
 
   async function saveSettings() {
-    // 테마 먼저 적용
     theme.set(selectedTheme);
     
-    // 설정 객체 업데이트
     settings.theme = selectedTheme;
     settings.language = selectedLocale;
     
-    console.log("[DEBUG] 저장할 설정:", settings);
+    console.log("[DEBUG] Saving settings:", settings);
     
     try {
       const response = await fetch("/api/settings", {
@@ -207,32 +196,30 @@
         body: JSON.stringify(settings),
       });
       
-      console.log("[DEBUG] 저장 API 응답:", response.status);
+      console.log("[DEBUG] Save API response:", response.status);
       
       if (response.ok) {
         const responseData = await response.json();
-        console.log("[DEBUG] 저장 응답 데이터:", responseData);
+        console.log("[DEBUG] Save response data:", responseData);
         
-        // 언어 변경 시에만 새로고침
         if (localStorage.getItem("lang") !== selectedLocale) {
           localStorage.setItem("lang", selectedLocale);
           window.location.reload();
-          return; // 새로고침되므로 더 이상 진행하지 않음
+          return;
         }
         
-        // 테마만 변경된 경우 모달 닫기
         dispatch("settingsChanged", settings);
         closeModal();
       } else {
-        console.error("[ERROR] 저장 실패:", response.status);
-        let errorMessage = `설정 저장에 실패했습니다 (${response.status})`;
+        console.error("[ERROR] Save failed:", response.status);
+        let errorMessage = $t("settings_save_failed", { status: response.status });
         
         if (response.status === 500) {
-          errorMessage += "\n서버 내부 오류가 발생했습니다.";
+          errorMessage += `\n${$t("settings_save_error_server")}`;
         } else if (response.status === 403) {
-          errorMessage += "\n권한이 없습니다.";
+          errorMessage += `\n${$t("settings_save_error_auth")}`;
         } else if (response.status === 404) {
-          errorMessage += "\nAPI 경로를 찾을 수 없습니다.";
+          errorMessage += `\n${$t("settings_save_error_notfound")}`;
         }
         
         alert(errorMessage);
@@ -245,29 +232,26 @@
 
   async function resetToDefault() {
     try {
-      console.log("[DEBUG] 기본 경로 가져오기 API 호출 시작");
+      console.log("[DEBUG] Calling API to get default path");
       const response = await fetch("/api/default_download_path");
-      console.log("[DEBUG] API 응답 받음:", response.status);
+      console.log("[DEBUG] API response received:", response.status);
       
       if (response.ok) {
         const data = await response.json();
-        console.log("[DEBUG] 기본 경로 데이터:", data);
+        console.log("[DEBUG] Default path data:", data);
         if (data.path) {
           settings = { ...settings, download_path: data.path };
-          console.log("[DEBUG] 기본 경로로 리셋됨:", data.path);
+          console.log("[DEBUG] Reset to default path:", data.path);
         } else {
-          // API 응답에 path가 없으면 기본값 사용
           settings = { ...settings, download_path: "/downloads" };
-          console.log("[DEBUG] 기본값으로 리셋됨: /downloads");
+          console.log("[DEBUG] Reset to default: /downloads");
         }
       } else {
-        console.warn("[WARN] 기본 경로 API 실패, 기본값 사용:", response.status);
-        // API 실패 시 기본값으로 직접 설정
+        console.warn("[WARN] Default path API failed, using fallback:", response.status);
         settings = { ...settings, download_path: "/downloads" };
       }
     } catch (e) {
-      console.warn("[WARN] 기본 경로 API 오류, 기본값 사용:", e.message);
-      // 오류 발생 시 기본값으로 직접 설정
+      console.warn("[WARN] Default path API error, using fallback:", e.message);
       settings = { ...settings, download_path: "/downloads" };
     }
   }
@@ -300,10 +284,9 @@
       {#if isLoading}
         <div class="modal-loading-container">
           <div class="modal-spinner"></div>
-          <div class="modal-loading-text">로딩 중...</div>
+          <div class="modal-loading-text">{$t("loading_message")}</div>
         </div>
       {:else}
-        <!-- 모던 헤더 -->
         <div class="modal-header">
           <div class="header-content">
             <div class="title-section">
@@ -321,7 +304,6 @@
           </div>
         </div>
 
-        <!-- 모던 본문 -->
         <div class="modal-body">
           <div class="form-group">
             <label for="download-path">{$t("settings_download_path")}</label>
@@ -331,14 +313,14 @@
                 type="text"
                 class="input"
                 bind:value={settings.download_path}
-                placeholder="다운로드 경로를 입력하세요 (예: /downloads)"
+                placeholder={$t("download_path_placeholder_long")}
               />
               <button
                 type="button"
                 class="input-icon-button reset-button"
                 on:click={resetToDefault}
-                title="기본 경로로 리셋"
-                aria-label="기본 경로로 리셋"
+                title={$t("reset_to_default_tooltip")}
+                aria-label={$t("reset_to_default_tooltip")}
               >
                 <HomeIcon />
               </button>
@@ -353,8 +335,8 @@
               bind:value={selectedLocale}
               on:change={changeLocale}
             >
-              <option value="ko">한국어</option>
-              <option value="en">English</option>
+              <option value="ko">{$t("language_korean")}</option>
+              <option value="en">{$t("language_english")}</option>
             </select>
           </div>
 
@@ -369,9 +351,7 @@
                   hidden
                 />
                 <div class="theme-card light-theme-card">
-                  <span class="theme-icon" aria-label="라이트"
-                    >{themeIcons.light}</span
-                  >
+                  <span class="theme-icon" aria-label={$t("theme_light_aria")} >{themeIcons.light}</span>
                   <span>{$t("theme_light")}</span>
                 </div>
               </label>
@@ -383,9 +363,7 @@
                   hidden
                 />
                 <div class="theme-card dark-theme-card">
-                  <span class="theme-icon" aria-label="다크"
-                    >{themeIcons.dark}</span
-                  >
+                  <span class="theme-icon" aria-label={$t("theme_dark_aria")} >{themeIcons.dark}</span>
                   <span>{$t("theme_dark")}</span>
                 </div>
               </label>
@@ -397,9 +375,7 @@
                   hidden
                 />
                 <div class="theme-card dracula-theme-card">
-                  <span class="theme-icon" aria-label="드라큘라"
-                    >{themeIcons.dracula}</span
-                  >
+                  <span class="theme-icon" aria-label={$t("theme_dracula_aria")} >{themeIcons.dracula}</span>
                   <span>{$t("theme_dracula")}</span>
                 </div>
               </label>
@@ -411,20 +387,16 @@
                   hidden
                 />
                 <div class="theme-card system-theme-card">
-                  <span class="theme-icon" aria-label="시스템"
-                    >{themeIcons.system}</span
-                  >
+                  <span class="theme-icon" aria-label={$t("theme_system_aria")} >{themeIcons.system}</span>
                   <span>{$t("theme_system")}</span>
                 </div>
               </label>
             </div>
           </fieldset>
 
-          <!-- 프록시 관리 섹션 -->
           <fieldset class="form-group proxy-management">
             <legend>{$t("proxy_management")}</legend>
             
-            <!-- 프록시 추가 -->
             <div class="proxy-add-section">
               <div class="proxy-input-group">
                 <input
@@ -444,12 +416,11 @@
                   on:click={addProxy}
                   disabled={isAddingProxy}
                 >
-                  {isAddingProxy ? "추가 중..." : $t("proxy_add_button")}
+                  {isAddingProxy ? $t("adding_proxy") : $t("proxy_add_button")}
                 </button>
               </div>
             </div>
 
-            <!-- 프록시 목록 -->
             <div class="proxy-list-section">
               {#if userProxies.length === 0}
                 <div class="proxy-empty-state">
@@ -530,10 +501,8 @@
           </fieldset>
         </div>
 
-        <!-- 모던 푸터 -->
         <div class="modal-footer">
           <div class="footer-left">
-            <!-- 왼쪽 공간 비워둠 -->
           </div>
           <div class="footer-right">
             <button class="button button-secondary" on:click={closeModal}>
@@ -554,7 +523,6 @@
 {/if}
 
 <style>
-  /* 모던 백드롭 */
   .modern-backdrop {
     position: fixed;
     top: 0;
@@ -581,7 +549,6 @@
     }
   }
 
-  /* 모던 모달 */
   .modern-modal {
     background: var(--card-background);
     border-radius: 16px;
@@ -610,13 +577,12 @@
     }
   }
 
-  /* 모던 헤더 */
   .modal-header {
     background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover, #1e40af) 100%);
     color: white;
     padding: 1.5rem 2rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    flex-shrink: 0; /* 헤더가 줄어들지 않도록 */
+    flex-shrink: 0;
   }
 
   .header-content {
@@ -690,7 +656,6 @@
     color: white;
   }
 
-  /* 로딩 상태 */
   .modal-loading-container {
     display: flex;
     flex-direction: column;
@@ -722,13 +687,12 @@
     letter-spacing: 0.05em;
   }
 
-  /* 모던 본문 */
   .modal-body {
     padding: 2rem;
     flex: 1;
     overflow-y: auto;
     margin-bottom: 0;
-    min-height: 0; /* flexbox 스크롤을 위해 필요 */
+    min-height: 0;
   }
 
   .form-group {
@@ -766,7 +730,6 @@
     letter-spacing: 0.025em;
   }
 
-  /* 입력 그룹 (폴더 선택용) */
   .input-group {
     position: relative;
     display: flex;
@@ -787,7 +750,7 @@
   }
   
   .input-group .input {
-    padding-right: 48px; /* 리셋 버튼 하나만 있으므로 패딩 줄임 */
+    padding-right: 48px;
   }
 
   .input:focus {
@@ -814,7 +777,7 @@
   }
   
   .input-icon-button.reset-button {
-    right: 8px; /* 폴더 버튼 제거했으므로 오른쪽으로 이동 */
+    right: 8px;
   }
 
   .input-icon-button:hover {
@@ -827,7 +790,6 @@
     height: 1rem;
   }
 
-  /* 테마 선택 */
   .theme-options {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -853,7 +815,6 @@
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
-    /* 기본 배경은 각 테마별 클래스에서 덮어씀 */
     background: var(--card-background);
     color: var(--text-primary);
   }
@@ -890,12 +851,11 @@
     color: white !important;
   }
 
-  /* 모던 푸터 */
   .modal-footer {
     padding: 1.25rem 2rem;
     border-top: 1px solid var(--card-border, #e5e7eb);
     background: linear-gradient(135deg, 
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.03) 0%, 
+      rgba(var(--primary-color-rgb, 59, 130, 246), 0.03) 0%,
       rgba(var(--primary-color-rgb, 59, 130, 246), 0.01) 100%);
     backdrop-filter: blur(10px);
     display: flex;
@@ -905,7 +865,7 @@
     z-index: 10;
     border-bottom-left-radius: 16px;
     border-bottom-right-radius: 16px;
-    flex-shrink: 0; /* 푸터가 줄어들지 않도록 */
+    flex-shrink: 0;
   }
 
   .footer-left {
@@ -971,7 +931,6 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
-  /* 반응형 디자인 */
   @media (max-height: 700px) {
     .modern-modal {
       max-height: 95vh;
@@ -1030,7 +989,6 @@
     }
   }
 
-  /* 프록시 관리 스타일 */
   .proxy-management {
     margin-top: 1.5rem;
   }
@@ -1107,20 +1065,18 @@
     text-align: center !important;
   }
 
-  .proxy-table th:nth-child(1), .proxy-table td:nth-child(1) { width: 35%; } /* 주소 */
-  .proxy-table th:nth-child(2), .proxy-table td:nth-child(2) { width: 12%; } /* 타입 */
-  .proxy-table th:nth-child(3), .proxy-table td:nth-child(3) { width: 12%; } /* 상태 */
-  .proxy-table th:nth-child(4), .proxy-table td:nth-child(4) { width: 26%; } /* 추가일시 */
-  .proxy-table th:nth-child(5), .proxy-table td:nth-child(5) { width: 15%; } /* 작업 */
+  .proxy-table th:nth-child(1), .proxy-table td:nth-child(1) { width: 35%; }
+  .proxy-table th:nth-child(2), .proxy-table td:nth-child(2) { width: 12%; }
+  .proxy-table th:nth-child(3), .proxy-table td:nth-child(3) { width: 12%; }
+  .proxy-table th:nth-child(4), .proxy-table td:nth-child(4) { width: 26%; }
+  .proxy-table th:nth-child(5), .proxy-table td:nth-child(5) { width: 15%; }
 
-  /* 모든 테이블 셀에 기본 오버플로우 처리 */
   .proxy-table td {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  /* 주소 컬럼은 특별 처리 */
   .proxy-table td:nth-child(1) {
     white-space: normal;
   }
@@ -1290,8 +1246,6 @@
   .proxy-actions {
     white-space: nowrap;
   }
-
-  /* 이전 스타일 제거됨 - 새로운 proxy-action-btn 스타일 사용 */
 
   .proxy-row.inactive {
     opacity: 0.6;

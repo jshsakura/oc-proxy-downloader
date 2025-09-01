@@ -99,10 +99,10 @@ def create_download_task(request: DownloadRequestCreate, db: Session = Depends(g
             # 어떤 제한인지 확인
             if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
                 print(f"[LOG] 전체 다운로드 제한 도달 ({download_manager.MAX_TOTAL_DOWNLOADS}개). 대기 상태로 설정: {db_req.id}")
-                return {"id": db_req.id, "status": "waiting", "message": f"전체 다운로드 제한 도달 ({download_manager.MAX_TOTAL_DOWNLOADS}개). 대기 중..."}
+                return {"id": db_req.id, "status": "waiting", "message_key": "total_download_limit_reached", "message_args": {"limit": download_manager.MAX_TOTAL_DOWNLOADS}}
             else:
                 print(f"[LOG] 1fichier 로컬 다운로드 제한 도달 ({download_manager.MAX_LOCAL_DOWNLOADS}개). 대기 상태로 설정: {db_req.id}")
-                return {"id": db_req.id, "status": "waiting", "message": f"1fichier 로컬 다운로드 제한 도달 ({download_manager.MAX_LOCAL_DOWNLOADS}개). 대기 중..."}
+                return {"id": db_req.id, "status": "waiting", "message_key": "local_download_limit_reached", "message_args": {"limit": download_manager.MAX_LOCAL_DOWNLOADS}}
     
     thread = threading.Thread(
         target=download_1fichier_file_new,

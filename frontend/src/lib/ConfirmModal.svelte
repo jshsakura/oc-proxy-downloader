@@ -4,10 +4,11 @@
   import XIcon from "../icons/XIcon.svelte";
   export let showModal = false;
   export let message = "";
-  export let confirmText = null; // 다국어 기본값 지원
+  export let confirmText = null;
   export let cancelText = null;
   export let icon = null;
   export let title = null;
+  export let isDeleteAction = false;
 
   const dispatch = createEventDispatcher();
 
@@ -19,11 +20,6 @@
     dispatch("cancel");
     showModal = false;
   }
-
-  // 삭제/딜리트 버튼이면 빨강색
-  $: isDelete =
-    (confirmText || "").toLowerCase().includes("삭제") ||
-    (confirmText || "").toLowerCase().includes("delete");
 </script>
 
 {#if showModal}
@@ -52,7 +48,7 @@
           >{cancelText || $t("button_cancel")}</button
         >
         <button
-          class="button {isDelete ? 'button-danger' : 'button-primary'}"
+          class="button {isDeleteAction ? 'button-danger' : 'button-primary'}"
           on:click={handleConfirm}>{confirmText || $t("button_confirm")}</button
         >
       </div>

@@ -24,7 +24,7 @@ def force_print(*args, **kwargs):
     sys.stdout.flush()
 
 # 로깅 레벨 설정 (환경변수로 제어 가능)
-LOG_LEVEL = os.getenv('LOG_LEVEL', 'WARNING').upper()  # 기본값을 WARNING으로 변경
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'DEBUG').upper()  # 기본값을 WARNING으로 변경
 
 # 로그 레벨에 따른 메시지 필터링
 def smart_print(*args, **kwargs):
