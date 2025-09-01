@@ -39,8 +39,10 @@ yarn-error.log*
 
 # Project specific
 backend/config/downloads.db
-backend/config/config.json
+
 backend/config/*.db
+backend/config.json
+backend/downloads.db
 backend/downloads/*
 backend/*.log
 downloads/

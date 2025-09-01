@@ -17,7 +17,7 @@ class DownloadManager:
         self.active_downloads = {}  # {download_id: Thread}
         self.local_downloads = set()  # 로컬 다운로드 ID 집합 (1fichier만)
         self.all_downloads = set()  # 전체 다운로드 ID 집합 (모든 도메인)
-        self.MAX_LOCAL_DOWNLOADS = 2  # 최대 로컬 다운로드 수 (1fichier만)
+        self.MAX_LOCAL_DOWNLOADS = 1  # 최대 로컬 다운로드 수 (1fichier만)
         self.MAX_TOTAL_DOWNLOADS = 5  # 최대 전체 동시 다운로드 수
         
         # 스레드 안전성을 위한 락
