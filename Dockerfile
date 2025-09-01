@@ -31,7 +31,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY backend/ ./backend/
 
 # 프론트엔드 빌드 결과 복사
-COPY --from=frontend-build /app/frontend/dist ./backend/static
+COPY --from=frontend-build /app/frontend/build ./backend/static
 
 # 필요한 디렉토리 생성
 RUN mkdir -p /downloads /config
