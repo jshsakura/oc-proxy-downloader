@@ -22,6 +22,14 @@ JWT_EXPIRATION_HOURS = int(os.getenv('JWT_EXPIRATION_HOURS', '24'))
 # 인증이 활성화되었는지 확인
 AUTHENTICATION_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
 
+# 개발/테스트용 임시 활성화 (환경변수 없어도 로그인 화면 테스트 가능)
+if not AUTHENTICATION_ENABLED:
+    # 임시 테스트 계정 설정
+    AUTH_USERNAME = AUTH_USERNAME or 'admin'
+    AUTH_PASSWORD = AUTH_PASSWORD or 'test123'
+    AUTHENTICATION_ENABLED = True
+    print(f"[개발모드] 임시 로그인 활성화 - 사용자명: {AUTH_USERNAME}, 비밀번호: {AUTH_PASSWORD}")
+
 # 비밀번호 해싱을 위한 컨텍스트 (단순한 경우 평문 비교도 지원)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

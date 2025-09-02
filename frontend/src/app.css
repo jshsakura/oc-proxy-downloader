@@ -1346,6 +1346,60 @@ html.dracula .system-theme-card {
   gap: 0.5rem;
 }
 
+/* Pagination button styles */
+.page-number-btn {
+  min-width: 2.5rem;
+  height: 2.5rem;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background-color: var(--card-background);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-number-btn:hover:not(:disabled) {
+  background-color: var(--card-border);
+  border-color: var(--primary-color);
+}
+
+.page-number-btn:disabled {
+  background-color: var(--disabled-button-background);
+  color: var(--disabled-button-text);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Active page button styling - much more visible in all themes */
+.page-number-btn.active {
+  background-color: var(--primary-color) !important;
+  color: #ffffff !important;
+  border-color: var(--primary-color) !important;
+  font-weight: 700;
+  box-shadow: 0 2px 4px rgba(var(--primary-color-rgb), 0.3);
+}
+
+/* Enhanced active states for dark themes */
+html.dark .page-number-btn.active {
+  background-color: #3b82f6 !important;
+  color: #ffffff !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.4);
+}
+
+html.dracula .page-number-btn.active {
+  background-color: #bd93f9 !important;
+  color: #282a36 !important;
+  border-color: #bd93f9 !important;
+  box-shadow: 0 2px 4px rgba(189, 147, 249, 0.4);
+}
+
 @media (max-width: 600px) {
   .pagination {
     flex-direction: column;

@@ -52,7 +52,6 @@ def should_retry_download(req, error_message: str) -> bool:
         "connection aborted",
         "connection reset",
         "httpsconnectionpool",
-        "dstorage.fr",
         "errno 11001",
         "name or service not known",
         "nodename nor servname provided",

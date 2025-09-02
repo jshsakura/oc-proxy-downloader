@@ -265,10 +265,12 @@ def start_actual_download(download_id: int, db: Session = Depends(get_db)):
     from .shared import download_manager
     original_use_proxy = getattr(item, 'use_proxy', False)
     
-    if not original_use_proxy:
-        if not download_manager.can_start_download(item.url):
-            # 대기 상태 유지
-            return {"id": item.id, "status": "waiting", "message": "Download limit reached, staying in queue"}
+    # 다운로드 제한 체크 (프록시 사용 여부와 관계없이 모든 다운로드에서 체크)
+    if not download_manager.can_start_download(item.url):
+        # 대기 상태 유지 (다운로드 제한이나 쿨다운 때문에 시작할 수 없음)
+        setattr(item, "status", StatusEnum.pending)
+        db.commit()
+        return {"id": item.id, "status": "waiting", "message": "Download limit reached, staying in queue"}
     
     # 다운로드 시작
     setattr(item, "status", StatusEnum.downloading)

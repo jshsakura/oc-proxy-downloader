@@ -220,13 +220,33 @@ api_router.include_router(auth_router)  # 인증 라우터 추가
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
-        self.max_connections = int(os.getenv('MAX_WEBSOCKET_CONNECTIONS', '10'))  # 기본 10개로 축소
+        self.max_connections = int(os.getenv('MAX_WEBSOCKET_CONNECTIONS', '50'))  # 제한을 50개로 늘림
         self.connection_count = 0
 
+    async def cleanup_dead_connections(self):
+        """죽은 연결들을 정리"""
+        dead_connections = []
+        for connection in self.active_connections:
+            try:
+                # 연결 상태를 확인하기 위해 ping 시도
+                await connection.ping()
+            except:
+                # ping이 실패하면 죽은 연결
+                dead_connections.append(connection)
+        
+        for connection in dead_connections:
+            self.disconnect(connection)
+        
+        if dead_connections:
+            print(f"[LOG] {len(dead_connections)}개의 죽은 WebSocket 연결 정리됨")
+
     async def connect(self, websocket: WebSocket):
-        # 연결 수 제한 확인 (극단적인 경우만 차단)
+        # 먼저 죽은 연결들 정리
+        await self.cleanup_dead_connections()
+        
+        # 연결 수 제한 확인 (여전히 초과하는 경우)
         if len(self.active_connections) >= self.max_connections:
-            print(f"[WARNING] WebSocket 연결 수 제한 도달: {self.max_connections}개 (비정상적 접근 의심)")
+            print(f"[WARNING] WebSocket 연결 수 제한 도달: {self.max_connections}개")
             await websocket.close(code=1008, reason="Too many connections")
             return False
         

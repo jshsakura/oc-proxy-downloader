@@ -145,16 +145,29 @@
         prevLang = localStorage.getItem("lang");
       }
     }
-    fetchDownloads(currentPage);
-    connectWebSocket();
-    fetchActiveDownloads();
-    fetchProxyStatus();
-    checkProxyAvailability();
+    
+    // 로그인이 필요하지 않거나 이미 인증된 경우에만 WebSocket 연결
+    if (!$needsLogin || $isAuthenticated) {
+      fetchDownloads(currentPage);
+      connectWebSocket();
+      fetchActiveDownloads();
+      fetchProxyStatus();
+      checkProxyAvailability();
+    }
 
     const unsubscribe = t.subscribe((t_func) => {
       document.title = t_func("title");
     });
   });
+
+  function handleLoginSuccess() {
+    // 로그인 성공 후 필요한 데이터 로드 및 WebSocket 연결
+    fetchDownloads(currentPage);
+    connectWebSocket();
+    fetchActiveDownloads();
+    fetchProxyStatus();
+    checkProxyAvailability();
+  }
 
   async function fetchSettings() {
     try {
@@ -825,6 +838,15 @@
   }
 
 
+  // Tab change handler to refresh data when switching tabs
+  function onTabChange(newTab) {
+    if (currentTab !== newTab) {
+      currentTab = newTab;
+      // Force data refresh when switching tabs
+      fetchDownloads();
+    }
+  }
+
   $: workingCount = downloads.filter(d => 
     ["pending", "downloading", "proxying", "stopped", "failed"].includes(d.status?.toLowerCase?.() || "")
   ).length;
@@ -876,7 +898,7 @@
       <p>Loading...</p>
     </div>
   {:else if $needsLogin}
-    <LoginScreen on:login={() => window.location.reload()} />
+    <LoginScreen on:login={handleLoginSuccess} />
   {:else}
     <div class="header">
       <button
@@ -1015,14 +1037,14 @@
           <button 
             class="tab" 
             class:active={currentTab === "working"}
-            on:click={() => currentTab = "working"}
+            on:click={() => onTabChange("working")}
           >
             {$t("tab_working")} ({workingCount})
           </button>
           <button 
             class="tab" 
             class:active={currentTab === "completed"}
-            on:click={() => currentTab = "completed"}
+            on:click={() => onTabChange("completed")}
           >
             {$t("tab_completed")} ({completedCount})
           </button>
@@ -1263,7 +1285,8 @@
               {@const pageNum = Math.max(1, currentPage - 2) + i}
               {#if pageNum <= totalPages}
                 <button
-                  class="page-number-btn {currentPage === pageNum ? 'active' : ''}"
+                  class="page-number-btn"
+                  class:active={currentPage === pageNum}
                   on:click={() => goToPage(pageNum)}
                 >
                   {pageNum}

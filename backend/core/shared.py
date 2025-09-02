@@ -23,7 +23,7 @@ class DownloadManager:
         
         # 1fichier 다운로드 쿨다운 관리
         self.last_1fichier_completion_time = 0  # 마지막 1fichier 다운로드 완료 시간
-        self.FICHIER_COOLDOWN_SECONDS = 30  # 1fichier 다운로드 간 대기 시간 (초)
+        self.FICHIER_COOLDOWN_SECONDS = 90  # 1fichier 다운로드 간 대기 시간 (초) - 1fichier 서버 부하 방지
         
         # 스레드 안전성을 위한 락
         self._lock = threading.Lock()

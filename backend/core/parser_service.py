@@ -71,9 +71,19 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     
     scraper.mount('https://', NoSSLVerifyHTTPAdapter())
     
+    # User-Agent 로테이션을 위한 랜덤 선택
+    import random
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15'
+    ]
+    
     # 도커 환경을 위한 더 완전한 브라우저 헤더
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'User-Agent': random.choice(user_agents),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
         'Accept-Encoding': 'gzip, deflate, br, zstd',
@@ -94,7 +104,7 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     if use_proxy and proxies:
         # print(f"[LOG] 지정된 프록시로 파싱 시도: {proxies}")
         try:
-            direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=proxy_addr)
+            direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=90, proxy_addr=proxy_addr)
             return direct_link  # 기존 호환성 유지
         except (requests.exceptions.ConnectTimeout, 
                 requests.exceptions.ReadTimeout, 
@@ -119,7 +129,7 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     else:
         print(f"[LOG] 로컬 연결로 파싱 시도")
         try:
-            direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=65)
+            direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=90)
             return direct_link  # 기존 호환성 유지
         except requests.exceptions.SSLError as e:
             print(f"[LOG] SSL 에러 발생, 인증서 검증 비활성화하여 재시도: {e}")
@@ -128,7 +138,7 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
             import urllib3
             urllib3.disable_warnings()
             try:
-                direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=65)
+                direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=90)
                 return direct_link
             except Exception as retry_e:
                 print(f"[LOG] SSL 비활성화 후에도 실패: {retry_e}")
@@ -176,9 +186,19 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
     
     scraper.mount('https://', NoSSLVerifyHTTPAdapter())
     
+    # User-Agent 로테이션을 위한 랜덤 선택
+    import random
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15'
+    ]
+    
     # 도커 환경을 위한 더 완전한 브라우저 헤더
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'User-Agent': random.choice(user_agents),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
         'Accept-Encoding': 'gzip, deflate, br, zstd',
@@ -263,7 +283,7 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         
         # STEP 2: 이제 정상적인 다운로드 링크 파싱 진행
         print(f"[LOG] 2단계: 다운로드 링크 파싱 진행")
-        wait_time_limit = 10 if use_proxy else 65
+        wait_time_limit = 90 if use_proxy else 90
         direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit, proxy_addr=proxy_addr)
         
         if direct_link and html_content:
@@ -294,7 +314,7 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         raise e
 
 
-def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=None, retry_count=3):
+def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=None, retry_count=5):
     """공통 파싱 로직"""
     last_exception = None
     
@@ -303,7 +323,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         try:
             print(f"[LOG] GET 요청 시도 {attempt + 1}/{retry_count}: {url}")
             # 1단계: GET 요청으로 페이지 로드
-            r1 = scraper.get(url, headers=headers, proxies=proxies, timeout=15)
+            r1 = scraper.get(url, headers=headers, proxies=proxies, timeout=30)
             print(f"[LOG] GET 응답: {r1.status_code}")
             break  # 성공하면 재시도 루프 탈출
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as e:
@@ -311,7 +331,9 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
             print(f"[LOG] GET 요청 실패 (시도 {attempt + 1}/{retry_count}): {e}")
             if attempt < retry_count - 1:
                 import time
-                time.sleep(1)  # 1초 대기 후 재시도
+                wait_seconds = min(2 ** attempt, 10)  # 지수 백오프: 1, 2, 4, 8, 10초
+                print(f"[LOG] {wait_seconds}초 대기 후 재시도...")
+                time.sleep(wait_seconds)
                 continue
             else:
                 print(f"[LOG] 모든 재시도 실패")
@@ -325,6 +347,18 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     if r1.status_code == 404:
         print(f"[LOG] GET 404 에러 - URL이 존재하지 않거나 잘못됨: {url}")
         # 404인 경우 파일이 삭제되었거나 URL이 잘못된 것으로 간주
+        return None, None
+    
+    # cgu.html, cgv.html 등으로 리다이렉트 체크 (1fichier 안티봇 대응)
+    if any(x in r1.url.lower() for x in ['cgu.html', 'cgv.html', 'tarifs.html', 'mentions.html']):
+        print(f"[LOG] 1fichier 안티봇/약관 페이지로 리다이렉트 감지: {r1.url}")
+        print(f"[LOG] IP 차단 또는 약관 동의 필요 - 프록시 변경 또는 대기 필요")
+        return None, None
+    
+    # 페이지 내용에서도 약관 페이지 확인
+    content_lower = r1.text.lower()
+    if any(x in content_lower for x in ['conditions générales', 'terms of service', 'mentions légales']):
+        print(f"[LOG] 페이지 내용이 약관/법적고지 페이지로 판단됨")
         return None, None
     
     # 대기 시간 확인 및 실제 남은 시간 계산
@@ -344,11 +378,15 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     
     print(f"[DEBUG] 대기시간 추출 시작 - 초기 설정: {initial_wait_ms}ms")
     
-    # JavaScript 카운트다운 변수 우선 (가장 정확함)
+    # 2025년 실제 1fichier 구조 기반 카운트다운 감지 (실제 확인됨)
     js_countdown_patterns = [
-        (r'var\s+ct\s*=\s*(\d+)', 'JavaScript ct 변수'),
-        (r'countdown\s*=\s*(\d+)', 'JavaScript countdown 변수'),
-        (r'timer\s*=\s*(\d+)', 'JavaScript timer 변수'),
+        (r'var\s+ct\s*=\s*(\d+)', 'JavaScript ct 변수 (메인)'),  # 실제 사용되는 패턴
+        (r'ct\s*=\s*(\d+)', '간소화된 ct 변수'),               # var 없이 사용될 수 있음
+        (r'countdown\s*=\s*(\d+)', 'countdown 변수'),
+        (r'timer\s*=\s*(\d+)', 'timer 변수'),
+        # 추가: 실제 확인된 패턴들
+        (r'let\s+ct\s*=\s*(\d+)', 'let ct 변수'),            # 모던 JavaScript
+        (r'const\s+ct\s*=\s*(\d+)', 'const ct 변수'),
     ]
     
     for pattern, method_name in js_countdown_patterns:
@@ -467,48 +505,57 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     else:
         print(f"[LOG] 대기 시간 없음 - 즉시 진행")
     
-    # 2단계: POST 요청으로 다운로드 링크 획득
-    # GET 응답에서 실제 폼 구조를 파싱하여 올바른 파라미터 찾기
+    # 2단계: POST 요청으로 다운로드 링크 획득 (2025년 1fichier 구조 기반)
     payload = {}
     
     try:
-        # HTML에서 폼 찾기
-        import re
-        forms = re.findall(r'<form[^>]*>(.*?)</form>', r1.text, re.DOTALL | re.IGNORECASE)
+        # BeautifulSoup으로 정확한 폼 파싱 (정규식보다 안정적)
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(r1.text, 'html.parser')
         
-        for i, form in enumerate(forms):
-            print(f"[DEBUG] 폼 {i+1} 분석 중...")
-            
-            # 폼 내의 input 요소들 찾기
-            inputs = re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*(?:value=["\']([^"\']*)["\'])?[^>]*>', form, re.IGNORECASE)
-            
-            form_has_download = False
-            for name, value in inputs:
-                print(f"[DEBUG]   Input: {name} = {value}")
-                if any(keyword in name.lower() for keyword in ['submit', 'download', 'dlw']):
-                    payload[name] = value if value else 'Download'
-                    form_has_download = True
-                elif name.lower() in ['pass', 'password'] and password:
-                    payload[name] = password
-                else:
-                    # 기타 hidden 필드들도 포함
-                    if value:
-                        payload[name] = value
-            
-            if form_has_download:
-                print(f"[LOG] 다운로드 폼 발견! 사용할 파라미터: {payload}")
-                break
+        # 실제 확인된 폼 ID로 찾기
+        download_form = soup.find('form', {'id': 'f1'})
+        if not download_form:
+            # ID가 없다면 다른 방법으로 찾기
+            download_form = soup.find('form')
         
-        # 폼에서 찾지 못한 경우 기본값 사용
-        if not payload:
-            payload['submit'] = 'Download'
+        if download_form:
+            print(f"[LOG] 다운로드 폼 발견: {download_form.get('id', '무명폼')}")
+            
+            # 폼 내 모든 input 요소 파싱
+            inputs = download_form.find_all('input')
+            for input_elem in inputs:
+                name = input_elem.get('name')
+                value = input_elem.get('value', '')
+                input_type = input_elem.get('type', 'text')
+                
+                if name:
+                    print(f"[DEBUG] Input: {name} ({input_type}) = '{value}'")
+                    
+                    # 패스워드 입력
+                    if input_type == 'password' or name.lower() in ['pass', 'password']:
+                        if password:
+                            payload[name] = password
+                            print(f"[LOG] 패스워드 설정: {name}")
+                    # submit 버튼이나 hidden 필드
+                    elif input_type in ['submit', 'hidden'] or name.lower() in ['submit', 'download']:
+                        payload[name] = value if value else 'Download'
+                    # 기타 필드들 (CSRF 토큰 등)
+                    else:
+                        if value:
+                            payload[name] = value
+            
+            print(f"[LOG] 최종 POST 파라미터: {payload}")
+            
+        else:
+            print(f"[LOG] 폼을 찾지 못함, 기본 파라미터 사용")
+            payload = {'submit': 'Download'}
             if password:
                 payload['pass'] = password
-            print(f"[LOG] 기본 POST 파라미터 사용: {payload}")
-            
+                
     except Exception as e:
-        print(f"[DEBUG] 폼 파싱 실패, 기본값 사용: {e}")
-        payload['submit'] = 'Download'
+        print(f"[DEBUG] 폼 파싱 실패, 최소한의 파라미터 사용: {e}")
+        payload = {'submit': 'Download'}
         if password:
             payload['pass'] = password
     

@@ -14,39 +14,22 @@ logger = logging.getLogger(__name__)
 class FichierParser:
     """1fichier.com 다운로드 링크 파싱 클래스"""
     
-    # 다운로드 링크를 찾기 위한 다양한 선택자들 (우선순위 순)
+    # 2025년 실제 1fichier 구조 기반 선택자 (실제 테스트된 패턴)
     DOWNLOAD_SELECTORS = [
-        # 실제 파일 다운로드 링크 패턴들 - 최우선
-        # 패턴: https://a-숫자.1fichier.com/해시
-        '//a[contains(@href, "://a-") and contains(@href, ".1fichier.com/") and string-length(@href) > 30]',
-        # 또는 CDN 패턴
-        '//a[contains(@href, "://cdn-") and contains(@href, ".1fichier.com/") and string-length(@href) > 30]',
-        # 일반적인 긴 토큰 패턴
-        '//a[contains(@href, ".1fichier.com") and string-length(@href) > 50 and contains(@href, "?") and not(contains(@href, "cgu")) and not(contains(@href, "cgv")) and not(contains(@href, "console")) and not(contains(@href, "tarifs")) and not(contains(@href, "revendeurs")) and not(contains(@href, "network")) and not(contains(@href, "hlp")) and not(contains(@href, "abus"))]',
+        # 현재 1fichier에서 실제 사용하는 구조 (2025년 1월 기준)
+        '//*[@id="dlw"]',  # 주요 다운로드 버튼 (실제 확인됨)
+        '//form[@id="f1"]',  # 다운로드 폼 (POST 방식)
         
-        # CDN 링크 우선 (가장 확실한 다운로드 링크)
-        'a[href*="cdn-"][href*=".1fichier.com"]',
-        '//a[contains(@href, "cdn-") and contains(@href, ".1fichier.com")]',
+        # 실제 다운로드 링크가 생성되는 경우의 패턴들
+        '//a[contains(@href, "://") and contains(@href, ".1fichier.com/") and string-length(@href) > 40]',
         
-        # a-숫자 패턴 링크 (실제 다운로드 링크) - 가장 중요
-        '//a[contains(@href, "://a-") and contains(@href, ".1fichier.com") and not(contains(@href, "cgu")) and not(contains(@href, "cgv")) and not(contains(@href, "mentions"))]',
-        '//a[contains(@href, "a-") and contains(@href, ".1fichier.com") and not(contains(@href, "cgu")) and not(contains(@href, "cgv")) and not(contains(@href, "mentions"))]',
+        # 서버별 다운로드 패턴 (간소화)
+        '//a[contains(@href, "://cdn-") and contains(@href, ".1fichier.com/")]',  # CDN 서버
+        '//a[contains(@href, "://a-") and contains(@href, ".1fichier.com/")]',    # a-서버들
+        '//a[contains(@href, "://s") and contains(@href, ".1fichier.com/")]',     # s숫자 서버들
         
-        # 1fichier 전용 다운로드 도메인들
-        '//a[contains(@href, "download.1fichier.com")]',
-        '//a[contains(@href, "dl.1fichier.com")]',
-        '//a[contains(@href, "static.1fichier.com")]',
-        
-        # dlw 버튼 (가장 일반적인 다운로드 버튼) - cgu 등 제외
-        '//a[@id="dlw" and not(contains(@href, "cgu")) and not(contains(@href, "cgv"))]',
-        '//a[@class="dlw" and not(contains(@href, "cgu")) and not(contains(@href, "cgv"))]',
-        '//*[@id="dlw"][@href and not(contains(@href, "cgu")) and not(contains(@href, "cgv"))]',
-        
-        # 최신 1fichier dlw 버튼 변형들 (2024-2025년 기준)
-        '//a[@id="dlw"]',  # disabled 상태라도 찾기 위함
-        '//button[@id="dlw"]',  # button 태그일 수도 있음
-        '//*[contains(@class, "dlw")]',  # 클래스에 dlw가 포함된 경우
-        '//a[contains(@onclick, "download")]',  # onclick 핸들러가 있는 경우
+        # 백업 선택자들 (이전 구조 대비)
+        '//a[@href and string-length(@href) > 50 and contains(@href, "1fichier")]'
         
         # 최신 1fichier 구조 (2024년 기준)
         '//a[contains(@class, "ok btn-general")]',

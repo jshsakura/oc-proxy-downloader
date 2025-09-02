@@ -9,7 +9,6 @@
   let password = '';
   let isLoading = false;
   let error = '';
-  let showPassword = false;
   let remainingLockoutTime = 0;
   let lockoutInterval = null;
   
@@ -76,9 +75,6 @@
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   }
   
-  function togglePasswordVisibility() {
-    showPassword = !showPassword;
-  }
   
   function handleKeyDown(event) {
     if (event.key === 'Enter') {
@@ -91,16 +87,8 @@
   <div class="login-card">
     <div class="login-header">
       <div class="logo-container">
-        <div class="logo-icon">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-            <polyline points="7,10 12,15 17,10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-        </div>
-        <h1 class="logo-text">{$t('title')}</h1>
+        <h1 class="logo-text">LOGIN</h1>
       </div>
-      <p class="login-subtitle">{$t('login_welcome')}</p>
     </div>
     
     <form class="login-form" on:submit|preventDefault={handleLogin}>
@@ -141,37 +129,16 @@
       
       <div class="input-group">
         <label for="password">{$t('login_password')}</label>
-        <div class="password-input-container">
-          <input
-            id="password"
-            type={showPassword ? 'text' : 'password'}
-            bind:value={password}
-            placeholder={$t('login_password_placeholder')}
-            disabled={isLoading}
-            on:keydown={handleKeyDown}
-            autocomplete="current-password"
-            required
-          />
-          <button
-            type="button"
-            class="password-toggle"
-            on:click={togglePasswordVisibility}
-            disabled={isLoading}
-            aria-label={showPassword ? $t('hide_password') : $t('show_password')}
-          >
-            {#if showPassword}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
-                <line x1="1" y1="1" x2="23" y2="23"/>
-              </svg>
-            {:else}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
-              </svg>
-            {/if}
-          </button>
-        </div>
+        <input
+          id="password"
+          type="password"
+          bind:value={password}
+          placeholder={$t('login_password_placeholder')}
+          disabled={isLoading}
+          on:keydown={handleKeyDown}
+          autocomplete="current-password"
+          required
+        />
       </div>
       
       <button
@@ -186,6 +153,8 @@
           {$t('login_button')}
         {/if}
       </button>
+      
+      <p class="login-subtitle">{$t('login_welcome')}</p>
     </form>
   </div>
 </div>
@@ -217,9 +186,8 @@
 
   .logo-container {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 1rem;
+    justify-content: center;
   }
 
   .logo-icon {
@@ -235,17 +203,17 @@
   }
 
   .logo-text {
-    font-size: 1.75rem;
-    font-weight: 700;
+    font-size: 2.7rem;
     color: var(--text-primary);
     margin: 0;
+    letter-spacing: 0px;
   }
 
   .login-subtitle {
     color: var(--text-secondary);
-    margin: 0;
-    margin-top: 0.5rem;
+    margin: 0.5rem 0 0 0;
     font-size: 0.9rem;
+    text-align: center;
   }
 
   .login-form {
@@ -311,41 +279,13 @@
     cursor: not-allowed;
   }
 
-  .password-input-container {
-    position: relative;
-  }
-
-  .password-toggle {
-    position: absolute;
-    right: 0.75rem;
-    top: 50%;
-    transform: translateY(-50%);
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: color 0.2s ease;
-  }
-
-  .password-toggle:hover:not(:disabled) {
-    color: var(--text-primary);
-  }
-
-  .password-toggle:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
 
   .login-button {
-    background: var(--primary-color);
-    color: white;
-    border: none;
-    padding: 0.875rem;
-    border-radius: 8px;
+    background-color: var(--primary-color);
+    color: #fff;
+    border: 1px solid transparent;
+    padding: 0.75rem 1.5rem;
+    border-radius: 10px;
     font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
@@ -353,16 +293,14 @@
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    transition: background-color 0.2s ease, transform 0.1s ease;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+    text-decoration: none;
+    box-shadow: var(--shadow-light);
   }
 
   .login-button:hover:not(:disabled) {
-    background: var(--primary-color-dark);
-    transform: translateY(-1px);
-  }
-
-  .login-button:active:not(:disabled) {
-    transform: translateY(0);
+    background-color: var(--primary-hover);
+    box-shadow: var(--shadow-medium);
   }
 
   .login-button:disabled {
@@ -393,7 +331,7 @@
     }
 
     .logo-text {
-      font-size: 1.5rem;
+      font-size: 1.8rem;
     }
 
     .logo-icon {
