@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, HttpUrl
 from core.models import DownloadRequest, Base, StatusEnum
 from core.db import engine, get_db
+from core.auth import get_current_user_optional, AUTHENTICATION_ENABLED
+from typing import Dict, Any
 from core.i18n import get_message
 import json
 import os
@@ -44,8 +46,113 @@ class DownloadRequestCreate(BaseModel):
     use_proxy: bool = True
     file_name: str = None  # 재다운로드시 기존 파일명 전달용
 
+@router.post("/parse-info/")
+def parse_file_info_only(request: DownloadRequestCreate, db: Session = Depends(get_db)):
+    """파일 정보만 파싱하고 대기 상태로 설정"""
+    try:
+        # 로그 파일에도 기록
+        try:
+            import os
+            log_path = "/tmp/debug.log" if os.path.exists("/tmp") else "debug.log"
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%H:%M:%S')}] PARSE INFO API CALLED: {request.url}\n")
+                f.flush()
+        except PermissionError:
+            print(f"[{time.strftime('%H:%M:%S')}] PARSE INFO API CALLED: {request.url}")
+        
+        print("="*80)
+        print("[LOG] *** PARSE FILE INFO API CALLED ***")
+        print(f"[LOG] URL: {request.url}")
+        print(f"[LOG] Use Proxy: {request.use_proxy}")
+        print("="*80)
+        
+        # DB에 요청 저장 (waiting 상태로)
+        db_req = DownloadRequest(
+            url=str(request.url),
+            status=StatusEnum.pending,  # 대기 상태로 설정
+            password=request.password,
+            use_proxy=request.use_proxy
+        )
+        db.add(db_req)
+        db.commit()
+        db.refresh(db_req)
+        
+        print(f"[LOG] 파일 정보 파싱 요청 생성: ID {db_req.id}")
+        
+        # 파일 정보 파싱
+        from .parser_service import parse_direct_link_with_file_info
+        
+        try:
+            print(f"[LOG] 파일 정보 파싱 시작...")
+            direct_link, file_info = parse_direct_link_with_file_info(
+                str(request.url),
+                request.password,
+                use_proxy=request.use_proxy
+            )
+            
+            # 파일 정보 업데이트
+            if file_info and file_info.get('name'):
+                db_req.file_name = file_info['name']
+                print(f"[LOG] 파일명 추출: {file_info['name']}")
+            
+            if file_info and file_info.get('size'):
+                # 크기를 바이트로 변환해서 저장
+                size_str = file_info['size']
+                try:
+                    import re
+                    match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', size_str, re.IGNORECASE)
+                    if match:
+                        value = float(match.group(1))
+                        unit = match.group(2).upper()
+                        
+                        multipliers = {'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
+                        if unit in multipliers:
+                            total_bytes = int(value * multipliers[unit])
+                            db_req.total_size = total_bytes
+                            print(f"[LOG] 파일 크기 추출: {size_str} ({total_bytes} bytes)")
+                except Exception as e:
+                    print(f"[LOG] 파일 크기 파싱 실패: {e}")
+            
+            # direct_link도 저장 (나중에 다운로드할 때 사용)
+            if direct_link:
+                db_req.direct_link = direct_link
+                print(f"[LOG] Direct link 저장됨")
+            
+            db.commit()
+            
+            return {
+                "id": db_req.id, 
+                "status": "parsed",
+                "file_name": db_req.file_name or "Unknown",
+                "file_size": file_info.get('size') if file_info else None,
+                "message": "File info parsed successfully, ready to download"
+            }
+            
+        except Exception as parse_error:
+            print(f"[ERROR] 파일 정보 파싱 실패: {parse_error}")
+            db_req.error = f"파싱 실패: {str(parse_error)}"
+            db_req.status = StatusEnum.failed
+            db.commit()
+            
+            return {
+                "id": db_req.id,
+                "status": "failed",
+                "error": str(parse_error)
+            }
+            
+    except Exception as e:
+        print(f"[ERROR] Parse info API 실패: {e}")
+        return {
+            "error": str(e),
+            "status": "failed"
+        }
+
 @router.post("/download/")
-def create_download_task(request: DownloadRequestCreate, db: Session = Depends(get_db)):
+def create_download_task(
+    request: DownloadRequestCreate, 
+    db: Session = Depends(get_db),
+    user: Dict[str, Any] = Depends(get_current_user_optional)
+):
     # 로그 파일에도 기록 (도커 환경을 위해 /tmp 경로 사용)
     try:
         import os
@@ -100,9 +207,14 @@ def create_download_task(request: DownloadRequestCreate, db: Session = Depends(g
             if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
                 print(f"[LOG] 전체 다운로드 제한 도달 ({download_manager.MAX_TOTAL_DOWNLOADS}개). 대기 상태로 설정: {db_req.id}")
                 return {"id": db_req.id, "status": "waiting", "message_key": "total_download_limit_reached", "message_args": {"limit": download_manager.MAX_TOTAL_DOWNLOADS}}
-            else:
+            elif len(download_manager.local_downloads) >= download_manager.MAX_LOCAL_DOWNLOADS:
                 print(f"[LOG] 1fichier 로컬 다운로드 제한 도달 ({download_manager.MAX_LOCAL_DOWNLOADS}개). 대기 상태로 설정: {db_req.id}")
                 return {"id": db_req.id, "status": "waiting", "message_key": "local_download_limit_reached", "message_args": {"limit": download_manager.MAX_LOCAL_DOWNLOADS}}
+            else:
+                # 쿨다운 제한인 경우
+                cooldown_remaining = download_manager.get_1fichier_cooldown_remaining()
+                print(f"[LOG] 1fichier 쿨다운 중 ({cooldown_remaining:.1f}초 남음). 대기 상태로 설정: {db_req.id}")
+                return {"id": db_req.id, "status": "waiting", "message_key": "fichier_cooldown_active", "message_args": {"seconds": int(cooldown_remaining)}}
     
     thread = threading.Thread(
         target=download_1fichier_file_new,
@@ -136,6 +248,45 @@ def get_download_detail(download_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Download not found")
     return item.as_dict()
 
+@router.post("/start-download/{download_id}")
+def start_actual_download(download_id: int, db: Session = Depends(get_db)):
+    """파싱된 파일의 실제 다운로드 시작"""
+    item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Download not found")
+    
+    # pending 상태에서만 다운로드 시작 가능
+    if getattr(item, 'status', None) != StatusEnum.pending:
+        raise HTTPException(status_code=400, detail=f"Download is not in pending state. Current status: {item.status}")
+    
+    print(f"[LOG] 실제 다운로드 시작: ID {download_id}, 파일명: {item.file_name}")
+    
+    # 다운로드 제한 체크
+    from .shared import download_manager
+    original_use_proxy = getattr(item, 'use_proxy', False)
+    
+    if not original_use_proxy:
+        if not download_manager.can_start_download(item.url):
+            # 대기 상태 유지
+            return {"id": item.id, "status": "waiting", "message": "Download limit reached, staying in queue"}
+    
+    # 다운로드 시작
+    setattr(item, "status", StatusEnum.downloading)
+    db.commit()
+    
+    # 새로운 다운로드 시스템으로 시작
+    from .download_core import download_1fichier_file_new
+    import threading
+    
+    thread = threading.Thread(
+        target=download_1fichier_file_new,
+        args=(download_id, "ko", original_use_proxy),
+        daemon=True
+    )
+    thread.start()
+    
+    return {"id": item.id, "status": item.status, "message": "Download started"}
+
 @router.post("/resume/{download_id}")
 def resume_download(download_id: int, db: Session = Depends(get_db)):
     item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
@@ -144,12 +295,7 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
     
     # stopped 또는 pending 상태인 경우 재개/시작
     if getattr(item, 'status', None) in [StatusEnum.stopped, StatusEnum.pending]:
-        setattr(item, "status", StatusEnum.downloading)
-        db.commit()
-        
-        # 새로운 다운로드 시스템으로 재시작
-        from .download_core import download_1fichier_file_new
-        import threading
+        print(f"[LOG] 다운로드 재개 요청: ID {download_id}, 현재 상태: {item.status}")
         
         # 원래 프록시 설정 사용 (기본값 없이)
         original_use_proxy = getattr(item, 'use_proxy', None)
@@ -159,6 +305,35 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
             print(f"[LOG] use_proxy 설정이 없어 기본값 False(로컬) 사용: ID {download_id}")
         else:
             print(f"[LOG] 원래 프록시 설정 사용: use_proxy={original_use_proxy}, ID {download_id}")
+        
+        # 로컬 다운로드인 경우 다운로드 제한 체크
+        if not original_use_proxy:
+            from .shared import download_manager
+            if not download_manager.can_start_download(item.url):
+                # 대기 상태로 설정
+                setattr(item, "status", StatusEnum.pending)
+                db.commit()
+                
+                # 어떤 제한인지 확인
+                if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
+                    print(f"[LOG] 재개 - 전체 다운로드 제한 도달 ({download_manager.MAX_TOTAL_DOWNLOADS}개). 대기 상태로 설정: {download_id}")
+                    return {"id": item.id, "status": "waiting", "message_key": "total_download_limit_reached", "message_args": {"limit": download_manager.MAX_TOTAL_DOWNLOADS}}
+                elif len(download_manager.local_downloads) >= download_manager.MAX_LOCAL_DOWNLOADS:
+                    print(f"[LOG] 재개 - 1fichier 로컬 다운로드 제한 도달 ({download_manager.MAX_LOCAL_DOWNLOADS}개). 대기 상태로 설정: {download_id}")
+                    return {"id": item.id, "status": "waiting", "message_key": "local_download_limit_reached", "message_args": {"limit": download_manager.MAX_LOCAL_DOWNLOADS}}
+                else:
+                    # 쿨다운 제한인 경우
+                    cooldown_remaining = download_manager.get_1fichier_cooldown_remaining()
+                    print(f"[LOG] 재개 - 1fichier 쿨다운 중 ({cooldown_remaining:.1f}초 남음). 대기 상태로 설정: {download_id}")
+                    return {"id": item.id, "status": "waiting", "message_key": "fichier_cooldown_active", "message_args": {"seconds": int(cooldown_remaining)}}
+        
+        # 제한에 걸리지 않은 경우 즉시 시작
+        setattr(item, "status", StatusEnum.downloading)
+        db.commit()
+        
+        # 새로운 다운로드 시스템으로 재시작
+        from .download_core import download_1fichier_file_new
+        import threading
         
         thread = threading.Thread(
             target=download_1fichier_file_new,
@@ -219,15 +394,7 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
     if item is None:
         raise HTTPException(status_code=404, detail="Download not found")
     
-    # 상태를 downloading으로 변경하고 에러 초기화, direct_link도 초기화
-    setattr(item, "status", StatusEnum.downloading)
-    setattr(item, "error", None)
-    setattr(item, "direct_link", None)  # 재시도 시 새로운 링크 파싱 강제
-    db.commit()
-    
-    # 새로운 다운로드 시스템으로 재시도
-    from .download_core import download_1fichier_file_new
-    import threading
+    print(f"[LOG] 다운로드 재시도 요청: ID {download_id}, 현재 상태: {item.status}")
     
     # 원래 프록시 설정 사용 (기본값 없이)
     original_use_proxy = getattr(item, 'use_proxy', None)
@@ -238,12 +405,31 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
     else:
         print(f"[LOG] retry에서 원래 프록시 설정 사용: use_proxy={original_use_proxy}, ID {download_id}")
     
-    thread = threading.Thread(
-        target=download_1fichier_file_new,
-        args=(download_id, "ko", original_use_proxy),
-        daemon=True
-    )
-    thread.start()
+    # 재시도 시에는 항상 대기 상태로 추가 (큐에서 순서 대기)
+    setattr(item, "status", StatusEnum.pending)
+    setattr(item, "error", None)
+    setattr(item, "direct_link", None)  # 재시도 시 새로운 링크 파싱 강제
+    db.commit()
     
-    return {"id": item.id, "status": item.status, "message": "Download retry started"}
+    print(f"[LOG] 재시도 요청이 대기 큐에 추가됨: ID {download_id}")
+    
+    # 프록시 다운로드인 경우 즉시 시작 가능
+    if original_use_proxy:
+        from .download_core import download_1fichier_file_new
+        import threading
+        
+        setattr(item, "status", StatusEnum.downloading)
+        db.commit()
+        
+        thread = threading.Thread(
+            target=download_1fichier_file_new,
+            args=(download_id, "ko", original_use_proxy),
+            daemon=True
+        )
+        thread.start()
+        
+        return {"id": item.id, "status": item.status, "message": "Download retry started (proxy mode)"}
+    else:
+        # 로컬 다운로드는 대기 상태로 유지 (자동 큐 시스템이 처리)
+        return {"id": item.id, "status": "waiting", "message": "Download added to queue for retry"}
 

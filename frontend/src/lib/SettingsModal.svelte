@@ -275,7 +275,6 @@
     aria-label="Settings"
     aria-modal="true"
     tabindex="0"
-    on:click={closeModal}
     on:keydown={(e) => {
       if (e.key === "Escape") closeModal();
     }}

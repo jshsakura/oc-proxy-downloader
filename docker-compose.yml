@@ -10,6 +10,11 @@ services:
       - PGID=1000
       - DOWNLOAD_PATH=/downloads
       - CONFIG_PATH=/config
+      # 인증 설정 (선택사항 - 설정 시 로그인 필요, 미설정 시 인증 없이 접근)
+      # - AUTH_USERNAME=admin                   # 로그인 사용자명
+      # - AUTH_PASSWORD=your-secure-password    # 로그인 비밀번호
+      # - JWT_SECRET_KEY=your-secret-key        # JWT 토큰 암호화 키 (선택사항)
+      # - JWT_EXPIRATION_HOURS=24               # JWT 토큰 만료 시간(시간) (선택사항, 기본: 24)
       # 시스템 최적화 설정
       - LOG_LEVEL=WARNING                     # 로그 레벨: DEBUG, INFO, WARNING, ERROR (기본: WARNING)
       - PARENT_CHECK_INTERVAL=5               # 부모 프로세스 체크 간격(초) - CPU 최적화

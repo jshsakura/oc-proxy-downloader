@@ -26,6 +26,17 @@ def force_print(*args, **kwargs):
 # 로깅 레벨 설정 (환경변수로 제어 가능)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'DEBUG').upper()  # 기본값을 WARNING으로 변경
 
+# 로그인 인증 설정 (환경변수)
+AUTH_USERNAME = os.getenv('AUTH_USERNAME')  # 로그인 사용자명
+AUTH_PASSWORD = os.getenv('AUTH_PASSWORD')  # 로그인 비밀번호
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'default-secret-key-change-in-production')  # JWT 시크릿
+JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
+JWT_EXPIRATION_HOURS = int(os.getenv('JWT_EXPIRATION_HOURS', '24'))  # 토큰 만료 시간
+
+# 인증이 활성화되었는지 확인
+AUTHENTICATION_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
+print(f"[LOG] Authentication enabled: {AUTHENTICATION_ENABLED}")
+
 # 로그 레벨에 따른 메시지 필터링
 def smart_print(*args, **kwargs):
     message = ' '.join(str(arg) for arg in args)
@@ -93,6 +104,7 @@ import multiprocessing
 from typing import Optional
 from core.downloader import router as downloader_router
 from core.proxy_stats import router as proxy_stats_router
+from core.auth_routes import router as auth_router
 
 # Get the absolute path to the frontend/dist directory
 backend_dir = os.path.dirname(os.path.abspath(__file__))
@@ -202,6 +214,7 @@ async def log_requests(request, call_next):
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(downloader_router)
+api_router.include_router(auth_router)  # 인증 라우터 추가
 
 # WebSocket 연결 관리
 class ConnectionManager:

@@ -12,6 +12,7 @@
 
   const dispatch = createEventDispatcher();
 
+
   function closeModal() {
     showModal = false;
     dispatch("close");
@@ -65,7 +66,6 @@
     aria-label="Download Details"
     aria-modal="true"
     tabindex="0"
-    on:click={closeModal}
     on:keydown={(e) => {
       if (e.key === "Escape") closeModal();
     }}
@@ -239,7 +239,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 50;
+    z-index: 1000;
     padding: 20px;
     animation: backdropFadeIn 0.3s ease-out;
   }
@@ -262,7 +262,9 @@
     box-shadow: 
       0 25px 50px -12px rgba(0, 0, 0, 0.25),
       0 0 0 1px rgba(255, 255, 255, 0.05);
-    max-height: 90vh;
+    height: 80vh;
+    max-height: 600px;
+    min-height: 400px;
     width: 700px;
     max-width: 95vw;
     min-width: 0;
@@ -751,13 +753,91 @@
     border-bottom: none;
   }
   
+  /* 페이지네이션 스타일 */
+  .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--card-border);
+    background: var(--bg-primary);
+  }
+
+  .page-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--card-border);
+    background: var(--card-background);
+    color: var(--text-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .page-btn:hover:not(:disabled) {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+  }
+
+  .page-btn.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+  }
+
+  .page-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--card-border);
+  }
+
+  /* 테마별 페이지네이션 스타일 */
+  :global(body.dark) .pagination {
+    background: #1f2937;
+    border-top-color: #374151;
+  }
+
+  :global(body.dark) .page-btn {
+    background: #374151;
+    border-color: #4b5563;
+    color: #f3f4f6;
+  }
+
+  :global(body.dark) .page-btn:disabled {
+    background: #4b5563;
+  }
+
+  :global(body.dracula) .pagination {
+    background: #282a36;
+    border-top-color: #44475a;
+  }
+
+  :global(body.dracula) .page-btn {
+    background: #44475a;
+    border-color: #6272a4;
+    color: #f8f8f2;
+  }
+
+  :global(body.dracula) .page-btn:disabled {
+    background: #6272a4;
+  }
+  
   /* 컨테이너가 있는 셀은 정상 표시 */
 
   /* 모바일 반응형 스타일 */
   @media (max-width: 768px) {
     .modern-modal {
       width: 95vw;
-      max-height: 95vh;
+      height: 85vh;
+      max-height: 500px;
+      min-height: 350px;
       margin: 10px;
     }
 

@@ -44,6 +44,11 @@ ENV DOWNLOAD_PATH=/downloads \
     TZ=Asia/Seoul \
     PYTHONPATH=/app \
     APP_VERSION=${VERSION}
+    # 인증 관련 환경변수 (선택사항)
+    # AUTH_USERNAME=admin \
+    # AUTH_PASSWORD=your-secure-password \
+    # JWT_SECRET_KEY=your-secret-key \
+    # JWT_EXPIRATION_HOURS=24
 
 EXPOSE 8000
 

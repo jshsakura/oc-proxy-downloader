@@ -5,6 +5,7 @@
 
 import queue
 import threading
+import time
 from sqlalchemy.orm import Session
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
@@ -20,11 +21,15 @@ class DownloadManager:
         self.MAX_LOCAL_DOWNLOADS = 1  # 최대 로컬 다운로드 수 (1fichier만)
         self.MAX_TOTAL_DOWNLOADS = 5  # 최대 전체 동시 다운로드 수
         
+        # 1fichier 다운로드 쿨다운 관리
+        self.last_1fichier_completion_time = 0  # 마지막 1fichier 다운로드 완료 시간
+        self.FICHIER_COOLDOWN_SECONDS = 30  # 1fichier 다운로드 간 대기 시간 (초)
+        
         # 스레드 안전성을 위한 락
         self._lock = threading.Lock()
 
     def can_start_download(self, url=None):
-        """다운로드를 시작할 수 있는지 확인 (전체 제한 + 1fichier 개별 제한)"""
+        """다운로드를 시작할 수 있는지 확인 (전체 제한 + 1fichier 개별 제한 + 쿨다운)"""
         with self._lock:
             # 전체 다운로드 수 체크
             if len(self.all_downloads) >= self.MAX_TOTAL_DOWNLOADS:
@@ -34,8 +39,31 @@ class DownloadManager:
             if url and '1fichier.com' in url:
                 if len(self.local_downloads) >= self.MAX_LOCAL_DOWNLOADS:
                     return False
+                
+                # 1fichier 쿨다운 시간 체크
+                current_time = time.time()
+                if self.last_1fichier_completion_time > 0:
+                    time_since_completion = current_time - self.last_1fichier_completion_time
+                    if time_since_completion < self.FICHIER_COOLDOWN_SECONDS:
+                        remaining_time = self.FICHIER_COOLDOWN_SECONDS - time_since_completion
+                        print(f"[LOG] 1fichier 쿨다운 중. 남은 시간: {remaining_time:.1f}초")
+                        return False
             
             return True
+    
+    def get_1fichier_cooldown_remaining(self):
+        """1fichier 쿨다운 남은 시간 반환 (초)"""
+        with self._lock:
+            if self.last_1fichier_completion_time == 0:
+                return 0
+            
+            current_time = time.time()
+            time_since_completion = current_time - self.last_1fichier_completion_time
+            
+            if time_since_completion >= self.FICHIER_COOLDOWN_SECONDS:
+                return 0
+            
+            return self.FICHIER_COOLDOWN_SECONDS - time_since_completion
     
     def can_start_local_download(self, url=None):
         """로컬 다운로드를 시작할 수 있는지 확인 (1fichier만 제한) - 하위 호환성"""
@@ -65,8 +93,9 @@ class DownloadManager:
         """로컬 다운로드 등록 - 하위 호환성"""
         self.register_download(download_id, url)
     
-    def unregister_download(self, download_id):
+    def unregister_download(self, download_id, is_completed=False):
         """다운로드 해제 (전체 + 1fichier 개별)"""
+        was_fichier = False
         with self._lock:
             # 전체 다운로드에서 해제
             self.all_downloads.discard(download_id)
@@ -76,11 +105,27 @@ class DownloadManager:
             if was_fichier:
                 self.local_downloads.discard(download_id)
                 print(f"[LOG] 1fichier 다운로드 해제: {download_id} (1fichier: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS}, 전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+                
+                # 1fichier 다운로드가 성공적으로 완료된 경우 쿨다운 시작
+                if is_completed:
+                    self.last_1fichier_completion_time = time.time()
+                    print(f"[LOG] 1fichier 다운로드 완료. 쿨다운 {self.FICHIER_COOLDOWN_SECONDS}초 시작")
             else:
                 print(f"[LOG] 다운로드 해제: {download_id} (전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
         
         # 락 외부에서 대기 중인 다운로드 체크 (데드락 방지)
-        self.check_and_start_waiting_downloads()
+        # 1fichier 로컬 다운로드 완료 후에는 쿨다운 시간만큼 지연
+        if was_fichier and is_completed:
+            # 쿨다운 시간 후에 대기 중인 다운로드 체크
+            def delayed_check():
+                time.sleep(self.FICHIER_COOLDOWN_SECONDS)
+                print(f"[LOG] 1fichier 쿨다운 완료. 대기 중인 다운로드 체크")
+                self.check_and_start_waiting_downloads()
+            
+            threading.Thread(target=delayed_check, daemon=True).start()
+        else:
+            # 즉시 대기 중인 다운로드 체크 (프록시 다운로드나 실패한 경우)
+            self.check_and_start_waiting_downloads()
     
     def unregister_local_download(self, download_id):
         """로컬 다운로드 해제 - 하위 호환성"""

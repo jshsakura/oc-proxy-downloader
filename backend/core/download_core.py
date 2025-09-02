@@ -534,8 +534,15 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 print(f"[LOG] 다운로드가 정지 상태이므로 실패 처리하지 않음: ID {request_id}")
     
     finally:
-        # 다운로드 해제
-        download_manager.unregister_download(request_id)
+        # 다운로드 해제 - 완료 여부 확인하여 전달
+        db.refresh(req)
+        is_completed = (req.status == StatusEnum.done)  # 성공적으로 완료된 경우만 True
+        is_local_download = not use_proxy and '1fichier.com' in req.url  # 1fichier 로컬 다운로드인지 확인
+        
+        if is_completed and is_local_download:
+            print(f"[LOG] 1fichier 로컬 다운로드 완료: ID {request_id}, 쿨다운 적용")
+        
+        download_manager.unregister_download(request_id, is_completed=(is_completed and is_local_download))
         db.close()
 
 

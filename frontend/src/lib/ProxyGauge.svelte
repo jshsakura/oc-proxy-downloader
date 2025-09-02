@@ -39,50 +39,33 @@
 </script>
 
 <div class="proxy-gauge">
-  <div class="proxy-info">
-    <div class="proxy-label">
+  <div class="status-text">
+    <div class="status-left">
       <span class="label-icon"><NetworkIcon /></span>
       <span class="label-text">{$t("proxy_title")}</span>
+      <span class="proxy-count">{availableProxies}/{totalProxies}</span>
+      <div class="proxy-stats">
+        <span class="success-badge">{successCount}</span>
+        <span class="fail-badge">{failCount}</span>
+      </div>
     </div>
-    <span class="proxy-count">{availableProxies}/{totalProxies}</span>
     <div class="gauge-bar">
-      <!-- 성공한 프록시 (초록) -->
       <div 
         class="gauge-fill success" 
         style="width: {successPercentage}%"
         title={$t("proxy_success_tooltip", { count: successCount })}
       ></div>
-      <!-- 실패한 프록시 (빨강) -->
       <div 
         class="gauge-fill failed" 
         style="width: {failPercentage}%"
         title={$t("proxy_failed_tooltip", { count: failCount })}
       ></div>
-      <!-- 미사용 프록시 (회색) -->
       <div 
         class="gauge-fill unused" 
         style="width: {unusedPercentage}%"
         title={$t("proxy_unused_tooltip", { count: availableProxies })}
       ></div>
     </div>
-    <div class="proxy-stats">
-      <span class="success-badge">{$t("proxy_success")} {successCount}</span>
-      <span class="fail-badge">{$t("proxy_failed")} {failCount}</span>
-    </div>
-    <button 
-      class="refresh-btn" 
-      on:click={refreshProxies}
-      disabled={availableProxies > 0}
-      title={$t("proxy_refresh")}
-      aria-label={$t("proxy_refresh")}
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
-        <path d="M21 3v5h-5"/>
-        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
-        <path d="M3 21v-5h5"/>
-      </svg>
-    </button>
   </div>
   
   <!-- 실시간 프록시 상태 표시 (항상 표시) -->
@@ -169,29 +152,46 @@
     line-height: 1;
   }
 
-  .proxy-info {
+  .status-text {
     display: flex;
+    justify-content: space-between;
     align-items: center;
     gap: 1rem;
-    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .status-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* 게이지 바 스타일 */
+  .gauge-bar {
+    flex-shrink: 0;
+    width: 120px;
+    height: 6px;
+    background-color: var(--card-border);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
   }
 
 
   .proxy-count {
     font-weight: 700;
     color: var(--text-primary);
-    min-width: 60px;
+    font-size: 0.75rem;
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    max-width: 60px;
   }
 
-  .gauge-bar {
-    flex: 1;
-    height: 8px;
-    background-color: var(--card-border);
-    border-radius: 10px;
-    overflow: hidden;
-    min-width: 120px;
-    display: flex;
-  }
 
   .gauge-fill {
     height: 100%;
@@ -215,24 +215,24 @@
   .proxy-stats {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    font-size: 0.7rem;
+    gap: 0.3rem;
+    font-size: 0.65rem;
     font-weight: 600;
   }
 
   .success-badge {
     color: var(--success-color);
     background: rgba(16, 185, 129, 0.1);
-    padding: 0.2rem 0.4rem;
-    border-radius: 6px;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
     border: 1px solid rgba(16, 185, 129, 0.2);
   }
 
   .fail-badge {
     color: var(--danger-color);
     background: rgba(239, 68, 68, 0.1);
-    padding: 0.2rem 0.4rem;
-    border-radius: 6px;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
     border: 1px solid rgba(239, 68, 68, 0.2);
   }
 
@@ -241,15 +241,16 @@
     background-color: var(--button-secondary-background);
     color: var(--button-secondary-text);
     border: 1px solid var(--button-secondary-border);
-    border-radius: 8px;
-    padding: 6px;
+    border-radius: 6px;
+    padding: 4px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.2s ease;
-    min-width: 28px;
-    height: 28px;
+    min-width: 24px;
+    height: 24px;
+    flex-shrink: 0;
   }
 
   .refresh-btn:hover:not(:disabled) {
@@ -424,23 +425,4 @@
     to { transform: rotate(360deg); }
   }
 
-  /* Mobile responsiveness */
-  @media (max-width: 768px) {
-    .proxy-gauge {
-      padding: 0.75rem;
-      margin-bottom: 1rem;
-    }
-    
-    .proxy-info {
-      gap: 0.75rem;
-    }
-    
-    .gauge-bar {
-      min-width: 80px;
-    }
-    
-    .proxy-stats {
-      font-size: 0.75rem;
-    }
-  }
 </style>

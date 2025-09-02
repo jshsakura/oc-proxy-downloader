@@ -328,7 +328,8 @@
   }
 
   /* Mobile responsiveness */
-  @media (max-width: 768px) {
+  /* Mobile responsiveness - 759px 이하에서 세로 배치 */
+  @media (max-width: 759px) {
     .local-gauge {
       padding: 0.75rem;
       margin-bottom: 1rem;

@@ -11,6 +11,8 @@
     loadTranslations,
     formatTimestamp,
   } from "./lib/i18n.js";
+  import { needsLogin, authLoading, isAuthenticated, authRequired, authManager, authUser } from "./lib/auth.js";
+  import LoginScreen from "./lib/LoginScreen.svelte";
   import DetailModal from "./lib/DetailModal.svelte";
   import PauseIcon from "./icons/PauseIcon.svelte";
   import StopIcon from "./icons/StopIcon.svelte";
@@ -51,6 +53,7 @@
   let ws;
   let currentPage = 1;
   let totalPages = 1;
+  const itemsPerPage = 10;
   let isDownloadsLoading = false;
   let isAddingDownload = false;
   let activeDownloads = [];
@@ -224,12 +227,17 @@
         const index = downloads.findIndex((d) => d.id === updatedDownload.id);
         console.log("Found index:", index);
         if (index !== -1) {
+          // 기존 항목 업데이트 - 상태 변화 감지를 위해 새 배열 생성
           downloads = downloads.map((d, i) =>
-            i === index ? updatedDownload : d
+            i === index ? { ...d, ...updatedDownload } : d
           );
+          console.log("Download updated at index", index, "new status:", updatedDownload.status);
         } else {
           downloads = [updatedDownload, ...downloads];
+          console.log("New download added:", updatedDownload.id);
         }
+        // Svelte 반응성 강제 트리거
+        downloads = [...downloads];
         fetchProxyStatus();
         updateLocalStats(downloads);
 
@@ -276,17 +284,22 @@
             progress: downloads[index].progress
           });
           
-          downloads[index].downloaded_size = progressData.downloaded_size;
-          downloads[index].total_size = progressData.total_size;
-          downloads[index].progress = progressData.progress;
+          // 불변성을 유지하면서 업데이트
+          downloads = downloads.map((d, i) => 
+            i === index 
+              ? { ...d, 
+                  downloaded_size: progressData.downloaded_size,
+                  total_size: progressData.total_size,
+                  progress: progressData.progress 
+                }
+              : d
+          );
           
           console.log("After update:", {
             downloaded_size: downloads[index].downloaded_size,
             total_size: downloads[index].total_size,
             progress: downloads[index].progress
           });
-          
-          downloads = [...downloads];
         } else {
           console.log("Download not found in list. Current downloads:", downloads.map(d => ({ id: d.id, url: d.url })));
         }
@@ -380,8 +393,10 @@
         console.log("Filename update received:", message.data);
         const index = downloads.findIndex((d) => d.id === message.data.id);
         if (index !== -1) {
-          downloads[index].file_name = message.data.file_name;
-          downloads = [...downloads];
+          // 불변성을 유지하면서 파일명 업데이트
+          downloads = downloads.map((d, i) => 
+            i === index ? { ...d, file_name: message.data.file_name } : d
+          );
           console.log(`Updated filename for download ${message.data.id}: ${message.data.file_name}`);
           updateLocalStats(downloads);
         }
@@ -515,15 +530,35 @@
     }
   }
 
-  async function callApi(endpoint, downloadId = null, newStatus = null) {
+  async function callApi(endpoint, downloadId = null, expectedNewStatus = null) {
     try {
       const response = await fetch(endpoint, { method: "POST" });
-      if (response.ok && downloadId !== null && newStatus !== null) {
-        const index = downloads.findIndex((d) => d.id === downloadId);
-        if (index !== -1) {
-          downloads[index].status = newStatus;
-          downloads = [...downloads];
+      if (response.ok) {
+        const responseData = await response.json();
+        
+        // 응답에서 대기 상태 메시지 확인
+        if (responseData.status === 'waiting' && responseData.message_key) {
+          showToastMsg($t(responseData.message_key, responseData.message_args));
+          // 대기 상태로 UI 업데이트
+          if (downloadId !== null) {
+            const index = downloads.findIndex((d) => d.id === downloadId);
+            if (index !== -1) {
+              downloads[index].status = "pending";
+              downloads = [...downloads];
+            }
+          }
+        } else {
+          // 즉시 상태 업데이트 (UI 반응성을 위해)
+          if (downloadId !== null && expectedNewStatus !== null) {
+            const index = downloads.findIndex((d) => d.id === downloadId);
+            if (index !== -1) {
+              downloads[index].status = expectedNewStatus;
+              downloads = [...downloads];
+            }
+          }
         }
+        
+        // WebSocket으로 실제 상태가 곧 업데이트될 예정이므로 추가 fetch는 필요 없음
       }
       await fetchActiveDownloads();
     } catch (error) {
@@ -667,6 +702,16 @@
     return Math.round((downloaded / total) * 100);
   }
 
+  // URL 유효성 검사 함수
+  function isValidUrl(string) {
+    try {
+      const url = new URL(string);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function pasteFromClipboard() {
     try {
       const text = await navigator.clipboard.readText();
@@ -674,7 +719,17 @@
         showToastMsg($t("clipboard_empty"));
         return;
       }
-      url = text;
+      
+      const trimmedText = text.trim();
+      url = trimmedText;
+      
+      // URL이 유효하면 자동으로 다운로드 추가
+      if (isValidUrl(trimmedText)) {
+        showToastMsg($t("clipboard_url_auto_download"));
+        await addDownload();
+      } else {
+        showToastMsg($t("clipboard_pasted"));
+      }
     } catch (err) {
       console.error("Failed to read clipboard contents: ", err);
       showToastMsg($t("clipboard_read_failed"));
@@ -784,16 +839,44 @@
     }
   })();
 
+  // 페이징 계산
+  $: {
+    totalPages = Math.ceil(filteredDownloads.length / itemsPerPage);
+    if (currentPage > totalPages && totalPages > 0) {
+      currentPage = totalPages;
+    }
+  }
+
+  // 페이징된 다운로드
+  $: paginatedDownloads = filteredDownloads.slice(
+    (currentPage - 1) * itemsPerPage, 
+    currentPage * itemsPerPage
+  );
+
+  // 페이징 함수
+  function goToPage(page) {
+    if (page >= 1 && page <= totalPages) {
+      currentPage = page;
+    }
+  }
+
+  // 탭이 변경될 때 페이지 리셋
+  $: if (currentTab) {
+    currentPage = 1;
+  }
+
   $: activeProxyDownloadCount = downloads.filter(d => 
     d.use_proxy && ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
   ).length;
 </script>
 
 <main>
-  {#if $isLoading}
+  {#if $authLoading || $isLoading}
     <div class="loading-container">
       <p>Loading...</p>
     </div>
+  {:else if $needsLogin}
+    <LoginScreen on:login={() => window.location.reload()} />
   {:else}
     <div class="header">
       <button
@@ -806,6 +889,21 @@
       </button>
       <h1>{$t("title")}</h1>
       <div class="header-actions">
+        {#if $authRequired && $isAuthenticated}
+          <span class="user-info">{$authUser?.username}</span>
+          <button
+            on:click={() => authManager.logout()}
+            class="button-icon logout-button"
+            aria-label="Logout"
+            title="Logout"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+              <polyline points="16,17 21,12 16,7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        {/if}
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
@@ -849,33 +947,35 @@
             {/if}
           </button>
         </div>
-        <div class="proxy-toggle-container">
+        <div class="proxy-and-download-container">
+          <div class="proxy-toggle-container">
+            <button
+              type="button"
+              class="proxy-toggle-button {useProxy ? 'proxy' : 'local'} {!proxyAvailable ? 'disabled' : ''}"
+              on:click={() => proxyAvailable && (useProxy = !useProxy)}
+              disabled={!proxyAvailable}
+              title={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
+              aria-label={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
+            >
+              <div class="proxy-toggle-slider"></div>
+              <div class="proxy-toggle-icons">
+              </div>
+            </button>
+          </div>
           <button
-            type="button"
-            class="proxy-toggle-button {useProxy ? 'proxy' : 'local'} {!proxyAvailable ? 'disabled' : ''}"
-            on:click={() => proxyAvailable && (useProxy = !useProxy)}
-            disabled={!proxyAvailable}
-            title={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
-            aria-label={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
+            type="submit"
+            class="button button-primary add-download-button"
+            disabled={isAddingDownload}
           >
-            <div class="proxy-toggle-slider"></div>
-            <div class="proxy-toggle-icons">
-            </div>
+            {#if isAddingDownload}
+              <div class="spinner"></div>
+              {$t("adding_download")}
+            {:else}
+              <DownloadIcon />
+              {$t("add_download")}
+            {/if}
           </button>
         </div>
-        <button
-          type="submit"
-          class="button button-primary add-download-button"
-          disabled={isAddingDownload}
-        >
-          {#if isAddingDownload}
-            <div class="spinner"></div>
-            {$t("adding_download")}
-          {:else}
-            <DownloadIcon />
-            {$t("add_download")}
-          {/if}
-        </button>
       </form>
     </div>
 
@@ -909,7 +1009,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="downloads-section">
       <div class="tabs-container">
         <div class="tabs">
           <button 
@@ -959,7 +1059,7 @@
                 </td>
               </tr>
             {:else}
-              {#each filteredDownloads as download (download.id)}
+              {#each paginatedDownloads as download (download.id)}
                 <tr>
                   <td class="filename" title={download.url}>
                     {download.file_name || $t("file_name_na")}
@@ -1055,11 +1155,7 @@
                         <DeleteIcon />
                       </button>
                     {:else}
-                      {#if download.status
-                        .toLowerCase()
-                        .includes("downloading") || download.status
-                          .toLowerCase()
-                          .includes("proxying")}
+                      {#if ["downloading", "proxying"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
                           title={$t("action_pause")}
@@ -1073,13 +1169,7 @@
                         >
                           <StopIcon />
                         </button>
-                      {:else if (download.status
-                        .toLowerCase()
-                        .includes("pending") || download.status
-                          .toLowerCase()
-                          .includes("stopped")) && !download.status
-                          .toLowerCase()
-                          .includes("proxying")}
+                      {:else if ["pending", "stopped"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
                           title={$t("action_resume")}
@@ -1094,7 +1184,7 @@
                           <ResumeIcon />
                         </button>
                       {/if}
-                      {#if download.status.toLowerCase().includes("failed")}
+                      {#if download.status?.toLowerCase() === "failed"}
                         <button
                           class="button-icon"
                           title={$t("action_retry")}
@@ -1141,30 +1231,58 @@
           </tbody>
         </table>
       </div>
-
-      <div class="pagination">
-        <span class="page-info">
-          {$t("pagination_page_info", { currentPage, totalPages })}
-        </span>
-        <div class="pagination-buttons">
-          <button
-            class="button"
-            on:click={() => fetchDownloads(currentPage - 1)}
-            disabled={currentPage <= 1}
-          >
-            {$t("pagination_previous")}
-          </button>
-          <button
-            class="button"
-            on:click={() => fetchDownloads(currentPage + 1)}
-            disabled={currentPage >= totalPages}
-          >
-            {$t("pagination_next")}
-          </button>
-        </div>
-      </div>
     </div>
-  {/if}
+    
+    <!-- 페이지네이션 -->
+    {#if filteredDownloads.length > 0}
+      <div class="pagination-footer">
+        <div class="page-info">
+          {#if totalPages > 1}
+            <div>{$t("pagination_page_info", { currentPage, totalPages })}</div>
+          {/if}
+          <div class="items-info">
+            {$t("pagination_items_info", { 
+              total: filteredDownloads.length,
+              start: (currentPage-1)*itemsPerPage + 1,
+              end: Math.min(currentPage*itemsPerPage, filteredDownloads.length)
+            })}
+          </div>
+        </div>
+        {#if totalPages > 1}
+          <div class="pagination-buttons">
+            <button
+              class="page-number-btn prev-next-btn"
+              on:click={() => goToPage(currentPage - 1)}
+              disabled={currentPage <= 1}
+            >
+              ‹
+            </button>
+            
+            <!-- 페이지 번호 버튼들 -->
+            {#each Array(Math.min(totalPages, 5)) as _, i}
+              {@const pageNum = Math.max(1, currentPage - 2) + i}
+              {#if pageNum <= totalPages}
+                <button
+                  class="page-number-btn {currentPage === pageNum ? 'active' : ''}"
+                  on:click={() => goToPage(pageNum)}
+                >
+                  {pageNum}
+                </button>
+              {/if}
+            {/each}
+            
+            <button
+              class="page-number-btn prev-next-btn"
+              on:click={() => goToPage(currentPage + 1)}
+              disabled={currentPage >= totalPages}
+            >
+              ›
+            </button>
+          </div>
+        {/if}
+      </div>
+    {/if}
+{/if}
 
   <SettingsModal
     bind:showModal={showSettingsModal}
@@ -1246,6 +1364,12 @@
     height: 60px;
     padding: 12px 8px;
   }
+
+  /* 파일명 컬럼 (첫 번째 컬럼)에 더 많은 좌측 여백 */
+  table td:first-child,
+  table th:first-child {
+    padding-left: 2rem;
+  }
   
   .actions-cell {
     text-align: center;
@@ -1266,6 +1390,130 @@
     min-height: auto;
     max-height: none;
     overflow: hidden;
+  }
+
+  /* Downloads Section - 카드 제거 후 새로운 레이아웃 */
+  .downloads-section {
+    background-color: var(--background);
+    padding: 0;
+    margin: 0;
+    border-radius: 8px;
+  }
+
+  .tabs-container {
+    padding: 1rem 0 0.5rem 0;
+    margin-bottom: 0;
+  }
+
+  .table-container {
+    background-color: var(--card-background);
+    border: 1px solid var(--card-border);
+    border-radius: 0 8px 0 0;
+    margin: 0;
+    max-height: 70vh;
+    overflow: auto;
+  }
+
+  /* Pagination Footer - 테이블 바로 밑에 붙이기 */
+  .pagination-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    background-color: var(--card-background);
+    border: 1px solid var(--card-border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    margin: 0;
+    gap: 1rem;
+  }
+
+  .pagination-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .page-number-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--card-border);
+    background: var(--card-background);
+    color: var(--text-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .page-number-btn:hover:not(.active) {
+    background: var(--bg-secondary);
+    border-color: var(--primary-color);
+  }
+
+  .page-number-btn.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+  }
+
+  .page-number-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--card-border);
+  }
+
+  .prev-next-btn {
+    font-size: 18px;
+    font-weight: bold;
+  }
+
+  .page-info {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: left;
+  }
+
+  .items-info {
+    color: #6b7280;
+    font-size: 0.85rem;
+    font-weight: 400;
+  }
+
+  /* 테마별 페이지 번호 버튼 스타일 */
+  :global(body.dark) .page-number-btn {
+    background: #374151;
+    border-color: #4b5563;
+    color: #f3f4f6;
+  }
+
+  :global(body.dark) .page-number-btn:hover:not(.active) {
+    background: #4b5563;
+  }
+
+  :global(body.dark) .page-number-btn:disabled {
+    background: #4b5563;
+  }
+
+  :global(body.dracula) .page-number-btn {
+    background: #44475a;
+    border-color: #6272a4;
+    color: #f8f8f2;
+  }
+
+  :global(body.dracula) .page-number-btn:hover:not(.active) {
+    background: #6272a4;
+  }
+
+  :global(body.dracula) .page-number-btn:disabled {
+    background: #6272a4;
   }
 
   .interactive-status {
@@ -1337,7 +1585,6 @@
   .tabs-container {
     margin: -1.5rem -1.5rem 0 -1.5rem;
     padding: 1rem 1.5rem 0 1.5rem;
-    background: linear-gradient(135deg, var(--card-background) 0%, rgba(var(--primary-color-rgb), 0.02) 100%);
   }
 
   .tabs {
@@ -1355,8 +1602,9 @@
     color: var(--text-secondary);
     border-radius: 8px 8px 0 0;
     position: relative;
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    border: 1px solid var(--card-border);
     border-bottom: none;
+    opacity: 0.7;
   }
 
   .tab:hover {
@@ -1364,6 +1612,7 @@
     background-color: rgba(var(--primary-color-rgb), 0.05);
     border-color: var(--card-border);
     border-bottom: none;
+    opacity: 1;
   }
 
   .tab.active {
@@ -1374,6 +1623,7 @@
     border-bottom: 1px solid var(--card-background);
     box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.03);
     z-index: 1;
+    opacity: 1;
   }
 
 
@@ -1382,10 +1632,23 @@
     background-color: var(--card-background);
   }
 
+  .proxy-and-download-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+  }
+
   .proxy-toggle-container {
     display: flex;
     align-items: center;
     white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .add-download-button {
+    flex: 1;
+    min-width: 0;
   }
 
   .proxy-toggle-button {
@@ -1499,7 +1762,7 @@
     border-radius: 50%;
     transition: transform 0.3s ease;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-    z-index: 2;
+    z-index: 1;
   }
 
   .grid-proxy-toggle.proxy .grid-toggle-slider {
@@ -1552,7 +1815,16 @@
     text-shadow: 
       0 0 2px rgba(0, 0, 0, 0.3),
       1px 1px 1px rgba(0, 0, 0, 0.2);
-    z-index: 2;
+    z-index: 50;
+    pointer-events: none;
+  }
+
+  /* 라이트 테마에서 진행률 텍스트를 프라이머리 컬러로 변경 */
+  :global(html:not(.dark):not(.dracula)) .progress-text {
+    color: var(--primary-color);
+    text-shadow: 
+      0 0 2px rgba(255, 255, 255, 0.8),
+      1px 1px 1px rgba(255, 255, 255, 0.6);
   }
 
   .gauge-container {
@@ -1566,7 +1838,8 @@
     min-height: 100px;
   }
 
-  @media (max-width: 1024px) {
+  /* 중간사이즈 이하에서는 위아래로 - 759px 이하 */
+  @media (max-width: 759px) {
     .gauge-container {
       flex-direction: column;
       gap: 0.5rem;
@@ -1575,5 +1848,126 @@
     .gauge-item {
       min-height: auto;
     }
+  }
+
+  /* Tablet/Desktop: 전체 한줄 배치 - 중간 사이즈까지 포함 */
+  @media (min-width: 641px) {
+    .download-form {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: nowrap;
+      width: 100%;
+    }
+  }
+
+  /* 760px 이상에서는 게이지 가로로 배치 */
+  @media (min-width: 760px) {
+    .gauge-container {
+      flex-direction: row;
+      gap: 0.75rem;
+    }
+
+    .gauge-container > :global(.proxy-gauge),
+    .gauge-container > :global(.local-gauge) {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .main-input-group {
+      flex: 1;
+      min-width: 0;
+      max-width: none;
+    }
+
+    .proxy-and-download-container {
+      flex-direction: row;
+      gap: 0.75rem;
+      align-items: center;
+      flex-shrink: 0;
+      width: auto;
+    }
+
+    .proxy-toggle-container {
+      flex-shrink: 0;
+      width: 64px;
+    }
+
+    .add-download-button {
+      flex-shrink: 0;
+      width: 200px;
+      min-width: 200px;
+      max-width: 200px;
+    }
+  }
+
+  /* Mobile: Compact Layout */
+  /* Mobile only: 세로 배치 - 모바일에서만 위아래로 */
+  @media (max-width: 640px) {
+    .download-form {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .main-input-group {
+      width: 100%;
+    }
+
+    .proxy-and-download-container {
+      gap: 0.75rem;
+    }
+
+    /* 모바일에서는 기본 설정 사용 (세로 배치) */
+
+    /* ProxyGauge 모바일 최적화 */
+    .gauge-container :global(.proxy-info) {
+      gap: 0.25rem;
+    }
+
+    .gauge-container :global(.gauge-and-stats) {
+      gap: 0.3rem;
+    }
+
+    .gauge-container :global(.proxy-stats) {
+      gap: 0.25rem;
+    }
+
+    .gauge-container :global(.success-badge),
+    .gauge-container :global(.fail-badge) {
+      padding: 0.1rem 0.25rem;
+      font-size: 0.6rem;
+    }
+
+    /* LocalGauge 모바일 최적화 */
+    .gauge-container :global(.local-info) {
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .gauge-container :global(.local-count) {
+      font-size: 0.75rem;
+    }
+  }
+
+  /* Authentication styles */
+  .user-info {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    background: rgba(var(--primary-color-rgb), 0.1);
+  }
+
+  .logout-button {
+    background: var(--button-secondary-background);
+    color: var(--button-secondary-text);
+    border: 1px solid var(--button-secondary-border);
+  }
+
+  .logout-button:hover:not(:disabled) {
+    background: var(--button-secondary-background-hover);
   }
 </style>
