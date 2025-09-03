@@ -983,19 +983,6 @@
       </button>
       <h1>{$t("title")}</h1>
       <div class="header-actions">
-        {#if $authRequired && $isAuthenticated}
-          <div class="user-info">
-            <span class="user-greeting">{$t('user_logged_in')}</span>
-            <div class="user-id">({$authUser})</div>
-          </div>
-          <button
-            on:click={authManager.logout}
-            class="button logout-button"
-            aria-label={$t("logout_button")}
-          >
-            {$t("logout_button")}
-          </button>
-        {/if}
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
@@ -1145,7 +1132,7 @@
                 </td>
               </tr>
             {:else if filteredDownloads.length === 0}
-              <tr>
+              <tr class="empty-row">
                 <td colspan="7" class="no-downloads-message">
                   {currentTab === "working" ? $t("no_working_downloads") : $t("no_completed_downloads")}
                 </td>
@@ -1323,56 +1310,56 @@
       </div>
     </div>
     
-    <!-- 페이지네이션 -->
-    {#if filteredDownloads.length > 0}
-      <div class="pagination-footer">
-        <div class="page-info">
-          {#if totalPages > 1}
-            <div>{$t("pagination_page_info", { currentPage, totalPages })}</div>
-          {/if}
-          <div class="items-info">
+    <!-- 페이지네이션 - 항상 표시 -->
+    <div class="pagination-footer">
+      <div class="page-info">
+        {#if totalPages > 1}
+          <div>{$t("pagination_page_info", { currentPage, totalPages })}</div>
+        {/if}
+        <div class="items-info">
+          {#if filteredDownloads.length > 0}
             {$t("pagination_items_info", { 
               total: filteredDownloads.length,
               start: (currentPage-1)*itemsPerPage + 1,
               end: Math.min(currentPage*itemsPerPage, filteredDownloads.length)
             })}
-          </div>
+          {/if}
         </div>
-        {#if totalPages > 1}
-          <div class="pagination-buttons">
-            <button
-              class="page-number-btn prev-next-btn"
-              on:click={() => goToPage(currentPage - 1)}
-              disabled={currentPage <= 1}
-            >
-              ‹
-            </button>
-            
-            <!-- 페이지 번호 버튼들 -->
-            {#each Array(Math.min(totalPages, 5)) as _, i}
-              {@const pageNum = Math.max(1, currentPage - 2) + i}
-              {#if pageNum <= totalPages}
-                <button
-                  class="page-number-btn"
-                  class:active={currentPage === pageNum}
-                  on:click={() => goToPage(pageNum)}
-                >
-                  {pageNum}
-                </button>
-              {/if}
-            {/each}
-            
-            <button
-              class="page-number-btn prev-next-btn"
-              on:click={() => goToPage(currentPage + 1)}
-              disabled={currentPage >= totalPages}
-            >
-              ›
-            </button>
-          </div>
-        {/if}
       </div>
-    {/if}
+      {#if totalPages > 1}
+        <div class="pagination-buttons">
+          <button
+            class="page-number-btn prev-next-btn"
+            on:click={() => goToPage(currentPage - 1)}
+            disabled={currentPage <= 1}
+          >
+            ‹
+          </button>
+          
+          <!-- 페이지 번호 버튼들 -->
+          {#each Array(Math.min(totalPages, 5)) as _, i}
+            {@const pageNum = Math.max(1, currentPage - 2) + i}
+            {#if pageNum <= totalPages}
+              <button
+                class="page-number-btn"
+                class:active={currentPage === pageNum}
+                on:click={() => goToPage(pageNum)}
+              >
+                {pageNum}
+              </button>
+            {/if}
+          {/each}
+          
+          <button
+            class="page-number-btn prev-next-btn"
+            on:click={() => goToPage(currentPage + 1)}
+            disabled={currentPage >= totalPages}
+          >
+            ›
+          </button>
+        </div>
+      {/if}
+    </div>
 {/if}
 
   <SettingsModal
@@ -1431,24 +1418,23 @@
     display: block;
   }
   table {
-    table-layout: auto;
+    table-layout: fixed;
+    width: 100%;
+    min-width: 800px; /* 최소 너비 보장으로 모바일에서 스크롤 가능 */
   }
   
   table th {
     text-align: center;
   }
   
-  table th:nth-child(3),
-  table td:nth-child(3) {
-    width: 72px;
-    min-width: 72px;
-  }
-  
-  table th:nth-child(4),
-  table td:nth-child(4) {
-    width: 90px;
-    min-width: 90px;
-  }
+  /* 컬럼 너비 고정으로 빈 상태에서도 스크롤 보장 */
+  table th:nth-child(1), table td:nth-child(1) { width: 25%; min-width: 150px; } /* 파일명 */
+  table th:nth-child(2), table td:nth-child(2) { width: 10%; min-width: 80px; }  /* 상태 */
+  table th:nth-child(3), table td:nth-child(3) { width: 10%; min-width: 72px; }  /* 크기 */
+  table th:nth-child(4), table td:nth-child(4) { width: 15%; min-width: 90px; }  /* 진행률 */
+  table th:nth-child(5), table td:nth-child(5) { width: 15%; min-width: 120px; } /* 요청일시 */
+  table th:nth-child(6), table td:nth-child(6) { width: 10%; min-width: 80px; }  /* 프록시 */
+  table th:nth-child(7), table td:nth-child(7) { width: 15%; min-width: 120px; } /* 액션 */
   
   table td {
     vertical-align: middle;
@@ -1477,10 +1463,23 @@
   }
 
   .table-container.empty-table {
-    height: fit-content;
-    min-height: auto;
-    max-height: none;
-    overflow: hidden;
+    height: 200px;
+    min-height: 120px;
+    max-height: 70vh;
+    overflow: auto;
+  }
+
+  .table-container.empty-table table {
+    height: 100%;
+  }
+
+  .table-container.empty-table .empty-row {
+    height: 100%;
+  }
+
+  .table-container.empty-table .empty-row td {
+    height: 100%;
+    vertical-align: middle;
   }
 
   /* Downloads Section - 카드 제거 후 새로운 레이아웃 */
@@ -1492,7 +1491,7 @@
   }
 
   .tabs-container {
-    padding: 1rem 0 0.5rem 0;
+    padding: 0 0 0.5rem 0;
     margin-bottom: 0;
   }
 
@@ -1511,6 +1510,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem 1.5rem;
+    min-height: 60px;
     background-color: var(--card-background);
     border: 1px solid var(--card-border);
     border-top: none;
@@ -1942,7 +1942,7 @@
   .gauge-container {
     display: flex;
     gap: 1rem;
-    margin-bottom: 1rem;
+    margin-bottom: 1.5rem;
   }
 
   .gauge-item {

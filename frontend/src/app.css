@@ -519,30 +519,67 @@ select.input option {
   border: 1px solid var(--card-border);
 }
 
-/* 테이블 컨테이너 전용 스크롤바 스타일 */
+/* 테이블 컨테이너 전용 스크롤바 스타일 - 테마 적용 */
+/* Light theme (기본) */
 .table-container::-webkit-scrollbar {
-  width: 16px !important;
-  height: 16px !important;
-  background: #f1f1f1 !important;
+  width: 16px;
+  height: 16px;
+  background: #f1f1f1;
 }
 
 .table-container::-webkit-scrollbar-thumb {
-  background: #888 !important;
-  border-radius: 8px !important;
-  border: 1px solid #ccc !important;
+  background: #888;
+  border-radius: 8px;
+  border: 2px solid #f1f1f1;
 }
 
 .table-container::-webkit-scrollbar-thumb:hover {
-  background: #555 !important;
+  background: #555;
 }
 
 .table-container::-webkit-scrollbar-track {
-  background: #f1f1f1 !important;
-  border-radius: 8px !important;
+  background: #f1f1f1;
+  border-radius: 8px;
 }
 
 .table-container::-webkit-scrollbar-corner {
-  background: #f1f1f1 !important;
+  background: #f1f1f1;
+}
+
+/* Dark theme */
+html.dark .table-container::-webkit-scrollbar {
+  background: #2a2a2a;
+}
+html.dark .table-container::-webkit-scrollbar-thumb {
+  background: #555;
+  border: 2px solid #2a2a2a;
+}
+html.dark .table-container::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+html.dark .table-container::-webkit-scrollbar-track {
+  background: #2a2a2a;
+}
+html.dark .table-container::-webkit-scrollbar-corner {
+  background: #2a2a2a;
+}
+
+/* Dracula theme */
+html.dracula .table-container::-webkit-scrollbar {
+  background: #383a4a;
+}
+html.dracula .table-container::-webkit-scrollbar-thumb {
+  background: #6272a4;
+  border: 2px solid #383a4a;
+}
+html.dracula .table-container::-webkit-scrollbar-thumb:hover {
+  background: #7184b8;
+}
+html.dracula .table-container::-webkit-scrollbar-track {
+  background: #383a4a;
+}
+html.dracula .table-container::-webkit-scrollbar-corner {
+  background: #383a4a;
 }
 table {
   width: 100%;

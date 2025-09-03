@@ -186,12 +186,17 @@
 
 <style>
   .login-container {
-    min-height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-dark) 100%);
     padding: 1rem;
+    overflow: hidden;
   }
 
   .login-card {

@@ -306,16 +306,18 @@
 
         <div class="modal-body">
           {#if $authRequired && $isAuthenticated}
-            <div class="form-group auth-info-section">
-              <h3 class="auth-section-title">{$t("auth_section_title")}</h3>
-              <div class="auth-info-container">
-                <div class="user-info-display">
-                  <span class="user-label">{$t("logged_in_as")}</span>
-                  <span class="user-name">{$authUser?.username}</span>
+            <div class="form-group">
+              <div class="auth-info-card">
+                <div class="user-info-compact">
+                  <div class="user-avatar">👤</div>
+                  <div class="user-details">
+                    <span class="user-greeting">{$t("logged_in_as")}</span>
+                    <strong class="user-name">{$authUser?.username}</strong>
+                  </div>
                 </div>
                 <button
                   type="button"
-                  class="logout-btn"
+                  class="logout-btn compact"
                   on:click={() => {
                     authManager.logout();
                     closeModal();
@@ -1281,28 +1283,52 @@
     color: var(--text-primary);
   }
 
-  .auth-info-container {
+  .auth-info-card {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
     gap: 1rem;
   }
 
-  .user-info-display {
+  .user-info-compact {
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    align-items: center;
+    gap: 0.75rem;
   }
 
-  .user-label {
-    font-size: 0.875rem;
+  .user-avatar {
+    width: 2.5rem;
+    height: 2.5rem;
+    background: var(--primary-color);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    color: white;
+  }
+
+  .user-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .user-greeting {
+    font-size: 0.8rem;
     color: var(--text-secondary);
+    line-height: 1;
   }
 
   .user-name {
     font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
+    line-height: 1.2;
   }
 
   .logout-btn {
@@ -1310,11 +1336,17 @@
     color: white;
     border: none;
     padding: 0.5rem 1rem;
-    border-radius: 6px;
+    border-radius: 8px;
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background-color 0.2s ease;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .logout-btn.compact {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
   }
 
   .logout-btn:hover {
