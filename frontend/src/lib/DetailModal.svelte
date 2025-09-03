@@ -747,6 +747,104 @@
     border-top: none;
   }
 
+  /* 모바일 반응형 스타일 */
+  @media (max-width: 480px) {
+    .modern-backdrop {
+      padding: 10px;
+    }
+    
+    .modern-modal {
+      width: 100%;
+      max-width: 100vw;
+      height: 90vh;
+      max-height: 90vh;
+      border-radius: 12px;
+    }
+    
+    .modal-header {
+      padding: 1rem;
+    }
+    
+    .header-content {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1rem;
+      position: relative;
+    }
+    
+    .title-section {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+      width: 100%;
+      padding-right: 3rem; /* 닫기 버튼 공간 확보 */
+    }
+    
+    .icon-wrapper {
+      align-self: flex-start;
+    }
+    
+    .title-text {
+      width: 100%;
+    }
+    
+    .title-text h2 {
+      font-size: 1.25rem;
+      margin-bottom: 0.25rem;
+    }
+    
+    .subtitle {
+      max-width: 100%;
+      white-space: normal;
+      word-break: break-all;
+      line-height: 1.3;
+      overflow: visible;
+      text-overflow: unset;
+    }
+    
+    .close-button {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 2.25rem;
+      height: 2.25rem;
+    }
+    
+    .detail-table th {
+      flex: 0 0 120px;
+      font-size: 0.75rem;
+      padding: 8px 12px;
+    }
+    
+    .detail-table td {
+      padding: 8px 12px;
+      font-size: 0.75rem;
+      min-width: 0;
+    }
+    
+    .modal-footer {
+      padding: 1rem;
+      flex-direction: column-reverse;
+      align-items: stretch;
+      gap: 1rem;
+    }
+    
+    .footer-left,
+    .footer-right {
+      width: 100%;
+      justify-content: center;
+    }
+    
+    .status-info {
+      text-align: center;
+    }
+    
+    .button {
+      width: 100%;
+      min-width: unset;
+    }
+  }
+
   /* 마지막 행 하단 테두리 제거 (모달 테두리와 일체화) */
   .detail-table tr:last-child th,
   .detail-table tr:last-child td {

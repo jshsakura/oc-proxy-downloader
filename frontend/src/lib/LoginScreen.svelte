@@ -196,7 +196,7 @@
     justify-content: center;
     background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-dark) 100%);
     padding: 1rem;
-    overflow: hidden;
+    overflow: auto;
   }
 
   .login-card {
@@ -207,6 +207,7 @@
     max-width: 400px;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
     border: 1px solid var(--card-border);
+    margin: auto;
   }
 
   .login-header {

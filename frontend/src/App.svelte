@@ -624,9 +624,7 @@
             }
           }
         } else {
-          // 서버 응답이 성공이면 WebSocket으로 실제 상태가 업데이트될 때까지 대기
-          // 즉시 상태 변경하지 않고 실제 서버 상태를 기다림
-          console.log(`API 호출 성공: ${endpoint}, WebSocket 상태 업데이트 대기 중...`);
+          console.log(`API 호출 성공: ${endpoint}`);
           
           // 사용자 피드백을 위한 토스트 메시지
           if (endpoint.includes('/resume/')) {
@@ -636,9 +634,10 @@
           } else if (endpoint.includes('/retry/')) {
             showToastMsg($t('retry_request_sent'), 'info');
           }
+          
+          // 즉시 상태 새로고침
+          fetchDownloads(currentPage);
         }
-        
-        // WebSocket으로 실제 상태가 곧 업데이트될 예정이므로 추가 fetch는 필요 없음
       }
       await fetchActiveDownloads();
     } catch (error) {
@@ -1418,7 +1417,7 @@
     display: block;
   }
   table {
-    table-layout: fixed;
+    table-layout: auto;
     width: 100%;
     min-width: 800px; /* 최소 너비 보장으로 모바일에서 스크롤 가능 */
   }
@@ -1427,14 +1426,28 @@
     text-align: center;
   }
   
-  /* 컬럼 너비 고정으로 빈 상태에서도 스크롤 보장 */
-  table th:nth-child(1), table td:nth-child(1) { width: 25%; min-width: 150px; } /* 파일명 */
-  table th:nth-child(2), table td:nth-child(2) { width: 10%; min-width: 80px; }  /* 상태 */
-  table th:nth-child(3), table td:nth-child(3) { width: 10%; min-width: 72px; }  /* 크기 */
-  table th:nth-child(4), table td:nth-child(4) { width: 15%; min-width: 90px; }  /* 진행률 */
-  table th:nth-child(5), table td:nth-child(5) { width: 15%; min-width: 120px; } /* 요청일시 */
-  table th:nth-child(6), table td:nth-child(6) { width: 10%; min-width: 80px; }  /* 프록시 */
-  table th:nth-child(7), table td:nth-child(7) { width: 15%; min-width: 120px; } /* 액션 */
+  /* 파일명 컬럼 오버플로우 처리 */
+  table th:nth-child(1), 
+  table td:nth-child(1) { 
+    max-width: 300px;
+    min-width: 150px;
+    width: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  /* 파일명에 마우스 호버시 툴팁 */
+  table td:nth-child(1):hover {
+    position: relative;
+    overflow: visible;
+    white-space: normal;
+    z-index: 10;
+    background: var(--card-background);
+    box-shadow: var(--shadow-medium);
+    padding: 0.75rem;
+    border-radius: 6px;
+  }
   
   table td {
     vertical-align: middle;

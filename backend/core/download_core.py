@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .models import DownloadRequest, StatusEnum
-from .config import get_download_path
+from .config import get_download_path, get_config
 from .proxy_manager import get_unused_proxies, mark_proxy_used
 from .parser_service import get_or_parse_direct_link
 
@@ -34,6 +34,84 @@ def send_websocket_message(message_type: str, data: dict):
         # print(f"[LOG] WebSocket 메시지 전송: {message_type}")
     except Exception as e:
         print(f"[LOG] WebSocket 메시지 전송 실패: {e}")
+
+
+def get_translations(lang: str = "ko") -> dict:
+    """번역 데이터 가져오기"""
+    try:
+        import os
+        locale_file = os.path.join(os.path.dirname(__file__), "..", "locales", f"{lang}.json")
+        if os.path.exists(locale_file):
+            with open(locale_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {}
+    except Exception:
+        return {}
+
+
+def send_telegram_notification(file_name: str, status: str, error: str = None, lang: str = "ko"):
+    """텔레그램 알림 전송"""
+    try:
+        config = get_config()
+        
+        bot_token = config.get("telegram_bot_token", "").strip()
+        chat_id = config.get("telegram_chat_id", "").strip()
+        notify_success = config.get("telegram_notify_success", False)
+        notify_failure = config.get("telegram_notify_failure", True)
+        
+        # 설정이 없으면 알림 전송하지 않음
+        if not bot_token or not chat_id:
+            return
+            
+        # 알림 설정에 따라 전송 여부 결정
+        if status == "done" and not notify_success:
+            return
+        if status == "failed" and not notify_failure:
+            return
+        
+        # 번역 데이터 가져오기
+        translations = get_translations(lang)
+        
+        # 메시지 작성
+        if status == "done":
+            success_text = translations.get("telegram_download_success", "Download Complete")
+            filename_text = translations.get("telegram_filename", "Filename")
+            message = f"✅ *{success_text}*\n\n📁 {filename_text}: `{file_name}`"
+        elif status == "failed":
+            failed_text = translations.get("telegram_download_failed", "Download Failed")
+            filename_text = translations.get("telegram_filename", "Filename")
+            error_text = translations.get("telegram_error", "Error")
+            message = f"❌ *{failed_text}*\n\n📁 {filename_text}: `{file_name}`"
+            if error:
+                message += f"\n🔍 {error_text}: `{error[:100]}{'...' if len(error) > 100 else ''}`"
+        else:
+            return
+            
+        # 텔레그램 API 호출
+        import requests
+        
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+        
+        # 백그라운드에서 전송 (블로킹 방지)
+        def send_async():
+            try:
+                response = requests.post(url, json=payload, timeout=10)
+                if response.status_code == 200:
+                    print(f"[LOG] 텔레그램 알림 전송 성공: {file_name}")
+                else:
+                    print(f"[WARN] 텔레그램 알림 전송 실패: {response.status_code}")
+            except Exception as e:
+                print(f"[WARN] 텔레그램 알림 전송 오류: {e}")
+        
+        threading.Thread(target=send_async, daemon=True).start()
+        
+    except Exception as e:
+        print(f"[WARN] 텔레그램 알림 설정 오류: {e}")
 
 
 def should_retry_download(retry_count: int, error_message: str) -> bool:
@@ -384,6 +462,10 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             req.error = error_msg
             db.commit()
             
+            # 텔레그램 알림 전송 (실패)
+            unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
+            send_telegram_notification(req.file_name or unknown_file, "failed", error_msg, lang)
+            
             # WebSocket으로 실패 상태 전송
             send_websocket_message("status_update", {
                 "id": req.id,
@@ -484,6 +566,10 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         if final_file_path:
             req.save_path = str(final_file_path)
         db.commit()
+        
+        # 텔레그램 알림 전송 (완료)
+        unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
+        send_telegram_notification(req.file_name or unknown_file, "done", None, lang)
         
         # WebSocket으로 완료 상태 전송
         send_websocket_message("status_update", {
@@ -599,6 +685,10 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         req.status = StatusEnum.failed
                         req.error = str(e)
                         db.commit()
+                        
+                        # 텔레그램 알림 전송 (실패)  
+                        unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
+                        send_telegram_notification(req.file_name or unknown_file, "failed", str(e), lang)
                         
                         # WebSocket으로 실패 상태 전송
                         send_websocket_message("status_update", {

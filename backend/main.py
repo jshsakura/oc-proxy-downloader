@@ -2007,6 +2007,55 @@ async def get_websocket_stats():
         "max_connections": manager.max_connections
     }
 
+@api_router.post("/telegram/test")
+async def test_telegram_notification(data: dict = Body(...)):
+    """텔레그램 알림 테스트"""
+    try:
+        bot_token = data.get("bot_token", "").strip()
+        chat_id = data.get("chat_id", "").strip()
+        
+        if not bot_token or not chat_id:
+            raise HTTPException(status_code=400, detail="Bot token and chat ID are required")
+        
+        # 텔레그램 메시지 전송
+        import requests
+        import json
+        
+        # 다국어 지원
+        from core.download_core import get_translations
+        config = get_config()
+        lang = config.get("language", "ko")  # 사용자 언어 설정 가져오기
+        translations = get_translations(lang)
+        
+        test_title = translations.get("telegram_test_notification", "테스트 알림")  
+        test_message = translations.get("telegram_test_message", "OC Proxy Downloader에서 전송된 테스트 메시지입니다.")
+        message = f"🔔 *{test_title}*\n\n{test_message}"
+        
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+        
+        response = requests.post(url, json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            return {"success": True, "message": "Test notification sent successfully"}
+        else:
+            error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {"description": response.text}
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Telegram API error: {error_data.get('description', 'Unknown error')}"
+            )
+            
+    except requests.RequestException as e:
+        print(f"[ERROR] Telegram API request failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to connect to Telegram API")
+    except Exception as e:
+        print(f"[ERROR] Telegram test failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Telegram test failed: {str(e)}")
+
 app.include_router(api_router)
 app.include_router(proxy_stats_router, prefix="/api")
 

@@ -32,9 +32,16 @@
   let newProxyAddress = "";
   let newProxyDescription = "";
   let isAddingProxy = false;
+  let telegramExpanded = false;
 
   $: if (currentSettings && currentSettings.download_path && !initialSettingsLoaded) {
-    settings = { ...currentSettings };
+    settings = { 
+      ...currentSettings,
+      telegram_bot_token: currentSettings.telegram_bot_token || '',
+      telegram_chat_id: currentSettings.telegram_chat_id || '',
+      telegram_notify_success: currentSettings.telegram_notify_success || false,
+      telegram_notify_failure: currentSettings.telegram_notify_failure || true
+    };
     selectedTheme = settings.theme || $theme;
     initialSettingsLoaded = true;
   }
@@ -175,6 +182,37 @@
     } catch (error) {
       console.error("Clipboard copy failed:", error);
       showToastMsg($t("copy_failed"), "error");
+    }
+  }
+
+  async function testTelegramNotification() {
+    if (!settings.telegram_bot_token || !settings.telegram_chat_id) {
+      showToastMsg($t("telegram_test_missing_config"), "error");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/telegram/test", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem('access_token')}`
+        },
+        body: JSON.stringify({
+          bot_token: settings.telegram_bot_token,
+          chat_id: settings.telegram_chat_id
+        })
+      });
+
+      if (response.ok) {
+        showToastMsg($t("telegram_test_success"), "success");
+      } else {
+        const errorData = await response.json();
+        showToastMsg($t("telegram_test_failed") + ": " + errorData.detail, "error");
+      }
+    } catch (error) {
+      console.error("Telegram test error:", error);
+      showToastMsg($t("telegram_test_error"), "error");
     }
   }
 
@@ -522,6 +560,87 @@
                 </div>
               {/if}
             </div>
+          </fieldset>
+
+          <fieldset class="form-group telegram-notifications">
+            <legend>{$t("telegram_notifications")}</legend>
+            
+            <button 
+              type="button"
+              class="telegram-header"
+              on:click={() => telegramExpanded = !telegramExpanded}
+            >
+              <div class="telegram-info">
+                <p class="telegram-desc">📱 {$t('telegram_description')}</p>
+              </div>
+              <div class="toggle-chevron" class:expanded={telegramExpanded}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6,9 12,15 18,9"></polyline>
+                </svg>
+              </div>
+            </button>
+            
+            {#if telegramExpanded}
+              <div class="telegram-accordion">
+                <div class="accordion-content">
+                  <div class="telegram-input-group">
+                    <div class="input-field">
+                      <label for="telegram-bot-token">{$t("telegram_bot_token")}</label>
+                      <input
+                        id="telegram-bot-token"
+                        type="text"
+                        class="input telegram-token-input"
+                        bind:value={settings.telegram_bot_token}
+                        placeholder="1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
+                      />
+                      <small class="input-hint">{$t("telegram_bot_token_hint")}</small>
+                    </div>
+                    
+                    <div class="input-field">
+                      <label for="telegram-chat-id">{$t("telegram_chat_id")}</label>
+                      <input
+                        id="telegram-chat-id"
+                        type="text"
+                        class="input telegram-chat-input"
+                        bind:value={settings.telegram_chat_id}
+                        placeholder="-1001234567890"
+                      />
+                      <small class="input-hint">{$t("telegram_chat_id_hint")}</small>
+                    </div>
+                  </div>
+                  
+                  <div class="telegram-options">
+                    <div class="telegram-checkbox-group">
+                      <label class="telegram-checkbox-label">
+                        <input
+                          type="checkbox"
+                          bind:checked={settings.telegram_notify_success}
+                        />
+                        <span class="telegram-checkbox-text">✅ {$t("telegram_notify_success")}</span>
+                      </label>
+                      
+                      <label class="telegram-checkbox-label">
+                        <input
+                          type="checkbox"
+                          bind:checked={settings.telegram_notify_failure}
+                        />
+                        <span class="telegram-checkbox-text">❌ {$t("telegram_notify_failure")}</span>
+                      </label>
+                    </div>
+                  </div>
+                  
+                  <div class="telegram-test-section">
+                    <button
+                      class="button button-secondary test-telegram-button"
+                      on:click={testTelegramNotification}
+                      disabled={!settings.telegram_bot_token || !settings.telegram_chat_id}
+                    >
+                      🚀 {$t("telegram_test_notification")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            {/if}
           </fieldset>
         </div>
 
@@ -1015,6 +1134,192 @@
 
   .proxy-management {
     margin-top: 1.5rem;
+  }
+
+  .telegram-notifications {
+    margin-top: 1.5rem;
+  }
+
+  .telegram-header {
+    width: 100%;
+    background: var(--card-background);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+  }
+
+  .telegram-header:hover {
+    background: var(--bg-secondary, #f8f9fa);
+    border-color: var(--primary-color);
+    box-shadow: var(--shadow-light);
+  }
+
+  .telegram-info {
+    flex: 1;
+  }
+
+  .telegram-desc {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    line-height: 1.4;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .toggle-chevron {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: var(--bg-secondary, #f8f9fa);
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+    margin-left: 1rem;
+  }
+
+  .toggle-chevron svg {
+    transition: transform 0.3s ease;
+    transform: rotate(0deg);
+  }
+
+  .toggle-chevron.expanded svg {
+    transform: rotate(180deg);
+  }
+
+  .telegram-header:hover .toggle-chevron {
+    background: var(--primary-color);
+    color: white;
+  }
+
+  .telegram-accordion {
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--card-background);
+    animation: slideDown 0.2s ease-out;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .accordion-content {
+    padding: 1.5rem;
+    border-top: none;
+  }
+
+  .telegram-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .input-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .input-field label {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+  }
+
+  .telegram-token-input,
+  .telegram-chat-input {
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    background: var(--input-background);
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    transition: border-color 0.2s ease;
+  }
+
+  .telegram-token-input:focus,
+  .telegram-chat-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.1);
+  }
+
+  .input-hint {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+  }
+
+  .telegram-options {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--bg-secondary, #f8f9fa);
+    border-radius: 6px;
+    border: 1px solid var(--card-border);
+  }
+
+  .telegram-checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .telegram-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+  }
+
+  .telegram-checkbox-label:hover {
+    background: var(--card-background);
+  }
+
+  .telegram-checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+
+  .telegram-checkbox-text {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .telegram-test-section {
+    display: flex;
+    justify-content: center;
+    border-top: 1px solid var(--card-border);
+    padding-top: 1rem;
+  }
+
+  .test-telegram-button {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
   }
 
   .proxy-add-section {
