@@ -8,7 +8,8 @@
       "Bash(set AUTH_USERNAME=admin)",
       "Bash(set AUTH_PASSWORD=test123)",
       "Bash(find:*)",
-      "Bash(del backenddownloads.db)"
+      "Bash(del backenddownloads.db)",
+      "Bash(sqlite3:*)"
     ],
     "deny": [],
     "ask": [],

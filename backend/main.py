@@ -140,7 +140,7 @@ except Exception as e:
         print(f"[LOG] 기존 데이터베이스 파일 삭제: {db_path}")
     
     # 새로운 엔진과 세션 생성
-    from core.database import engine
+    from core.db import engine
     Base.metadata.create_all(bind=engine)
     print("[LOG] 새 데이터베이스 생성 완료")
 
@@ -151,6 +151,28 @@ _startup_executed = False
 async def lifespan(app: FastAPI):
     # Startup
     global _startup_executed
+    
+    # 데이터베이스 스키마 재확인 및 재생성 (필요시)
+    try:
+        # 새로 추가된 필드들이 있는지 테스트 쿼리
+        db = next(get_db())
+        test_query = db.query(DownloadRequest).filter(DownloadRequest.id == -1).first()
+        db.close()
+    except Exception as e:
+        if "no such column" in str(e):
+            print(f"[LOG] lifespan에서 스키마 에러 재감지: {e}")
+            print("[LOG] 데이터베이스 재생성 중...")
+            
+            import os
+            db_path = "downloads.db"
+            if os.path.exists(db_path):
+                os.remove(db_path)
+                print(f"[LOG] 기존 데이터베이스 파일 삭제: {db_path}")
+            
+            Base.metadata.create_all(bind=engine)
+            print("[LOG] 새 데이터베이스 생성 완료")
+        else:
+            raise e
     
     # 이미 실행되었으면 무조건 종료
     if not _startup_executed:
