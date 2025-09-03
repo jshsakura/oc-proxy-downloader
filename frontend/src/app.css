@@ -637,6 +637,15 @@ tbody tr:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding-left: 8px !important; /* 좌측 여백 줄이기 */
+}
+
+.filename-text {
+  display: inline-block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .actions {
   display: flex;
@@ -1619,4 +1628,25 @@ html.dracula .page-number-btn.active {
 /* Utility Classes */
 .center-align {
   text-align: center;
+}
+
+/* Table Loading Container */
+.table-loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 0;
+  text-align: center;
+}
+
+.table-loading-container .modal-spinner {
+  margin-right: 0;
+  margin-bottom: 0.5rem;
+}
+
+.table-loading-container .modal-loading-text {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  font-weight: 500;
 }

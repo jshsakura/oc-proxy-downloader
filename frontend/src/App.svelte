@@ -1030,8 +1030,13 @@
             <button
               type="button"
               class="proxy-toggle-button {useProxy ? 'proxy' : 'local'} {!proxyAvailable ? 'disabled' : ''}"
-              on:click={() => proxyAvailable && (useProxy = !useProxy)}
-              disabled={!proxyAvailable}
+              on:click={() => {
+                if (proxyAvailable) {
+                  useProxy = !useProxy;
+                } else {
+                  showToastMsg($t('proxy_unavailable_tooltip'), 'warning');
+                }
+              }}
               title={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
               aria-label={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
             >
@@ -1139,8 +1144,8 @@
             {:else}
               {#each paginatedDownloads as download (download.id)}
                 <tr>
-                  <td class="filename" title={download.url}>
-                    {download.file_name || $t("file_name_na")}
+                  <td class="filename" title={download.file_name || $t("file_name_na")}>
+                    <span class="filename-text">{download.file_name || $t("file_name_na")}</span>
                   </td>
                   <td class="center-align">
                     <span
@@ -1437,17 +1442,6 @@
     white-space: nowrap;
   }
   
-  /* 파일명에 마우스 호버시 툴팁 */
-  table td:nth-child(1):hover {
-    position: relative;
-    overflow: visible;
-    white-space: normal;
-    z-index: 10;
-    background: var(--card-background);
-    box-shadow: var(--shadow-medium);
-    padding: 0.75rem;
-    border-radius: 6px;
-  }
   
   table td {
     vertical-align: middle;

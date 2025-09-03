@@ -588,76 +588,19 @@ class FichierParser:
                 'type': None
             }
             
-            # 파일명 추출 시도 (1fichier 사이트 구조에 맞게 강화)
+            # 파일명 추출 시도 (정확한 1fichier 구조 기반)
             name_selectors = [
-                # 최신 1fichier 구조 우선 (2025년 현재)
-                '//div[contains(@class, "ct_warn")]//text()[contains(., ".")]',
-                '//div[contains(@class, "content")]//text()[contains(., ".")]',
+                # QR코드 테이블의 정확한 파일명 위치 (최우선) - 예: Assassin's Creed Valhalla...
+                '//table[contains(@class, "premium")]//tr[td//img[contains(@src, "qr.pl")]]//td[@class="normal"]//span[@style="font-weight:bold"]/text()',
+                '//table[contains(@class, "premium")]//tr[td[@rowspan]]//td[@class="normal"]//span[@style="font-weight:bold"]/text()',
                 
-                # JSON-LD 구조화된 데이터에서 추출
-                '//script[@type="application/ld+json"]//text()',
-                
-                # 메타 태그에서 파일명 정보 추출
-                '//meta[@name="description"]/@content',
-                '//meta[@property="og:title"]/@content',
-                # 1fichier premium 테이블 구조 (유연한 접근법)
-                # 파일 정보 테이블의 볼드체 텍스트
-                '//table[contains(@class, "premium")]//span[contains(@style, "font-weight") and contains(@style, "bold")]/text()',
+                # 파일명이 볼드체로 되어 있는 정확한 위치
+                '//table[contains(@class, "premium")]//td[@class="normal"]//span[@style="font-weight:bold"]/text()',
                 '//table[contains(@class, "premium")]//span[@style="font-weight:bold"]/text()',
-                '//table[contains(@class, "premium")]//td[contains(@class, "normal")]//span[contains(@style, "bold")]/text()',
-                '//table[contains(@class, "premium")]//td[contains(@class, "normal")]//span[1]/text()[string-length(.) > 10]',
                 
-                # 일반적인 볼드체 span 찾기 (광고 테이블 제외)
-                '//table//span[contains(@style, "font-weight:bold") and string-length(text()) > 5]/text()',
-                '//table//span[contains(@style, "font-weight") and contains(@style, "bold") and string-length(text()) > 5]/text()',
-                
-                # QR코드가 있는 테이블의 볼드 텍스트 (더 구체적)
-                '//table//tr[td//img[contains(@src, "qr.pl")]]//span[contains(@style, "bold")]/text()',
-                '//table[.//img[contains(@src, "qr.pl")]]//span[contains(@style, "bold")]/text()',
-                
-                # 테이블 구조 기반 (첫 번째 셀은 이미지, 두 번째 셀에 파일 정보)
-                '//table//tr[td//img]//td[position()=2]//span[1]/text()[string-length(.) > 5]',
-                '//table//tr[td[@rowspan]]//td[position()=2]//span[1]/text()',
-                
-                # 1fichier 최신 구조 (2024-2025)
-                '//div[@class="ct_warn"]//h1/text()',
-                '//div[@class="ct_warn"]//h2/text()',
-                '//div[@class="ct_warn"]//strong/text()',
-                '//div[contains(@class, "content")]//h1/text()',
-                '//div[contains(@class, "content")]//h2/text()',
-                '//div[contains(@class, "content")]//strong/text()',
-                
-                # 일반적인 제목/헤더 요소
-                '//h1//text()',
-                '//h2//text()',
-                '//h3//text()',
-                
-                # 파일명 클래스들
-                '//div[contains(@class, "filename")]//text()',
-                '//span[contains(@class, "filename")]//text()',
-                '//*[contains(@class, "file-name")]//text()',
-                '//*[contains(@class, "fname")]//text()',
-                
-                # 타이틀에서 추출
-                '//title/text()',
-                
-                # 다운로드 버튼 주변 텍스트
-                '//*[@id="dlw"]/following-sibling::*/text()',
-                '//*[@id="dlw"]/preceding-sibling::*/text()',
-                
-                # 모든 텍스트에서 파일 확장자 포함된 것 찾기
-                '//*[contains(text(), ".zip")]//text()',
-                '//*[contains(text(), ".rar")]//text()',
-                '//*[contains(text(), ".7z")]//text()',
-                '//*[contains(text(), ".tar")]//text()',
-                '//*[contains(text(), ".mp4")]//text()',
-                '//*[contains(text(), ".mkv")]//text()',
-                '//*[contains(text(), ".avi")]//text()',
-                '//*[contains(text(), ".pdf")]//text()',
-                '//*[contains(text(), ".doc")]//text()',
-                '//*[contains(text(), ".exe")]//text()',
-                '//*[contains(text(), ".iso")]//text()',
-                '//*[contains(text(), ".")]//text()[string-length(.) < 200]'
+                # 메타 태그 (안전한 백업)
+                '//meta[@property="og:title"]/@content',
+                '//title/text()'
             ]
             
             for selector in name_selectors:
@@ -679,13 +622,42 @@ class FichierParser:
                         text = text.strip()
                         # 더 정교한 파일명 검증 (광고 텍스트 필터링 강화)
                         if text and len(text) > 3 and len(text) < 200:
-                            # 광고/프로모션 텍스트 제외 (필수적인 것만)
+                            # 광고/프로모션 텍스트 제외 (강화된 필터링)
                             ad_keywords = [
                                 'télécharger', 'click here', 'cliquez', 'http://', 'https://',
                                 'subscription', 'unlimited', 'advertisement', 'captcha',
                                 'concurrent downloads', 'storage space', 'removal', 'www.',
-                                'api support', '€', '$', 'price', 'tarif'
+                                'api support', '€', '$', 'price', 'tarif',
+                                # 1fichier 특화 프로모션 텍스트 필터링
+                                'started on 1fichier.com', '1fichier.com !', 'summer started',
+                                'winter started', 'spring started', 'autumn started',
+                                'season started', 'premium account', 'free account',
+                                'download limit', 'waiting time', 'faster download',
+                                'no limit', 'premium members', 'register now',
+                                'upgrade to premium', 'buy premium', 'go premium'
                             ]
+                            
+                            # 프로모션 패턴 강화 검증 (1fichier 특화)
+                            promo_patterns = [
+                                r'.+started on 1fichier\.com.+',  # "Summer started on 1fichier.com !" 패턴
+                                r'.+(summer|winter|spring|autumn|season) started.+',  # 계절 시작 텍스트
+                                r'.+1fichier\.com\s*!+',  # "1fichier.com !" 패턴
+                                r'^\d+\s*(year|month|day|week)s?\s+(ago|since).+',  # 시간 관련 텍스트
+                                r'.+(premium|subscription|account|register|upgrade).+',  # 계정/프리미엄 관련
+                                r'.+(faster|unlimited|no limit|waiting time).+',  # 다운로드 속도 관련
+                                r'^.+\s+(GB|MB|KB|TB)\s+.+$',  # 크기가 중간에 있는 경우 (파일명이 아님)
+                                r'.+\s+started\s+.+',  # "started"가 포함된 모든 텍스트
+                            ]
+                            
+                            # 프로모션 패턴 매칭 시 제외
+                            is_promotional = any(re.match(pattern, text, re.IGNORECASE) for pattern in promo_patterns)
+                            
+                            # 먼저 프로모션 텍스트 강력 필터링 (1fichier 특화)
+                            if ('started' in text.lower() or 
+                                '1fichier.com' in text.lower() or
+                                any(season in text.lower() for season in ['summer', 'winter', 'spring', 'autumn'])):
+                                print(f"[DEBUG] 프로모션 텍스트 제외: {text}")
+                                continue
                             
                             # 파일 확장자가 있는지 확인 (더 포괄적으로)
                             if ('.' in text and 
@@ -695,6 +667,8 @@ class FichierParser:
                                  re.search(r'\w+\.\w+', text)) and
                                 # 광고/프로모션 텍스트 제외
                                 not any(keyword in text.lower() for keyword in ad_keywords) and
+                                # 프로모션 패턴 제외
+                                not is_promotional and
                                 # 너무 짧거나 의미없는 텍스트 제외
                                 len(text.replace('.', '').replace(' ', '')) > 3):
                                 

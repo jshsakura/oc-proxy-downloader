@@ -766,48 +766,46 @@
     }
     
     .header-content {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 1rem;
-      position: relative;
+      /* Keep normal flex layout - don't change to column */
+      align-items: center;
+      gap: 0.75rem;
     }
     
     .title-section {
-      flex-direction: column;
-      align-items: flex-start;
+      /* Keep normal flex layout */
+      flex: 1;
       gap: 0.5rem;
-      width: 100%;
-      padding-right: 3rem; /* 닫기 버튼 공간 확보 */
     }
     
     .icon-wrapper {
-      align-self: flex-start;
+      width: 2rem;
+      height: 2rem;
     }
     
-    .title-text {
-      width: 100%;
+    .icon-wrapper :global(svg) {
+      width: 1rem;
+      height: 1rem;
     }
     
     .title-text h2 {
-      font-size: 1.25rem;
-      margin-bottom: 0.25rem;
+      font-size: 1.1rem;
     }
     
     .subtitle {
-      max-width: 100%;
-      white-space: normal;
-      word-break: break-all;
-      line-height: 1.3;
-      overflow: visible;
-      text-overflow: unset;
+      max-width: 200px;
+      font-size: 0.75rem;
     }
     
     .close-button {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 2.25rem;
-      height: 2.25rem;
+      /* Keep normal positioning - don't make absolute */
+      width: 2rem;
+      height: 2rem;
+      flex-shrink: 0;
+    }
+    
+    .close-button :global(svg) {
+      width: 1rem;
+      height: 1rem;
     }
     
     .detail-table th {
