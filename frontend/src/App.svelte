@@ -2,7 +2,7 @@
   import logo from "./assets/images/logo256.png";
   import SettingsModal from "./lib/SettingsModal.svelte";
   import PasswordModal from "./lib/PasswordModal.svelte";
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { theme } from "./lib/theme.js";
   import {
     t,
@@ -160,6 +160,16 @@
     });
   });
 
+  onDestroy(() => {
+    // WebSocket 정리
+    if (wsReconnectTimeout) {
+      clearTimeout(wsReconnectTimeout);
+    }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.close(1000, "Page unloading");
+    }
+  });
+
   function handleLoginSuccess() {
     // 로그인 성공 후 필요한 데이터 로드 및 WebSocket 연결
     fetchDownloads(currentPage);
@@ -218,8 +228,21 @@
     }
   }
 
+  // WebSocket 재연결 관리 변수들
+  let wsReconnectAttempts = 0;
+  let wsReconnectTimeout = null;
+  let wsMaxReconnectAttempts = 10;
+  let wsReconnectDelay = 1000; // 시작 1초
+  let wsMaxReconnectDelay = 60000; // 최대 60초
+
   function connectWebSocket() {
-    console.log("Attempting to connect WebSocket...");
+    // 기존 재연결 타이머가 있으면 취소
+    if (wsReconnectTimeout) {
+      clearTimeout(wsReconnectTimeout);
+      wsReconnectTimeout = null;
+    }
+
+    console.log(`Attempting to connect WebSocket (attempt ${wsReconnectAttempts + 1})...`);
     const isHttps = window.location.protocol === "https:";
     const wsProtocol = isHttps ? "wss" : "ws";
     const wsUrl = `${wsProtocol}://${window.location.host}/ws/status`;
@@ -229,22 +252,22 @@
 
     ws.onopen = () => {
       console.log("WebSocket connected!");
+      // 연결 성공 시 재연결 카운터 리셋
+      wsReconnectAttempts = 0;
+      wsReconnectDelay = 1000;
     };
 
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      console.log("WebSocket message received:", message);
       if (message.type === "status_update") {
         const updatedDownload = message.data;
-        console.log("Updated download data:", updatedDownload);
+        console.log("Status update:", updatedDownload.id, "->", updatedDownload.status);
         const index = downloads.findIndex((d) => d.id === updatedDownload.id);
-        console.log("Found index:", index);
         if (index !== -1) {
           // 기존 항목 업데이트 - 상태 변화 감지를 위해 새 배열 생성
           downloads = downloads.map((d, i) =>
             i === index ? { ...d, ...updatedDownload } : d
           );
-          console.log("Download updated at index", index, "new status:", updatedDownload.status);
         } else {
           downloads = [updatedDownload, ...downloads];
           console.log("New download added:", updatedDownload.id);
@@ -275,7 +298,6 @@
           }
         }
       } else if (message.type === "proxy_update") {
-        console.log("Proxy status update:", message.data);
         fetchProxyStatus();
       } else if (message.type === "proxy_reset") {
         console.log("Proxy reset:", message.data);
@@ -383,7 +405,6 @@
           downloadProxyInfo = { ...downloadProxyInfo };
         }
       } else if (message.type === "wait_countdown") {
-        console.log("Wait countdown:", message.data);
         
         const matchingDownload = downloads.find(d => d.url === message.data.url);
         if (matchingDownload) {
@@ -403,23 +424,65 @@
           }
         }
       } else if (message.type === "filename_update") {
-        console.log("Filename update received:", message.data);
+        console.log("File info update:", message.data.id, message.data.file_name, message.data.file_size);
         const index = downloads.findIndex((d) => d.id === message.data.id);
         if (index !== -1) {
-          // 불변성을 유지하면서 파일명 업데이트
+          // 불변성을 유지하면서 파일명과 파일 크기 업데이트
           downloads = downloads.map((d, i) => 
-            i === index ? { ...d, file_name: message.data.file_name } : d
+            i === index ? { 
+              ...d, 
+              file_name: message.data.file_name,
+              file_size: message.data.file_size || d.file_size
+            } : d
           );
-          console.log(`Updated filename for download ${message.data.id}: ${message.data.file_name}`);
           updateLocalStats(downloads);
         }
       }
     };
 
-    ws.onclose = () => {
-      console.log("WebSocket disconnected. Attempting to reconnect...");
-      setTimeout(connectWebSocket, 5000);
+    ws.onclose = (event) => {
+      console.log(`WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`);
+      
+      // 최대 재시도 횟수를 초과한 경우
+      if (wsReconnectAttempts >= wsMaxReconnectAttempts) {
+        console.log(`WebSocket 최대 재연결 시도 횟수(${wsMaxReconnectAttempts})에 도달했습니다. 재연결을 중단합니다.`);
+        return;
+      }
+      
+      // 의도적인 종료(1000, 1001)가 아닌 경우에만 재연결 시도
+      if (event.code !== 1000 && event.code !== 1001) {
+        wsReconnectAttempts++;
+        
+        // exponential backoff with jitter
+        const jitter = Math.random() * 1000; // 0-1초 랜덤 지연
+        const delay = Math.min(wsReconnectDelay, wsMaxReconnectDelay) + jitter;
+        
+        console.log(`WebSocket 재연결 시도 ${wsReconnectAttempts}/${wsMaxReconnectAttempts} (${Math.round(delay/1000)}초 후)`);
+        
+        wsReconnectTimeout = setTimeout(() => {
+          connectWebSocket();
+        }, delay);
+        
+        // 다음 재시도를 위해 지연 시간 증가 (exponential backoff)
+        wsReconnectDelay = Math.min(wsReconnectDelay * 2, wsMaxReconnectDelay);
+      } else {
+        console.log("WebSocket이 정상적으로 종료되었습니다. 재연결하지 않습니다.");
+      }
     };
+
+    ws.onerror = (error) => {
+      console.log("WebSocket error occurred:", error);
+    };
+  }
+
+  function reconnectWebSocket() {
+    // 수동으로 WebSocket 재연결 (예: 설정 변경 후)
+    if (ws) {
+      ws.close(1000, "Manual reconnection");
+    }
+    wsReconnectAttempts = 0;
+    wsReconnectDelay = 1000;
+    connectWebSocket();
   }
 
   async function fetchDownloads(page = 1) {
@@ -561,13 +624,17 @@
             }
           }
         } else {
-          // 즉시 상태 업데이트 (UI 반응성을 위해)
-          if (downloadId !== null && expectedNewStatus !== null) {
-            const index = downloads.findIndex((d) => d.id === downloadId);
-            if (index !== -1) {
-              downloads[index].status = expectedNewStatus;
-              downloads = [...downloads];
-            }
+          // 서버 응답이 성공이면 WebSocket으로 실제 상태가 업데이트될 때까지 대기
+          // 즉시 상태 변경하지 않고 실제 서버 상태를 기다림
+          console.log(`API 호출 성공: ${endpoint}, WebSocket 상태 업데이트 대기 중...`);
+          
+          // 사용자 피드백을 위한 토스트 메시지
+          if (endpoint.includes('/resume/')) {
+            showToastMsg($t('resume_request_sent'), 'info');
+          } else if (endpoint.includes('/pause/')) {
+            showToastMsg($t('stop_request_sent'), 'info');
+          } else if (endpoint.includes('/retry/')) {
+            showToastMsg($t('retry_request_sent'), 'info');
           }
         }
         
@@ -618,6 +685,11 @@
 
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
+    
+    // 1fichier 자동 재시도 상태 체크
+    if (download.status.toLowerCase() === "pending" && download.error && download.error.includes("1fichier 자동 재시도 중")) {
+      return download.error + "\n3분마다 자동 재시도됩니다.";
+    }
     
     if (download.status.toLowerCase() === "failed" && download.error) {
       if (proxyInfo && proxyInfo.error) {
@@ -911,21 +983,6 @@
       </button>
       <h1>{$t("title")}</h1>
       <div class="header-actions">
-        {#if $authRequired && $isAuthenticated}
-          <span class="user-info">{$authUser?.username}</span>
-          <button
-            on:click={() => authManager.logout()}
-            class="button-icon logout-button"
-            aria-label="Logout"
-            title="Logout"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
-              <polyline points="16,17 21,12 16,7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
-          </button>
-        {/if}
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
@@ -1104,9 +1161,7 @@
                     </span>
                   </td>
                   <td class="center-align">
-                    {download.total_size
-                      ? formatBytes(download.total_size)
-                      : "-"}
+                    {download.file_size || (download.total_size ? formatBytes(download.total_size) : "-")}
                   </td>
                   <td class="center-align">
                     <div class="progress-container">
@@ -1177,7 +1232,7 @@
                         <DeleteIcon />
                       </button>
                     {:else}
-                      {#if ["downloading", "proxying"].includes(download.status?.toLowerCase())}
+                      {#if ["downloading", "proxying", "pending"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
                           title={$t("action_pause")}
@@ -1185,13 +1240,13 @@
                             callApi(
                               `/api/pause/${download.id}`,
                               download.id,
-                              "stopped"
+                              null
                             )}
                           aria-label={$t("action_pause")}
                         >
                           <StopIcon />
                         </button>
-                      {:else if ["pending", "stopped"].includes(download.status?.toLowerCase())}
+                      {:else if ["stopped"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
                           title={$t("action_resume")}
@@ -1199,7 +1254,7 @@
                             callApi(
                               `/api/resume/${download.id}?use_proxy=${download.use_proxy}`,
                               download.id,
-                              download.use_proxy ? "proxying" : "downloading"
+                              null
                             )}
                           aria-label={$t("action_resume")}
                         >
@@ -1214,7 +1269,7 @@
                             callApi(
                               `/api/retry/${download.id}`,
                               download.id,
-                              download.use_proxy ? "proxying" : "downloading"
+                              null
                             )}
                           aria-label={$t("action_retry")}
                         >
@@ -1592,6 +1647,27 @@
 
   .status-done.interactive-status {
     border: 1px solid var(--success-color);
+  }
+
+  /* 1fichier 자동 재시도 상태 스타일 */
+  .status-pending.interactive-status[title*="1fichier 자동 재시도"] {
+    border: 1px solid var(--warning-color);
+    background: linear-gradient(45deg, transparent 30%, var(--warning-color) 30%, var(--warning-color) 70%, transparent 70%);
+    background-size: 10px 10px;
+    animation: retry-pulse 3s ease-in-out infinite;
+  }
+
+  @keyframes retry-pulse {
+    0%, 100% { 
+      opacity: 1; 
+      transform: scale(1); 
+      background-position: 0 0;
+    }
+    50% { 
+      opacity: 0.7; 
+      transform: scale(1.02); 
+      background-position: 5px 5px;
+    }
   }
   
   .wait-countdown {

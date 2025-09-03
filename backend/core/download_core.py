@@ -116,6 +116,56 @@ def should_retry_download(req, error_message: str) -> bool:
     return True
 
 
+def should_1fichier_auto_retry(req, error_message: str) -> bool:
+    """1fichier 무료 다운로드 실패 시 자동 재시도 여부를 판단하는 함수"""
+    
+    # 1fichier URL이 아니면 재시도하지 않음
+    if "1fichier.com" not in req.url.lower():
+        return False
+    
+    # 파일명과 용량이 존재하지 않으면 유효하지 않은 파일이므로 재시도하지 않음
+    if not req.file_name or not req.file_size:
+        print(f"[LOG] 1fichier 자동 재시도 불가: 파일명({req.file_name}) 또는 용량({req.file_size}) 없음")
+        return False
+    
+    # 파일명이 기본값이면 재시도하지 않음
+    if req.file_name in ['1fichier.com: Cloud Storage', '알 수 없음']:
+        print(f"[LOG] 1fichier 자동 재시도 불가: 파일명이 기본값({req.file_name})")
+        return False
+    
+    # 재시도 한도 확인
+    if req.fichier_retry_count >= req.fichier_max_retries:
+        print(f"[LOG] 1fichier 자동 재시도 한도 초과: {req.fichier_retry_count}/{req.fichier_max_retries}")
+        return False
+    
+    # 재시도 불가능한 오류들 (링크 만료, 권한 문제 등)
+    no_retry_errors = [
+        "404",
+        "not found", 
+        "file not found",
+        "invalid url",
+        "link expired",
+        "invalid link",
+        "permission denied",
+        "access denied", 
+        "unauthorized",
+        "forbidden",
+        "dstorage.fr",
+        "파싱 실패",
+        "direct link를 찾을 수 없",
+        "다운로드 링크를 찾을 수 없"
+    ]
+    
+    error_lower = error_message.lower()
+    for no_retry_error in no_retry_errors:
+        if no_retry_error in error_lower:
+            print(f"[LOG] 1fichier 자동 재시도 불가능한 오류: {error_message}")
+            return False
+    
+    print(f"[LOG] 1fichier 자동 재시도 가능: {req.fichier_retry_count + 1}/{req.fichier_max_retries}")
+    return True
+
+
 def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: bool = True):
     """
     새로운 프록시 순환 로직을 사용한 1fichier 다운로드 함수
@@ -504,30 +554,75 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     retry_thread.start()
                     
                 else:
-                    # 재시도 한도 초과 또는 재시도 불가능한 오류
-                    req.status = StatusEnum.failed
-                    req.error = str(e)
-                    db.commit()
-                    
-                    # WebSocket으로 실패 상태 전송
-                    send_websocket_message("status_update", {
-                        "id": req.id,
-                        "url": req.url,
-                        "file_name": req.file_name,
-                        "status": "failed",
-                        "error": str(e),
-                        "downloaded_size": req.downloaded_size or 0,
-                        "total_size": req.total_size or 0,
-                        "progress": 0.0,  # 실패 시 진행률을 0으로 설정
-                        "save_path": req.save_path,
-                        "requested_at": req.requested_at.isoformat() if req.requested_at else None,
-                        "finished_at": None,
-                        "password": req.password,
-                        "direct_link": req.direct_link,
-                        "use_proxy": req.use_proxy
-                    })
-                    
-                    print(f"[LOG] 다운로드 실패로 매니저에서 해제됨: {request_id}")
+                    # 1fichier 자동 재시도 체크 (파일명과 용량이 있으면)
+                    if should_1fichier_auto_retry(req, str(e)):
+                        print(f"[LOG] 1fichier 자동 재시도 시작: {req.fichier_retry_count + 1}/{req.fichier_max_retries}")
+                        
+                        # 재시도 카운터 증가
+                        req.fichier_retry_count += 1
+                        
+                        # 다음 재시도 시간 설정 (3분 후)
+                        import datetime
+                        req.next_retry_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=3)
+                        
+                        # 상태를 pending으로 설정하여 대기 중임을 표시
+                        req.status = StatusEnum.pending
+                        req.error = f"1fichier 자동 재시도 중 ({req.fichier_retry_count}/{req.fichier_max_retries}) - {str(e)}"
+                        db.commit()
+                        
+                        # WebSocket으로 재시도 대기 상태 전송
+                        send_websocket_message("status_update", {
+                            "id": req.id,
+                            "url": req.url,
+                            "file_name": req.file_name,
+                            "status": "pending",
+                            "error": req.error,
+                            "downloaded_size": req.downloaded_size or 0,
+                            "total_size": req.total_size or 0,
+                            "progress": 0.0,
+                            "save_path": req.save_path,
+                            "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+                            "finished_at": None,
+                            "password": req.password,
+                            "direct_link": req.direct_link,
+                            "use_proxy": req.use_proxy
+                        })
+                        
+                        # 3분 후 재시도
+                        def fichier_auto_retry():
+                            time.sleep(180)  # 3분 = 180초
+                            print(f"[LOG] 1fichier 자동 재시도 시작: ID {request_id}")
+                            download_1fichier_file_new(request_id, lang, use_proxy)
+                        
+                        retry_thread = threading.Thread(target=fichier_auto_retry)
+                        retry_thread.daemon = True
+                        retry_thread.start()
+                        
+                    else:
+                        # 재시도 한도 초과 또는 재시도 불가능한 오류
+                        req.status = StatusEnum.failed
+                        req.error = str(e)
+                        db.commit()
+                        
+                        # WebSocket으로 실패 상태 전송
+                        send_websocket_message("status_update", {
+                            "id": req.id,
+                            "url": req.url,
+                            "file_name": req.file_name,
+                            "status": "failed",
+                            "error": str(e),
+                            "downloaded_size": req.downloaded_size or 0,
+                            "total_size": req.total_size or 0,
+                            "progress": 0.0,  # 실패 시 진행률을 0으로 설정
+                            "save_path": req.save_path,
+                            "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+                            "finished_at": None,
+                            "password": req.password,
+                            "direct_link": req.direct_link,
+                            "use_proxy": req.use_proxy
+                        })
+                        
+                        print(f"[LOG] 다운로드 실패로 매니저에서 해제됨: {request_id}")
                 
             else:
                 print(f"[LOG] 다운로드가 정지 상태이므로 실패 처리하지 않음: ID {request_id}")

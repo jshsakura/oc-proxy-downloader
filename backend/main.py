@@ -124,7 +124,25 @@ from logger import log_once
 # 공유 객체 import 완료
 
 
-Base.metadata.create_all(bind=engine)
+# 데이터베이스 초기화 (스키마 에러 시 자동 재생성)
+try:
+    Base.metadata.create_all(bind=engine)
+    print("[LOG] 데이터베이스 테이블 생성/확인 완료")
+except Exception as e:
+    print(f"[LOG] 데이터베이스 스키마 에러 감지: {e}")
+    print("[LOG] 기존 데이터베이스 삭제 후 재생성...")
+    
+    # SQLite 파일 삭제
+    import os
+    db_path = "downloads.db"
+    if os.path.exists(db_path):
+        os.remove(db_path)
+        print(f"[LOG] 기존 데이터베이스 파일 삭제: {db_path}")
+    
+    # 새로운 엔진과 세션 생성
+    from core.database import engine
+    Base.metadata.create_all(bind=engine)
+    print("[LOG] 새 데이터베이스 생성 완료")
 
 # 전역 변수로 중복 실행 방지
 _startup_executed = False
@@ -382,7 +400,7 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            await asyncio.sleep(10)  # keep alive
+            await asyncio.sleep(30)  # keep alive - 30초로 증가
     except WebSocketDisconnect:
         print("[LOG] WebSocket 정상 연결 해제")
         manager.disconnect(websocket)
@@ -1827,9 +1845,9 @@ async def resume_download(download_id: int, use_proxy: bool = True, db: Session 
         if req.status not in [StatusEnum.stopped, StatusEnum.failed]:
             raise HTTPException(status_code=400, detail="정지 또는 실패 상태의 다운로드만 재시작할 수 있습니다")
         
-        # 프록시 설정 업데이트
+        # 프록시 설정 업데이트 
         req.use_proxy = use_proxy
-        req.status = StatusEnum.downloading
+        req.status = StatusEnum.pending  # 일단 pending으로 설정, 다운로드 매니저가 실제 상태 결정
         req.error = None
         db.commit()
         
@@ -1846,6 +1864,7 @@ async def resume_download(download_id: int, use_proxy: bool = True, db: Session 
         
         # 상태 업데이트 알림
         notify_status_update(db, download_id)
+        print(f"[LOG] ★ 재개 WebSocket 알림 전송 완료: ID={download_id}, 상태={req.status}")
         
         return {"message": "다운로드가 재시작되었습니다", "download_id": download_id}
         
@@ -1862,8 +1881,8 @@ async def retry_download(download_id: int, db: Session = Depends(get_db)):
         if not req:
             raise HTTPException(status_code=404, detail="다운로드를 찾을 수 없습니다")
         
-        # 상태를 downloading으로 변경
-        req.status = StatusEnum.downloading
+        # 상태를 pending으로 변경 (다운로드 매니저가 실제 상태 결정)
+        req.status = StatusEnum.pending
         req.error = None
         req.direct_link = None  # 링크 재파싱을 위해 초기화
         db.commit()
@@ -1897,8 +1916,8 @@ async def pause_download(download_id: int, db: Session = Depends(get_db)):
         if not req:
             raise HTTPException(status_code=404, detail="다운로드를 찾을 수 없습니다")
         
-        if req.status not in [StatusEnum.downloading, StatusEnum.proxying]:
-            raise HTTPException(status_code=400, detail="진행 중인 다운로드만 정지할 수 있습니다")
+        if req.status not in [StatusEnum.downloading, StatusEnum.proxying, StatusEnum.pending]:
+            raise HTTPException(status_code=400, detail="진행 중이거나 대기 중인 다운로드만 정지할 수 있습니다")
         
         # 상태를 stopped로 변경
         req.status = StatusEnum.stopped
@@ -1913,12 +1932,50 @@ async def pause_download(download_id: int, db: Session = Depends(get_db)):
         
         # 상태 업데이트 알림  
         notify_status_update(db, download_id)
+        print(f"[LOG] ★ 일시정지 WebSocket 알림 전송 완료: ID={download_id}, 상태={req.status}")
         
         return {"message": "다운로드가 정지되었습니다", "download_id": download_id}
         
     except Exception as e:
         print(f"[ERROR] 다운로드 정지 실패: {e}")
         raise HTTPException(status_code=500, detail=f"다운로드 정지 실패: {str(e)}")
+
+
+@api_router.post("/file-info")
+async def get_file_info(data: dict = Body(...)):
+    """1fichier URL에서 파일 정보만 추출 (다운로드 큐에 추가하지 않음)"""
+    try:
+        url = data.get("url", "").strip()
+        if not url:
+            raise HTTPException(status_code=400, detail="URL이 필요합니다")
+        
+        # 1fichier URL인지 확인
+        if "1fichier.com" not in url.lower():
+            raise HTTPException(status_code=400, detail="1fichier URL만 지원됩니다")
+        
+        # URL에서 HTML 가져오기
+        import requests
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            raise HTTPException(status_code=404, detail="파일 페이지에 접근할 수 없습니다")
+        
+        # 파일 정보 추출
+        from core.parser import fichier_parser
+        file_info = fichier_parser.extract_file_info(response.text)
+        
+        if not file_info or not file_info.get('name'):
+            raise HTTPException(status_code=404, detail="파일 정보를 가져올 수 없습니다")
+        
+        return {
+            "success": True,
+            "file_info": file_info
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] 파일 정보 추출 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"파일 정보 추출 실패: {str(e)}")
 
 
 @api_router.get("/websocket/stats")

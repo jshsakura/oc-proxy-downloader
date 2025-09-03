@@ -247,27 +247,43 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                             DownloadRequest.url == url
                         ).order_by(DownloadRequest.requested_at.desc()).first()
                         
-                        if download_req and (not download_req.file_name or download_req.file_name.strip() == ''):
-                            download_req.file_name = early_file_info['name']
-                            temp_db.commit()
-                            print(f"[LOG] ★ 파일명 DB 조기 저장 완료: '{early_file_info['name']}'")
+                        if download_req:
+                            updated = False
                             
-                            # WebSocket으로 파일명 업데이트 전송
-                            try:
-                                from core.shared import status_queue
-                                import json
-                                message = json.dumps({
-                                    "type": "filename_update",
-                                    "data": {
-                                        "id": download_req.id,
-                                        "file_name": download_req.file_name,
-                                        "url": download_req.url,
-                                        "status": download_req.status.value if hasattr(download_req.status, 'value') else str(download_req.status)
-                                    }
-                                }, ensure_ascii=False)
-                                status_queue.put(message)
-                            except Exception as ws_e:
-                                print(f"[LOG] WebSocket 파일명 업데이트 전송 실패: {ws_e}")
+                            # 1fichier는 파일명과 크기가 세트 - 둘 중 하나라도 없으면 세트로 업데이트
+                            needs_update = (
+                                not download_req.file_name or download_req.file_name.strip() == '' or
+                                not download_req.file_size or download_req.file_size.strip() == ''
+                            )
+                            
+                            if needs_update and early_file_info.get('name'):
+                                download_req.file_name = early_file_info['name']
+                                updated = True
+                                
+                                if early_file_info.get('size'):
+                                    download_req.file_size = early_file_info['size']
+                                    updated = True
+                            
+                            if updated:
+                                temp_db.commit()
+                                
+                                # WebSocket으로 파일명과 크기 업데이트 전송
+                                try:
+                                    from core.shared import status_queue
+                                    import json
+                                    message = json.dumps({
+                                        "type": "filename_update",
+                                        "data": {
+                                            "id": download_req.id,
+                                            "file_name": download_req.file_name,
+                                            "file_size": download_req.file_size,
+                                            "url": download_req.url,
+                                            "status": download_req.status.value if hasattr(download_req.status, 'value') else str(download_req.status)
+                                        }
+                                    }, ensure_ascii=False)
+                                    status_queue.put(message)
+                                except Exception as ws_e:
+                                    print(f"[LOG] WebSocket 파일명 업데이트 전송 실패: {ws_e}")
                         
                         temp_db.close()
                         
@@ -355,11 +371,20 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         print(f"[LOG] IP 차단 또는 약관 동의 필요 - 프록시 변경 또는 대기 필요")
         return None, None
     
-    # 페이지 내용에서도 약관 페이지 확인
+    # 페이지 내용에서 약관 페이지 확인 - 하지만 파일 정보가 추출되면 정상 페이지
     content_lower = r1.text.lower()
     if any(x in content_lower for x in ['conditions générales', 'terms of service', 'mentions légales']):
-        print(f"[LOG] 페이지 내용이 약관/법적고지 페이지로 판단됨")
-        return None, None
+        # 파일 정보가 추출 가능한지 먼저 확인
+        try:
+            temp_file_info = fichier_parser.extract_file_info(r1.text)
+            if temp_file_info and temp_file_info.get('name'):
+                print(f"[LOG] 약관 페이지 같지만 파일 정보 추출 가능 - 정상 진행: '{temp_file_info.get('name')}'")
+            else:
+                print(f"[LOG] 페이지 내용이 약관/법적고지 페이지로 판단됨")
+                return None, None
+        except:
+            print(f"[LOG] 페이지 내용이 약관/법적고지 페이지로 판단됨")
+            return None, None
     
     # 대기 시간 확인 및 실제 남은 시간 계산
     import re
@@ -602,8 +627,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 except Exception as e:
                     print(f"[LOG] 카운트다운 WebSocket 전송 실패: {e}")
                 
-                # 안전하게 몇 초 더 대기
-                actual_wait = countdown_seconds + 2
+                # 안전하게 더 여유 있게 대기 (1fichier는 시간에 민감함)
+                actual_wait = countdown_seconds + 5
                 import time
                 
                 # 실시간 카운트다운으로 대기
@@ -716,11 +741,38 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         form_content = form_match.group(1)
                         print(f"[DEBUG] f1 폼 발견, 다운로드 클릭 시뮬레이션")
                         
-                        # 폼 데이터 수집
+                        # 폼 데이터 수집 (BeautifulSoup 사용)
                         form_data = {}
-                        input_matches = re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\'][^>]*>', form_content, re.IGNORECASE)
-                        for name, value in input_matches:
-                            form_data[name] = value
+                        try:
+                            from bs4 import BeautifulSoup
+                            soup = BeautifulSoup(form_content, 'html.parser')
+                            
+                            # 모든 input 요소 찾기
+                            inputs = soup.find_all('input')
+                            for input_elem in inputs:
+                                name = input_elem.get('name')
+                                value = input_elem.get('value', '')
+                                input_type = input_elem.get('type', 'text')
+                                
+                                if name:
+                                    form_data[name] = value
+                                    print(f"[DEBUG] Input 발견 - name: {name}, value: {value}, type: {input_type}")
+                            
+                            # 숨겨진 필드들도 확인
+                            hidden_inputs = soup.find_all('input', {'type': 'hidden'})
+                            for hidden_input in hidden_inputs:
+                                name = hidden_input.get('name')
+                                value = hidden_input.get('value', '')
+                                if name and name not in form_data:
+                                    form_data[name] = value
+                                    print(f"[DEBUG] Hidden Input 발견 - name: {name}, value: {value}")
+                                    
+                        except Exception as e:
+                            print(f"[DEBUG] BeautifulSoup 폼 파싱 실패, 정규식 사용: {e}")
+                            # fallback to regex
+                            input_matches = re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\'][^>]*>', form_content, re.IGNORECASE)
+                            for name, value in input_matches:
+                                form_data[name] = value
                         
                         print(f"[DEBUG] 폼 데이터: {form_data}")
                         
@@ -771,6 +823,37 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         return direct_link, r3.text
                     else:
                         print(f"[LOG] 재시도 후에도 Direct Link를 찾을 수 없음{proxy_info}")
+                        # 디버그용 HTML 내용 일부 확인
+                        html_snippet = r3.text[:1000] if r3.text else "No content"
+                        print(f"[DEBUG] 재시도 후 HTML 스니펫: {html_snippet}")
+                        
+                        # dlw 버튼 상태 확인
+                        if 'id="dlw"' in r3.text:
+                            if 'disabled' in r3.text:
+                                print(f"[DEBUG] dlw 버튼이 여전히 disabled 상태 - 시간이 더 필요할 수 있음")
+                            else:
+                                print(f"[DEBUG] dlw 버튼이 활성화됨 - 다른 문제일 수 있음")
+                        else:
+                            print(f"[DEBUG] dlw 버튼을 찾을 수 없음 - 페이지 구조 변경 가능성")
+                        
+                        # 카운트다운 후에도 서버가 준비되지 않았을 수 있으므로 추가 대기 후 재시도
+                        if 'id="dlw"' in r3.text and 'disabled' in r3.text:
+                            print(f"[LOG] dlw 버튼이 여전히 비활성화 상태 - 추가 10초 대기 후 재시도")
+                            time.sleep(10)
+                            
+                            # 추가 재시도
+                            try:
+                                r4 = scraper.get(url, headers=headers, proxies=proxies, timeout=30)
+                                if r4.status_code == 200:
+                                    final_link = fichier_parser.parse_download_link(r4.text, str(url))
+                                    if final_link:
+                                        print(f"[LOG] 추가 대기 후 Direct Link 발견{proxy_info}: {final_link}")
+                                        return final_link, r4.text
+                                    else:
+                                        print(f"[DEBUG] 추가 대기 후에도 링크 없음")
+                            except Exception as e:
+                                print(f"[DEBUG] 추가 재시도 실패: {e}")
+                        
                         # 재시도 후에도 실패하면 파싱 실패로 명확히 처리 (재시도 방지)
                         raise Exception(f"다운로드 링크 파싱 실패 - {countdown_seconds}초 대기 후에도 링크를 찾을 수 없음")
                 else:
@@ -876,15 +959,23 @@ def _detect_download_limits(html_content, original_url):
         # 1단계: JavaScript에서 카운트다운 시간 추출 (최우선)
         # 먼저 JavaScript 카운트다운 변수를 찾기 (dlw 버튼 유무와 관계없이)
         js_countdown_patterns = [
-            r'var\s+ct\s*=\s*(\d+)\s*\*\s*(\d+)',  # var ct = 1*60 -> 곱셈 결과 계산
-            r'var\s+ct\s*=\s*(\d+)',               # var ct = 60
-            r'ct\s*=\s*(\d+)\s*\*\s*(\d+)',       # ct = 1*60 -> 곱셈 결과 계산
-            r'ct\s*=\s*(\d+)',                     # ct = 60
-            r'countdown\s*=\s*(\d+)',              # countdown = 45
-            r'timer\s*=\s*(\d+)',                 # timer = 30
-            r'waitTime\s*=\s*(\d+)',              # waitTime = 25
-            r'delay\s*=\s*(\d+)',                 # delay = 15
-            r'var\s+\w*[tT]ime\w*\s*=\s*(\d+)',   # var waitTime = 60, var countTime = 45
+            # 2025년 1fichier 최신 패턴들 추가
+            r'function\s+ctt\s*\(\s*\)\s*\{.*?ct\s*=\s*(\d+)',     # function ctt() { ct = 60; }
+            r'var\s+ct\s*=\s*(\d+)',                                # var ct = 60
+            r'ct\s*=\s*(\d+)',                                      # ct = 60
+            r'let\s+ct\s*=\s*(\d+)',                               # let ct = 60
+            r'const\s+ct\s*=\s*(\d+)',                             # const ct = 60
+            r'ctt\s*\(\s*\).*?(\d+)',                              # ctt() function reference with number
+            r'Free download.*?(\d+).*?second',                      # Free download ... 60 ... seconds
+            r'wait.*?(\d+).*?second',                              # wait 60 seconds
+            r'(\d+)\s*second.*?download',                          # 60 seconds ... download
+            r'var\s+ct\s*=\s*(\d+)\s*\*\s*(\d+)',                 # var ct = 1*60 -> 곱셈 결과 계산
+            r'ct\s*=\s*(\d+)\s*\*\s*(\d+)',                       # ct = 1*60 -> 곱셈 결과 계산
+            r'countdown\s*=\s*(\d+)',                              # countdown = 45
+            r'timer\s*=\s*(\d+)',                                 # timer = 30
+            r'waitTime\s*=\s*(\d+)',                              # waitTime = 25
+            r'delay\s*=\s*(\d+)',                                 # delay = 15
+            r'var\s+\w*[tT]ime\w*\s*=\s*(\d+)',                   # var waitTime = 60, var countTime = 45
             r'setTimeout\s*\(\s*\w+\s*,\s*(\d+)\s*\*\s*1000\s*\)', # setTimeout(func, 60 * 1000)
             r'setInterval\s*\(\s*\w+\s*,\s*1000\s*\).*?(\d+)',     # setInterval과 함께 사용되는 숫자
         ]
@@ -949,11 +1040,21 @@ def _detect_download_limits(html_content, original_url):
         
         # 3단계: HTML에서 직접 텍스트 패턴 찾기 (더 넓은 범위)
         html_countdown_patterns = [
-            r'(\d+)\s*seconds?',               # "60 seconds" 형태
-            r'(\d+)\s*sec',                    # "60 sec" 형태  
-            r'wait.*?(\d+)',                   # "wait 45" 형태
-            r'countdown.*?(\d+)',              # "countdown 30" 형태
-            r'(\d+)\s*(?:초|seconds?|sec)',     # 한국어/영어 초 표시
+            # 2025년 1fichier 최신 패턴들 추가
+            r'Free\s+download\s+is\s+available\s+in\s+(\d+)\s+seconds?', # Free download is available in 60 seconds
+            r'Please\s+wait\s+(\d+)\s+seconds?',                         # Please wait 60 seconds
+            r'Download\s+will\s+be\s+available\s+in\s+(\d+)\s+seconds?', # Download will be available in 60 seconds
+            r'Wait\s+(\d+)\s+seconds?',                                   # Wait 60 seconds
+            r'Attendez\s+(\d+)\s+secondes?',                             # French: Attendez 60 secondes
+            r'Téléchargement.*?(\d+)\s+secondes?',                       # French: Téléchargement dans 60 secondes
+            r'disabled[^>]*>.*?(\d+).*?second',                          # disabled button with seconds
+            r'id=[\'"]dlw[\'"][^>]*>.*?(\d+)',                          # dlw button with number
+            r'button[^>]*disabled[^>]*>.*?(\d+)',                        # disabled button with number
+            r'(\d+)\s*seconds?',                                         # "60 seconds" 형태
+            r'(\d+)\s*sec',                                              # "60 sec" 형태  
+            r'wait.*?(\d+)',                                             # "wait 45" 형태
+            r'countdown.*?(\d+)',                                        # "countdown 30" 형태
+            r'(\d+)\s*(?:초|seconds?|sec)',                              # 한국어/영어 초 표시
         ]
         
         for pattern in html_countdown_patterns:
@@ -1015,8 +1116,21 @@ def _detect_download_limits(html_content, original_url):
             
             # 일반적인 1fichier 파일 URL 패턴인 경우 기본 대기시간 적용
             if re.match(r'https?://1fichier\.com/\?\w+', original_url):
-                print(f"[LOG] 표준 1fichier URL 패턴 - 기본 카운트다운 60초 적용")
-                return ("countdown", 60)
+                # 파일이 존재하는지 확인
+                if any(indicator in html_content.lower() for indicator in [
+                    'file not found', 'fichier introuvable', '파일을 찾을 수 없', 
+                    'does not exist', 'n\'existe pas', 'error 404'
+                ]):
+                    print(f"[LOG] 파일이 존재하지 않거나 삭제됨")
+                    return ("not_found", "파일이 존재하지 않음")
+                
+                # dlw 버튼이 있으면 카운트다운 적용
+                if 'id="dlw"' in html_content or 'dlw' in html_content:
+                    print(f"[LOG] 표준 1fichier URL 패턴 + dlw 버튼 존재 - 기본 카운트다운 60초 적용")
+                    return ("countdown", 60)
+                else:
+                    print(f"[LOG] 1fichier URL이지만 dlw 버튼 없음 - 추가 분석 필요")
+                    return (None, None)
         
         # 7단계: 프리미엄 페이지로 리다이렉트된 경우 (최종 체크)
         premium_indicators = [

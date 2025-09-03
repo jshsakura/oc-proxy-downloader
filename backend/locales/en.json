@@ -232,5 +232,14 @@
   "show_password": "Show password",
   "hide_password": "Hide password",
   "login_locked": "Too many failed login attempts. Please wait {time} and try again.",
-  "login_attempt_remaining": "Login failed. {remaining} attempts remaining."
+  "login_attempt_remaining": "Login failed. {remaining} attempts remaining.",
+  "auth_section_title": "Authentication Info",
+  "logged_in_as": "Logged in as:",
+  "logout": "Logout",
+  "stop_request_sent": "Stop request sent.",
+  "resume_request_sent": "Resume request sent.",
+  "retry_request_sent": "Retry request sent.",
+  "fichier_auto_retry": "1fichier Auto Retry",
+  "fichier_auto_retry_tooltip": "1fichier free download will auto retry every 3 minutes (max {max} times)",
+  "fichier_retry_status": "Retry {current}/{max} in progress"
 }

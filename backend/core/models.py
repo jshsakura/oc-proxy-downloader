@@ -7,7 +7,7 @@ class StatusEnum(str, enum.Enum):
     pending = "pending"
     proxying = "proxying"
     downloading = "downloading"
-    stopped = "stopped"  # paused를 stopped로 변경
+    stopped = "stopped"
     done = "done"
     failed = "failed"
 
@@ -19,6 +19,7 @@ class DownloadRequest(Base):
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, nullable=False)
     file_name = Column(String)
+    file_size = Column(String, nullable=True)  # 파일 크기 (예: "6.98 GB")
     status = Column(Enum(StatusEnum), default=StatusEnum.pending)
     requested_at = Column(DateTime, default=datetime.datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
@@ -31,6 +32,9 @@ class DownloadRequest(Base):
     use_proxy = Column(Boolean, default=True)  # 프록시 사용 여부
     retry_count = Column(Integer, default=0)  # 재시도 횟수
     max_retries = Column(Integer, default=1)  # 최대 재시도 횟수
+    fichier_retry_count = Column(Integer, default=0)  # 1fichier 무료 다운로드 재시도 횟수
+    fichier_max_retries = Column(Integer, default=10)  # 1fichier 최대 재시도 횟수 (기본 10회)
+    next_retry_at = Column(DateTime, nullable=True)  # 다음 재시도 시간
 
     def as_dict(self):
         data = {}

@@ -182,6 +182,7 @@
   .login-header {
     text-align: center;
     margin-bottom: 2rem;
+    margin-top: 1rem;
   }
 
   .logo-container {
@@ -190,17 +191,6 @@
     justify-content: center;
   }
 
-  .logo-icon {
-    width: 64px;
-    height: 64px;
-    background: var(--primary-color);
-    border-radius: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    box-shadow: 0 8px 20px rgba(var(--primary-color-rgb), 0.3);
-  }
 
   .logo-text {
     font-size: 2.7rem;
@@ -332,11 +322,6 @@
 
     .logo-text {
       font-size: 1.8rem;
-    }
-
-    .logo-icon {
-      width: 56px;
-      height: 56px;
     }
   }
 </style>

@@ -129,18 +129,6 @@
     font-size: 0.85rem;
   }
 
-  .proxy-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background-color: #FFB74D;
-    color: white;
-    padding: 4px 10px;
-    border-radius: 16px;
-    font-size: 12px;
-    font-weight: 500;
-    min-height: 26px;
-  }
   
   .label-icon {
     display: flex;
@@ -237,32 +225,6 @@
   }
 
 
-  .refresh-btn {
-    background-color: var(--button-secondary-background);
-    color: var(--button-secondary-text);
-    border: 1px solid var(--button-secondary-border);
-    border-radius: 6px;
-    padding: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    min-width: 24px;
-    height: 24px;
-    flex-shrink: 0;
-  }
-
-  .refresh-btn:hover:not(:disabled) {
-    background-color: var(--button-secondary-background-hover);
-  }
-
-  .refresh-btn:disabled {
-    background-color: var(--disabled-button-background);
-    color: var(--disabled-button-text);
-    cursor: not-allowed;
-    opacity: 0.7;
-  }
 
   .warning {
     margin-top: 0.75rem;

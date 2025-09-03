@@ -8,6 +8,7 @@
   import CopyIcon from "../icons/CopyIcon.svelte";
   import { toastMessage, showToast, showToastMsg } from "./toast.js";
   import { onMount, onDestroy } from "svelte";
+  import { authRequired, isAuthenticated, authUser, authManager } from "./auth.js";
 
   const dispatch = createEventDispatcher();
 
@@ -304,6 +305,28 @@
         </div>
 
         <div class="modal-body">
+          {#if $authRequired && $isAuthenticated}
+            <div class="form-group auth-info-section">
+              <h3 class="auth-section-title">{$t("auth_section_title")}</h3>
+              <div class="auth-info-container">
+                <div class="user-info-display">
+                  <span class="user-label">{$t("logged_in_as")}</span>
+                  <span class="user-name">{$authUser?.username}</span>
+                </div>
+                <button
+                  type="button"
+                  class="logout-btn"
+                  on:click={() => {
+                    authManager.logout();
+                    closeModal();
+                  }}
+                >
+                  {$t("logout")}
+                </button>
+              </div>
+            </div>
+          {/if}
+          
           <div class="form-group">
             <label for="download-path">{$t("settings_download_path")}</label>
             <div class="input-group">
@@ -1240,6 +1263,74 @@
 
   .proxy-date {
     white-space: nowrap;
+  }
+
+  /* Auth Info Section Styles */
+  .auth-info-section {
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    background: var(--bg-secondary);
+  }
+
+  .auth-section-title {
+    margin: 0 0 1rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .auth-info-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .user-info-display {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .user-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .user-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .logout-btn {
+    background: var(--danger-color);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+
+  .logout-btn:hover {
+    background: var(--danger-hover);
+  }
+
+  @media (max-width: 600px) {
+    .auth-info-container {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .logout-btn {
+      align-self: flex-end;
+    }
   }
 
   .proxy-actions {

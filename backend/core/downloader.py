@@ -316,6 +316,10 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
                 setattr(item, "status", StatusEnum.pending)
                 db.commit()
                 
+                # WebSocket으로 상태 업데이트 알림 (대기 상태)
+                from main import notify_status_update
+                notify_status_update(db, download_id)
+                
                 # 어떤 제한인지 확인
                 if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
                     print(f"[LOG] 재개 - 전체 다운로드 제한 도달 ({download_manager.MAX_TOTAL_DOWNLOADS}개). 대기 상태로 설정: {download_id}")
@@ -332,6 +336,11 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
         # 제한에 걸리지 않은 경우 즉시 시작
         setattr(item, "status", StatusEnum.downloading)
         db.commit()
+        
+        # WebSocket으로 상태 업데이트 알림 (다운로드 시작)
+        from main import notify_status_update
+        notify_status_update(db, download_id)
+        print(f"[LOG] ★ 재개 WebSocket 알림 전송 완료: ID={download_id}")
         
         # 새로운 다운로드 시스템으로 재시작
         from .download_core import download_1fichier_file_new
@@ -380,13 +389,22 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     if item is None:
         raise HTTPException(status_code=404, detail="Download not found")
     
-    print(f"[LOG] 다운로드 정지 요청: ID {download_id}")
+    print(f"[LOG] 다운로드 정지 요청: ID {download_id}, 현재 상태: {item.status}")
+    
+    # pending, downloading, proxying 상태만 정지 가능
+    if item.status not in [StatusEnum.pending, StatusEnum.downloading, StatusEnum.proxying]:
+        raise HTTPException(status_code=400, detail=f"현재 상태({item.status})에서는 정지할 수 없습니다")
     
     # 상태를 stopped로 변경
     setattr(item, "status", StatusEnum.stopped)
     db.commit()
     
     print(f"[LOG] 다운로드 상태를 stopped로 변경 완료: ID {download_id}")
+    
+    # WebSocket으로 상태 업데이트 알림
+    from main import notify_status_update
+    notify_status_update(db, download_id)
+    print(f"[LOG] ★ 정지 WebSocket 알림 전송 완료: ID={download_id}")
     
     return {"id": item.id, "status": item.status}
 

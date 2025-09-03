@@ -232,5 +232,14 @@
   "show_password": "비밀번호 보기",
   "hide_password": "비밀번호 숨기기",
   "login_locked": "로그인을 너무 많이 시도했습니다. {time} 후에 다시 시도해주세요.",
-  "login_attempt_remaining": "로그인에 실패했습니다. {remaining}번의 시도가 남았습니다."
+  "login_attempt_remaining": "로그인에 실패했습니다. {remaining}번의 시도가 남았습니다.",
+  "auth_section_title": "로그인 정보",
+  "logged_in_as": "로그인 사용자:",
+  "logout": "로그아웃",
+  "stop_request_sent": "정지 요청이 전송되었습니다.",
+  "resume_request_sent": "재개 요청이 전송되었습니다.",
+  "retry_request_sent": "재시도 요청이 전송되었습니다.",
+  "fichier_auto_retry": "1fichier 자동 재시도",
+  "fichier_auto_retry_tooltip": "1fichier 무료 다운로드 실패 시 3분마다 자동 재시도됩니다 (최대 {max}회)",
+  "fichier_retry_status": "{current}/{max}회 재시도 중"
 }

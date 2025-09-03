@@ -697,6 +697,10 @@ class FichierParser:
             
             # 파일 크기 추출 시도 (유연한 접근법)
             size_selectors = [
+                # 볼드체 span 다음의 br 다음의 이탤릭 span (정확한 구조 매치)
+                '//span[contains(@style, "font-weight:bold")]/following-sibling::br/following-sibling::span[contains(@style, "font-style:italic")]/text()',
+                '//td[@class="normal"]//span[contains(@style, "font-weight:bold")]/following-sibling::br/following-sibling::span[contains(@style, "font-style:italic")]/text()',
+                
                 # 정확한 스타일 매치 (가장 확실한 방법)
                 '//table[contains(@class, "premium")]//span[@style="font-size:0.9em;font-style:italic"]/text()',
                 '//table[contains(@class, "premium")]//span[contains(@style, "font-style:italic") and contains(@style, "font-size:0.9em")]/text()',
