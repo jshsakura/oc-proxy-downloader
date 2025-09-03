@@ -590,6 +590,16 @@ class FichierParser:
             
             # 파일명 추출 시도 (1fichier 사이트 구조에 맞게 강화)
             name_selectors = [
+                # 최신 1fichier 구조 우선 (2025년 현재)
+                '//div[contains(@class, "ct_warn")]//text()[contains(., ".")]',
+                '//div[contains(@class, "content")]//text()[contains(., ".")]',
+                
+                # JSON-LD 구조화된 데이터에서 추출
+                '//script[@type="application/ld+json"]//text()',
+                
+                # 메타 태그에서 파일명 정보 추출
+                '//meta[@name="description"]/@content',
+                '//meta[@property="og:title"]/@content',
                 # 1fichier premium 테이블 구조 (유연한 접근법)
                 # 파일 정보 테이블의 볼드체 텍스트
                 '//table[contains(@class, "premium")]//span[contains(@style, "font-weight") and contains(@style, "bold")]/text()',
@@ -654,17 +664,27 @@ class FichierParser:
                 try:
                     texts = doc.xpath(selector)
                     for text in texts:
+                        # JSON-LD 데이터 처리
+                        if 'json' in selector.lower():
+                            try:
+                                import json
+                                data = json.loads(text)
+                                if isinstance(data, dict) and 'name' in data:
+                                    text = data['name']
+                                else:
+                                    continue
+                            except:
+                                continue
+                        
                         text = text.strip()
                         # 더 정교한 파일명 검증 (광고 텍스트 필터링 강화)
                         if text and len(text) > 3 and len(text) < 200:
-                            # 광고/프로모션 텍스트 제외 (더 포괄적)
+                            # 광고/프로모션 텍스트 제외 (필수적인 것만)
                             ad_keywords = [
-                                '1fichier', 'download', 'télécharger', 'click', 'here', 'cliquez', 'http', 'www',
-                                'summer', 'offer', 'subscription', 'premium', 'gold', 'year', 'month', 'unlimited',
-                                'guest', 'registered', 'ssl', 'encryption', 'sharing', 'advertisement', 'captcha',
-                                'waiting', 'speed', 'concurrent', 'manager', 'resume', 'storage', 'cdn', 'vpn',
-                                'removal', 'inline', 'folder', 'security', 'statistics', 'remote', 'upload',
-                                'ftp', 'api', 'support', 'basic', '€', '$', 'price', 'tarif', 'free'
+                                'télécharger', 'click here', 'cliquez', 'http://', 'https://',
+                                'subscription', 'unlimited', 'advertisement', 'captcha',
+                                'concurrent downloads', 'storage space', 'removal', 'www.',
+                                'api support', '€', '$', 'price', 'tarif'
                             ]
                             
                             # 파일 확장자가 있는지 확인 (더 포괄적으로)

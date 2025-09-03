@@ -132,12 +132,11 @@ except Exception as e:
     print(f"[LOG] 데이터베이스 스키마 에러 감지: {e}")
     print("[LOG] 기존 데이터베이스 삭제 후 재생성...")
     
-    # SQLite 파일 삭제
-    import os
-    db_path = "downloads.db"
-    if os.path.exists(db_path):
-        os.remove(db_path)
-        print(f"[LOG] 기존 데이터베이스 파일 삭제: {db_path}")
+    # SQLite 파일 삭제 - CONFIG_DIR 경로 사용
+    from core.db import DB_PATH
+    if DB_PATH.exists():
+        os.remove(DB_PATH)
+        print(f"[LOG] 기존 데이터베이스 파일 삭제: {DB_PATH}")
     
     # 새로운 엔진과 세션 생성
     from core.db import engine
@@ -163,14 +162,14 @@ async def lifespan(app: FastAPI):
             print(f"[LOG] lifespan에서 스키마 에러 재감지: {e}")
             print("[LOG] 데이터베이스 재생성 중...")
             
-            import os
-            db_path = "downloads.db"
-            if os.path.exists(db_path):
-                os.remove(db_path)
-                print(f"[LOG] 기존 데이터베이스 파일 삭제: {db_path}")
+            # SQLite 파일 삭제 - CONFIG_DIR 경로 사용
+            from core.db import DB_PATH
+            if DB_PATH.exists():
+                os.remove(DB_PATH)
+                print(f"[LOG] lifespan에서 기존 데이터베이스 파일 삭제: {DB_PATH}")
             
             Base.metadata.create_all(bind=engine)
-            print("[LOG] 새 데이터베이스 생성 완료")
+            print("[LOG] lifespan에서 새 데이터베이스 생성 완료")
         else:
             raise e
     

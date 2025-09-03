@@ -36,7 +36,7 @@ def send_websocket_message(message_type: str, data: dict):
         print(f"[LOG] WebSocket 메시지 전송 실패: {e}")
 
 
-def should_retry_download(req, error_message: str) -> bool:
+def should_retry_download(retry_count: int, error_message: str) -> bool:
     """다운로드 재시도 여부를 판단하는 함수"""
     
     # 네트워크 오류 검사 먼저 수행
@@ -61,12 +61,12 @@ def should_retry_download(req, error_message: str) -> bool:
     error_lower = error_message.lower()
     is_network_error = any(retry_error in error_lower for retry_error in retry_network_errors)
     
-    # 네트워크 오류인 경우 최대 3번까지 재시도 허용
-    max_retries_for_error = 3 if is_network_error else req.max_retries
+    # 네트워크 오류인 경우 최대 3번까지 재시도 허용, 일반 오류는 1번
+    max_retries_for_error = 3 if is_network_error else 1
     
     # 재시도 한도 확인
-    if req.retry_count >= max_retries_for_error:
-        print(f"[LOG] 재시도 한도 초과: {req.retry_count}/{max_retries_for_error} (네트워크 오류: {is_network_error})")
+    if retry_count >= max_retries_for_error:
+        print(f"[LOG] 재시도 한도 초과: {retry_count}/{max_retries_for_error} (네트워크 오류: {is_network_error})")
         return False
     
     # dstorage.fr DNS 오류는 1fichier 링크 만료를 의미하므로 재시도하지 않음
@@ -116,26 +116,26 @@ def should_retry_download(req, error_message: str) -> bool:
     return True
 
 
-def should_1fichier_auto_retry(req, error_message: str) -> bool:
+def should_1fichier_auto_retry(url: str, file_name: str, file_size: str, fichier_retry_count: int, error_message: str) -> bool:
     """1fichier 무료 다운로드 실패 시 자동 재시도 여부를 판단하는 함수"""
     
     # 1fichier URL이 아니면 재시도하지 않음
-    if "1fichier.com" not in req.url.lower():
+    if "1fichier.com" not in url.lower():
         return False
     
     # 파일명과 용량이 존재하지 않으면 유효하지 않은 파일이므로 재시도하지 않음
-    if not req.file_name or not req.file_size:
-        print(f"[LOG] 1fichier 자동 재시도 불가: 파일명({req.file_name}) 또는 용량({req.file_size}) 없음")
+    if not file_name or not file_size:
+        print(f"[LOG] 1fichier 자동 재시도 불가: 파일명({file_name}) 또는 용량({file_size}) 없음")
         return False
     
     # 파일명이 기본값이면 재시도하지 않음
-    if req.file_name in ['1fichier.com: Cloud Storage', '알 수 없음']:
-        print(f"[LOG] 1fichier 자동 재시도 불가: 파일명이 기본값({req.file_name})")
+    if file_name in ['1fichier.com: Cloud Storage', '알 수 없음']:
+        print(f"[LOG] 1fichier 자동 재시도 불가: 파일명이 기본값({file_name})")
         return False
     
-    # 재시도 한도 확인
-    if req.fichier_retry_count >= req.fichier_max_retries:
-        print(f"[LOG] 1fichier 자동 재시도 한도 초과: {req.fichier_retry_count}/{req.fichier_max_retries}")
+    # 최대 10회까지 재시도 허용
+    if fichier_retry_count >= 10:
+        print(f"[LOG] 1fichier 자동 재시도 한도 초과: {fichier_retry_count}/10")
         return False
     
     # 재시도 불가능한 오류들 (링크 만료, 권한 문제 등)
@@ -162,11 +162,11 @@ def should_1fichier_auto_retry(req, error_message: str) -> bool:
             print(f"[LOG] 1fichier 자동 재시도 불가능한 오류: {error_message}")
             return False
     
-    print(f"[LOG] 1fichier 자동 재시도 가능: {req.fichier_retry_count + 1}/{req.fichier_max_retries}")
+    print(f"[LOG] 1fichier 자동 재시도 가능: {fichier_retry_count + 1}/10")
     return True
 
 
-def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: bool = True):
+def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: bool = True, retry_count: int = 0, fichier_retry_count: int = 0):
     """
     새로운 프록시 순환 로직을 사용한 1fichier 다운로드 함수
     """
@@ -175,6 +175,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
     print(f"[LOG] Request ID: {request_id}")
     print(f"[LOG] Use Proxy: {use_proxy}")
     print(f"[LOG] 시작 시간: {time.strftime('%H:%M:%S')}")
+    print(f"[LOG] 재시도 카운터: {retry_count}, 1fichier 재시도 카운터: {fichier_retry_count}")
     print("=" * 80)
     
     # 로컬 다운로드 등록 (1fichier만)
@@ -318,27 +319,28 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         print(f"[LOG] 파싱 완료 후 파일명 체크: req.file_name='{req.file_name}', type={type(req.file_name)}, len={len(req.file_name) if req.file_name else 'None'}")
         print(f"[LOG] 파일명 조건 체크: not req.file_name={not req.file_name}, strip()==''{req.file_name.strip() == '' if req.file_name else 'N/A'}, equals_cloud_storage={req.file_name == '1fichier.com: Cloud Storage' if req.file_name else 'N/A'}")
         
+        # 파일명이 없거나 기본값인 경우 fallback 로직 시도
         if not req.file_name or req.file_name.strip() == '' or req.file_name == '1fichier.com: Cloud Storage':
-            print(f"[LOG] 파싱 완료 후에도 파일명을 알 수 없음 ('{req.file_name}'). 다운로드 중단.")
-            req.status = StatusEnum.failed
-            req.error = "Unable to determine filename"
-            db.commit()
+            print(f"[LOG] 파일명 fallback 로직 시작")
             
-            send_websocket_message("status_update", {
-                "id": req.id,
-                "url": req.url,
-                "file_name": req.file_name or "Unknown",
-                "status": "failed",
-                "error": "Unable to determine filename",
-                "downloaded_size": 0,
-                "total_size": 0,
-                "progress": 0,
-                "save_path": None,
-                "requested_at": req.requested_at.isoformat() if req.requested_at else None,
-                "finished_at": None,
-                "password": req.password,
-            })
-            return
+            # URL에서 파일명 추출 시도
+            from urllib.parse import urlparse, unquote
+            parsed_url = urlparse(req.url)
+            url_filename = None
+            
+            # URL 경로에서 파일명 추출
+            if parsed_url.path and '/' in parsed_url.path:
+                url_filename = unquote(parsed_url.path.split('/')[-1])
+                if url_filename and len(url_filename) > 3 and '.' in url_filename:
+                    print(f"[LOG] URL에서 파일명 추출: '{url_filename}'")
+                    req.file_name = url_filename
+                    db.commit()
+            
+            # 여전히 파일명이 없다면 다운로드 과정에서 Content-Disposition으로 추출 시도
+            if not req.file_name or req.file_name.strip() == '' or req.file_name == '1fichier.com: Cloud Storage':
+                print(f"[LOG] 파일명을 확정할 수 없지만 다운로드 진행 - Content-Disposition에서 추출 시도")
+                req.file_name = f"1fichier_{req.id}.tmp"  # 임시 파일명 설정
+                db.commit()
 
         # 정지 상태 체크 (파싱 후)
         db.refresh(req)
@@ -514,16 +516,16 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             db.refresh(req)
             if req.status != StatusEnum.stopped:
                 # 재시도 로직 확인
-                should_retry = should_retry_download(req, error_str)
-                print(f"[LOG] 재시도 여부 결정: {should_retry} (현재 재시도: {req.retry_count}/{req.max_retries})")
+                should_retry = should_retry_download(retry_count, error_str)
+                print(f"[LOG] 재시도 여부 결정: {should_retry} (현재 재시도: {retry_count})")
                 
                 if should_retry:
-                    req.retry_count += 1
+                    new_retry_count = retry_count + 1
                     req.status = StatusEnum.pending  # 다시 대기 상태로
-                    req.error = f"재시도 {req.retry_count}/{req.max_retries}: {str(e)}"
+                    req.error = f"재시도 {new_retry_count}: {str(e)}"
                     db.commit()
                     
-                    print(f"[LOG] 다운로드 재시도 예약: {req.retry_count}/{req.max_retries}")
+                    print(f"[LOG] 다운로드 재시도 예약: {new_retry_count}")
                     
                     # WebSocket으로 재시도 상태 전송
                     send_websocket_message("status_update", {
@@ -547,7 +549,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     def retry_download():
                         time.sleep(3)
                         print(f"[LOG] 재시도 시작: ID {request_id}")
-                        download_1fichier_file_new(request_id, lang, use_proxy)
+                        download_1fichier_file_new(request_id, lang, use_proxy, new_retry_count, fichier_retry_count)
                     
                     retry_thread = threading.Thread(target=retry_download)
                     retry_thread.daemon = True
@@ -555,19 +557,13 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     
                 else:
                     # 1fichier 자동 재시도 체크 (파일명과 용량이 있으면)
-                    if should_1fichier_auto_retry(req, str(e)):
-                        print(f"[LOG] 1fichier 자동 재시도 시작: {req.fichier_retry_count + 1}/{req.fichier_max_retries}")
-                        
-                        # 재시도 카운터 증가
-                        req.fichier_retry_count += 1
-                        
-                        # 다음 재시도 시간 설정 (3분 후)
-                        import datetime
-                        req.next_retry_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=3)
+                    if should_1fichier_auto_retry(req.url, req.file_name, req.file_size, fichier_retry_count, str(e)):
+                        new_fichier_retry_count = fichier_retry_count + 1
+                        print(f"[LOG] 1fichier 자동 재시도 시작: {new_fichier_retry_count}/10")
                         
                         # 상태를 pending으로 설정하여 대기 중임을 표시
                         req.status = StatusEnum.pending
-                        req.error = f"1fichier 자동 재시도 중 ({req.fichier_retry_count}/{req.fichier_max_retries}) - {str(e)}"
+                        req.error = f"1fichier 자동 재시도 중 ({new_fichier_retry_count}/10) - {str(e)}"
                         db.commit()
                         
                         # WebSocket으로 재시도 대기 상태 전송
@@ -592,7 +588,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         def fichier_auto_retry():
                             time.sleep(180)  # 3분 = 180초
                             print(f"[LOG] 1fichier 자동 재시도 시작: ID {request_id}")
-                            download_1fichier_file_new(request_id, lang, use_proxy)
+                            download_1fichier_file_new(request_id, lang, use_proxy, retry_count, new_fichier_retry_count)
                         
                         retry_thread = threading.Thread(target=fichier_auto_retry)
                         retry_thread.daemon = True
@@ -868,6 +864,33 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             content_length = int(response.headers.get('Content-Length', 0))
             content_type = response.headers.get('Content-Type', '').lower()
             
+            # Content-Disposition에서 실제 파일명 추출 시도
+            content_disposition = response.headers.get('Content-Disposition', '')
+            if content_disposition and 'filename' in content_disposition:
+                import re
+                # filename="..." 또는 filename*=UTF-8''... 형태 처리
+                filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';\r\n]*)["\']?', content_disposition)
+                if filename_match:
+                    extracted_filename = filename_match.group(1).strip()
+                    # URL 디코딩
+                    from urllib.parse import unquote
+                    extracted_filename = unquote(extracted_filename)
+                    
+                    # 임시 파일명이거나 파일명이 확정되지 않은 경우에만 업데이트
+                    if (req.file_name.endswith('.tmp') or req.file_name == '1fichier.com: Cloud Storage' or 
+                        req.file_name.startswith('1fichier_')):
+                        print(f"[LOG] Content-Disposition에서 실제 파일명 추출: '{extracted_filename}'")
+                        req.file_name = extracted_filename
+                        db.commit()
+                        
+                        # WebSocket으로 파일명 업데이트 전송
+                        send_websocket_message("filename_update", {
+                            "id": req.id,
+                            "file_name": req.file_name,
+                            "url": req.url,
+                            "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
+                        })
+            
             # 응답 검증: HTML이나 빈 파일인지 확인
             print(f"[LOG] 프록시 응답 분석 - Content-Length: {content_length}, Content-Type: {content_type}")
             
@@ -1108,6 +1131,33 @@ def download_local(direct_link, file_path, initial_size, req, db):
             
             content_length = int(response.headers.get('Content-Length', 0))
             content_type = response.headers.get('Content-Type', '').lower()
+            
+            # Content-Disposition에서 실제 파일명 추출 시도 (로컬)
+            content_disposition = response.headers.get('Content-Disposition', '')
+            if content_disposition and 'filename' in content_disposition:
+                import re
+                # filename="..." 또는 filename*=UTF-8''... 형태 처리
+                filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';\r\n]*)["\']?', content_disposition)
+                if filename_match:
+                    extracted_filename = filename_match.group(1).strip()
+                    # URL 디코딩
+                    from urllib.parse import unquote
+                    extracted_filename = unquote(extracted_filename)
+                    
+                    # 임시 파일명이거나 파일명이 확정되지 않은 경우에만 업데이트
+                    if (req.file_name.endswith('.tmp') or req.file_name == '1fichier.com: Cloud Storage' or 
+                        req.file_name.startswith('1fichier_')):
+                        print(f"[LOG] 로컬 Content-Disposition에서 실제 파일명 추출: '{extracted_filename}'")
+                        req.file_name = extracted_filename
+                        db.commit()
+                        
+                        # WebSocket으로 파일명 업데이트 전송
+                        send_websocket_message("filename_update", {
+                            "id": req.id,
+                            "file_name": req.file_name,
+                            "url": req.url,
+                            "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
+                        })
             
             # 응답 검증: HTML이나 빈 파일인지 확인
             print(f"[LOG] 로컬 응답 분석 - Content-Length: {content_length}, Content-Type: {content_type}")

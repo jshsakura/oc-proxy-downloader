@@ -983,6 +983,19 @@
       </button>
       <h1>{$t("title")}</h1>
       <div class="header-actions">
+        {#if $authRequired && $isAuthenticated}
+          <div class="user-info">
+            <span class="user-greeting">{$t('user_logged_in')}</span>
+            <div class="user-id">({$authUser})</div>
+          </div>
+          <button
+            on:click={authManager.logout}
+            class="button logout-button"
+            aria-label={$t("logout_button")}
+          >
+            {$t("logout_button")}
+          </button>
+        {/if}
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
@@ -2052,21 +2065,42 @@
 
   /* Authentication styles */
   .user-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     color: var(--text-secondary);
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 500;
-    padding: 0.25rem 0.5rem;
-    border-radius: 6px;
-    background: rgba(var(--primary-color-rgb), 0.1);
+    margin-right: 1rem;
+    line-height: 1.2;
+  }
+
+  .user-greeting {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+  }
+
+  .user-id {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-top: 1px;
   }
 
   .logout-button {
     background: var(--button-secondary-background);
     color: var(--button-secondary-text);
     border: 1px solid var(--button-secondary-border);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    margin-right: 0.5rem;
   }
 
   .logout-button:hover:not(:disabled) {
     background: var(--button-secondary-background-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-light);
   }
 </style>

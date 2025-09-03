@@ -7,6 +7,7 @@
   
   let username = '';
   let password = '';
+  let showPassword = false;
   let isLoading = false;
   let error = '';
   let remainingLockoutTime = 0;
@@ -129,16 +130,40 @@
       
       <div class="input-group">
         <label for="password">{$t('login_password')}</label>
-        <input
-          id="password"
-          type="password"
-          bind:value={password}
-          placeholder={$t('login_password_placeholder')}
-          disabled={isLoading}
-          on:keydown={handleKeyDown}
-          autocomplete="current-password"
-          required
-        />
+        <div class="password-input-container">
+          <input
+            id="password"
+            type={showPassword ? 'text' : 'password'}
+            bind:value={password}
+            placeholder={$t('login_password_placeholder')}
+            disabled={isLoading}
+            on:keydown={handleKeyDown}
+            autocomplete="current-password"
+            required
+          />
+          <button
+            type="button"
+            class="password-toggle"
+            on:click={() => showPassword = !showPassword}
+            tabindex="-1"
+          >
+            {#if showPassword}
+              <!-- Eye slash icon (hide) -->
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/>
+                <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/>
+                <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>
+                <line x1="2" y1="2" x2="22" y2="22"/>
+              </svg>
+            {:else}
+              <!-- Eye icon (show) -->
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            {/if}
+          </button>
+        </div>
       </div>
       
       <button
@@ -269,6 +294,39 @@
     cursor: not-allowed;
   }
 
+  .password-input-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .password-input-container input {
+    padding-right: 2.5rem;
+    width: 100%;
+  }
+
+  .password-toggle {
+    position: absolute;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s ease;
+  }
+
+  .password-toggle:hover {
+    color: var(--text-primary);
+  }
+
+  .password-toggle:focus {
+    outline: none;
+    color: var(--primary-color);
+  }
 
   .login-button {
     background-color: var(--primary-color);
