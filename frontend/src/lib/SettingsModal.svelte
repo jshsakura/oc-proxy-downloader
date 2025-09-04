@@ -8,7 +8,12 @@
   import CopyIcon from "../icons/CopyIcon.svelte";
   import { toastMessage, showToast, showToastMsg } from "./toast.js";
   import { onMount, onDestroy } from "svelte";
-  import { authRequired, isAuthenticated, authUser, authManager } from "./auth.js";
+  import {
+    authRequired,
+    isAuthenticated,
+    authUser,
+    authManager,
+  } from "./auth.js";
 
   const dispatch = createEventDispatcher();
 
@@ -34,13 +39,17 @@
   let isAddingProxy = false;
   let telegramExpanded = false;
 
-  $: if (currentSettings && currentSettings.download_path && !initialSettingsLoaded) {
-    settings = { 
+  $: if (
+    currentSettings &&
+    currentSettings.download_path &&
+    !initialSettingsLoaded
+  ) {
+    settings = {
       ...currentSettings,
-      telegram_bot_token: currentSettings.telegram_bot_token || '',
-      telegram_chat_id: currentSettings.telegram_chat_id || '',
+      telegram_bot_token: currentSettings.telegram_bot_token || "",
+      telegram_chat_id: currentSettings.telegram_chat_id || "",
       telegram_notify_success: currentSettings.telegram_notify_success || false,
-      telegram_notify_failure: currentSettings.telegram_notify_failure || true
+      telegram_notify_failure: currentSettings.telegram_notify_failure || true,
     };
     selectedTheme = settings.theme || $theme;
     initialSettingsLoaded = true;
@@ -85,8 +94,8 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           address: newProxyAddress.trim(),
-          description: newProxyDescription.trim()
-        })
+          description: newProxyDescription.trim(),
+        }),
       });
 
       if (response.ok) {
@@ -94,7 +103,7 @@
         newProxyAddress = "";
         newProxyDescription = "";
         await loadUserProxies();
-        dispatch('proxyChanged');
+        dispatch("proxyChanged");
       } else {
         const error = await response.text();
         showToastMsg($t("proxy_add_failed", { error }), "error");
@@ -109,13 +118,13 @@
   async function deleteProxy(proxyId) {
     try {
       const response = await fetch(`/api/proxies/${proxyId}`, {
-        method: "DELETE"
+        method: "DELETE",
       });
 
       if (response.ok) {
         showToastMsg($t("proxy_deleted_success"), "success");
         await loadUserProxies();
-        dispatch('proxyChanged');
+        dispatch("proxyChanged");
       } else {
         showToastMsg($t("proxy_delete_failed"), "error");
       }
@@ -127,12 +136,12 @@
   async function toggleProxy(proxyId) {
     try {
       const response = await fetch(`/api/proxies/${proxyId}/toggle`, {
-        method: "PUT"
+        method: "PUT",
       });
 
       if (response.ok) {
         await loadUserProxies();
-        dispatch('proxyChanged');
+        dispatch("proxyChanged");
       } else {
         showToastMsg($t("proxy_toggle_failed"), "error");
       }
@@ -143,21 +152,21 @@
 
   function formatDate(dateString) {
     if (!dateString) return "-";
-    const currentLocale = localStorage.getItem('lang') || 'en';
+    const currentLocale = localStorage.getItem("lang") || "en";
     const date = new Date(dateString);
-    const localeCode = currentLocale === 'ko' ? 'ko-KR' : 'en-US';
-    
-    if (currentLocale === 'ko') {
+    const localeCode = currentLocale === "ko" ? "ko-KR" : "en-US";
+
+    if (currentLocale === "ko") {
       return date.toLocaleDateString(localeCode, {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
+        year: "numeric",
+        month: "long",
+        day: "numeric",
       });
     } else {
       return date.toLocaleDateString(localeCode, {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
       });
     }
   }
@@ -175,7 +184,7 @@
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-        document.execCommand('copy');
+        document.execCommand("copy");
         textArea.remove();
       }
       showToastMsg($t("copy_success"), "success");
@@ -194,21 +203,24 @@
     try {
       const response = await fetch("/api/telegram/test", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem('access_token')}`
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
         },
         body: JSON.stringify({
           bot_token: settings.telegram_bot_token,
-          chat_id: settings.telegram_chat_id
-        })
+          chat_id: settings.telegram_chat_id,
+        }),
       });
 
       if (response.ok) {
         showToastMsg($t("telegram_test_success"), "success");
       } else {
         const errorData = await response.json();
-        showToastMsg($t("telegram_test_failed") + ": " + errorData.detail, "error");
+        showToastMsg(
+          $t("telegram_test_failed") + ": " + errorData.detail,
+          "error"
+        );
       }
     } catch (error) {
       console.error("Telegram test error:", error);
@@ -222,37 +234,39 @@
 
   async function saveSettings() {
     theme.set(selectedTheme);
-    
+
     settings.theme = selectedTheme;
     settings.language = selectedLocale;
-    
+
     console.log("[DEBUG] Saving settings:", settings);
-    
+
     try {
       const response = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),
       });
-      
+
       console.log("[DEBUG] Save API response:", response.status);
-      
+
       if (response.ok) {
         const responseData = await response.json();
         console.log("[DEBUG] Save response data:", responseData);
-        
+
         if (localStorage.getItem("lang") !== selectedLocale) {
           localStorage.setItem("lang", selectedLocale);
           window.location.reload();
           return;
         }
-        
+
         dispatch("settingsChanged", settings);
         closeModal();
       } else {
         console.error("[ERROR] Save failed:", response.status);
-        let errorMessage = $t("settings_save_failed", { status: response.status });
-        
+        let errorMessage = $t("settings_save_failed", {
+          status: response.status,
+        });
+
         if (response.status === 500) {
           errorMessage += `\n${$t("settings_save_error_server")}`;
         } else if (response.status === 403) {
@@ -260,7 +274,7 @@
         } else if (response.status === 404) {
           errorMessage += `\n${$t("settings_save_error_notfound")}`;
         }
-        
+
         alert(errorMessage);
       }
     } catch (error) {
@@ -274,7 +288,7 @@
       console.log("[DEBUG] Calling API to get default path");
       const response = await fetch("/api/default_download_path");
       console.log("[DEBUG] API response received:", response.status);
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log("[DEBUG] Default path data:", data);
@@ -286,7 +300,10 @@
           console.log("[DEBUG] Reset to default: /downloads");
         }
       } else {
-        console.warn("[WARN] Default path API failed, using fallback:", response.status);
+        console.warn(
+          "[WARN] Default path API failed, using fallback:",
+          response.status
+        );
         settings = { ...settings, download_path: "/downloads" };
       }
     } catch (e) {
@@ -318,7 +335,13 @@
       if (e.key === "Escape") closeModal();
     }}
   >
-    <div class="modern-modal" on:click|stopPropagation on:keydown={() => {}} role="dialog" tabindex="-1">
+    <div
+      class="modern-modal"
+      on:click|stopPropagation
+      on:keydown={() => {}}
+      role="dialog"
+      tabindex="-1"
+    >
       {#if isLoading}
         <div class="modal-loading-container">
           <div class="modal-spinner"></div>
@@ -361,16 +384,25 @@
                     closeModal();
                   }}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
-                    <line x1="12" y1="2" x2="12" y2="12"/>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                    <line x1="12" y1="2" x2="12" y2="12" />
                   </svg>
                   {$t("logout")}
                 </button>
               </div>
             </div>
           {/if}
-          
+
           <div class="form-group">
             <label for="download-path">{$t("settings_download_path")}</label>
             <div class="input-group">
@@ -417,7 +449,9 @@
                   hidden
                 />
                 <div class="theme-card light-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_light_aria")} >{themeIcons.light}</span>
+                  <span class="theme-icon" aria-label={$t("theme_light_aria")}
+                    >{themeIcons.light}</span
+                  >
                   <span>{$t("theme_light")}</span>
                 </div>
               </label>
@@ -429,7 +463,9 @@
                   hidden
                 />
                 <div class="theme-card dark-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_dark_aria")} >{themeIcons.dark}</span>
+                  <span class="theme-icon" aria-label={$t("theme_dark_aria")}
+                    >{themeIcons.dark}</span
+                  >
                   <span>{$t("theme_dark")}</span>
                 </div>
               </label>
@@ -441,7 +477,9 @@
                   hidden
                 />
                 <div class="theme-card dracula-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_dracula_aria")} >{themeIcons.dracula}</span>
+                  <span class="theme-icon" aria-label={$t("theme_dracula_aria")}
+                    >{themeIcons.dracula}</span
+                  >
                   <span>{$t("theme_dracula")}</span>
                 </div>
               </label>
@@ -453,7 +491,9 @@
                   hidden
                 />
                 <div class="theme-card system-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_system_aria")} >{themeIcons.system}</span>
+                  <span class="theme-icon" aria-label={$t("theme_system_aria")}
+                    >{themeIcons.system}</span
+                  >
                   <span>{$t("theme_system")}</span>
                 </div>
               </label>
@@ -462,7 +502,7 @@
 
           <fieldset class="form-group proxy-management">
             <legend>{$t("proxy_management")}</legend>
-            
+
             <div class="proxy-add-section">
               <div class="proxy-input-group">
                 <input
@@ -507,12 +547,16 @@
                     </thead>
                     <tbody>
                       {#each userProxies as proxy (proxy.id)}
-                        <tr class="proxy-row {proxy.is_active ? 'active' : 'inactive'}">
+                        <tr
+                          class="proxy-row {proxy.is_active
+                            ? 'active'
+                            : 'inactive'}"
+                        >
                           <td class="proxy-address" title={proxy.address}>
                             <div class="proxy-address-content">
                               <span class="proxy-url">{proxy.address}</span>
-                              <button 
-                                class="copy-proxy-button" 
+                              <button
+                                class="copy-proxy-button"
                                 on:click={() => copyToClipboard(proxy.address)}
                                 title={$t("proxy_copy_address")}
                                 type="button"
@@ -521,17 +565,27 @@
                               </button>
                             </div>
                             {#if proxy.description}
-                              <small class="proxy-description">{proxy.description}</small>
+                              <small class="proxy-description"
+                                >{proxy.description}</small
+                              >
                             {/if}
                           </td>
                           <td class="text-center">
                             <span class="proxy-type-badge {proxy.proxy_type}">
-                              {proxy.proxy_type === 'list' ? $t("proxy_type_list") : $t("proxy_type_single")}
+                              {proxy.proxy_type === "list"
+                                ? $t("proxy_type_list")
+                                : $t("proxy_type_single")}
                             </span>
                           </td>
                           <td class="text-center">
-                            <span class="proxy-status-badge {proxy.is_active ? 'active' : 'inactive'}">
-                              {proxy.is_active ? $t("proxy_status_active") : $t("proxy_status_inactive")}
+                            <span
+                              class="proxy-status-badge {proxy.is_active
+                                ? 'active'
+                                : 'inactive'}"
+                            >
+                              {proxy.is_active
+                                ? $t("proxy_status_active")
+                                : $t("proxy_status_inactive")}
                             </span>
                           </td>
                           <td class="proxy-date text-center">
@@ -540,12 +594,16 @@
                           <td class="proxy-actions">
                             <div class="proxy-action-buttons">
                               <button
-                                class="proxy-action-btn toggle-btn {proxy.is_active ? 'active' : 'inactive'}"
+                                class="proxy-action-btn toggle-btn {proxy.is_active
+                                  ? 'active'
+                                  : 'inactive'}"
                                 on:click={() => toggleProxy(proxy.id)}
-                                title={proxy.is_active ? $t("proxy_toggle_inactive") : $t("proxy_toggle_active")}
+                                title={proxy.is_active
+                                  ? $t("proxy_toggle_inactive")
+                                  : $t("proxy_toggle_active")}
                                 type="button"
                               >
-                                {proxy.is_active ? '⏸' : '▶'}
+                                {proxy.is_active ? "⏸" : "▶"}
                               </button>
                               <button
                                 class="proxy-action-btn delete-btn"
@@ -568,28 +626,39 @@
 
           <fieldset class="form-group telegram-notifications">
             <legend>{$t("telegram_notifications")}</legend>
-            
-            <button 
+
+            <button
               type="button"
               class="telegram-header"
-              on:click={() => telegramExpanded = !telegramExpanded}
+              on:click={() => (telegramExpanded = !telegramExpanded)}
             >
               <div class="telegram-info">
-                <p class="telegram-desc">📱 {$t('telegram_description')}</p>
+                <p class="telegram-desc">📱 {$t("telegram_description")}</p>
               </div>
               <div class="toggle-chevron" class:expanded={telegramExpanded}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
                   <polyline points="6,9 12,15 18,9"></polyline>
                 </svg>
               </div>
             </button>
-            
+
             {#if telegramExpanded}
               <div class="telegram-accordion">
                 <div class="accordion-content">
                   <div class="telegram-input-group">
                     <div class="input-field">
-                      <label for="telegram-bot-token">{$t("telegram_bot_token")}</label>
+                      <label for="telegram-bot-token"
+                        >{$t("telegram_bot_token")}</label
+                      >
                       <input
                         id="telegram-bot-token"
                         type="text"
@@ -597,11 +666,15 @@
                         bind:value={settings.telegram_bot_token}
                         placeholder="1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
                       />
-                      <small class="input-hint">{$t("telegram_bot_token_hint")}</small>
+                      <small class="input-hint"
+                        >{$t("telegram_bot_token_hint")}</small
+                      >
                     </div>
-                    
+
                     <div class="input-field">
-                      <label for="telegram-chat-id">{$t("telegram_chat_id")}</label>
+                      <label for="telegram-chat-id"
+                        >{$t("telegram_chat_id")}</label
+                      >
                       <input
                         id="telegram-chat-id"
                         type="text"
@@ -609,10 +682,12 @@
                         bind:value={settings.telegram_chat_id}
                         placeholder="-1001234567890"
                       />
-                      <small class="input-hint">{$t("telegram_chat_id_hint")}</small>
+                      <small class="input-hint"
+                        >{$t("telegram_chat_id_hint")}</small
+                      >
                     </div>
                   </div>
-                  
+
                   <div class="telegram-options">
                     <div class="telegram-checkbox-group">
                       <label class="telegram-checkbox-label">
@@ -620,24 +695,29 @@
                           type="checkbox"
                           bind:checked={settings.telegram_notify_success}
                         />
-                        <span class="telegram-checkbox-text">✅ {$t("telegram_notify_success")}</span>
+                        <span class="telegram-checkbox-text"
+                          >✅ {$t("telegram_notify_success")}</span
+                        >
                       </label>
-                      
+
                       <label class="telegram-checkbox-label">
                         <input
                           type="checkbox"
                           bind:checked={settings.telegram_notify_failure}
                         />
-                        <span class="telegram-checkbox-text">❌ {$t("telegram_notify_failure")}</span>
+                        <span class="telegram-checkbox-text"
+                          >❌ {$t("telegram_notify_failure")}</span
+                        >
                       </label>
                     </div>
                   </div>
-                  
+
                   <div class="telegram-test-section">
                     <button
                       class="button button-secondary test-telegram-button"
                       on:click={testTelegramNotification}
-                      disabled={!settings.telegram_bot_token || !settings.telegram_chat_id}
+                      disabled={!settings.telegram_bot_token ||
+                        !settings.telegram_chat_id}
                     >
                       🚀 {$t("telegram_test_notification")}
                     </button>
@@ -649,8 +729,7 @@
         </div>
 
         <div class="modal-footer">
-          <div class="footer-left">
-          </div>
+          <div class="footer-left"></div>
           <div class="footer-right">
             <button class="button button-secondary" on:click={closeModal}>
               {$t("button_cancel")}
@@ -699,7 +778,7 @@
   .modern-modal {
     background: var(--card-background);
     border-radius: 16px;
-    box-shadow: 
+    box-shadow:
       0 25px 50px -12px rgba(0, 0, 0, 0.25),
       0 0 0 1px rgba(255, 255, 255, 0.05);
     width: 95vw;
@@ -725,7 +804,11 @@
   }
 
   .modal-header {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover, #1e40af) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--primary-color) 0%,
+      var(--primary-hover, #1e40af) 100%
+    );
     color: white;
     padding: 1.5rem 2rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -823,8 +906,12 @@
   }
 
   @keyframes modal-spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 
   .modal-loading-text {
@@ -895,7 +982,7 @@
     transition: all 0.2s ease;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
-  
+
   .input-group .input {
     padding-right: 48px;
   }
@@ -920,9 +1007,11 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease;
   }
-  
+
   .input-icon-button.reset-button {
     right: 8px;
   }
@@ -1001,9 +1090,11 @@
   .modal-footer {
     padding: 1.25rem 2rem;
     border-top: 1px solid var(--card-border, #e5e7eb);
-    background: linear-gradient(135deg, 
+    background: linear-gradient(
+      135deg,
       rgba(var(--primary-color-rgb, 59, 130, 246), 0.03) 0%,
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.01) 100%);
+      rgba(var(--primary-color-rgb, 59, 130, 246), 0.01) 100%
+    );
     backdrop-filter: blur(10px);
     display: flex;
     justify-content: space-between;
@@ -1044,16 +1135,24 @@
   }
 
   .button-primary {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover, #1e40af) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--primary-color) 0%,
+      var(--primary-hover, #1e40af) 100%
+    );
     color: white;
-    box-shadow: 
+    box-shadow:
       0 2px 4px rgba(0, 0, 0, 0.1),
       0 1px 3px rgba(0, 0, 0, 0.08);
     border: 2px solid rgba(255, 255, 255, 0.1);
   }
 
   .button-primary:hover {
-    background: linear-gradient(135deg, var(--primary-hover, #1e40af) 0%, var(--primary-color) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--primary-hover, #1e40af) 0%,
+      var(--primary-color) 100%
+    );
     border-color: rgba(255, 255, 255, 0.2);
   }
 
@@ -1069,7 +1168,10 @@
   }
 
   .button-secondary:hover {
-    background: var(--button-secondary-background-hover, var(--bg-secondary, #f8fafc));
+    background: var(
+      --button-secondary-background-hover,
+      var(--bg-secondary, #f8fafc)
+    );
     border-color: var(--primary-color);
     color: var(--text-primary);
   }
@@ -1083,23 +1185,23 @@
       max-height: 95vh;
       min-height: 300px;
     }
-    
+
     .modal-header {
       padding: 1rem 1.5rem;
     }
-    
+
     .modal-body {
       padding: 1.5rem;
     }
-    
+
     .modal-footer {
       padding: 1rem 1.5rem;
     }
-    
+
     .title-text h2 {
       font-size: 1.25rem;
     }
-    
+
     .title-text .subtitle {
       font-size: 0.8rem;
     }
@@ -1110,26 +1212,26 @@
       width: 95vw;
       margin: 1rem;
     }
-    
+
     .theme-options {
       grid-template-columns: repeat(2, 1fr);
     }
-    
+
     .footer-right {
       flex-direction: column;
       gap: 0.5rem;
       width: 100%;
     }
-    
+
     .modal-footer {
       flex-direction: column;
       align-items: stretch;
     }
-    
+
     .footer-left {
       display: none;
     }
-    
+
     .button {
       width: 100%;
       justify-content: center;
@@ -1252,7 +1354,7 @@
 
   .telegram-token-input,
   .telegram-chat-input {
-    font-family: 'Courier New', monospace;
+    font-family: "Courier New", monospace;
     font-size: 0.875rem;
     background: var(--input-background);
     border: 1px solid var(--input-border);
@@ -1400,11 +1502,26 @@
     text-align: center !important;
   }
 
-  .proxy-table th:nth-child(1), .proxy-table td:nth-child(1) { width: 35%; }
-  .proxy-table th:nth-child(2), .proxy-table td:nth-child(2) { width: 12%; }
-  .proxy-table th:nth-child(3), .proxy-table td:nth-child(3) { width: 12%; }
-  .proxy-table th:nth-child(4), .proxy-table td:nth-child(4) { width: 26%; }
-  .proxy-table th:nth-child(5), .proxy-table td:nth-child(5) { width: 15%; }
+  .proxy-table th:nth-child(1),
+  .proxy-table td:nth-child(1) {
+    width: 35%;
+  }
+  .proxy-table th:nth-child(2),
+  .proxy-table td:nth-child(2) {
+    width: 12%;
+  }
+  .proxy-table th:nth-child(3),
+  .proxy-table td:nth-child(3) {
+    width: 12%;
+  }
+  .proxy-table th:nth-child(4),
+  .proxy-table td:nth-child(4) {
+    width: 26%;
+  }
+  .proxy-table th:nth-child(5),
+  .proxy-table td:nth-child(5) {
+    width: 15%;
+  }
 
   .proxy-table td {
     overflow: hidden;
@@ -1659,7 +1776,7 @@
   }
 
   .logout-btn.compact {
-    padding: 0.4rem 0.8rem;
+    padding: 0.6rem 0.8rem;
     font-size: 0.8rem;
   }
 
