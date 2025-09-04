@@ -298,8 +298,13 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         print(f"[DEBUG] req.file_name이 빈 문자열인가: {req.file_name == '' if req.file_name else 'N/A'}")
         print(f"[DEBUG] req.file_name.strip()이 비어있나: {req.file_name.strip() == '' if req.file_name else 'N/A'}")
         
-        # 파싱된 실제 파일명만 사용 (fallback 제거)
-        base_filename = req.file_name if req.file_name and req.file_name.strip() else f"1fichier_{request_id}.unknown"
+        # DB에서 가져온 파일명이 있으면 그것을 사용, 없으면 fallback
+        if req.file_name and req.file_name.strip():
+            base_filename = req.file_name.strip()
+            print(f"[LOG] ★ DB에서 가져온 파일명 사용: '{base_filename}'")
+        else:
+            base_filename = f"1fichier_{request_id}.unknown"
+            print(f"[LOG] ★ DB에 파일명이 없어서 fallback 사용: '{base_filename}'")
         print(f"[DEBUG] 결정된 base_filename: '{base_filename}'")
         
         # Windows에서 파일명에 사용할 수 없는 문자 제거 (간단하게)
