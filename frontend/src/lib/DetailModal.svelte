@@ -12,7 +12,6 @@
 
   const dispatch = createEventDispatcher();
 
-
   function closeModal() {
     showModal = false;
     dispatch("close");
@@ -41,13 +40,13 @@
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-        document.execCommand('copy');
+        document.execCommand("copy");
         textArea.remove();
       }
-      showToastMsg($t("copy_success"), "success");
+      showToastMsg($t("copy_success"));
     } catch (err) {
       console.error($t("clipboard_copy_failed"), err);
-      showToastMsg($t("copy_failed"), "error");
+      showToastMsg($t("copy_failed"));
     }
   }
 
@@ -70,7 +69,13 @@
       if (e.key === "Escape") closeModal();
     }}
   >
-    <div class="modern-modal" on:click|stopPropagation on:keydown={() => {}} role="dialog" tabindex="-1">
+    <div
+      class="modern-modal"
+      on:click|stopPropagation
+      on:keydown={() => {}}
+      role="dialog"
+      tabindex="-1"
+    >
       <!-- 모던 헤더 -->
       <div class="modal-header">
         <div class="header-content">
@@ -80,7 +85,9 @@
             </div>
             <div class="title-text">
               <h2>{$t("detail_modal_title")}</h2>
-              <p class="subtitle">{download.file_name || $t("detail_not_available")}</p>
+              <p class="subtitle">
+                {download.file_name || $t("detail_not_available")}
+              </p>
             </div>
           </div>
           <button class="close-button" on:click={closeModal}>
@@ -97,8 +104,10 @@
               <th>{$t("detail_original_url")}</th>
               <td>
                 <div class="url-container">
-                  <span class="url-text" title={download.url}>{download.url}</span>
-                  <button 
+                  <span class="url-text" title={download.url}
+                    >{download.url}</span
+                  >
+                  <button
                     class="copy-button"
                     on:click={() => copyToClipboard(download.url)}
                     title={$t("copy_url")}
@@ -113,8 +122,10 @@
               <td>
                 {#if download.direct_link}
                   <div class="url-container">
-                    <span class="url-text" title={download.direct_link}>{download.direct_link}</span>
-                    <button 
+                    <span class="url-text" title={download.direct_link}
+                      >{download.direct_link}</span
+                    >
+                    <button
                       class="copy-button"
                       on:click={() => copyToClipboard(download.direct_link)}
                       title={$t("copy_url")}
@@ -129,7 +140,24 @@
             </tr>
             <tr>
               <th>{$t("detail_download_path")}</th>
-              <td>{download.save_path || $t("detail_not_available")}</td>
+              <td>
+                {#if download.save_path}
+                  <div class="url-container">
+                    <span class="url-text" title={download.save_path}
+                      >{download.save_path}</span
+                    >
+                    <button
+                      class="copy-button"
+                      on:click={() => copyToClipboard(download.save_path)}
+                      title={$t("copy_path")}
+                    >
+                      <CopyIcon />
+                    </button>
+                  </div>
+                {:else}
+                  {$t("detail_not_available")}
+                {/if}
+              </td>
             </tr>
             <tr>
               <th>{$t("detail_requested_at")}</th>
@@ -151,7 +179,24 @@
             </tr>
             <tr>
               <th>{$t("detail_file_name")}</th>
-              <td>{download.file_name || $t("detail_not_available")}</td>
+              <td>
+                {#if download.file_name}
+                  <div class="url-container">
+                    <span class="url-text" title={download.file_name}
+                      >{download.file_name}</span
+                    >
+                    <button
+                      class="copy-button"
+                      on:click={() => copyToClipboard(download.file_name)}
+                      title={$t("copy_filename")}
+                    >
+                      <CopyIcon />
+                    </button>
+                  </div>
+                {:else}
+                  {$t("detail_not_available")}
+                {/if}
+              </td>
             </tr>
             <tr>
               <th>{$t("detail_total_size")}</th>
@@ -183,14 +228,11 @@
               <th>{$t("detail_error_message")}</th>
               <td>
                 <div class="error-message-container">
-                  <span 
-                    class="error-text" 
-                    title={download.error || ""}
-                  >
+                  <span class="error-text" title={download.error || ""}>
                     {download.error || $t("detail_no_error")}
                   </span>
                   {#if download.error}
-                    <button 
+                    <button
                       class="copy-button"
                       on:click={() => copyToClipboard(download.error)}
                       title={$t("copy_error")}
@@ -259,14 +301,13 @@
   .modern-modal {
     background: var(--card-background);
     border-radius: 16px;
-    box-shadow: 
+    box-shadow:
       0 25px 50px -12px rgba(0, 0, 0, 0.25),
       0 0 0 1px rgba(255, 255, 255, 0.05);
     height: 80vh;
     max-height: 600px;
     min-height: 400px;
-    width: 700px;
-    max-width: 95vw;
+    max-width: 100vw;
     min-width: 0;
     overflow: hidden;
     display: flex;
@@ -289,7 +330,11 @@
 
   /* 모던 헤더 */
   .modal-header {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover, #1e40af) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--primary-color) 0%,
+      var(--primary-hover, #1e40af) 100%
+    );
     color: white;
     padding: 1.5rem 2rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -385,12 +430,12 @@
     resize: none;
     position: relative;
   }
-  
+
   .modal-body * {
     resize: none !important;
   }
 
-    .error-message-container,
+  .error-message-container,
   .url-container {
     display: flex;
     align-items: flex-start;
@@ -404,7 +449,7 @@
     flex: 1;
     line-height: 1.4;
     color: var(--text-primary, #1f2937);
-    font-family: 'Courier New', monospace;
+    font-family: "Courier New", monospace;
     font-size: 13px;
     word-break: break-all;
     min-width: 0;
@@ -452,9 +497,11 @@
   .modal-footer {
     padding: 1.25rem 2rem;
     border-top: 1px solid var(--card-border, #e5e7eb);
-    background: linear-gradient(135deg, 
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.03) 0%, 
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.01) 100%);
+    background: linear-gradient(
+      135deg,
+      rgba(var(--primary-color-rgb, 59, 130, 246), 0.03) 0%,
+      rgba(var(--primary-color-rgb, 59, 130, 246), 0.01) 100%
+    );
     backdrop-filter: blur(10px);
     display: flex;
     justify-content: space-between;
@@ -499,7 +546,7 @@
   }
 
   .status::before {
-    content: '';
+    content: "";
     width: 5px;
     height: 5px;
     border-radius: 50%;
@@ -511,31 +558,49 @@
     background-color: var(--card-border);
     border: 1px solid var(--input-border);
   }
-  .status-pending::before { background-color: #9ca3af; }
+  .status-pending::before {
+    background-color: #f97316; /* 주황색 도트 */
+    animation: pendingPulse 2s infinite; /* 반짝 효과 */
+  }
+  
+  @keyframes pendingPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
 
   .status-downloading {
     color: #fff;
     background-color: var(--primary-color);
   }
-  .status-downloading::before { background-color: #fff; animation: pulse 2s infinite; }
+  .status-downloading::before {
+    background-color: #fff;
+    animation: pulse 2s infinite;
+  }
 
   .status-done {
     color: #fff;
     background-color: var(--success-color);
   }
-  .status-done::before { background-color: #fff; }
+  .status-done::before {
+    background-color: #fff;
+  }
 
   .status-failed {
     color: #fff;
     background-color: var(--danger-color);
   }
-  .status-failed::before { background-color: #fff; }
+  .status-failed::before {
+    background-color: #fff;
+  }
 
   .status-proxying {
     color: #fff;
     background-color: var(--warning-color);
   }
-  .status-proxying::before { background-color: #fff; animation: pulse 2s infinite; }
+  .status-proxying::before {
+    background-color: #fff;
+    animation: pulse 2s infinite;
+  }
 
   .status-paused,
   .status-stopped {
@@ -543,11 +608,18 @@
     background-color: #6b7280;
   }
   .status-paused::before,
-  .status-stopped::before { background-color: #fff; }
+  .status-stopped::before {
+    background-color: #fff;
+  }
 
   @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
   }
 
   .status-badge {
@@ -608,16 +680,24 @@
   }
 
   .button-primary {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover, #1e40af) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--primary-color) 0%,
+      var(--primary-hover, #1e40af) 100%
+    );
     color: white;
-    box-shadow: 
+    box-shadow:
       0 2px 4px rgba(0, 0, 0, 0.1),
       0 1px 3px rgba(0, 0, 0, 0.08);
     border: 2px solid rgba(255, 255, 255, 0.1);
   }
 
   .button-primary:hover {
-    background: linear-gradient(135deg, var(--primary-hover, #1e40af) 0%, var(--primary-color) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--primary-hover, #1e40af) 0%,
+      var(--primary-color) 100%
+    );
     border-color: rgba(255, 255, 255, 0.2);
   }
 
@@ -653,13 +733,13 @@
     resize: none;
     user-select: none;
   }
-  
+
   .detail-table tbody {
     display: block;
     width: 100%;
     min-width: 100%;
   }
-  
+
   .detail-table tr {
     display: flex;
     width: 100%;
@@ -752,7 +832,7 @@
     .modern-backdrop {
       padding: 10px;
     }
-    
+
     .modern-modal {
       width: 100%;
       max-width: 100vw;
@@ -760,83 +840,83 @@
       max-height: 90vh;
       border-radius: 12px;
     }
-    
+
     .modal-header {
       padding: 1rem;
     }
-    
+
     .header-content {
       /* Keep normal flex layout - don't change to column */
       align-items: center;
       gap: 0.75rem;
     }
-    
+
     .title-section {
       /* Keep normal flex layout */
       flex: 1;
       gap: 0.5rem;
     }
-    
+
     .icon-wrapper {
       width: 2rem;
       height: 2rem;
     }
-    
+
     .icon-wrapper :global(svg) {
       width: 1rem;
       height: 1rem;
     }
-    
+
     .title-text h2 {
       font-size: 1.1rem;
     }
-    
+
     .subtitle {
       max-width: 200px;
       font-size: 0.75rem;
     }
-    
+
     .close-button {
       /* Keep normal positioning - don't make absolute */
       width: 2rem;
       height: 2rem;
       flex-shrink: 0;
     }
-    
+
     .close-button :global(svg) {
       width: 1rem;
       height: 1rem;
     }
-    
+
     .detail-table th {
       flex: 0 0 120px;
       font-size: 0.75rem;
       padding: 8px 12px;
     }
-    
+
     .detail-table td {
       padding: 8px 12px;
       font-size: 0.75rem;
       min-width: 0;
     }
-    
+
     .modal-footer {
       padding: 1rem;
       flex-direction: column-reverse;
       align-items: stretch;
       gap: 1rem;
     }
-    
+
     .footer-left,
     .footer-right {
       width: 100%;
       justify-content: center;
     }
-    
+
     .status-info {
       text-align: center;
     }
-    
+
     .button {
       width: 100%;
       min-width: unset;
@@ -848,7 +928,7 @@
   .detail-table tr:last-child td {
     border-bottom: none;
   }
-  
+
   /* 페이지네이션 스타일 */
   .pagination {
     display: flex;
@@ -924,7 +1004,7 @@
   :global(body.dracula) .page-btn:disabled {
     background: #6272a4;
   }
-  
+
   /* 컨테이너가 있는 셀은 정상 표시 */
 
   /* 모바일 반응형 스타일 */
@@ -994,7 +1074,7 @@
       padding: 8px 12px;
       font-size: 0.8rem;
     }
-    
+
     .detail-table th {
       width: 120px;
     }

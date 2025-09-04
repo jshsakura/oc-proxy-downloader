@@ -83,6 +83,8 @@
   "copy_failed": "Failed to copy",
   "copy_error": "Copy error message",
   "copy_url": "Copy URL",
+  "copy_path": "Copy Path",
+  "copy_filename": "Copy Filename",
   "clipboard_tooltip": "Paste from clipboard",
   "clipboard_read_failed": "Failed to read clipboard",
   "password_tooltip": "Set password",

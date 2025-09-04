@@ -687,7 +687,10 @@ tbody tr:hover {
   background-color: var(--card-border);
   border: 1px solid var(--input-border);
 }
-.status-pending::before { background-color: #9ca3af; }
+.status-pending::before { 
+  background-color: #f97316; /* 주황색 도트 */ 
+  animation: pendingPulse 2s infinite; /* 반짝 효과 */
+}
 
 .status-downloading {
   color: #fff;
@@ -724,6 +727,11 @@ tbody tr:hover {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+@keyframes pendingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 .progress-container {
   width: 100%;

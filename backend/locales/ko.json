@@ -83,6 +83,8 @@
   "copy_failed": "복사에 실패했습니다",
   "copy_error": "에러 메시지 복사",
   "copy_url": "URL 복사",
+  "copy_path": "경로 복사",
+  "copy_filename": "파일명 복사",
   "clipboard_tooltip": "클립보드에서 붙여넣기",
   "clipboard_read_failed": "클립보드 읽기 실패",
   "password_tooltip": "비밀번호 설정",
