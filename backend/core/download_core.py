@@ -432,6 +432,28 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         else:
             print(f"[LOG] 파싱된 파일명 사용: '{req.file_name}'")
 
+        # 파일명이 업데이트된 경우 저장 경로도 다시 설정
+        if req.file_name and req.file_name.strip() and not req.file_name.startswith('1fichier_'):
+            print(f"[LOG] 파싱된 파일명으로 저장 경로 재설정: '{req.file_name}'")
+            
+            # 안전한 파일명 생성
+            safe_filename = re.sub(r'[<>:"/\\|?*]', '_', req.file_name.strip())
+            safe_filename = safe_filename.strip('. ')
+            
+            # 중복 파일명 방지
+            final_path = download_path / safe_filename
+            counter = 1
+            while final_path.exists():
+                name, ext = os.path.splitext(safe_filename)
+                safe_filename = f"{name}_{counter}{ext}"
+                final_path = download_path / safe_filename
+                counter += 1
+            
+            # 저장 경로 업데이트
+            req.save_path = str(final_path)
+            db.commit()
+            print(f"[LOG] 저장 경로 업데이트 완료: {final_path}")
+
         # 정지 상태 체크 (파싱 후)
         db.refresh(req)
         if req.status == StatusEnum.stopped:
@@ -1083,7 +1105,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                     return
                             
                             # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
-                            if downloaded - last_update_size >= 524288:  # 512KB
+                            if downloaded - last_update_size >= 10485760:  # 10MB마다 로그 출력
                                 req.downloaded_size = downloaded
                                 db.commit()
                                 last_update_size = downloaded
@@ -1091,8 +1113,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                 progress = (downloaded / total_size * 100) if total_size > 0 else 0
                                 print(f"[LOG] 프록시 진행률: {progress:.1f}% ({downloaded}/{total_size})")
                                 
-                                # WebSocket으로 실시간 진행률 전송
-                                print(f"[LOG] WebSocket 진행률 전송: ID={req.id}, progress={progress:.1f}%")
+                                # WebSocket으로 실시간 진행률 전송 (로그 제거)
                                 send_websocket_message("progress_update", {
                                     "id": req.id,
                                     "downloaded_size": downloaded,
@@ -1351,7 +1372,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                     return
                             
                             # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
-                            if downloaded - last_update_size >= 524288:  # 512KB
+                            if downloaded - last_update_size >= 10485760:  # 10MB마다 로그 출력
                                 req.downloaded_size = downloaded
                                 db.commit()
                                 last_update_size = downloaded
@@ -1359,8 +1380,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                 progress = (downloaded / total_size * 100) if total_size > 0 else 0
                                 print(f"[LOG] 로컬 진행률: {progress:.1f}% ({downloaded}/{total_size})")
                                 
-                                # WebSocket으로 실시간 진행률 전송
-                                print(f"[LOG] WebSocket 진행률 전송: ID={req.id}, progress={progress:.1f}%")
+                                # WebSocket으로 실시간 진행률 전송 (로그 제거)
                                 send_websocket_message("progress_update", {
                                     "id": req.id,
                                     "downloaded_size": downloaded,

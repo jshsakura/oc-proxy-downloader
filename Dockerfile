@@ -25,7 +25,8 @@ RUN apt-get update && apt-get install -y \
 # Python 의존성 설치
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir beautifulsoup4
 
 # 백엔드 소스 복사 (중복 제거)
 COPY backend/ ./backend/

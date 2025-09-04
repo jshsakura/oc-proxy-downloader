@@ -228,14 +228,13 @@ def create_download_task(
     return {"id": db_req.id, "status": db_req.status}
 
 @router.get("/history/")
-def get_download_history(db: Session = Depends(get_db)):
+def get_download_history(db: Session = Depends(get_db), limit: int = 100):
     try:
-        history = db.query(DownloadRequest).order_by(DownloadRequest.requested_at.desc()).all()
-        print(f"[LOG] History API: Found {len(history)} records")
+        # 최근 100개만 가져오기 (페이지네이션 최적화)
+        history = db.query(DownloadRequest).order_by(DownloadRequest.requested_at.desc()).limit(limit).all()
+        print(f"[LOG] History API: Found {len(history)} records (limit: {limit})")
         result = [item.as_dict() for item in history]
         print(f"[LOG] History API: Returning {len(result)} items")
-        if result:
-            print(f"[LOG] First item: {result[0]}")
         return result
     except Exception as e:
         print(f"[ERROR] History API failed: {e}")

@@ -45,13 +45,11 @@ class DownloadRequest(Base):
             elif c.name in ['downloaded_size', 'total_size'] and value is None:
                 data[c.name] = 0 # Ensure these are always numbers
             elif c.name == 'error' and value:
-                # Clean error messages to avoid encoding issues
+                # Clean error messages (simplified for performance)
                 try:
-                    # Remove problematic Unicode characters that can cause cp949 encoding errors
-                    cleaned_value = value.encode('ascii', 'ignore').decode('ascii')
-                    data[c.name] = cleaned_value if cleaned_value else str(value)
+                    data[c.name] = str(value)
                 except:
-                    data[c.name] = "Encoding error in error message"
+                    data[c.name] = "Encoding error"
             else:
                 data[c.name] = value
         return data
@@ -82,13 +80,11 @@ class UserProxy(Base):
             elif c.name in ['downloaded_size', 'total_size'] and value is None:
                 data[c.name] = 0 # Ensure these are always numbers
             elif c.name == 'error' and value:
-                # Clean error messages to avoid encoding issues
+                # Clean error messages (simplified for performance)
                 try:
-                    # Remove problematic Unicode characters that can cause cp949 encoding errors
-                    cleaned_value = value.encode('ascii', 'ignore').decode('ascii')
-                    data[c.name] = cleaned_value if cleaned_value else str(value)
+                    data[c.name] = str(value)
                 except:
-                    data[c.name] = "Encoding error in error message"
+                    data[c.name] = "Encoding error"
             else:
                 data[c.name] = value
         return data
