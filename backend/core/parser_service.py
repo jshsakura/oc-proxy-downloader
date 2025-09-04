@@ -302,7 +302,7 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         
         # STEP 2: 이제 정상적인 다운로드 링크 파싱 진행
         print(f"[LOG] 2단계: 다운로드 링크 파싱 진행")
-        wait_time_limit = 90 if use_proxy else 90
+        wait_time_limit = 86400 if use_proxy else 86400  # 24시간 (최대 대기시간)
         direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit, proxy_addr=proxy_addr)
         
         if direct_link and html_content:
@@ -351,18 +351,28 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         # 2단계: 버튼에서 정확한 대기시간 추출
         wait_seconds = None
         button_patterns = [
-            r'Free\s+download\s+in\s+[^\d]*(\d+)',  # Free download in ⏳ 888
-            r'id="dlw"[^>]*>.*?(\d+)',              # dlw 버튼 내부 숫자
-            r'disabled[^>]*>.*?(\d+)',              # disabled 버튼 숫자
+            r'Free\s+download\s+in\s+[^\d]*(\d+)\s*minutes?',  # Free download in ⏳ 16 minutes
+            r'Free\s+download\s+in\s+[^\d]*(\d+)',             # Free download in ⏳ 888 (초)
+            r'id="dlw"[^>]*>.*?(\d+)',                          # dlw 버튼 내부 숫자
+            r'disabled[^>]*>.*?(\d+)',                          # disabled 버튼 숫자
         ]
         
-        for pattern in button_patterns:
+        for i, pattern in enumerate(button_patterns):
             match = re.search(pattern, response.text, re.IGNORECASE | re.DOTALL)
             if match:
-                wait_seconds = int(match.group(1))
-                if 5 <= wait_seconds <= 7200:  # 합리적인 범위
-                    print(f"[LOG] 버튼에서 대기시간 추출: {wait_seconds}초")
+                wait_value = int(match.group(1))
+                # 첫 번째 패턴은 분 단위
+                if i == 0:  # minutes 패턴
+                    wait_seconds = wait_value * 60
+                    print(f"[LOG] 버튼에서 분 단위 대기시간 추출: {wait_value}분 ({wait_seconds}초)")
+                else:  # 초 단위
+                    wait_seconds = wait_value
+                    print(f"[LOG] 버튼에서 초 단위 대기시간 추출: {wait_seconds}초")
+                
+                if 5 <= wait_seconds <= 14400:  # 5초~4시간 범위
                     break
+                else:
+                    wait_seconds = None  # 범위 밖이면 무시
         
         # 3단계: 대기시간이 있으면 정확히 대기
         if wait_seconds:

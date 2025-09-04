@@ -176,6 +176,17 @@ class FichierParser:
         try:
             print(f"[DEBUG] 파싱 시작 - HTML 길이: {len(html_content)} 문자")
             
+            # 1fichier 대기시간 체크 (기존 방식과 동일하게 처리)
+            if 'Free download in' in html_content:
+                import re
+                # 16분 대기시간 체크
+                wait_match = re.search(r'Free download in.*?(\d+)\s*minutes?', html_content, re.IGNORECASE)
+                if wait_match:
+                    wait_minutes = int(wait_match.group(1))
+                    wait_seconds = wait_minutes * 60  # 분을 초로 변환
+                    print(f"[LOG] 1fichier 대기시간 감지: {wait_minutes}분 ({wait_seconds}초)")
+                    return None  # 기존 방식대로 None 반환하여 대기시간 처리 위임
+            
             # 우선 정규식으로 직접 다운로드 링크 패턴 검색
             print(f"[DEBUG] 정규식 패턴 검색 시작...")
             download_patterns = [
