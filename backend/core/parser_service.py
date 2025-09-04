@@ -382,8 +382,22 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                     (remaining > 60 and remaining % 10 == 0)  # 1분 이상이면 10초마다
                 )
                 
-                if should_send_update and remaining % 10 == 0:
-                    print(f"[LOG] 남은 시간: {remaining}초")
+                if should_send_update:
+                    # 웹소켓으로 카운트다운 전송
+                    try:
+                        from .download_core import send_websocket_message
+                        send_websocket_message("wait_countdown", {
+                            "remaining_time": remaining,
+                            "total_wait_time": wait_seconds,
+                            "proxy_addr": proxy_addr,
+                            "url": url
+                        })
+                    except Exception as e:
+                        print(f"[LOG] 카운트다운 WebSocket 전송 실패: {e}")
+                    
+                    # 로그는 10초마다만 출력 (너무 많은 로그 방지)
+                    if remaining % 10 == 0:
+                        print(f"[LOG] 남은 시간: {remaining}초")
             
             print(f"[LOG] 대기 완료! 다운로드 시작")
         

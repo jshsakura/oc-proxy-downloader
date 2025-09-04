@@ -298,16 +298,17 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         print(f"[DEBUG] req.file_name이 빈 문자열인가: {req.file_name == '' if req.file_name else 'N/A'}")
         print(f"[DEBUG] req.file_name.strip()이 비어있나: {req.file_name.strip() == '' if req.file_name else 'N/A'}")
         
-        base_filename = req.file_name if req.file_name and req.file_name.strip() else f"download_{request_id}"
+        # 파싱된 실제 파일명만 사용 (fallback 제거)
+        base_filename = req.file_name if req.file_name and req.file_name.strip() else f"1fichier_{request_id}.unknown"
         print(f"[DEBUG] 결정된 base_filename: '{base_filename}'")
         
         # Windows에서 파일명에 사용할 수 없는 문자 제거 (간단하게)
         safe_filename = re.sub(r'[<>:"/\\|?*]', '_', base_filename)
         safe_filename = safe_filename.strip('. ')  # 앞뒤 공백과 점 제거
         
-        # 빈 파일명 방지
+        # 빈 파일명 방지 (실제 파일명이 없는 경우만)
         if not safe_filename:
-            safe_filename = f"download_{request_id}"
+            safe_filename = f"1fichier_{request_id}.unknown"
             print(f"[DEBUG] 빈 파일명 방지로 fallback: '{safe_filename}'")
             
         print(f"[LOG] 원본 파일명: '{base_filename}', 안전한 파일명: '{safe_filename}'")
@@ -401,9 +402,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         print(f"[LOG] 파싱 완료 후 파일명 체크: req.file_name='{req.file_name}', type={type(req.file_name)}, len={len(req.file_name) if req.file_name else 'None'}")
         print(f"[LOG] 파일명 조건 체크: not req.file_name={not req.file_name}, strip()==''{req.file_name.strip() == '' if req.file_name else 'N/A'}, equals_cloud_storage={req.file_name == '1fichier.com: Cloud Storage' if req.file_name else 'N/A'}")
         
-        # 파일명이 없거나 기본값인 경우 fallback 로직 시도
+        # 파일명이 없거나 기본값인 경우 fallback 로직 시도 (fallback은 최소화)
         if not req.file_name or req.file_name.strip() == '' or req.file_name == '1fichier.com: Cloud Storage':
-            print(f"[LOG] 파일명 fallback 로직 시작")
+            print(f"[WARNING] 파싱된 파일명이 없습니다. fallback 로직 시작")
             
             # URL에서 파일명 추출 시도
             from urllib.parse import urlparse, unquote
@@ -418,11 +419,13 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     req.file_name = url_filename
                     db.commit()
             
-            # 여전히 파일명이 없다면 다운로드 과정에서 Content-Disposition으로 추출 시도
+            # 여전히 파일명이 없다면 임시 파일명 사용 (다운로드 중 Content-Disposition에서 업데이트됨)
             if not req.file_name or req.file_name.strip() == '' or req.file_name == '1fichier.com: Cloud Storage':
-                print(f"[LOG] 파일명을 확정할 수 없지만 다운로드 진행 - Content-Disposition에서 추출 시도")
+                print(f"[WARNING] 파일명을 확정할 수 없어 임시명 사용 - Content-Disposition에서 추출 시도")
                 req.file_name = f"1fichier_{req.id}.tmp"  # 임시 파일명 설정
                 db.commit()
+        else:
+            print(f"[LOG] 파싱된 파일명 사용: '{req.file_name}'")
 
         # 정지 상태 체크 (파싱 후)
         db.refresh(req)
