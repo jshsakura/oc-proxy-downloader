@@ -342,12 +342,12 @@ async def status_broadcaster():
             # non-blocking으로 큐에서 메시지 확인
             try:
                 msg = status_queue.get_nowait()
-                print(f"[LOG] status_broadcaster: 메시지 처리 중, 연결 수: {len(manager.active_connections)}")
+                # print(f"[LOG] status_broadcaster: 메시지 처리 중, 연결 수: {len(manager.active_connections)}")  # 너무 많은 로그
                 await manager.broadcast(msg)
-                print(f"[LOG] status_broadcaster: 메시지 브로드캐스트 완료")
+                # print(f"[LOG] status_broadcaster: 메시지 브로드캐스트 완료")  # 너무 많은 로그
             except queue.Empty:
-                # 큐가 비어있으면 잠시 대기
-                await asyncio.sleep(0.1)
+                # 큐가 비어있으면 좀 더 오래 대기 (CPU 사용량 최적화)
+                await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             # 서버 종료 시 정상적으로 종료
             print("[LOG] status_broadcaster 종료됨")

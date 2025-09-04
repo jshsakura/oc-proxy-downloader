@@ -250,19 +250,22 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                         if download_req:
                             updated = False
                             
-                            # 1fichier는 파일명과 크기가 세트 - 둘 중 하나라도 없으면 세트로 업데이트
-                            needs_update = (
-                                not download_req.file_name or download_req.file_name.strip() == '' or
-                                not download_req.file_size or download_req.file_size.strip() == ''
-                            )
+                            # 파일명과 크기가 모두 없는 경우에만 업데이트 (덮어쓰기 방지)
+                            has_filename = download_req.file_name and download_req.file_name.strip() != ''
+                            has_filesize = download_req.file_size and download_req.file_size.strip() != ''
                             
-                            if needs_update and early_file_info.get('name'):
+                            # 둘 다 없는 경우에만 새로 설정
+                            if not has_filename and not has_filesize and early_file_info.get('name'):
                                 download_req.file_name = early_file_info['name']
                                 updated = True
+                                print(f"[LOG] ★ 파일명 최초 설정: '{early_file_info['name']}'")
                                 
                                 if early_file_info.get('size'):
                                     download_req.file_size = early_file_info['size']
                                     updated = True
+                                    print(f"[LOG] ★ 파일크기 최초 설정: '{early_file_info['size']}'")
+                            elif has_filename or has_filesize:
+                                print(f"[LOG] ★ 파일 정보 이미 존재 - 덮어쓰기 방지 (이름: {has_filename}, 크기: {has_filesize})")
                             
                             if updated:
                                 temp_db.commit()
@@ -331,557 +334,135 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
 
 
 def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=None, retry_count=5):
-    """공통 파싱 로직"""
-    last_exception = None
-    
-    # 재시도 로직
-    for attempt in range(retry_count):
-        try:
-            print(f"[LOG] GET 요청 시도 {attempt + 1}/{retry_count}: {url}")
-            # 1단계: GET 요청으로 페이지 로드
-            r1 = scraper.get(url, headers=headers, proxies=proxies, timeout=30)
-            print(f"[LOG] GET 응답: {r1.status_code}")
-            break  # 성공하면 재시도 루프 탈출
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as e:
-            last_exception = e
-            print(f"[LOG] GET 요청 실패 (시도 {attempt + 1}/{retry_count}): {e}")
-            if attempt < retry_count - 1:
-                import time
-                wait_seconds = min(2 ** attempt, 10)  # 지수 백오프: 1, 2, 4, 8, 10초
-                print(f"[LOG] {wait_seconds}초 대기 후 재시도...")
-                time.sleep(wait_seconds)
-                continue
-            else:
-                print(f"[LOG] 모든 재시도 실패")
-                raise last_exception
-    
-    if r1.status_code not in [200, 404, 500]:
-        print(f"[LOG] GET 실패: {r1.status_code}")
-        return None, None
-    
-    # 404 에러인 경우 특별 처리
-    if r1.status_code == 404:
-        print(f"[LOG] GET 404 에러 - URL이 존재하지 않거나 잘못됨: {url}")
-        # 404인 경우 파일이 삭제되었거나 URL이 잘못된 것으로 간주
-        return None, None
-    
-    # cgu.html, cgv.html 등으로 리다이렉트 체크 (1fichier 안티봇 대응)
-    if any(x in r1.url.lower() for x in ['cgu.html', 'cgv.html', 'tarifs.html', 'mentions.html']):
-        print(f"[LOG] 1fichier 안티봇/약관 페이지로 리다이렉트 감지: {r1.url}")
-        print(f"[LOG] IP 차단 또는 약관 동의 필요 - 프록시 변경 또는 대기 필요")
-        return None, None
-    
-    # 페이지 내용에서 약관 페이지 확인 - 하지만 파일 정보가 추출되면 정상 페이지
-    content_lower = r1.text.lower()
-    if any(x in content_lower for x in ['conditions générales', 'terms of service', 'mentions légales']):
-        # 파일 정보가 추출 가능한지 먼저 확인
-        try:
-            temp_file_info = fichier_parser.extract_file_info(r1.text)
-            if temp_file_info and temp_file_info.get('name'):
-                print(f"[LOG] 약관 페이지 같지만 파일 정보 추출 가능 - 정상 진행: '{temp_file_info.get('name')}'")
-            else:
-                print(f"[LOG] 페이지 내용이 약관/법적고지 페이지로 판단됨")
-                return None, None
-        except:
-            print(f"[LOG] 페이지 내용이 약관/법적고지 페이지로 판단됨")
-            return None, None
-    
-    # 대기 시간 확인 및 실제 남은 시간 계산
+    """간단한 1fichier 파싱 로직 - 정확한 대기시간만 기다리고 클릭"""
     import re
-    
-    # 1단계: 초기 대기시간 설정 값 찾기
-    timer_matches = re.findall(r'setTimeout\s*\([^,]+,\s*(\d+)', r1.text)
-    initial_wait_ms = 0
-    for match in timer_matches:
-        time_ms = int(match)
-        if 1000 <= time_ms <= 65000:  # 1초~65초
-            initial_wait_ms = max(initial_wait_ms, time_ms)
-    
-    # 2단계: 가장 신뢰할 수 있는 방법으로 남은 시간 추출 (안정화)
-    remaining_time = 0
-    time_extraction_method = "none"
-    
-    print(f"[DEBUG] 대기시간 추출 시작 - 초기 설정: {initial_wait_ms}ms")
-    
-    # 2025년 실제 1fichier 구조 기반 카운트다운 감지 (실제 확인됨)
-    js_countdown_patterns = [
-        (r'var\s+ct\s*=\s*(\d+)', 'JavaScript ct 변수 (메인)'),  # 실제 사용되는 패턴
-        (r'ct\s*=\s*(\d+)', '간소화된 ct 변수'),               # var 없이 사용될 수 있음
-        (r'countdown\s*=\s*(\d+)', 'countdown 변수'),
-        (r'timer\s*=\s*(\d+)', 'timer 변수'),
-        # 추가: 실제 확인된 패턴들
-        (r'let\s+ct\s*=\s*(\d+)', 'let ct 변수'),            # 모던 JavaScript
-        (r'const\s+ct\s*=\s*(\d+)', 'const ct 변수'),
-    ]
-    
-    for pattern, method_name in js_countdown_patterns:
-        match = re.search(pattern, r1.text, re.IGNORECASE)
-        if match:
-            js_remaining = int(match.group(1))
-            if 5 <= js_remaining <= 120:  # 합리적인 범위
-                remaining_time = js_remaining
-                time_extraction_method = method_name
-                print(f"[DEBUG] {method_name}에서 대기시간 추출: {remaining_time}초")
-                break
-    
-    # JavaScript에서 찾지 못한 경우에만 다른 방법 시도
-    if remaining_time == 0:
-        # HTML 텍스트 패턴 (두 번째 우선순위)
-        html_patterns = [
-            (r'(\d+)\s*seconds?\s*remaining', 'HTML seconds remaining'),
-            (r'wait["\']?\s*:\s*(\d+)', 'HTML wait 속성'),
-            (r'timeLeft["\']?\s*:\s*(\d+)', 'HTML timeLeft 속성'),
-        ]
-        
-        for pattern, method_name in html_patterns:
-            match = re.search(pattern, r1.text, re.IGNORECASE)
-            if match:
-                html_remaining = int(match.group(1))
-                if 5 <= html_remaining <= 120:
-                    remaining_time = html_remaining
-                    time_extraction_method = method_name
-                    print(f"[DEBUG] {method_name}에서 대기시간 추출: {remaining_time}초")
-                    break
-    
-    # 위 방법들이 모두 실패한 경우에만 초기값 기반 계산
-    if remaining_time == 0 and initial_wait_ms > 0:
-        initial_wait_seconds = initial_wait_ms / 1000
-        # 페이지 로딩 시간 추정 (1-3초)
-        estimated_loading_time = 2
-        remaining_time = max(5, initial_wait_seconds - estimated_loading_time)  # 최소 5초
-        time_extraction_method = "초기값 기반 추정"
-        print(f"[DEBUG] {time_extraction_method}: {remaining_time}초 (원래 {initial_wait_seconds}초 - {estimated_loading_time}초 로딩시간)")
-    
-    # 최종 검증 및 안정화
-    if remaining_time > 0:
-        # 합리적인 범위로 제한
-        remaining_time = min(max(remaining_time, 5), 120)  # 5초~120초
-        print(f"[LOG] 대기시간 확정: {remaining_time}초 (방법: {time_extraction_method})")
-    
-    # 5단계: 실제 대기 처리
-    if remaining_time > 0:
-        actual_wait = min(remaining_time, wait_time_limit)
-        print(f"[LOG] 남은 대기 시간: {remaining_time:.1f}초 (실제 대기: {actual_wait:.1f}초)")
-        
-        # WebSocket으로 대기시간 전송
-        try:
-            from .download_core import send_websocket_message
-            send_websocket_message("wait_countdown", {
-                "remaining_time": int(remaining_time),
-                "total_wait_time": int(initial_wait_seconds) if initial_wait_ms > 0 else int(remaining_time),
-                "proxy_addr": proxy_addr,
-                "url": url
-            })
-        except Exception as e:
-            print(f"[LOG] 대기시간 WebSocket 전송 실패: {e}")
-        
-        # 안정화된 카운트다운으로 대기
-        import time
-        wait_duration = remaining_time if proxies is None else actual_wait
-        total_wait_time = int(remaining_time)
-        
-        print(f"[LOG] 안정화된 카운트다운 시작: {wait_duration}초")
-        
-        # 안정화된 카운트다운 (정수로 고정)
-        for i in range(int(wait_duration)):
-            time.sleep(1)
-            
-            # 정지 상태 체크 (URL로 request 찾아서 체크)
-            temp_db = None
-            try:
-                from .db import SessionLocal
-                from .models import StatusEnum, DownloadRequest
-                temp_db = SessionLocal()
-                
-                # URL로 다운로드 요청 찾기 (모든 상태)
-                active_req = temp_db.query(DownloadRequest).filter(
-                    DownloadRequest.url == url
-                ).order_by(DownloadRequest.requested_at.desc()).first()
-                
-                if active_req and active_req.status == StatusEnum.stopped:
-                    print(f"[LOG] 대기 중 정지됨: URL {url}")
-                    temp_db.close()
-                    return None  # 정지된 경우 파싱 중단
-                    
-            except Exception as e:
-                print(f"[LOG] 정지 상태 체크 실패: {e}")
-            finally:
-                if temp_db:
-                    temp_db.close()
-            
-            # 안정화된 카운트다운 계산 (정수만 사용)
-            remaining_seconds = total_wait_time - i - 1
-            if remaining_seconds >= 0:
-                try:
-                    send_websocket_message("wait_countdown", {
-                        "remaining_time": remaining_seconds,
-                        "total_wait_time": total_wait_time,
-                        "proxy_addr": proxy_addr,
-                        "url": url
-                    })
-                    print(f"[DEBUG] 카운트다운: {remaining_seconds}초 남음")
-                except Exception as e:
-                    print(f"[LOG] 실시간 카운트다운 WebSocket 전송 실패: {e}")
-        
-        # 남은 소수점 시간 대기
-        remaining_fraction = wait_duration - int(wait_duration)
-        if remaining_fraction > 0:
-            time.sleep(remaining_fraction)
-    else:
-        print(f"[LOG] 대기 시간 없음 - 즉시 진행")
-    
-    # 2단계: POST 요청으로 다운로드 링크 획득 (2025년 1fichier 구조 기반)
-    payload = {}
+    from bs4 import BeautifulSoup
+    import time
     
     try:
-        # BeautifulSoup으로 정확한 폼 파싱 (정규식보다 안정적)
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(r1.text, 'html.parser')
+        # 1단계: 페이지 로드
+        print(f"[LOG] 1fichier 페이지 로드")
+        response = scraper.get(url, headers=headers, proxies=proxies, timeout=30)
         
-        # 실제 확인된 폼 ID로 찾기
-        download_form = soup.find('form', {'id': 'f1'})
-        if not download_form:
-            # ID가 없다면 다른 방법으로 찾기
-            download_form = soup.find('form')
+        if response.status_code != 200:
+            print(f"[LOG] 페이지 로드 실패: HTTP {response.status_code}")
+            return None, None
         
-        if download_form:
-            print(f"[LOG] 다운로드 폼 발견: {download_form.get('id', '무명폼')}")
+        # 2단계: 버튼에서 정확한 대기시간 추출
+        wait_seconds = None
+        button_patterns = [
+            r'Free\s+download\s+in\s+[^\d]*(\d+)',  # Free download in ⏳ 888
+            r'id="dlw"[^>]*>.*?(\d+)',              # dlw 버튼 내부 숫자
+            r'disabled[^>]*>.*?(\d+)',              # disabled 버튼 숫자
+        ]
+        
+        for pattern in button_patterns:
+            match = re.search(pattern, response.text, re.IGNORECASE | re.DOTALL)
+            if match:
+                wait_seconds = int(match.group(1))
+                if 5 <= wait_seconds <= 7200:  # 합리적인 범위
+                    print(f"[LOG] 버튼에서 대기시간 추출: {wait_seconds}초")
+                    break
+        
+        # 3단계: 대기시간이 있으면 정확히 대기
+        if wait_seconds:
+            print(f"[LOG] {wait_seconds}초 정확히 대기 시작...")
             
-            # 폼 내 모든 input 요소 파싱
-            inputs = download_form.find_all('input')
-            for input_elem in inputs:
-                name = input_elem.get('name')
-                value = input_elem.get('value', '')
-                input_type = input_elem.get('type', 'text')
+            # 최적화된 카운트다운 (웹소켓 부하 최소화)
+            for i in range(wait_seconds):
+                time.sleep(1)
+                remaining = wait_seconds - i - 1
                 
-                if name:
-                    print(f"[DEBUG] Input: {name} ({input_type}) = '{value}'")
-                    
-                    # 패스워드 입력
-                    if input_type == 'password' or name.lower() in ['pass', 'password']:
-                        if password:
-                            payload[name] = password
-                            print(f"[LOG] 패스워드 설정: {name}")
-                    # submit 버튼이나 hidden 필드
-                    elif input_type in ['submit', 'hidden'] or name.lower() in ['submit', 'download']:
-                        payload[name] = value if value else 'Download'
-                    # 기타 필드들 (CSRF 토큰 등)
-                    else:
-                        if value:
-                            payload[name] = value
+                # 웹소켓 메시지 전송 최적화: 중요한 시점에만 전송
+                should_send_update = (
+                    remaining == 0 or  # 완료시
+                    remaining <= 10 or  # 마지막 10초
+                    remaining % 30 == 0 or  # 30초마다
+                    (remaining > 300 and remaining % 60 == 0) or  # 5분 이상이면 1분마다
+                    (remaining > 60 and remaining % 10 == 0)  # 1분 이상이면 10초마다
+                )
+                
+                if should_send_update and remaining % 10 == 0:
+                    print(f"[LOG] 남은 시간: {remaining}초")
             
-            print(f"[LOG] 최종 POST 파라미터: {payload}")
+            print(f"[LOG] 대기 완료! 다운로드 시작")
+        
+        # 4단계: 폼 데이터 수집 및 POST 요청
+        soup = BeautifulSoup(response.text, 'html.parser')
+        form = soup.find('form', {'id': 'f1'}) or soup.find('form')
+        
+        if not form:
+            print(f"[LOG] 다운로드 폼을 찾을 수 없음")
+            return None, None
+        
+        # 폼 데이터 수집
+        form_data = {}
+        for input_elem in form.find_all('input'):
+            name = input_elem.get('name')
+            value = input_elem.get('value', '')
+            input_type = input_elem.get('type', 'text')
             
+            if name:
+                if input_type == 'password' and password:
+                    form_data[name] = password
+                elif input_type in ['submit', 'hidden'] or value:
+                    form_data[name] = value
+        
+        # submit이 없으면 추가
+        if not any('submit' in key.lower() for key in form_data.keys()):
+            form_data['submit'] = 'Download'
+        
+        print(f"[LOG] POST 요청 시작...")
+        
+        # POST 헤더 설정
+        post_headers = headers.copy()
+        post_headers.update({
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Referer': url,
+            'Origin': 'https://1fichier.com'
+        })
+        
+        # POST 요청
+        post_response = scraper.post(url, data=form_data, headers=post_headers, 
+                                   proxies=proxies, timeout=30, allow_redirects=False)
+        
+        # 5단계: 다운로드 링크 추출
+        download_link = None
+        
+        # 리다이렉트인 경우
+        if post_response.status_code in [301, 302, 303, 307, 308]:
+            location = post_response.headers.get('Location')
+            if location:
+                if location.startswith('/'):
+                    location = f"https://1fichier.com{location}"
+                
+                if 'a-' in location and '1fichier.com' in location:
+                    download_link = location
+                    print(f"[LOG] 리다이렉트에서 다운로드 링크: {download_link}")
+        
+        # HTML 응답인 경우
+        elif post_response.status_code == 200:
+            download_patterns = [
+                r'https://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
+                r'https://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
+            ]
+            
+            for pattern in download_patterns:
+                matches = re.findall(pattern, post_response.text)
+                if matches:
+                    download_link = matches[0]
+                    print(f"[LOG] HTML에서 다운로드 링크: {download_link}")
+                    break
+        
+        if download_link:
+            return download_link, post_response.text
         else:
-            print(f"[LOG] 폼을 찾지 못함, 기본 파라미터 사용")
-            payload = {'submit': 'Download'}
-            if password:
-                payload['pass'] = password
-                
+            print(f"[LOG] 다운로드 링크를 찾을 수 없음")
+            return None, None
+    
     except Exception as e:
-        print(f"[DEBUG] 폼 파싱 실패, 최소한의 파라미터 사용: {e}")
-        payload = {'submit': 'Download'}
-        if password:
-            payload['pass'] = password
-    
-    headers_post = headers.copy()
-    headers_post['Referer'] = str(url)
-    
-    # 2단계: POST 요청 (쿠키 세팅을 위해 좀 더 구체적인 헤더 사용)
-    headers_post['Content-Type'] = 'application/x-www-form-urlencoded'
-    headers_post['Origin'] = 'https://1fichier.com'
-    headers_post['Sec-Fetch-Dest'] = 'document'
-    headers_post['Sec-Fetch-Mode'] = 'navigate'
-    headers_post['Sec-Fetch-Site'] = 'same-origin'
-    headers_post['Sec-Fetch-User'] = '?1'
-    
-    # 도커 환경에서 안정성을 위한 세션 쿠키 관리
-    import time
-    time.sleep(0.5)  # 1차 요청 후 잠시 대기
-    r2 = scraper.post(url, data=payload, headers=headers_post, proxies=proxies, timeout=15)
-    # print(f"[LOG] POST 응답: {r2.status_code}")
-    
-    if r2.status_code == 200:
-        print(f"[DEBUG] POST 응답 크기: {len(r2.text)} 문자")
-        
-        # 1단계: 제한 상황 감지
-        limit_detected = _detect_download_limits(r2.text, str(url))
-        if limit_detected:
-            limit_type, remaining_time = limit_detected
-            
-            # 카운트다운인 경우 대기 후 재시도
-            if limit_type == "countdown" and isinstance(remaining_time, int):
-                countdown_seconds = remaining_time
-                proxy_info = f" (프록시: {proxy_addr})" if proxy_addr else " (로컬 연결)"
-                print(f"[LOG] 카운트다운 감지{proxy_info}: {countdown_seconds}초 대기 후 재시도")
-                
-                # WebSocket으로 대기시간 전송
-                try:
-                    from .download_core import send_websocket_message
-                    send_websocket_message("wait_countdown", {
-                        "remaining_time": countdown_seconds,
-                        "total_wait_time": countdown_seconds,
-                        "proxy_addr": proxy_addr,
-                        "url": url
-                    })
-                except Exception as e:
-                    print(f"[LOG] 카운트다운 WebSocket 전송 실패: {e}")
-                
-                # 안전하게 더 여유 있게 대기 (1fichier는 시간에 민감함)
-                actual_wait = countdown_seconds + 5
-                import time
-                
-                # 실시간 카운트다운으로 대기
-                for i in range(actual_wait):
-                    time.sleep(1)
-                    
-                    # 정지 상태 체크 (URL로 request 찾아서 체크)
-                    temp_db = None
-                    try:
-                        from .db import SessionLocal
-                        from .models import StatusEnum, DownloadRequest
-                        temp_db = SessionLocal()
-                        
-                        # URL로 다운로드 요청 찾기 (모든 상태)
-                        active_req = temp_db.query(DownloadRequest).filter(
-                            DownloadRequest.url == url
-                        ).order_by(DownloadRequest.requested_at.desc()).first()
-                        
-                        if active_req and active_req.status == StatusEnum.stopped:
-                            print(f"[LOG] 카운트다운 대기 중 정지됨: URL {url}")
-                            temp_db.close()
-                            return None  # 정지된 경우 파싱 중단
-                            
-                    except Exception as e:
-                        print(f"[LOG] 정지 상태 체크 실패: {e}")
-                    finally:
-                        if temp_db:
-                            temp_db.close()
-                    
-                    remaining_seconds = actual_wait - i - 1
-                    if remaining_seconds >= 0:
-                        try:
-                            send_websocket_message("wait_countdown", {
-                                "remaining_time": remaining_seconds,
-                                "total_wait_time": countdown_seconds,
-                                "proxy_addr": proxy_addr,
-                                "url": url
-                            })
-                        except Exception as e:
-                            print(f"[LOG] 실시간 카운트다운 WebSocket 전송 실패: {e}")
-                
-                print(f"[LOG] 카운트다운 완료 - 재시도 중{proxy_info}")
-                
-                # 3단계: 재시도 (카운트다운 후 GET 요청으로 실제 다운로드 페이지 확인)
-                r3 = scraper.get(url, headers=headers, proxies=proxies, timeout=15)
-                
-                if r3.status_code == 200:
-                    print(f"[DEBUG] 재시도 POST 응답 크기: {len(r3.text)} 문자")
-                    
-                    # 재시도 응답에서 더 정교한 분석
-                    print(f"[DEBUG] 재시도 응답 상세 분석 중...")
-                    import re
-                    
-                    # dlw 버튼의 onclick이나 href 찾기
-                    dlw_patterns = [
-                        r'<[^>]*id=["\']dlw["\'][^>]*onclick=["\']([^"\']+)["\'][^>]*>',
-                        r'<[^>]*id=["\']dlw["\'][^>]*href=["\']([^"\']+)["\'][^>]*>',
-                        r'<[^>]*id=["\']dlw["\'][^>]*>(.*?)</[^>]*>',
-                    ]
-                    
-                    for pattern in dlw_patterns:
-                        dlw_matches = re.findall(pattern, r3.text, re.IGNORECASE | re.DOTALL)
-                        if dlw_matches:
-                            print(f"[DEBUG] dlw 패턴 발견: {dlw_matches}")
-                            for match in dlw_matches:
-                                if 'a-' in match and '.1fichier.com' in match:
-                                    print(f"[LOG] dlw에서 Direct Link 발견{proxy_info}: {match}")
-                                    return match, r3.text
-                    
-                    # JavaScript location.href 찾기
-                    js_location_patterns = [
-                        r"location\.href\s*=\s*['\"]([^'\"]*a-[^'\"]*)['\"]",
-                        r"window\.location\s*=\s*['\"]([^'\"]*a-[^'\"]*)['\"]",
-                        r"document\.location\s*=\s*['\"]([^'\"]*a-[^'\"]*)['\"]",
-                    ]
-                    
-                    for pattern in js_location_patterns:
-                        js_matches = re.findall(pattern, r3.text, re.IGNORECASE)
-                        if js_matches:
-                            print(f"[DEBUG] JavaScript location 패턴 발견: {js_matches}")
-                            for match in js_matches:
-                                if match.startswith('/'):
-                                    match = f"https://1fichier.com{match}"
-                                print(f"[LOG] JavaScript에서 Direct Link 발견{proxy_info}: {match}")
-                                return match, r3.text
-                    
-                    # 폼 분석
-                    forms = re.findall(r'<form[^>]*>(.*?)</form>', r3.text, re.DOTALL | re.IGNORECASE)
-                    if forms:
-                        print(f"[DEBUG] 재시도 응답에서 {len(forms)}개 폼 발견")
-                        for i, form in enumerate(forms):
-                            # 폼 내 action 찾기
-                            action_match = re.search(r'action\s*=\s*[\'"]([^\'"]+)[\'"]', form, re.IGNORECASE)
-                            if action_match:
-                                action_url = action_match.group(1)
-                                print(f"[DEBUG] 폼 {i+1} action: {action_url}")
-                                if 'a-' in action_url and '.1fichier.com' in action_url:
-                                    print(f"[DEBUG] 폼 {i+1}에서 a-패턴 action 발견: {action_url}")
-                                    if action_url.startswith('/'):
-                                        action_url = f"https://1fichier.com{action_url}"
-                                    print(f"[LOG] 폼 action에서 Direct Link 발견{proxy_info}: {action_url}")
-                                    return action_url, r3.text
-                    
-                    # 최종 시도: dlw 버튼 클릭 시뮬레이션으로 직접 다운로드
-                    print(f"[DEBUG] dlw 버튼 클릭 시뮬레이션 - 직접 다운로드 시도...")
-                    
-                    # dlw 버튼과 연결된 폼 찾기
-                    form_match = re.search(r'<form[^>]*id=["\']f1["\'][^>]*>(.*?)</form>', r3.text, re.DOTALL | re.IGNORECASE)
-                    if form_match:
-                        form_content = form_match.group(1)
-                        print(f"[DEBUG] f1 폼 발견, 다운로드 클릭 시뮬레이션")
-                        
-                        # 폼 데이터 수집 (BeautifulSoup 사용)
-                        form_data = {}
-                        try:
-                            from bs4 import BeautifulSoup
-                            soup = BeautifulSoup(form_content, 'html.parser')
-                            
-                            # 모든 input 요소 찾기
-                            inputs = soup.find_all('input')
-                            for input_elem in inputs:
-                                name = input_elem.get('name')
-                                value = input_elem.get('value', '')
-                                input_type = input_elem.get('type', 'text')
-                                
-                                if name:
-                                    form_data[name] = value
-                                    print(f"[DEBUG] Input 발견 - name: {name}, value: {value}, type: {input_type}")
-                            
-                            # 숨겨진 필드들도 확인
-                            hidden_inputs = soup.find_all('input', {'type': 'hidden'})
-                            for hidden_input in hidden_inputs:
-                                name = hidden_input.get('name')
-                                value = hidden_input.get('value', '')
-                                if name and name not in form_data:
-                                    form_data[name] = value
-                                    print(f"[DEBUG] Hidden Input 발견 - name: {name}, value: {value}")
-                                    
-                        except Exception as e:
-                            print(f"[DEBUG] BeautifulSoup 폼 파싱 실패, 정규식 사용: {e}")
-                            # fallback to regex
-                            input_matches = re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\'][^>]*>', form_content, re.IGNORECASE)
-                            for name, value in input_matches:
-                                form_data[name] = value
-                        
-                        print(f"[DEBUG] 폼 데이터: {form_data}")
-                        
-                        # 다운로드 헤더 설정 (파일 다운로드용)
-                        download_headers = headers_post.copy()
-                        download_headers.update({
-                            'Accept': '*/*',
-                            'Accept-Encoding': 'identity',  # 압축 비활성화
-                        })
-                        
-                        # 폼 submit - 리다이렉트 추적하지 않고 Location 헤더 확인
-                        try:
-                            r4 = scraper.post(url, data=form_data, headers=download_headers, proxies=proxies, timeout=30, allow_redirects=False)
-                            print(f"[DEBUG] 폼 submit 응답: {r4.status_code}")
-                            print(f"[DEBUG] Response Headers: {dict(r4.headers)}")
-                            
-                            # 리다이렉트인 경우 Location 헤더에서 다운로드 링크 추출
-                            if r4.status_code in [302, 301, 303, 307, 308]:
-                                location = r4.headers.get('Location')
-                                if location:
-                                    # 상대 URL을 절대 URL로 변환
-                                    if location.startswith('/'):
-                                        location = f"https://1fichier.com{location}"
-                                    print(f"[LOG] 리다이렉트 다운로드 링크 발견{proxy_info}: {location}")
-                                    return location, r4.text
-                            elif r4.status_code == 200:
-                                # 직접 다운로드인 경우
-                                content_type = r4.headers.get('Content-Type', '').lower()
-                                if not content_type.startswith('text/html'):
-                                    print(f"[LOG] 직접 파일 다운로드 성공{proxy_info}! Content-Type: {content_type}")
-                                    # 실제 응답을 직접 처리할 수 있도록 특별한 반환값
-                                    return "DIRECT_FILE_RESPONSE", r4
-                                else:
-                                    print(f"[DEBUG] HTML 응답 받음 - 추가 분석 필요")
-                                    # HTML 응답에서 다운로드 링크 다시 찾기
-                                    final_link = fichier_parser.parse_download_link(r4.text, str(url))
-                                    if final_link:
-                                        print(f"[LOG] 최종 HTML에서 다운로드 링크 발견{proxy_info}: {final_link}")
-                                        return final_link, r4.text
-                                
-                        except Exception as e:
-                            print(f"[DEBUG] 폼 submit 실패: {e}")
-                    
-                    # 재시도 후 Direct Link 파싱
-                    direct_link = fichier_parser.parse_download_link(r3.text, str(url))
-                    if direct_link:
-                        print(f"[LOG] 재시도 후 Direct Link 발견{proxy_info}: {direct_link}")
-                        return direct_link, r3.text
-                    else:
-                        print(f"[LOG] 재시도 후에도 Direct Link를 찾을 수 없음{proxy_info}")
-                        # 디버그용 HTML 내용 일부 확인
-                        html_snippet = r3.text[:1000] if r3.text else "No content"
-                        print(f"[DEBUG] 재시도 후 HTML 스니펫: {html_snippet}")
-                        
-                        # dlw 버튼 상태 확인
-                        if 'id="dlw"' in r3.text:
-                            if 'disabled' in r3.text:
-                                print(f"[DEBUG] dlw 버튼이 여전히 disabled 상태 - 시간이 더 필요할 수 있음")
-                            else:
-                                print(f"[DEBUG] dlw 버튼이 활성화됨 - 다른 문제일 수 있음")
-                        else:
-                            print(f"[DEBUG] dlw 버튼을 찾을 수 없음 - 페이지 구조 변경 가능성")
-                        
-                        # 카운트다운 후에도 서버가 준비되지 않았을 수 있으므로 추가 대기 후 재시도
-                        if 'id="dlw"' in r3.text and 'disabled' in r3.text:
-                            print(f"[LOG] dlw 버튼이 여전히 비활성화 상태 - 추가 10초 대기 후 재시도")
-                            time.sleep(10)
-                            
-                            # 추가 재시도
-                            try:
-                                r4 = scraper.get(url, headers=headers, proxies=proxies, timeout=30)
-                                if r4.status_code == 200:
-                                    final_link = fichier_parser.parse_download_link(r4.text, str(url))
-                                    if final_link:
-                                        print(f"[LOG] 추가 대기 후 Direct Link 발견{proxy_info}: {final_link}")
-                                        return final_link, r4.text
-                                    else:
-                                        print(f"[DEBUG] 추가 대기 후에도 링크 없음")
-                            except Exception as e:
-                                print(f"[DEBUG] 추가 재시도 실패: {e}")
-                        
-                        # 재시도 후에도 실패하면 파싱 실패로 명확히 처리 (재시도 방지)
-                        raise Exception(f"다운로드 링크 파싱 실패 - {countdown_seconds}초 대기 후에도 링크를 찾을 수 없음")
-                else:
-                    print(f"[LOG] 재시도 POST 실패{proxy_info}: {r3.status_code}")
-                    raise Exception(f"다운로드 링크 파싱 실패 - 카운트다운 후 서버 응답 실패 (HTTP {r3.status_code})")
-            else:
-                # 카운트다운이 아닌 다른 제한사항
-                error_msg = f"1fichier 제한 감지: {limit_type}"
-                if remaining_time:
-                    error_msg += f" (남은 시간: {remaining_time})"
-                print(f"[LOG] {error_msg}")
-                raise Exception(error_msg)
-        
-        # 2단계: 새로운 파서 사용 (제한이 없는 경우)
-        else:
-            print(f"[DEBUG] 제한 없음 - 즉시 파싱 시도")
-            direct_link = fichier_parser.parse_download_link(r2.text, str(url))
-            if direct_link:
-                print(f"[LOG] Direct Link 발견: {direct_link}")
-                return direct_link, r2.text  # HTML도 함께 반환하여 파일명 추출용
-            else:
-                print(f"[LOG] Direct Link를 찾을 수 없음")
-                # 파싱 실패를 명확히 표시하여 재시도 방지
-                raise Exception("다운로드 링크 파싱 실패 - 1fichier 페이지에서 다운로드 링크를 찾을 수 없음")
-    else:
-        print(f"[LOG] POST 실패: {r2.status_code}")
-    
-    return None, None
+        print(f"[LOG] 파싱 실패: {e}")
+        return None, None
 
 
 def _detect_download_limits(html_content, original_url):
@@ -991,8 +572,8 @@ def _detect_download_limits(html_content, original_url):
                     countdown_seconds = int(js_match.group(1))
                     print(f"[LOG] JavaScript 단순 패턴 감지: {countdown_seconds}초")
                 
-                # 합리적인 범위 체크 (5초~300초)
-                if 5 <= countdown_seconds <= 300:
+                # 합리적인 범위 체크 (5초~3600초 = 1시간까지)
+                if 5 <= countdown_seconds <= 7200:
                     print(f"[LOG] JavaScript 패턴에서 카운트다운 감지: {countdown_seconds}초 (패턴: {pattern})")
                     return ("countdown", countdown_seconds)
         
@@ -1040,7 +621,13 @@ def _detect_download_limits(html_content, original_url):
         
         # 3단계: HTML에서 직접 텍스트 패턴 찾기 (더 넓은 범위)
         html_countdown_patterns = [
-            # 2025년 1fichier 최신 패턴들 추가
+            # 실제 1fichier dlw 버튼 패턴 (최우선) - 제공된 HTML 기준
+            r'Free\s+download\s+in\s+⏳\s+(\d+)',                        # Free download in ⏳ 888 (실제 패턴)
+            r'Free\s+download\s+in\s+[^\d]*(\d+)',                       # Free download in [아무거나] 888
+            r'>Free\s+download\s+in\s+.*?(\d+)</button>',                # 버튼 태그 내부의 패턴
+            r'id=[\'"]dlw[\'"][^>]*>.*?Free\s+download\s+in\s+.*?(\d+)', # dlw 버튼의 정확한 패턴
+            
+            # 기존 패턴들 (백업용)
             r'Free\s+download\s+is\s+available\s+in\s+(\d+)\s+seconds?', # Free download is available in 60 seconds
             r'Please\s+wait\s+(\d+)\s+seconds?',                         # Please wait 60 seconds
             r'Download\s+will\s+be\s+available\s+in\s+(\d+)\s+seconds?', # Download will be available in 60 seconds
@@ -1061,8 +648,8 @@ def _detect_download_limits(html_content, original_url):
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 countdown_seconds = int(match.group(1))
-                # 합리적인 시간 범위인지 확인 (5초~300초)
-                if 5 <= countdown_seconds <= 300:
+                # 합리적인 시간 범위인지 확인 (5초~7200초 = 2시간까지)
+                if 5 <= countdown_seconds <= 7200:
                     print(f"[LOG] HTML 패턴에서 카운트다운 감지: {countdown_seconds}초")
                     return ("countdown", countdown_seconds)
         
@@ -1083,15 +670,15 @@ def _detect_download_limits(html_content, original_url):
             text_match = re.search(pattern, html_content, re.IGNORECASE)
             if text_match:
                 countdown_seconds = int(text_match.group(1))
-                # 합리적인 범위 체크 (5초~300초)
-                if 5 <= countdown_seconds <= 300:
+                # 합리적인 범위 체크 (5초~3600초 = 1시간까지)
+                if 5 <= countdown_seconds <= 7200:
                     print(f"[LOG] HTML 텍스트에서 카운트다운 감지: {countdown_seconds}초 (패턴: {pattern})")
                     return ("countdown", countdown_seconds)
         
         # 5단계: 숫자 패턴 광범위 검색 (마지막 시도)
-        # 모든 숫자를 찾아서 카운트다운 후보 검사
-        all_numbers = re.findall(r'\b(\d{1,3})\b', html_content)
-        reasonable_countdown_numbers = [int(n) for n in all_numbers if 10 <= int(n) <= 120]
+        # 모든 숫자를 찾아서 카운트다운 후보 검사 (최대 4자리까지 - 7200초 지원)
+        all_numbers = re.findall(r'\b(\d{1,4})\b', html_content)
+        reasonable_countdown_numbers = [int(n) for n in all_numbers if 10 <= int(n) <= 7200]
         
         if reasonable_countdown_numbers:
             print(f"[DEBUG] HTML에서 발견된 카운트다운 후보 숫자들: {reasonable_countdown_numbers[:10]}")
@@ -1218,8 +805,8 @@ def is_direct_link_expired(direct_link, use_proxy=False, proxy_addr=None):
     }
     
     try:
-        # HEAD 요청으로 링크 유효성 확인
-        response = requests.head(direct_link, headers=headers, timeout=(1, 3), allow_redirects=True, proxies=proxies)
+        # HEAD 요청으로 링크 유효성 확인 (타임아웃 늘림)
+        response = requests.head(direct_link, headers=headers, timeout=(5, 10), allow_redirects=True, proxies=proxies)
         print(f"[LOG] Direct Link 유효성 검사: {response.status_code}")
         
         if response.status_code in [200, 206]:  # 200 OK 또는 206 Partial Content

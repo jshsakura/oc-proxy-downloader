@@ -289,7 +289,10 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         download_path = get_download_path()
         
         # ★ 디버그: 파일명 상태 확인
-        print(f"[DEBUG] 다운로드 실행 전 req.file_name: '{req.file_name}'")
+        # DB에서 최신 상태 새로고침 (파일명이 업데이트되었을 수 있음)
+        db.refresh(req)
+        
+        print(f"[DEBUG] 다운로드 실행 전 req.file_name (새로고침 후): '{req.file_name}'")
         print(f"[DEBUG] req.file_name 타입: {type(req.file_name)}")
         print(f"[DEBUG] req.file_name이 None인가: {req.file_name is None}")
         print(f"[DEBUG] req.file_name이 빈 문자열인가: {req.file_name == '' if req.file_name else 'N/A'}")
@@ -374,15 +377,16 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             )
             print(f"[LOG] parse_direct_link_with_file_info 결과: direct_link={direct_link}, file_info={file_info}")
             
-            # 파일 정보 파싱 실패 시 기존 파싱 로직 사용
-            if not direct_link:
-                direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=force_reparse)
-            
-            # 파일 정보가 추출되면 DB에 저장 (기존 파일명이 없거나 빈 문자열인 경우)
+            # 파일 정보가 추출되면 DB에 저장 (먼저 처리하여 파일명 보존)
             if file_info and file_info['name'] and (not req.file_name or req.file_name.strip() == ''):
                 req.file_name = file_info['name']
                 print(f"[LOG] 파일명 추출: {file_info['name']}")
                 db.commit()
+            
+            # 파일 정보 파싱 실패 시 기존 파싱 로직 사용 (단, 파일명은 보존)
+            if not direct_link:
+                print(f"[LOG] Direct Link 실패. 기존 파싱 로직으로 재시도 (파일명 보존)")
+                direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=force_reparse)
                 
                 # WebSocket으로 파일명 업데이트 전송
                 send_websocket_message("filename_update", {
