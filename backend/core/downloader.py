@@ -316,8 +316,15 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
                 db.commit()
                 
                 # WebSocket으로 상태 업데이트 알림 (대기 상태)
-                from main import notify_status_update
-                notify_status_update(db, download_id)
+                try:
+                    from core.download_core import send_websocket_message
+                    send_websocket_message("status_update", {
+                        "id": download_id,
+                        "status": "pending",
+                        "message": "대기 상태로 전환되었습니다"
+                    })
+                except Exception as e:
+                    print(f"[LOG] WebSocket 알림 전송 실패: {e}")
                 
                 # 어떤 제한인지 확인
                 if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
@@ -337,9 +344,16 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
         db.commit()
         
         # WebSocket으로 상태 업데이트 알림 (다운로드 시작)
-        from main import notify_status_update
-        notify_status_update(db, download_id)
-        print(f"[LOG] ★ 재개 WebSocket 알림 전송 완료: ID={download_id}")
+        try:
+            from core.download_core import send_websocket_message
+            send_websocket_message("status_update", {
+                "id": download_id,
+                "status": item.status.value if hasattr(item.status, 'value') else str(item.status),
+                "message": "다운로드가 재개되었습니다"
+            })
+            print(f"[LOG] ★ 재개 WebSocket 알림 전송 완료: ID={download_id}")
+        except Exception as e:
+            print(f"[LOG] WebSocket 알림 전송 실패: {e}")
         
         # 새로운 다운로드 시스템으로 재시작
         from .download_core import download_1fichier_file_new
@@ -401,9 +415,16 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     print(f"[LOG] 다운로드 상태를 stopped로 변경 완료: ID {download_id}")
     
     # WebSocket으로 상태 업데이트 알림
-    from main import notify_status_update
-    notify_status_update(db, download_id)
-    print(f"[LOG] ★ 정지 WebSocket 알림 전송 완료: ID={download_id}")
+    try:
+        from core.download_core import send_websocket_message
+        send_websocket_message("status_update", {
+            "id": download_id,
+            "status": item.status.value if hasattr(item.status, 'value') else str(item.status),
+            "message": "다운로드가 정지되었습니다"
+        })
+        print(f"[LOG] ★ 정지 WebSocket 알림 전송 완료: ID={download_id}")
+    except Exception as e:
+        print(f"[LOG] WebSocket 알림 전송 실패: {e}")
     
     return {"id": item.id, "status": item.status}
 
