@@ -356,21 +356,33 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         # 2단계: 버튼에서 정확한 대기시간 추출 (디버깅 강화)
         wait_seconds = None
         button_patterns = [
-            r'Free\s+download\s+in\s+[^\d]*(\d+)\s*minutes?',  # Free download in ⏳ 16 minutes
-            r'Free\s+download\s+in\s+[^\d]*(\d+)',             # Free download in ⏳ 888 (초)
-            r'id="dlw"[^>]*>.*?(\d+)',                          # dlw 버튼 내부 숫자
-            r'disabled[^>]*>.*?(\d+)',                          # disabled 버튼 숫자
+            r'Free\s+download\s+in\s+[^\d]*(\d+)\s*minutes?',                    # Free download in ⏳ 16 minutes
+            r'var\s+ct\s*=\s*(\d+)',                                             # JavaScript var ct = 123;
+            r'ct\s*=\s*(\d+)(?![^\n]*ct--)',                                     # ct = 123; (감소 코드가 아닌 초기화)
+            r'disabled[^>]*>.*?(\d+).*?second',                                   # disabled 버튼의 초 단위
+            r'wait[^<>]*?(\d+)',                                                  # wait 관련 숫자
+            r'>.*?(\d+).*?seconds?',                                              # 일반적인 seconds 텍스트
         ]
         
         # 페이지에서 대기 관련 모든 텍스트 찾기
         wait_related_text = re.findall(r'[^a-zA-Z](download|wait|free|minutes?|seconds?|dlw)[^a-zA-Z].*?\d+.*?[^a-zA-Z](download|wait|free|minutes?|seconds?|dlw)[^a-zA-Z]', response.text, re.IGNORECASE)
         print(f"[DEBUG] 대기 관련 텍스트들: {wait_related_text[:5]}")  # 처음 5개만
         
+        # JavaScript 카운트다운 코드 찾기 (디버깅)
+        js_countdown_sections = re.findall(r'.{0,100}ct[^;]*[=\-+]\s*\d+.{0,100}', response.text, re.IGNORECASE | re.DOTALL)
+        print(f"[DEBUG] JavaScript ct 관련 섹션들: {[s.replace('\\n', ' ').strip() for s in js_countdown_sections[:3]]}")
+        
+        # setTimeout과 ctt() 함수 관련 코드 찾기
+        timeout_sections = re.findall(r'.{0,50}setTimeout.{0,100}', response.text, re.IGNORECASE | re.DOTALL)
+        print(f"[DEBUG] setTimeout 섹션들: {[s.replace('\\n', ' ').strip() for s in timeout_sections[:2]]}")
+        
         for i, pattern in enumerate(button_patterns):
+            print(f"[DEBUG] 패턴 {i+1} 시도: {pattern}")
             match = re.search(pattern, response.text, re.IGNORECASE | re.DOTALL)
             if match:
                 wait_value = int(match.group(1))
                 print(f"[DEBUG] 패턴 {i+1} 매칭: '{match.group(0)}' → 값: {wait_value}")
+                print(f"[DEBUG] 매칭된 전체 컨텍스트: '{match.group(0)}'")
                 
                 # 첫 번째 패턴은 분 단위
                 if i == 0:  # minutes 패턴
