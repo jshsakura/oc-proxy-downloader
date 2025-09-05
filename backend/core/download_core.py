@@ -496,9 +496,10 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             req.error = error_msg
             db.commit()
             
-            # 텔레그램 알림 전송 (실패)
-            unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
-            send_telegram_notification(req.file_name or unknown_file, "failed", error_msg, lang)
+            # 텔레그램 알림 전송 (실패) - 재시도 없을 때만
+            if not should_retry_download(0, error_str) and not should_1fichier_auto_retry(req.url, req.file_name, req.file_size, 0, error_str):
+                unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
+                send_telegram_notification(req.file_name or unknown_file, "failed", error_msg, lang)
             
             # WebSocket으로 실패 상태 전송
             send_websocket_message("status_update", {

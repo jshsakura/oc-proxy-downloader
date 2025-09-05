@@ -348,7 +348,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
             print(f"[LOG] 페이지 로드 실패: HTTP {response.status_code}")
             return None, None
         
-        # 2단계: 버튼에서 정확한 대기시간 추출
+        # 2단계: 버튼에서 정확한 대기시간 추출 (디버깅 강화)
         wait_seconds = None
         button_patterns = [
             r'Free\s+download\s+in\s+[^\d]*(\d+)\s*minutes?',  # Free download in ⏳ 16 minutes
@@ -357,10 +357,16 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
             r'disabled[^>]*>.*?(\d+)',                          # disabled 버튼 숫자
         ]
         
+        # 페이지에서 대기 관련 모든 텍스트 찾기
+        wait_related_text = re.findall(r'[^a-zA-Z](download|wait|free|minutes?|seconds?|dlw)[^a-zA-Z].*?\d+.*?[^a-zA-Z](download|wait|free|minutes?|seconds?|dlw)[^a-zA-Z]', response.text, re.IGNORECASE)
+        print(f"[DEBUG] 대기 관련 텍스트들: {wait_related_text[:5]}")  # 처음 5개만
+        
         for i, pattern in enumerate(button_patterns):
             match = re.search(pattern, response.text, re.IGNORECASE | re.DOTALL)
             if match:
                 wait_value = int(match.group(1))
+                print(f"[DEBUG] 패턴 {i+1} 매칭: '{match.group(0)}' → 값: {wait_value}")
+                
                 # 첫 번째 패턴은 분 단위
                 if i == 0:  # minutes 패턴
                     wait_seconds = wait_value * 60
@@ -372,6 +378,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 if 5 <= wait_seconds <= 14400:  # 5초~4시간 범위
                     break
                 else:
+                    print(f"[DEBUG] 대기시간이 범위를 벗어남: {wait_seconds}초")
                     wait_seconds = None  # 범위 밖이면 무시
         
         # 3단계: 대기시간이 있으면 정확히 대기
@@ -460,18 +467,36 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
             print(f"[LOG] 다운로드 폼을 찾을 수 없음")
             return None, None
         
+        # 폼 분석 강화
+        print(f"[DEBUG] 폼 정보: action={form.get('action')}, method={form.get('method')}")
+        print(f"[DEBUG] 폼 내 모든 input 태그:")
+        
         # 폼 데이터 수집
         form_data = {}
         for input_elem in form.find_all('input'):
             name = input_elem.get('name')
             value = input_elem.get('value', '')
             input_type = input_elem.get('type', 'text')
+            input_id = input_elem.get('id', '')
+            
+            print(f"[DEBUG]   - input: name='{name}', type='{input_type}', value='{value}', id='{input_id}'")
             
             if name:
                 if input_type == 'password' and password:
                     form_data[name] = password
                 elif input_type in ['submit', 'hidden'] or value:
                     form_data[name] = value
+        
+        # 다른 폼 요소도 체크
+        for textarea in form.find_all('textarea'):
+            name = textarea.get('name')
+            if name:
+                print(f"[DEBUG]   - textarea: name='{name}'")
+                
+        for select in form.find_all('select'):
+            name = select.get('name')
+            if name:
+                print(f"[DEBUG]   - select: name='{name}'")
         
         # 실제 클릭할 버튼의 데이터 우선 사용
         if submit_button:
@@ -485,14 +510,20 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         if not any('submit' in key.lower() for key in form_data.keys()) and not submit_button:
             form_data['submit'] = 'Download'
         
+        print(f"[DEBUG] 전송할 폼 데이터: {form_data}")
         print(f"[LOG] POST 요청 시작...")
         
-        # POST 헤더 설정
+        # POST 헤더 설정 (더 현실적인 브라우저 모사)
         post_headers = headers.copy()
         post_headers.update({
             'Content-Type': 'application/x-www-form-urlencoded',
             'Referer': url,
-            'Origin': 'https://1fichier.com'
+            'Origin': 'https://1fichier.com',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Upgrade-Insecure-Requests': '1'
         })
         
         # POST 요청
@@ -515,6 +546,23 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         
         # HTML 응답인 경우 - 똑똑한 다운로드 링크 추출
         elif post_response.status_code == 200:
+            # 디버깅: POST 응답 분석
+            print(f"[DEBUG] POST 응답 길이: {len(post_response.text)} 문자")
+            
+            # 응답 스니펫 출력 (처음 500자 + 끝 500자)
+            if len(post_response.text) > 1000:
+                snippet_start = post_response.text[:500]
+                snippet_end = post_response.text[-500:]
+                print(f"[DEBUG] POST 응답 시작: {snippet_start}")
+                print(f"[DEBUG] POST 응답 끝: {snippet_end}")
+            else:
+                print(f"[DEBUG] POST 응답 전체: {post_response.text}")
+            
+            # 1fichier.com 관련 모든 URL 찾기
+            import re
+            all_fichier_urls = re.findall(r'https://[^"\'>\s]*1fichier\.com[^"\'>\s]*', post_response.text)
+            print(f"[DEBUG] 응답에서 찾은 모든 1fichier URL: {all_fichier_urls}")
+            
             download_link = _extract_download_link_smart(post_response.text, url)
         
         if download_link:
@@ -534,19 +582,57 @@ def _extract_download_link_smart(html_content, original_url):
     from bs4 import BeautifulSoup
     
     try:
-        # 1fichier 실제 다운로드 서버만 찾기 (정확한 패턴)
-        download_patterns = [
-            r'https://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+(?:\?[a-zA-Z0-9=&_\-]+)?',  # a-서버
-            r'https://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+(?:\?[a-zA-Z0-9=&_\-]+)?', # CDN 서버
-        ]
+        # 모든 1fichier.com URL 찾아서 스마트 필터링
+        all_urls = re.findall(r'https://[^"\'>\s]*\.1fichier\.com[^"\'>\s]*', html_content)
         
-        for pattern in download_patterns:
-            matches = re.findall(pattern, html_content)
-            if matches:
-                # 가장 긴 링크 선택 (파라미터가 더 많이 포함됨)
-                best_link = max(matches, key=len)
-                print(f"[LOG] 실제 다운로드 서버 링크: {best_link}")
-                return best_link
+        # 다운로드 링크 후보들을 점수화
+        candidates = []
+        for url in set(all_urls):  # 중복 제거
+            score = 0
+            
+            # 확실한 정적 파일들은 제외
+            if any(url.lower().endswith(ext) for ext in ['.css', '.js', '.png', '.jpg', '.ico', '.gif']):
+                continue
+                
+            # 정적 서브도메인 제외  
+            if any(subdomain in url.lower() for subdomain in ['img.', 'static.', 'www.']):
+                continue
+                
+            # 확실한 다운로드 서버들
+            if re.match(r'https://a-\d+\.1fichier\.com/', url):
+                score += 100  # 최고 점수
+            elif re.match(r'https://cdn-\d+\.1fichier\.com/', url):
+                score += 90
+            elif re.match(r'https://o-\d+\.1fichier\.com/', url):
+                score += 80
+            elif '/c' in url and re.search(r'/c\d+', url):  # c숫자 패턴
+                score += 70
+            elif 'dl' in url.lower():
+                score += 60
+            
+            # 긴 URL 선호 (더 많은 정보 포함)
+            score += min(len(url) // 5, 20)
+            
+            # 숫자가 많은 URL 선호 (ID나 해시 같음)
+            digit_count = len(re.findall(r'\d', url))
+            score += digit_count * 2
+            
+            # 쿼리 파라미터 있으면 보너스
+            if '?' in url:
+                score += 10
+                
+            # 일반적인 페이지들은 감점
+            if any(page in url.lower() for page in ['login', 'register', 'help', 'cgu', 'tarif']):
+                score -= 50
+                
+            if score > 0:
+                candidates.append((score, url))
+        
+        if candidates:
+            # 가장 높은 점수의 URL 선택
+            best_score, best_url = max(candidates, key=lambda x: x[0])
+            print(f"[LOG] 스마트 필터링으로 선택된 링크: {best_url} (점수: {best_score})")
+            return best_url
         
         # 리다이렉트 패턴도 체크 (Location 헤더나 JavaScript)
         redirect_patterns = [
