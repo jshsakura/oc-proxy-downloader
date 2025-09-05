@@ -281,7 +281,28 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         print(f"[DEBUG] ★ DB에서 조회한 req.file_name 타입: {type(req.file_name)}")
         print(f"[DEBUG] ★ DB에서 조회한 req.file_name 값: '{req.file_name}'")
         
-        # 다운로드 등록 (1fichier만)
+        # 프록시가 아닌 경우 다운로드 제한 체크
+        if not use_proxy:
+            if not download_manager.can_start_download(req.url):
+                print(f"[LOG] 다운로드 제한에 걸림. 대기 상태로 설정: ID {request_id}")
+                req.status = StatusEnum.pending
+                db.commit()
+                
+                # WebSocket으로 대기 상태 알림
+                send_websocket_message("status_update", {
+                    "id": req.id,
+                    "url": req.url,
+                    "file_name": req.file_name,
+                    "status": "pending", 
+                    "message": "다운로드 대기 중",
+                    "requested_at": req.requested_at.isoformat() if req.requested_at else None
+                })
+                
+                # 매니저가 자동으로 시작해주므로 여기서는 그냥 종료
+                print(f"[LOG] 매니저의 자동 시작 기능에 의해 대기: ID {request_id}")
+                return
+        
+        # 다운로드 등록 (제한에 걸리지 않은 경우만)
         download_manager.register_download(request_id, req.url)
         
         
@@ -496,10 +517,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             req.error = error_msg
             db.commit()
             
-            # 텔레그램 알림 전송 (실패) - 재시도 없을 때만
-            if not should_retry_download(0, error_str) and not should_1fichier_auto_retry(req.url, req.file_name, req.file_size, 0, error_str):
-                unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
-                send_telegram_notification(req.file_name or unknown_file, "failed", error_msg, lang)
+            # 텔레그램 알림은 아래에서 재시도 여부 확인 후 전송
             
             # WebSocket으로 실패 상태 전송
             send_websocket_message("status_update", {
@@ -636,7 +654,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             # 정지 상태가 아닐 때만 실패로 처리
             db.refresh(req)
             if req.status != StatusEnum.stopped:
-                # 재시도 로직 확인
+                # 재시도 로직 확인  
+                error_str = str(e)
                 should_retry = should_retry_download(retry_count, error_str)
                 print(f"[LOG] 재시도 여부 결정: {should_retry} (현재 재시도: {retry_count})")
                 
@@ -666,17 +685,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         "use_proxy": req.use_proxy
                     })
                     
-                    # 3초 후 재시도 (더 안전한 방식)
-                    def retry_download():
-                        try:
-                            time.sleep(3)
-                            print(f"[LOG] 재시도 시작: ID {request_id}")
-                            download_1fichier_file_new(request_id, lang, use_proxy, new_retry_count, fichier_retry_count)
-                        except Exception as retry_error:
-                            print(f"[LOG] 재시도 중 오류: {retry_error}")
-                    
-                    retry_thread = threading.Thread(target=retry_download, daemon=True)
-                    retry_thread.start()
+                    # 3초 후 재시도를 위해 상태를 pending으로 변경 (매니저가 자동으로 시작하도록)
+                    print(f"[LOG] 3초 후 자동 재시도를 위해 대기 상태로 설정: ID {request_id}")
+                    # 재시도 스레드를 직접 생성하지 않고 매니저의 자동 시작 기능 사용
                     
                 else:
                     # 1fichier 자동 재시도 체크 (파일명과 용량이 있으면)
@@ -707,17 +718,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                             "use_proxy": req.use_proxy
                         })
                         
-                        # 3분 후 재시도
-                        def fichier_auto_retry():
-                            try:
-                                time.sleep(180)  # 3분 = 180초
-                                print(f"[LOG] 1fichier 자동 재시도 시작: ID {request_id}")
-                                download_1fichier_file_new(request_id, lang, use_proxy, retry_count, new_fichier_retry_count)
-                            except Exception as retry_error:
-                                print(f"[LOG] 1fichier 자동 재시도 중 오류: {retry_error}")
-                        
-                        retry_thread = threading.Thread(target=fichier_auto_retry, daemon=True)
-                        retry_thread.start()
+                        # 3분 후 자동 재시도를 위해 대기 상태로 설정
+                        print(f"[LOG] 3분 후 1fichier 자동 재시도를 위해 대기 상태로 설정: ID {request_id}")
+                        # 매니저가 쿨다운 후 자동으로 시작하도록 함
                         
                     else:
                         # 재시도 한도 초과 또는 재시도 불가능한 오류
@@ -725,7 +728,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         req.error = str(e)
                         db.commit()
                         
-                        # 텔레그램 알림 전송 (실패)  
+                        # 텔레그램 알림 전송 (최종 실패)  
                         unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
                         send_telegram_notification(req.file_name or unknown_file, "failed", str(e), lang)
                         
@@ -753,15 +756,21 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 print(f"[LOG] 다운로드가 정지 상태이므로 실패 처리하지 않음: ID {request_id}")
     
     finally:
+        # active_downloads에서 제거 (중복 시작 방지용)
+        with download_manager._lock:
+            download_manager.active_downloads.pop(request_id, None)
+            
         # 다운로드 해제 - 완료 여부 확인하여 전달
-        db.refresh(req)
-        is_completed = (req.status == StatusEnum.done)  # 성공적으로 완료된 경우만 True
-        is_local_download = not use_proxy and '1fichier.com' in req.url  # 1fichier 로컬 다운로드인지 확인
+        if req:
+            db.refresh(req)
+            is_completed = (req.status == StatusEnum.done)  # 성공적으로 완료된 경우만 True
+            is_local_download = not use_proxy and '1fichier.com' in req.url  # 1fichier 로컬 다운로드인지 확인
+            
+            if is_completed and is_local_download:
+                print(f"[LOG] 1fichier 로컬 다운로드 완료: ID {request_id}, 쿨다운 적용")
+            
+            download_manager.unregister_download(request_id, is_completed=(is_completed and is_local_download))
         
-        if is_completed and is_local_download:
-            print(f"[LOG] 1fichier 로컬 다운로드 완료: ID {request_id}, 쿨다운 적용")
-        
-        download_manager.unregister_download(request_id, is_completed=(is_completed and is_local_download))
         db.close()
 
 

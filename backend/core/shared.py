@@ -166,15 +166,21 @@ class DownloadManager:
                 print(f"[LOG] 전체 다운로드 제한 도달 ({self.MAX_TOTAL_DOWNLOADS}개). 대기 중...")
                 return
             
+            # 현재 실행 중인 다운로드 ID 목록 가져오기 (중복 시작 방지)
+            with self._lock:
+                active_ids = list(self.active_downloads.keys())
+            
             # 1. 프록시 다운로드 우선 처리 (제한 없음)
             if len(self.all_downloads) < self.MAX_TOTAL_DOWNLOADS:
                 proxy_request = db.query(DownloadRequest).filter(
                     DownloadRequest.status == StatusEnum.pending,
-                    DownloadRequest.use_proxy == True
-                ).order_by(DownloadRequest.requested_at.asc()).first()
+                    DownloadRequest.use_proxy == True,
+                    # 이미 실행 중인 다운로드는 제외
+                    ~DownloadRequest.id.in_(active_ids) if active_ids else True
+                ).order_by(DownloadRequest.requested_at.desc()).first()  # 최신 순
                 
                 if proxy_request:
-                    print(f"[LOG] 대기 중인 프록시 다운로드 발견: {proxy_request.id}")
+                    print(f"[LOG] 대기 중인 프록시 다운로드 발견: {proxy_request.id} (실행중 제외: {active_ids})")
                     self._start_waiting_download(proxy_request)
                     return
 
@@ -183,11 +189,13 @@ class DownloadManager:
                 non_fichier_request = db.query(DownloadRequest).filter(
                     DownloadRequest.status == StatusEnum.pending,
                     DownloadRequest.use_proxy == False,
-                    ~DownloadRequest.url.contains('1fichier.com')
-                ).order_by(DownloadRequest.requested_at.asc()).first()
+                    ~DownloadRequest.url.contains('1fichier.com'),
+                    # 이미 실행 중인 다운로드는 제외
+                    ~DownloadRequest.id.in_(active_ids) if active_ids else True
+                ).order_by(DownloadRequest.requested_at.desc()).first()  # 최신 순
                 
                 if non_fichier_request:
-                    print(f"[LOG] 대기 중인 비-1fichier 다운로드 발견: {non_fichier_request.id}")
+                    print(f"[LOG] 대기 중인 비-1fichier 다운로드 발견: {non_fichier_request.id} (실행중 제외: {active_ids})")
                     self._start_waiting_download(non_fichier_request)
                     return
             
@@ -196,14 +204,20 @@ class DownloadManager:
                 len(self.local_downloads) < self.MAX_LOCAL_DOWNLOADS and
                 self.can_start_download("https://1fichier.com/dummy")):  # 쿨다운 포함 체크
                 
+                # 현재 실행 중인 다운로드 ID 목록 가져오기
+                with self._lock:
+                    active_ids = list(self.active_downloads.keys())
+                
                 fichier_request = db.query(DownloadRequest).filter(
                     DownloadRequest.status == StatusEnum.pending,
                     DownloadRequest.use_proxy == False,
-                    DownloadRequest.url.contains('1fichier.com')
-                ).order_by(DownloadRequest.requested_at.asc()).first()
+                    DownloadRequest.url.contains('1fichier.com'),
+                    # 이미 실행 중인 다운로드는 제외
+                    ~DownloadRequest.id.in_(active_ids) if active_ids else True
+                ).order_by(DownloadRequest.requested_at.desc()).first()  # 최신 순으로 변경
                 
                 if fichier_request:
-                    print(f"[LOG] 대기 중인 1fichier 다운로드 발견: {fichier_request.id}")
+                    print(f"[LOG] 대기 중인 1fichier 다운로드 발견: {fichier_request.id} (실행중 제외: {active_ids})")
                     self._start_waiting_download(fichier_request)
                     return
                     
@@ -221,6 +235,12 @@ class DownloadManager:
         from core.download_core import download_1fichier_file_new
         import threading
         
+        # 이미 실행 중인지 체크 (중복 시작 방지)
+        with self._lock:
+            if waiting_request.id in self.active_downloads:
+                print(f"[LOG] 다운로드 {waiting_request.id}는 이미 실행 중 - 중복 시작 방지")
+                return
+        
         # 원래 프록시 설정 사용
         use_proxy = getattr(waiting_request, 'use_proxy', False)
         
@@ -230,6 +250,11 @@ class DownloadManager:
             daemon=True
         )
         thread.start()
+        
+        # active_downloads에 추가 (중복 시작 방지용)
+        with self._lock:
+            self.active_downloads[waiting_request.id] = thread
+            
         print(f"[LOG] 대기 중인 다운로드 시작: {waiting_request.id} (프록시: {use_proxy})")
 
     def cancel_download(self, download_id):

@@ -260,27 +260,7 @@ def create_download_task(
     from .shared import download_manager
     import threading
     
-    # 다운로드 제한 체크 (전체 5개 + 1fichier 2개)
-    if not request.use_proxy:
-        if not download_manager.can_start_download(str(request.url)):
-            # 대기 상태로 설정 (먼저 등록 후 대기 상태로)
-            print(f"[LOG] 다운로드 제한으로 대기 큐에 추가: {db_req.id}")
-            db_req.status = StatusEnum.pending
-            db.commit()
-            
-            # 어떤 제한인지 확인
-            if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
-                print(f"[LOG] 전체 다운로드 제한 도달 ({download_manager.MAX_TOTAL_DOWNLOADS}개). 대기 상태로 설정: {db_req.id}")
-                return {"id": db_req.id, "status": "waiting", "message_key": "total_download_limit_reached", "message_args": {"limit": download_manager.MAX_TOTAL_DOWNLOADS}}
-            elif len(download_manager.local_downloads) >= download_manager.MAX_LOCAL_DOWNLOADS:
-                print(f"[LOG] 1fichier 로컬 다운로드 제한 도달 ({download_manager.MAX_LOCAL_DOWNLOADS}개). 대기 상태로 설정: {db_req.id}")
-                return {"id": db_req.id, "status": "waiting", "message_key": "local_download_limit_reached", "message_args": {"limit": download_manager.MAX_LOCAL_DOWNLOADS}}
-            else:
-                # 쿨다운 제한인 경우
-                cooldown_remaining = download_manager.get_1fichier_cooldown_remaining()
-                print(f"[LOG] 1fichier 쿨다운 중 ({cooldown_remaining:.1f}초 남음). 대기 상태로 설정: {db_req.id}")
-                return {"id": db_req.id, "status": "waiting", "message_key": "fichier_cooldown_active", "message_args": {"seconds": int(cooldown_remaining)}}
-    
+    # 모든 다운로드는 스레드를 시작함 (제한 체크는 download_1fichier_file_new 내부에서)
     thread = threading.Thread(
         target=download_1fichier_file_new,
         args=(db_req.id, "ko", request.use_proxy),
@@ -289,6 +269,19 @@ def create_download_task(
     print(f"[LOG] 스레드 시작 중...")
     thread.start()
     print(f"[LOG] 스레드 시작 완료: {thread.is_alive()}")
+    
+    # 제한 확인 후 즉시 응답 (비동기 처리)
+    if not request.use_proxy:
+        if not download_manager.can_start_download(str(request.url)):
+            print(f"[LOG] 다운로드 제한으로 대기 상태 예상: {db_req.id}")
+            # 어떤 제한인지 확인하여 적절한 메시지 반환
+            if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
+                return {"id": db_req.id, "status": "waiting", "message_key": "total_download_limit_reached", "message_args": {"limit": download_manager.MAX_TOTAL_DOWNLOADS}}
+            elif len(download_manager.local_downloads) >= download_manager.MAX_LOCAL_DOWNLOADS:
+                return {"id": db_req.id, "status": "waiting", "message_key": "local_download_limit_reached", "message_args": {"limit": download_manager.MAX_LOCAL_DOWNLOADS}}
+            else:
+                cooldown_remaining = download_manager.get_1fichier_cooldown_remaining()
+                return {"id": db_req.id, "status": "waiting", "message_key": "fichier_cooldown_active", "message_args": {"seconds": int(cooldown_remaining)}}
     
     return {"id": db_req.id, "status": db_req.status}
 
