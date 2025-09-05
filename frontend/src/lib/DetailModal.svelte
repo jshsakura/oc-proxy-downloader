@@ -207,14 +207,6 @@
               </td>
             </tr>
             <tr>
-              <th>{$t("detail_downloaded_size")}</th>
-              <td>
-                {download.downloaded_size
-                  ? formatBytes(download.downloaded_size)
-                  : $t("detail_not_available")}
-              </td>
-            </tr>
-            <tr>
               <th>{$t("detail_finished_at")}</th>
               <td>
                 {#if download.finished_at}
