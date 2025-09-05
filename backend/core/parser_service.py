@@ -413,10 +413,49 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
             
             print(f"[LOG] 대기 완료! 다운로드 시작")
         
-        # 4단계: 폼 데이터 수집 및 POST 요청
+        # 4단계: 실제 다운로드 버튼 찾기 및 클릭 준비
         soup = BeautifulSoup(response.text, 'html.parser')
-        form = soup.find('form', {'id': 'f1'}) or soup.find('form')
         
+        # 다양한 다운로드 버튼 찾기 (광고 제외)
+        download_selectors = [
+            # 일반적인 1fichier 다운로드 버튼 패턴
+            'input[type="submit"][class*="ok"]',
+            'input[type="submit"]:not([disabled])',
+            'input[type="submit"][value*="ownload"]',
+            'button[type="submit"]:not([disabled])',
+            'form#f1 input[type="submit"]',
+            'form input[type="submit"]',
+        ]
+        
+        form = None
+        submit_button = None
+        
+        # 광고가 아닌 실제 다운로드 버튼 찾기
+        for selector in download_selectors:
+            buttons = soup.select(selector)
+            for button in buttons:
+                # 광고 버튼 제외 패턴
+                button_class = button.get('class', [])
+                button_id = button.get('id', '')
+                button_text = button.get('value', '').lower()
+                
+                # 광고성 키워드 제외
+                ad_keywords = ['ad', 'ads', 'promo', 'sponsor', 'banner']
+                is_ad = any(keyword in ' '.join(button_class).lower() + button_id.lower() for keyword in ad_keywords)
+                
+                if not is_ad and ('download' in button_text or 'ok' in button_text or not button_text):
+                    form = button.find_parent('form')
+                    if form:
+                        submit_button = button
+                        print(f"[LOG] 다운로드 버튼 발견: {selector}, 클래스: {button_class}, 값: {button.get('value', 'N/A')}")
+                        break
+            if submit_button:
+                break
+        
+        # 폼을 못찾았으면 기본 방식으로
+        if not form:
+            form = soup.find('form', {'id': 'f1'}) or soup.find('form')
+            
         if not form:
             print(f"[LOG] 다운로드 폼을 찾을 수 없음")
             return None, None
@@ -434,8 +473,16 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 elif input_type in ['submit', 'hidden'] or value:
                     form_data[name] = value
         
+        # 실제 클릭할 버튼의 데이터 우선 사용
+        if submit_button:
+            button_name = submit_button.get('name')
+            button_value = submit_button.get('value', 'Download')
+            if button_name:
+                form_data[button_name] = button_value
+            print(f"[LOG] 선택된 버튼: name={button_name}, value={button_value}")
+        
         # submit이 없으면 추가
-        if not any('submit' in key.lower() for key in form_data.keys()):
+        if not any('submit' in key.lower() for key in form_data.keys()) and not submit_button:
             form_data['submit'] = 'Download'
         
         print(f"[LOG] POST 요청 시작...")
@@ -468,17 +515,48 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         
         # HTML 응답인 경우
         elif post_response.status_code == 200:
+            # 더 광범위한 패턴으로 1fichier 다운로드 링크 찾기
             download_patterns = [
                 r'https://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
                 r'https://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
+                r'https://[a-zA-Z0-9\-]+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
+                r'https://1fichier\.com/[a-zA-Z0-9_\-/]+\?[a-zA-Z0-9=&_\-]+',
+                r'(https://[^"\'>\s]+1fichier\.com[^"\'>\s]*)',
             ]
             
-            for pattern in download_patterns:
+            # 디버깅: POST 응답 일부 로그 출력
+            response_snippet = post_response.text[:1000] if len(post_response.text) > 1000 else post_response.text
+            print(f"[DEBUG] POST 응답 스니펫: {response_snippet}")
+            
+            for i, pattern in enumerate(download_patterns):
                 matches = re.findall(pattern, post_response.text)
                 if matches:
                     download_link = matches[0]
-                    print(f"[LOG] HTML에서 다운로드 링크: {download_link}")
+                    print(f"[LOG] HTML에서 다운로드 링크 (패턴 {i+1}): {download_link}")
                     break
+            
+            # 링크를 못찾았을 때 추가 분석
+            if not download_link:
+                print(f"[DEBUG] 링크 추출 실패. POST 응답 길이: {len(post_response.text)}")
+                # 1fichier.com이 포함된 모든 URL 찾기
+                all_fichier_urls = re.findall(r'https://[^"\'>\s]*1fichier\.com[^"\'>\s]*', post_response.text)
+                print(f"[DEBUG] 응답에서 찾은 모든 1fichier URL: {all_fichier_urls}")
+                
+                # 혹시 JavaScript나 다른 형태로 숨어있는지 확인
+                js_patterns = [
+                    r'location\.href\s*=\s*["\']([^"\']+)["\']',
+                    r'window\.location\s*=\s*["\']([^"\']+)["\']',
+                    r'redirect\(["\']([^"\']+)["\']\)',
+                ]
+                for js_pattern in js_patterns:
+                    js_matches = re.findall(js_pattern, post_response.text)
+                    if js_matches:
+                        print(f"[DEBUG] JavaScript 리다이렉트 발견: {js_matches}")
+                        for js_url in js_matches:
+                            if '1fichier.com' in js_url and ('a-' in js_url or 'cdn-' in js_url):
+                                download_link = js_url
+                                print(f"[LOG] JavaScript에서 다운로드 링크: {download_link}")
+                                break
         
         if download_link:
             return download_link, post_response.text

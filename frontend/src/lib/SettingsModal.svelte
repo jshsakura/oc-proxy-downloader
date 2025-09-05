@@ -1210,7 +1210,15 @@
   @media (max-width: 640px) {
     .modern-modal {
       width: 95vw;
-      margin: 1rem;
+      height: 85vh;
+      max-height: 85vh;
+      margin: 0.5rem;
+    }
+    
+    .modern-backdrop {
+      padding: 1rem;
+      align-items: flex-start;
+      padding-top: 2rem;
     }
 
     .theme-options {

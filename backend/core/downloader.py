@@ -470,6 +470,26 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
         
         return {"id": item.id, "status": item.status, "message": "Download retry started (proxy mode)"}
     else:
-        # 로컬 다운로드는 대기 상태로 유지 (자동 큐 시스템이 처리)
-        return {"id": item.id, "status": "waiting", "message": "Download added to queue for retry"}
+        # 로컬 다운로드 - 큐 상황에 따라 즉시 시작 또는 대기
+        from core.shared import download_manager
+        
+        if download_manager.can_start_download(item.url):
+            # 즉시 시작 가능
+            from .download_core import download_1fichier_file_new
+            import threading
+            
+            setattr(item, "status", StatusEnum.downloading)
+            db.commit()
+            
+            thread = threading.Thread(
+                target=download_1fichier_file_new,
+                args=(download_id, "ko", original_use_proxy),
+                daemon=True
+            )
+            thread.start()
+            
+            return {"id": item.id, "status": item.status, "message": "Download retry started (local mode)"}
+        else:
+            # 대기 상태로 유지 (자동 큐 시스템이 처리)
+            return {"id": item.id, "status": "waiting", "message": "Download added to queue for retry"}
 
