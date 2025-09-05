@@ -237,6 +237,7 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                     print(f"[LOG] ★ 파일명 조기 추출 성공: '{early_file_info['name']}'")
                     
                     # URL로 DB에서 해당 다운로드 요청을 찾아 파일명 즉시 저장
+                    temp_db = None
                     try:
                         from .db import SessionLocal
                         from .models import DownloadRequest
@@ -288,10 +289,14 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                                 except Exception as ws_e:
                                     print(f"[LOG] WebSocket 파일명 업데이트 전송 실패: {ws_e}")
                         
-                        temp_db.close()
-                        
                     except Exception as db_e:
                         print(f"[LOG] 파일명 DB 조기 저장 실패: {db_e}")
+                    finally:
+                        if temp_db:
+                            try:
+                                temp_db.close()
+                            except:
+                                pass
                 else:
                     print(f"[LOG] 초기 페이지에서 파일명을 추출할 수 없음")
             else:
@@ -652,6 +657,40 @@ def _extract_download_link_smart(html_content, original_url):
         
     except Exception as e:
         print(f"[LOG] 링크 추출 실패: {e}")
+        return None
+
+
+def parse_file_info_only(url, password=None, use_proxy=True):
+    """파일명과 크기만 빠르게 파싱 (다운로드 링크는 제외)"""
+    try:
+        import cloudscraper
+        scraper = cloudscraper.create_scraper()
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
+        }
+        
+        # 1단계: 페이지 로드하여 파일 정보만 추출
+        response = scraper.get(url, headers=headers, timeout=20)
+        if response.status_code != 200:
+            return None
+            
+        # 파일 정보 추출
+        from .parser import FichierParser
+        fichier_parser = FichierParser()
+        file_info = fichier_parser.extract_file_info(response.text)
+        
+        if file_info and file_info.get('name'):
+            print(f"[LOG] 파일 정보 추출 성공: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
+            return file_info
+        else:
+            print(f"[LOG] 파일 정보 추출 실패")
+            return None
+            
+    except Exception as e:
+        print(f"[LOG] 파일 정보 파싱 오류: {e}")
         return None
 
 

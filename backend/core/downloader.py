@@ -66,12 +66,30 @@ def parse_file_info_only(request: DownloadRequestCreate, db: Session = Depends(g
         print(f"[LOG] Use Proxy: {request.use_proxy}")
         print("="*80)
         
-        # DB에 요청 저장 (waiting 상태로)
+        # 기존 요청이 있는지 확인 (파일명이 있는 경우 재사용)
+        existing_req = db.query(DownloadRequest).filter(
+            DownloadRequest.url == str(request.url),
+            DownloadRequest.file_name.isnot(None),
+            DownloadRequest.file_name != ''
+        ).order_by(DownloadRequest.requested_at.desc()).first()
+        
+        if existing_req and existing_req.file_name and existing_req.file_name.strip():
+            print(f"[LOG] 기존 파싱 결과 재사용: {existing_req.file_name}")
+            return {
+                "id": existing_req.id,
+                "status": "parsed",
+                "file_name": existing_req.file_name,
+                "file_size": existing_req.file_size,
+                "message": "File info reused from existing request"
+            }
+        
+        # 새 요청 생성
         db_req = DownloadRequest(
             url=str(request.url),
             status=StatusEnum.pending,  # 대기 상태로 설정
             password=request.password,
-            use_proxy=request.use_proxy
+            use_proxy=request.use_proxy,
+            file_name=request.file_name  # 재다운로드시 기존 파일명 사용
         )
         db.add(db_req)
         db.commit()
@@ -187,6 +205,52 @@ def create_download_task(
     db.add(db_req)
     db.commit()
     db.refresh(db_req)
+    
+    # 파일 정보 미리 파싱 (백그라운드에서) - 파일명이 없을 때만 실행
+    if not db_req.file_name or db_req.file_name.strip() == '':
+        def parse_file_info_async():
+            temp_db = None
+            try:
+                from .parser_service import parse_file_info_only
+                file_info = parse_file_info_only(str(request.url), request.password, request.use_proxy)
+                if file_info and file_info.get('name'):
+                    # 새 DB 세션으로 업데이트
+                    from .db import SessionLocal
+                    temp_db = SessionLocal()
+                    fresh_req = temp_db.query(DownloadRequest).filter(DownloadRequest.id == db_req.id).first()
+                    if fresh_req and (not fresh_req.file_name or fresh_req.file_name.strip() == ''):
+                        fresh_req.file_name = file_info['name']
+                        fresh_req.file_size = file_info.get('size')
+                        temp_db.commit()
+                        print(f"[LOG] 파일 정보 미리 파싱 완료: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
+                        
+                        # WebSocket으로 UI 업데이트
+                        from .download_core import send_websocket_message
+                        send_websocket_message("status_update", {
+                            "id": fresh_req.id,
+                            "url": fresh_req.url,
+                            "file_name": fresh_req.file_name,
+                            "file_size": fresh_req.file_size,
+                            "status": fresh_req.status.value,
+                            "requested_at": fresh_req.requested_at.isoformat() if fresh_req.requested_at else None
+                        })
+                    else:
+                        print(f"[LOG] 파일명이 이미 존재하여 미리 파싱 스킵")
+            except Exception as e:
+                print(f"[LOG] 파일 정보 미리 파싱 실패: {e}")
+            finally:
+                if temp_db:
+                    try:
+                        temp_db.close()
+                    except:
+                        pass
+        
+        # 백그라운드에서 파싱 실행
+        import threading
+        parse_thread = threading.Thread(target=parse_file_info_async, daemon=True)
+        parse_thread.start()
+    else:
+        print(f"[LOG] 파일명이 이미 존재하여 미리 파싱 스킵: {db_req.file_name}")
     
     # 새로운 다운로드 시스템 사용
     print(f"[LOG] 데이터베이스에 저장된 요청 ID: {db_req.id}")

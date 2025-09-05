@@ -666,14 +666,16 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         "use_proxy": req.use_proxy
                     })
                     
-                    # 3초 후 재시도
+                    # 3초 후 재시도 (더 안전한 방식)
                     def retry_download():
-                        time.sleep(3)
-                        print(f"[LOG] 재시도 시작: ID {request_id}")
-                        download_1fichier_file_new(request_id, lang, use_proxy, new_retry_count, fichier_retry_count)
+                        try:
+                            time.sleep(3)
+                            print(f"[LOG] 재시도 시작: ID {request_id}")
+                            download_1fichier_file_new(request_id, lang, use_proxy, new_retry_count, fichier_retry_count)
+                        except Exception as retry_error:
+                            print(f"[LOG] 재시도 중 오류: {retry_error}")
                     
-                    retry_thread = threading.Thread(target=retry_download)
-                    retry_thread.daemon = True
+                    retry_thread = threading.Thread(target=retry_download, daemon=True)
                     retry_thread.start()
                     
                 else:
@@ -707,12 +709,14 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         
                         # 3분 후 재시도
                         def fichier_auto_retry():
-                            time.sleep(180)  # 3분 = 180초
-                            print(f"[LOG] 1fichier 자동 재시도 시작: ID {request_id}")
-                            download_1fichier_file_new(request_id, lang, use_proxy, retry_count, new_fichier_retry_count)
+                            try:
+                                time.sleep(180)  # 3분 = 180초
+                                print(f"[LOG] 1fichier 자동 재시도 시작: ID {request_id}")
+                                download_1fichier_file_new(request_id, lang, use_proxy, retry_count, new_fichier_retry_count)
+                            except Exception as retry_error:
+                                print(f"[LOG] 1fichier 자동 재시도 중 오류: {retry_error}")
                         
-                        retry_thread = threading.Thread(target=fichier_auto_retry)
-                        retry_thread.daemon = True
+                        retry_thread = threading.Thread(target=fichier_auto_retry, daemon=True)
                         retry_thread.start()
                         
                     else:

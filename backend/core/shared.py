@@ -41,6 +41,7 @@ class DownloadManager:
                     return False
                 
                 # 1fichier 대기 중인 다운로드가 있는지 체크 (proxying 상태)
+                db = None
                 try:
                     db = next(get_db())
                     waiting_fichier = db.query(DownloadRequest).filter(
@@ -50,9 +51,14 @@ class DownloadManager:
                     if waiting_fichier:
                         print(f"[LOG] 1fichier 대기 중인 다운로드 있음: ID {waiting_fichier.id}")
                         return False
-                    db.close()
                 except Exception as e:
                     print(f"[LOG] 1fichier 대기 상태 체크 실패: {e}")
+                finally:
+                    if db:
+                        try:
+                            db.close()
+                        except:
+                            pass
                 
                 # 1fichier 쿨다운 시간 체크
                 current_time = time.time()
@@ -132,9 +138,12 @@ class DownloadManager:
         if was_fichier and is_completed:
             # 쿨다운 시간 후에 대기 중인 다운로드 체크
             def delayed_check():
-                time.sleep(self.FICHIER_COOLDOWN_SECONDS)
-                print(f"[LOG] 1fichier 쿨다운 완료. 대기 중인 다운로드 체크")
-                self.check_and_start_waiting_downloads()
+                try:
+                    time.sleep(self.FICHIER_COOLDOWN_SECONDS)
+                    print(f"[LOG] 1fichier 쿨다운 완료. 대기 중인 다운로드 체크")
+                    self.check_and_start_waiting_downloads()
+                except Exception as e:
+                    print(f"[LOG] 지연된 다운로드 체크 중 오류: {e}")
             
             threading.Thread(target=delayed_check, daemon=True).start()
         else:
