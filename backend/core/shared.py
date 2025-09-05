@@ -40,6 +40,20 @@ class DownloadManager:
                 if len(self.local_downloads) >= self.MAX_LOCAL_DOWNLOADS:
                     return False
                 
+                # 1fichier 대기 중인 다운로드가 있는지 체크 (proxying 상태)
+                try:
+                    db = next(get_db())
+                    waiting_fichier = db.query(DownloadRequest).filter(
+                        DownloadRequest.status == StatusEnum.proxying,
+                        DownloadRequest.url.contains('1fichier.com')
+                    ).first()
+                    if waiting_fichier:
+                        print(f"[LOG] 1fichier 대기 중인 다운로드 있음: ID {waiting_fichier.id}")
+                        return False
+                    db.close()
+                except Exception as e:
+                    print(f"[LOG] 1fichier 대기 상태 체크 실패: {e}")
+                
                 # 1fichier 쿨다운 시간 체크
                 current_time = time.time()
                 if self.last_1fichier_completion_time > 0:
@@ -204,7 +218,7 @@ class DownloadManager:
             if req and req.status in [StatusEnum.downloading, StatusEnum.proxying]:
                 req.status = StatusEnum.stopped
                 db.commit()
-                print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경")
+                print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경 (이어받기 지원)")
         except Exception as e:
             print(f"[LOG] 다운로드 상태 변경 실패: {e}")
         finally:
@@ -241,7 +255,7 @@ class DownloadManager:
                     req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
                     if req and req.status in [StatusEnum.downloading, StatusEnum.proxying]:
                         req.status = StatusEnum.stopped
-                        print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경하여 종료 유도")
+                        print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경 (이어받기 지원)")
                 db.commit()
             except Exception as e:
                 print(f"[LOG] 다운로드 상태 변경 실패: {e}")

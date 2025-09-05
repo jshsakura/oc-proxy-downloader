@@ -378,6 +378,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         if wait_seconds:
             print(f"[LOG] {wait_seconds}초 정확히 대기 시작...")
             
+            # 대기 중에는 상태를 변경하지 않음 (pending 유지하여 대기 큐 시스템 정상 작동)
+            
             # 최적화된 카운트다운 (웹소켓 부하 최소화)
             for i in range(wait_seconds):
                 time.sleep(1)
