@@ -339,70 +339,119 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
 
 
 def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=None, retry_count=5):
-    """간단한 1fichier 파싱 로직 - 정확한 대기시간만 기다리고 클릭"""
+    """1fichier 세션 기반 순차적 파싱 - 최대 5회 시도"""
     import re
     from bs4 import BeautifulSoup
     import time
     
-    try:
-        # 1단계: 페이지 로드
-        print(f"[LOG] 1fichier 페이지 로드")
-        response = scraper.get(url, headers=headers, proxies=proxies, timeout=30)
+    max_attempts = 5
+    attempt = 0
+    
+    print(f"[LOG] 1fichier 세션 기반 파싱 시작 (최대 {max_attempts}회 시도)")
+    
+    while attempt < max_attempts:
+        attempt += 1
+        print(f"[LOG] === 시도 {attempt}/{max_attempts} ===")
         
-        if response.status_code != 200:
-            print(f"[LOG] 페이지 로드 실패: HTTP {response.status_code}")
-            return None, None
-        
-        # 2단계: 버튼에서 정확한 대기시간 추출 (디버깅 강화)
-        wait_seconds = None
-        button_patterns = [
-            r'Free\s+download\s+in\s+[^\d]*(\d+)\s*minutes?',                    # Free download in ⏳ 16 minutes
-            r'var\s+ct\s*=\s*(\d+)',                                             # JavaScript var ct = 123;
-            r'ct\s*=\s*(\d+)(?![^\n]*ct--)',                                     # ct = 123; (감소 코드가 아닌 초기화)
-            r'disabled[^>]*>.*?(\d+).*?second',                                   # disabled 버튼의 초 단위
-            r'wait[^<>]*?(\d+)',                                                  # wait 관련 숫자
-            r'>.*?(\d+).*?seconds?',                                              # 일반적인 seconds 텍스트
-        ]
-        
-        # 페이지에서 대기 관련 모든 텍스트 찾기
-        wait_related_text = re.findall(r'[^a-zA-Z](download|wait|free|minutes?|seconds?|dlw)[^a-zA-Z].*?\d+.*?[^a-zA-Z](download|wait|free|minutes?|seconds?|dlw)[^a-zA-Z]', response.text, re.IGNORECASE)
-        print(f"[DEBUG] 대기 관련 텍스트들: {wait_related_text[:5]}")  # 처음 5개만
-        
-        # JavaScript 카운트다운 코드 찾기 (디버깅)
-        js_countdown_sections = re.findall(r'.{0,100}ct[^;]*[=\-+]\s*\d+.{0,100}', response.text, re.IGNORECASE | re.DOTALL)
-        print(f"[DEBUG] JavaScript ct 관련 섹션들: {[s.replace('\\n', ' ').strip() for s in js_countdown_sections[:3]]}")
-        
-        # setTimeout과 ctt() 함수 관련 코드 찾기
-        timeout_sections = re.findall(r'.{0,50}setTimeout.{0,100}', response.text, re.IGNORECASE | re.DOTALL)
-        print(f"[DEBUG] setTimeout 섹션들: {[s.replace('\\n', ' ').strip() for s in timeout_sections[:2]]}")
-        
-        for i, pattern in enumerate(button_patterns):
-            print(f"[DEBUG] 패턴 {i+1} 시도: {pattern}")
-            match = re.search(pattern, response.text, re.IGNORECASE | re.DOTALL)
-            if match:
-                wait_value = int(match.group(1))
-                print(f"[DEBUG] 패턴 {i+1} 매칭: '{match.group(0)}' → 값: {wait_value}")
-                print(f"[DEBUG] 매칭된 전체 컨텍스트: '{match.group(0)}'")
-                
-                # 첫 번째 패턴은 분 단위
-                if i == 0:  # minutes 패턴
-                    wait_seconds = wait_value * 60
-                    print(f"[LOG] 버튼에서 분 단위 대기시간 추출: {wait_value}분 ({wait_seconds}초)")
-                else:  # 초 단위
-                    wait_seconds = wait_value
-                    print(f"[LOG] 버튼에서 초 단위 대기시간 추출: {wait_seconds}초")
-                
-                if 5 <= wait_seconds <= 14400:  # 5초~4시간 범위
-                    break
-                else:
-                    print(f"[DEBUG] 대기시간이 범위를 벗어남: {wait_seconds}초")
-                    wait_seconds = None  # 범위 밖이면 무시
-        
-        # 3단계: 대기시간이 있으면 정확히 대기
-        if wait_seconds:
-            print(f"[LOG] {wait_seconds}초 정확히 대기 시작...")
+        try:
+            # 1단계: 페이지 로드
+            print(f"[LOG] 1fichier 페이지 로드")
+            response = scraper.get(url, headers=headers, proxies=proxies, timeout=30)
             
-            # 대기 중에는 상태를 변경하지 않음 (pending 유지하여 대기 큐 시스템 정상 작동)
+            if response.status_code != 200:
+                print(f"[LOG] 페이지 로드 실패: HTTP {response.status_code}")
+                continue
+                
+            # 2단계: 실제 다운로드 링크가 있는지 먼저 확인
+            direct_link_match = re.search(r'href="(https://[a-z0-9\-]+\.1fichier\.com/[^"]+)"[^>]*class="[^"]*btn[^"]*"', response.text)
+            if direct_link_match:
+                direct_link = direct_link_match.group(1)
+                print(f"[LOG] ✅ 다운로드 링크 발견: {direct_link}")
+                return direct_link, None
+                
+            # 3단계: 대기시간 확인 및 추출
+            wait_seconds = None
+            button_patterns = [
+                r'Free\s+download\s+in\s+[^\d]*(\d+)\s*minutes?',                    # Free download in ⏳ 16 minutes
+                r'var\s+ct\s*=\s*(\d+)',                                             # JavaScript var ct = 123;
+                r'ct\s*=\s*(\d+)(?![^\n]*ct--)',                                     # ct = 123; (감소 코드가 아닌 초기화)
+                r'disabled[^>]*>.*?Free\s+download\s+in.*?(\d+)',                    # disabled 버튼의 카운트다운
+                r'disabled[^>]*>.*?(\d+).*?second',                                   # disabled 버튼의 초 단위
+                r'wait[^<>]*?(\d+)',                                                  # wait 관련 숫자
+            ]
+            
+            print(f"[LOG] 대기시간 패턴 검사 중...")
+            for i, pattern in enumerate(button_patterns):
+                match = re.search(pattern, response.text, re.IGNORECASE | re.DOTALL)
+                if match:
+                    wait_value = int(match.group(1))
+                    print(f"[LOG] 패턴 {i+1} 매칭: {wait_value}")
+                    
+                    # 첫 번째 패턴은 분 단위
+                    if i == 0:  # minutes 패턴
+                        wait_seconds = wait_value * 60
+                        print(f"[LOG] 분 단위 대기시간: {wait_value}분 ({wait_seconds}초)")
+                    else:  # 초 단위
+                        wait_seconds = wait_value
+                        print(f"[LOG] 초 단위 대기시간: {wait_seconds}초")
+                    
+                    if 5 <= wait_seconds <= 7200:  # 5초~2시간 범위
+                        break
+                    else:
+                        print(f"[LOG] 대기시간이 범위를 벗어남: {wait_seconds}초")
+                        wait_seconds = None
+                        
+            # 4단계: 대기시간이 있으면 기다리고 POST 요청
+            if wait_seconds:
+                print(f"[LOG] 🕐 {wait_seconds}초 대기 중... (시도 {attempt}/{max_attempts})")
+                
+                # 시간 표시
+                if wait_seconds > 300:  # 5분 이상
+                    print(f"[LOG] ⚠️  긴 대기시간 감지: {wait_seconds//60}분 {wait_seconds%60}초")
+                
+                # 실제 대기 (간소화된 카운트다운)
+                for remaining in range(wait_seconds, 0, -10):  # 10초마다 표시
+                    if remaining <= 30 or remaining % 60 == 0:  # 마지막 30초는 자세히, 나머지는 1분마다
+                        print(f"[LOG] 남은 시간: {remaining}초")
+                    time.sleep(min(10, remaining))
+                
+                print(f"[LOG] ✅ 대기 완료! POST 요청 시작")
+                
+                # 5단계: POST 요청으로 다음 단계
+                # 폼 데이터 찾기
+                form_data = {'submit': 'Download'}
+                
+                # adz 값 찾기
+                adz_match = re.search(r'name="adz"[^>]*value="([^"]*)"', response.text)
+                if adz_match:
+                    form_data['adz'] = adz_match.group(1)
+                
+                print(f"[LOG] POST 폼 데이터: {form_data}")
+                post_response = scraper.post(url, data=form_data, headers=headers, proxies=proxies, timeout=30)
+                
+                if post_response.status_code == 200:
+                    print(f"[LOG] POST 요청 성공, 다음 페이지로 이동")
+                    response = post_response  # 응답 업데이트
+                    continue  # 다시 루프 시작 (새 페이지에서 링크 찾기)
+                else:
+                    print(f"[LOG] POST 요청 실패: {post_response.status_code}")
+                    continue
+            else:
+                print(f"[LOG] ❌ 대기시간을 찾을 수 없음 (시도 {attempt})")
+                if attempt >= max_attempts:
+                    break
+                time.sleep(2)  # 잠깐 대기 후 재시도
+                continue
+                
+        except Exception as e:
+            print(f"[LOG] 시도 {attempt} 중 오류 발생: {e}")
+            if attempt >= max_attempts:
+                break
+            time.sleep(2)
+            continue
+            
+    print(f"[LOG] ❌ {max_attempts}회 시도 후 실패")
+    return None, None
             
             # 최적화된 카운트다운 (웹소켓 부하 최소화)
             for i in range(wait_seconds):
