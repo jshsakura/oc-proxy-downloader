@@ -156,6 +156,7 @@ class DownloadManager:
     
     def check_and_start_waiting_downloads(self):
         """대기 중인 다운로드를 확인하고 시작 (전체 제한 + 1fichier 개별 제한 고려)"""
+        print(f"[LOG] 대기 중인 다운로드 체크 시작 (활성: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS}, 1fichier: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS})")
         db = None
         try:
             db = next(get_db())
@@ -165,7 +166,19 @@ class DownloadManager:
                 print(f"[LOG] 전체 다운로드 제한 도달 ({self.MAX_TOTAL_DOWNLOADS}개). 대기 중...")
                 return
             
-            # 1. 먼저 1fichier가 아닌 대기 중인 다운로드 찾기
+            # 1. 프록시 다운로드 우선 처리 (제한 없음)
+            if len(self.all_downloads) < self.MAX_TOTAL_DOWNLOADS:
+                proxy_request = db.query(DownloadRequest).filter(
+                    DownloadRequest.status == StatusEnum.pending,
+                    DownloadRequest.use_proxy == True
+                ).order_by(DownloadRequest.requested_at.asc()).first()
+                
+                if proxy_request:
+                    print(f"[LOG] 대기 중인 프록시 다운로드 발견: {proxy_request.id}")
+                    self._start_waiting_download(proxy_request)
+                    return
+
+            # 2. 1fichier가 아닌 로컬 다운로드 찾기
             if len(self.all_downloads) < self.MAX_TOTAL_DOWNLOADS:
                 non_fichier_request = db.query(DownloadRequest).filter(
                     DownloadRequest.status == StatusEnum.pending,
@@ -178,9 +191,10 @@ class DownloadManager:
                     self._start_waiting_download(non_fichier_request)
                     return
             
-            # 2. 1fichier 다운로드 찾기 (1fichier 개별 제한도 체크)
+            # 3. 1fichier 로컬 다운로드 찾기 (1fichier 개별 제한 + 쿨다운 체크)
             if (len(self.all_downloads) < self.MAX_TOTAL_DOWNLOADS and 
-                len(self.local_downloads) < self.MAX_LOCAL_DOWNLOADS):
+                len(self.local_downloads) < self.MAX_LOCAL_DOWNLOADS and
+                self.can_start_download("https://1fichier.com/dummy")):  # 쿨다운 포함 체크
                 
                 fichier_request = db.query(DownloadRequest).filter(
                     DownloadRequest.status == StatusEnum.pending,
@@ -207,13 +221,16 @@ class DownloadManager:
         from core.download_core import download_1fichier_file_new
         import threading
         
+        # 원래 프록시 설정 사용
+        use_proxy = getattr(waiting_request, 'use_proxy', False)
+        
         thread = threading.Thread(
             target=download_1fichier_file_new,
-            args=(waiting_request.id, "ko", False),
+            args=(waiting_request.id, "ko", use_proxy),
             daemon=True
         )
         thread.start()
-        print(f"[LOG] 대기 중인 다운로드 시작: {waiting_request.id}")
+        print(f"[LOG] 대기 중인 다운로드 시작: {waiting_request.id} (프록시: {use_proxy})")
 
     def cancel_download(self, download_id):
         # 다운로드 상태를 stopped로 변경하여 자연스럽게 종료되도록 함

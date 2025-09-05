@@ -263,7 +263,8 @@ def create_download_task(
     # 다운로드 제한 체크 (전체 5개 + 1fichier 2개)
     if not request.use_proxy:
         if not download_manager.can_start_download(str(request.url)):
-            # 대기 상태로 설정
+            # 대기 상태로 설정 (먼저 등록 후 대기 상태로)
+            print(f"[LOG] 다운로드 제한으로 대기 큐에 추가: {db_req.id}")
             db_req.status = StatusEnum.pending
             db.commit()
             
@@ -452,6 +453,10 @@ def delete_download(download_id: int, db: Session = Depends(get_db)):
         import time
         time.sleep(1)
     
+    # 삭제 전에 다운로드 매니저에서 해제 (대기 중인 다운로드 시작을 위해)
+    from .shared import download_manager
+    download_manager.unregister_download(download_id)
+    
     # DB에서 삭제
     db.delete(item)
     db.commit()
@@ -477,6 +482,10 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     db.commit()
     
     print(f"[LOG] 다운로드 상태를 stopped로 변경 완료: ID {download_id}")
+    
+    # 정지 후 다운로드 매니저에서 해제 (대기 중인 다운로드 시작을 위해)
+    from .shared import download_manager
+    download_manager.unregister_download(download_id)
     
     # WebSocket으로 상태 업데이트 알림
     try:
