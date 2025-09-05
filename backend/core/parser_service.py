@@ -384,26 +384,52 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
             # 3단계: 대기시간 확인 및 추출
             wait_seconds = None
             button_patterns = [
+                r'var\s+ct\s*=\s*(\d+)\s*\*\s*(\d+)',                               # JavaScript var ct = 1*60;
                 r'var\s+ct\s*=\s*(\d+)',                                             # JavaScript var ct = 60;
+                r'ct\s*=\s*(\d+)\s*\*\s*(\d+)',                                      # ct = 1*60;
                 r'ct\s*=\s*(\d+)(?![^\n]*ct--)',                                     # ct = 60; (감소 코드가 아닌 초기화)
             ]
             
             print(f"[LOG] 대기시간 패턴 검사 중...")
+            
+            # HTML 내용에서 ct 관련 부분 추출해서 디버깅
+            ct_context_matches = re.findall(r'.{0,50}ct.{0,50}', response.text, re.IGNORECASE)
+            if ct_context_matches:
+                print(f"[DEBUG] HTML에서 'ct' 포함 부분들:")
+                for i, context in enumerate(ct_context_matches[:5]):  # 처음 5개만
+                    print(f"[DEBUG]   {i+1}: {context}")
+            
             for i, pattern in enumerate(button_patterns):
+                matches = re.findall(pattern, response.text, re.IGNORECASE | re.DOTALL)
+                if matches:
+                    print(f"[DEBUG] 패턴 {i+1} ('{pattern}') 모든 매칭: {matches}")
+                
                 match = re.search(pattern, response.text, re.IGNORECASE | re.DOTALL)
                 if match:
-                    wait_seconds = int(match.group(1))
                     matched_text = match.group(0)
-                    print(f"[LOG] ct 값 발견: {wait_seconds}초 (매칭: '{matched_text}')")
                     
-                    if 1 <= wait_seconds <= 7200:  # 1초~2시간 범위로 확장
-                        # 1-4초인 경우 거의 완료된 상태 - 짧게 대기 후 다운로드 링크 재검사
-                        if wait_seconds <= 4:
-                            print(f"[LOG] 매우 짧은 대기시간 ({wait_seconds}초) - 거의 완료된 상태")
-                        break
+                    # 곱셈 패턴인지 확인 (그룹이 2개인 경우)
+                    if len(match.groups()) == 2:
+                        # 곱셈 계산: 첫 번째 * 두 번째
+                        first_num = int(match.group(1))
+                        second_num = int(match.group(2))
+                        wait_seconds = first_num * second_num
+                        print(f"[LOG] ct 곱셈 계산: {first_num} * {second_num} = {wait_seconds}초 (매칭: '{matched_text}')")
                     else:
-                        print(f"[LOG] 대기시간이 범위를 벗어남: {wait_seconds}초")
-                        wait_seconds = None
+                        # 단일 값
+                        wait_seconds = int(match.group(1))
+                        print(f"[LOG] ct 값 발견: {wait_seconds}초 (매칭: '{matched_text}')")
+                    
+                    # 유효한 대기시간이 발견되면 다른 패턴 검사 중단
+                    break
+                    
+            if wait_seconds and not (1 <= wait_seconds <= 7200):  # 범위를 벗어난 경우만
+                print(f"[LOG] 대기시간이 범위를 벗어남: {wait_seconds}초")
+                wait_seconds = None
+            elif wait_seconds:
+                # 1-4초인 경우 거의 완료된 상태 - 짧게 대기 후 다운로드 링크 재검사
+                if wait_seconds <= 4:
+                    print(f"[LOG] 매우 짧은 대기시간 ({wait_seconds}초) - 거의 완료된 상태")
                         
             # 4단계: 대기시간이 있으면 기다리고 POST 요청
             if wait_seconds:
@@ -469,8 +495,22 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 post_response = scraper.post(url, data=form_data, headers=headers, proxies=proxies, timeout=30)
                 
                 if post_response.status_code == 200:
-                    print(f"[LOG] POST 요청 성공, 다음 페이지로 이동")
+                    print(f"[LOG] POST 요청 성공, 다운로드 링크 확인")
                     response = post_response  # 응답 업데이트
+                    
+                    # POST 후 응답 내용 간단히 확인 (디버깅)
+                    response_preview = response.text[:500] if len(response.text) > 500 else response.text
+                    print(f"[DEBUG] POST 응답 내용 (처음 500자): {response_preview}")
+                    
+                    # POST 후 다운로드 링크 다시 확인
+                    for pattern in direct_link_patterns:
+                        direct_link_match = re.search(pattern, response.text, re.IGNORECASE | re.DOTALL)
+                        if direct_link_match:
+                            direct_link = direct_link_match.group(1)
+                            print(f"[LOG] ✅ POST 후 다운로드 링크 발견: {direct_link}")
+                            return direct_link, None
+                    
+                    print(f"[LOG] POST 후에도 다운로드 링크 없음, 다음 시도로 계속")
                     continue  # 다시 루프 시작 (새 페이지에서 링크 찾기)
                 else:
                     print(f"[LOG] POST 요청 실패: {post_response.status_code}")
