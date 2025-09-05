@@ -1401,7 +1401,11 @@ def download_local(direct_link, file_path, initial_size, req, db):
         if downloaded == 0:
             print(f"[LOG] 경고: 다운로드된 데이터가 0 bytes")
             raise Exception("다운로드 실패 - 받은 데이터가 없습니다")
-        elif downloaded < 1024:
+        # Content-Type으로 잘못된 파일 감지 (용량은 체크하지 않음)
+        content_type = response.headers.get('Content-Type', '').lower()
+        if any(wrong_type in content_type for wrong_type in ['text/html', 'text/css', 'text/javascript', 'application/json']):
+            raise Exception(f"잘못된 파일 타입 다운로드: {content_type} ({downloaded} bytes)")
+        elif downloaded < 1024:  # 1KB 미만은 확실히 문제
             print(f"[LOG] 경고: 다운로드된 파일이 매우 작음 ({downloaded} bytes)")
             # 작은 파일의 내용을 확인해봄
             try:

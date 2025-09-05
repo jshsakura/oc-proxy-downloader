@@ -513,50 +513,9 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                     download_link = location
                     print(f"[LOG] 리다이렉트에서 다운로드 링크: {download_link}")
         
-        # HTML 응답인 경우
+        # HTML 응답인 경우 - 똑똑한 다운로드 링크 추출
         elif post_response.status_code == 200:
-            # 더 광범위한 패턴으로 1fichier 다운로드 링크 찾기
-            download_patterns = [
-                r'https://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
-                r'https://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
-                r'https://[a-zA-Z0-9\-]+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
-                r'https://1fichier\.com/[a-zA-Z0-9_\-/]+\?[a-zA-Z0-9=&_\-]+',
-                r'(https://[^"\'>\s]+1fichier\.com[^"\'>\s]*)',
-            ]
-            
-            # 디버깅: POST 응답 일부 로그 출력
-            response_snippet = post_response.text[:1000] if len(post_response.text) > 1000 else post_response.text
-            print(f"[DEBUG] POST 응답 스니펫: {response_snippet}")
-            
-            for i, pattern in enumerate(download_patterns):
-                matches = re.findall(pattern, post_response.text)
-                if matches:
-                    download_link = matches[0]
-                    print(f"[LOG] HTML에서 다운로드 링크 (패턴 {i+1}): {download_link}")
-                    break
-            
-            # 링크를 못찾았을 때 추가 분석
-            if not download_link:
-                print(f"[DEBUG] 링크 추출 실패. POST 응답 길이: {len(post_response.text)}")
-                # 1fichier.com이 포함된 모든 URL 찾기
-                all_fichier_urls = re.findall(r'https://[^"\'>\s]*1fichier\.com[^"\'>\s]*', post_response.text)
-                print(f"[DEBUG] 응답에서 찾은 모든 1fichier URL: {all_fichier_urls}")
-                
-                # 혹시 JavaScript나 다른 형태로 숨어있는지 확인
-                js_patterns = [
-                    r'location\.href\s*=\s*["\']([^"\']+)["\']',
-                    r'window\.location\s*=\s*["\']([^"\']+)["\']',
-                    r'redirect\(["\']([^"\']+)["\']\)',
-                ]
-                for js_pattern in js_patterns:
-                    js_matches = re.findall(js_pattern, post_response.text)
-                    if js_matches:
-                        print(f"[DEBUG] JavaScript 리다이렉트 발견: {js_matches}")
-                        for js_url in js_matches:
-                            if '1fichier.com' in js_url and ('a-' in js_url or 'cdn-' in js_url):
-                                download_link = js_url
-                                print(f"[LOG] JavaScript에서 다운로드 링크: {download_link}")
-                                break
+            download_link = _extract_download_link_smart(post_response.text, url)
         
         if download_link:
             return download_link, post_response.text
@@ -567,6 +526,47 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     except Exception as e:
         print(f"[LOG] 파싱 실패: {e}")
         return None, None
+
+
+def _extract_download_link_smart(html_content, original_url):
+    """간단하고 확실한 다운로드 링크 추출 - 실제 다운로드 서버만"""
+    import re
+    from bs4 import BeautifulSoup
+    
+    try:
+        # 1fichier 실제 다운로드 서버만 찾기 (정확한 패턴)
+        download_patterns = [
+            r'https://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+(?:\?[a-zA-Z0-9=&_\-]+)?',  # a-서버
+            r'https://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+(?:\?[a-zA-Z0-9=&_\-]+)?', # CDN 서버
+        ]
+        
+        for pattern in download_patterns:
+            matches = re.findall(pattern, html_content)
+            if matches:
+                # 가장 긴 링크 선택 (파라미터가 더 많이 포함됨)
+                best_link = max(matches, key=len)
+                print(f"[LOG] 실제 다운로드 서버 링크: {best_link}")
+                return best_link
+        
+        # 리다이렉트 패턴도 체크 (Location 헤더나 JavaScript)
+        redirect_patterns = [
+            r'location\.href\s*=\s*["\']([^"\']+)["\']',
+            r'window\.location\s*=\s*["\']([^"\']+)["\']',
+        ]
+        
+        for pattern in redirect_patterns:
+            matches = re.findall(pattern, html_content, re.IGNORECASE)
+            for match in matches:
+                if re.match(r'https://(?:a-\d+|cdn-\d+)\.1fichier\.com/', match):
+                    print(f"[LOG] JavaScript 리다이렉트 다운로드 링크: {match}")
+                    return match
+        
+        print(f"[LOG] 실제 다운로드 링크를 찾을 수 없음")
+        return None
+        
+    except Exception as e:
+        print(f"[LOG] 링크 추출 실패: {e}")
+        return None
 
 
 def _detect_download_limits(html_content, original_url):
