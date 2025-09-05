@@ -214,6 +214,7 @@
   "redownload_error": "재다운로드 중 오류가 발생했습니다.",
   "proxy_reset_failed": "프록시 리셋 실패:",
   "time_seconds": "초",
+  "time_minutes": "분",
   "proxy_tooltip_proxy": "프록시",
   "proxy_tooltip_step": "단계",
   "proxy_tooltip_progress": "진행률",

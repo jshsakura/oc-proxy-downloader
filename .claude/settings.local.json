@@ -140,7 +140,9 @@
       "Read(/C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\core/**)",
       "Read(/C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\core/**)",
       "Read(/C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\core/**)",
-      "Read(/C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\core/**)"
+      "Read(/C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\core/**)",
+      "Bash(sed:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": [],

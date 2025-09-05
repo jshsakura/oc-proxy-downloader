@@ -1154,7 +1154,11 @@
                     >
                       {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
                         <span class="wait-countdown">
-                          {$t("download_waiting")} ({downloadWaitInfo[download.id].remaining_time}{$t("time_seconds")})
+                          {#if downloadWaitInfo[download.id].remaining_time >= 60}
+                            {$t("download_waiting")} ({Math.floor(downloadWaitInfo[download.id].remaining_time / 60)}{$t("time_minutes")})
+                          {:else}
+                            {$t("download_waiting")} ({downloadWaitInfo[download.id].remaining_time}{$t("time_seconds")})
+                          {/if}
                         </span>
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
