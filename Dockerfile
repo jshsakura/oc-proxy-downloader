@@ -1,8 +1,12 @@
 # 1단계: Svelte 프론트엔드 빌드
 FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
 WORKDIR /app/frontend
+
+# 의존성 파일들만 먼저 복사하여 캐싱 최적화
 COPY frontend/package*.json ./
 RUN npm ci --ignore-scripts
+
+# 소스 코드는 나중에 복사하여 의존성 변경이 없으면 재사용 가능
 COPY frontend/ ./
 RUN npm run build
 
@@ -16,19 +20,20 @@ ARG VERSION=dev
 
 WORKDIR /app
 
-# 시스템 패키지 설치 (권한 관리용)
+# 시스템 패키지 설치 최적화 (단일 레이어)
 RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Python 의존성 설치
+# Python 의존성 먼저 설치 (캐싱 최적화)
 COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir beautifulsoup4
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install -r requirements.txt && \
+    pip install beautifulsoup4
 
-# 백엔드 소스 복사 (중복 제거)
+# 백엔드 소스는 의존성 설치 후 복사 (소스 변경 시에만 재빌드)
 COPY backend/ ./backend/
 
 # 프론트엔드 빌드 결과 복사
