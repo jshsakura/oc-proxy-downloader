@@ -655,7 +655,16 @@
                                   : $t("proxy_toggle_active")}
                                 type="button"
                               >
-                                {proxy.is_active ? "⏸" : "▶"}
+                                {#if proxy.is_active}
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="6" y="4" width="4" height="16"></rect>
+                                    <rect x="14" y="4" width="4" height="16"></rect>
+                                  </svg>
+                                {:else}
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polygon points="5,3 19,12 5,21"></polygon>
+                                  </svg>
+                                {/if}
                               </button>
                               <button
                                 class="proxy-action-btn delete-btn"
@@ -1547,6 +1556,7 @@
     overflow: hidden;
     background: var(--card-background);
     animation: slideDown 0.2s ease-out;
+    margin-bottom: 0.5rem;
   }
 
   @keyframes slideDown {
