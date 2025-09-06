@@ -1036,19 +1036,38 @@
     }
   }
 
-  $: workingCount = downloads.filter(d => 
-    ["pending", "downloading", "proxying", "stopped", "failed"].includes(d.status?.toLowerCase?.() || "")
-  ).length;
-  $: completedCount = downloads.filter(d => (d.status?.toLowerCase?.() || "") === "done").length;
+  $: workingCount = downloads.filter(d => {
+    const status = d.status?.toLowerCase?.() || "";
+    // stopped는 100% 완료된 경우 completed로 처리
+    if (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100)) {
+      return false; // working 탭에서 제외
+    }
+    return ["pending", "downloading", "proxying", "stopped", "failed"].includes(status);
+  }).length;
+  
+  $: completedCount = downloads.filter(d => {
+    const status = d.status?.toLowerCase?.() || "";
+    // done 상태 또는 100% 완료된 stopped 상태
+    return status === "done" || (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100));
+  }).length;
+  
   $: filteredDownloads = (() => {
     if (currentTab === "working") {
-      return downloads.filter(d => 
-        ["pending", "downloading", "proxying", "stopped", "failed"].includes(d.status?.toLowerCase?.() || "")
-      );
+      return downloads.filter(d => {
+        const status = d.status?.toLowerCase?.() || "";
+        // stopped는 100% 완료된 경우 working에서 제외
+        if (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100)) {
+          return false;
+        }
+        return ["pending", "downloading", "proxying", "stopped", "failed"].includes(status);
+      });
     } else {
-      // 완료 탭: 완료 시간 기준으로 역순 정렬 (최신 완료 먼저)
+      // 완료 탭: done 상태 또는 100% 완료된 stopped 상태
       return downloads
-        .filter(d => (d.status?.toLowerCase?.() || "") === "done")
+        .filter(d => {
+          const status = d.status?.toLowerCase?.() || "";
+          return status === "done" || (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100));
+        })
         .sort((a, b) => {
           // completed_at이 있으면 그것으로, 없으면 updated_at으로 정렬
           const aTime = new Date(a.completed_at || a.updated_at || 0);
