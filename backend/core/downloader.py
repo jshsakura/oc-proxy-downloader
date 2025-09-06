@@ -260,9 +260,21 @@ def create_download_task(
     from .shared import download_manager
     import threading
     
-    # 모든 다운로드는 스레드를 시작함 (제한 체크는 download_1fichier_file_new 내부에서)
+    # URL 타입에 따라 적절한 다운로드 함수 선택
+    if "1fichier.com" in db_req.url.lower():
+        # 1fichier 다운로드
+        from .download_core import download_1fichier_file_new
+        target_function = download_1fichier_file_new
+        print(f"[LOG] 1fichier 다운로드 함수 선택: {db_req.url}")
+    else:
+        # 일반 다운로드
+        from .download_core import download_general_file
+        target_function = download_general_file
+        print(f"[LOG] 일반 다운로드 함수 선택: {db_req.url}")
+    
+    # 모든 다운로드는 스레드를 시작함 (제한 체크는 각 함수 내부에서)
     thread = threading.Thread(
-        target=download_1fichier_file_new,
+        target=target_function,
         args=(db_req.id, "ko", request.use_proxy),
         daemon=True
     )
@@ -333,12 +345,18 @@ def start_actual_download(download_id: int, db: Session = Depends(get_db)):
     setattr(item, "status", StatusEnum.downloading)
     db.commit()
     
-    # 새로운 다운로드 시스템으로 시작
-    from .download_core import download_1fichier_file_new
+    # URL 타입에 따라 적절한 다운로드 함수 선택
+    if "1fichier.com" in item.url.lower():
+        from .download_core import download_1fichier_file_new
+        target_function = download_1fichier_file_new
+    else:
+        from .download_core import download_general_file
+        target_function = download_general_file
+    
     import threading
     
     thread = threading.Thread(
-        target=download_1fichier_file_new,
+        target=target_function,
         args=(download_id, "ko", original_use_proxy),
         daemon=True
     )
@@ -413,12 +431,18 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
         except Exception as e:
             print(f"[LOG] WebSocket 알림 전송 실패: {e}")
         
-        # 새로운 다운로드 시스템으로 재시작
-        from .download_core import download_1fichier_file_new
+        # URL 타입에 따라 적절한 다운로드 함수 선택 (재시작)
+        if "1fichier.com" in item.url.lower():
+            from .download_core import download_1fichier_file_new
+            target_function = download_1fichier_file_new
+        else:
+            from .download_core import download_general_file
+            target_function = download_general_file
+        
         import threading
         
         thread = threading.Thread(
-            target=download_1fichier_file_new,
+            target=target_function,
             args=(download_id, "ko", original_use_proxy),
             daemon=True
         )
@@ -527,8 +551,16 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
         setattr(item, "status", StatusEnum.downloading)
         db.commit()
         
+        # URL 타입에 따라 적절한 다운로드 함수 선택 (재시도)
+        if "1fichier.com" in item.url.lower():
+            from .download_core import download_1fichier_file_new
+            target_function = download_1fichier_file_new
+        else:
+            from .download_core import download_general_file
+            target_function = download_general_file
+        
         thread = threading.Thread(
-            target=download_1fichier_file_new,
+            target=target_function,
             args=(download_id, "ko", original_use_proxy),
             daemon=True
         )
@@ -541,14 +573,21 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
         
         if download_manager.can_start_download(item.url):
             # 즉시 시작 가능
-            from .download_core import download_1fichier_file_new
+            # URL 타입에 따라 적절한 다운로드 함수 선택 (재시도 로컬)
+            if "1fichier.com" in item.url.lower():
+                from .download_core import download_1fichier_file_new
+                target_function = download_1fichier_file_new
+            else:
+                from .download_core import download_general_file
+                target_function = download_general_file
+            
             import threading
             
             setattr(item, "status", StatusEnum.downloading)
             db.commit()
             
             thread = threading.Thread(
-                target=download_1fichier_file_new,
+                target=target_function,
                 args=(download_id, "ko", original_use_proxy),
                 daemon=True
             )

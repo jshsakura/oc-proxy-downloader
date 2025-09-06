@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from .models import ProxyStatus, UserProxy
+from .models import ProxyStatus, UserProxy, StatusEnum
 from .db import get_db
 
 # FastAPI 라우터
@@ -188,11 +188,18 @@ def test_proxy(proxy_addr, timeout=3):
         return False
 
 
-def get_working_proxy(db: Session, max_test=15):
+def get_working_proxy(db: Session, max_test=15, req=None):
     """작동하는 프록시 하나를 찾아서 반환"""
     unused_proxies = get_unused_proxies(db)
     
     for i, proxy_addr in enumerate(unused_proxies[:max_test]):
+        # 요청이 있는 경우 정지 상태 체크
+        if req:
+            db.refresh(req)
+            if req.status == StatusEnum.stopped:
+                print(f"[LOG] 프록시 테스트 중 정지됨: {req.id}")
+                return None
+        
         print(f"[LOG] 프록시 테스트 {i+1}/{max_test}: {proxy_addr}")
         
         if test_proxy(proxy_addr, timeout=3):

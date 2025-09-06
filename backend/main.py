@@ -1585,11 +1585,13 @@ def get_proxy_status(req: Request, db: Session = Depends(get_db)):
             ProxyStatus.last_used_at > cutoff_time
         ).order_by(desc(ProxyStatus.last_used_at)).all()
         
-        # 전체 프록시 개수 (사용자 프록시만)
-        user_proxies = get_user_proxy_list(db)
-        total_proxies = len(user_proxies)
-        used_count = len(used_proxies)
-        available_count = total_proxies - used_count
+        # 전체 프록시 개수 (실제 사용 가능한 프록시)
+        unused_proxies = get_unused_proxies(db)
+        all_proxies = get_user_proxy_list(db)  # 실제 전체 프록시 리스트 포함
+        
+        total_proxies = len(all_proxies)
+        available_count = len(unused_proxies)
+        used_count = total_proxies - available_count
         
         # 성공/실패 통계
         success_count = len([p for p in used_proxies if p.last_status == 'success'])

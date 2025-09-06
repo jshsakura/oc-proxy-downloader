@@ -21,6 +21,26 @@ from .proxy_manager import get_unused_proxies, mark_proxy_used
 from .parser_service import get_or_parse_direct_link
 
 
+def format_file_size(bytes_size):
+    """파일 크기를 적절한 단위로 포맷팅"""
+    if bytes_size == 0:
+        return "0 B"
+    
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    unit_index = 0
+    size = float(bytes_size)
+    
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    
+    # 소수점 2자리까지 표시, 불필요한 0 제거
+    if unit_index == 0:  # Bytes
+        return f"{int(size)} {units[unit_index]}"
+    else:
+        return f"{size:.2f} {units[unit_index]}".rstrip('0').rstrip('.')
+
+
 def send_websocket_message(message_type: str, data: dict):
     """WebSocket 메시지를 전송하는 함수"""
     try:
@@ -141,36 +161,42 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
         if status == "done":
             success_text = translations.get("telegram_download_success", "Download Complete")
             filename_text = translations.get("telegram_filename", "Filename")
-            
-            message = f"""<b>🔔 OC-Proxy</b>
-<b>✅ {success_text}</b>
+            filesize_text = translations.get("telegram_filesize", "파일크기")
+            completed_time_text = translations.get("telegram_completed_time", "완료시간")
+            save_path_text = translations.get("telegram_save_path", "저장경로")
 
-<code>┌─────────────────────────────────┐
-│ 📋 다운로드 완료 정보          │
-├─────────────────────────────────┤
-│ 📁 {filename_text}: {file_name[:25]}{'...' if len(file_name) > 25 else ''}
-│ 📊 파일크기: {file_size or '알 수 없음'}
-│ ⏱️  완료시간: {download_time or current_time}
-│ 📂 저장경로: {save_path[:25] + '...' if save_path and len(save_path) > 25 else save_path or '기본경로'}
-└─────────────────────────────────┘</code>"""
-            
+            message = f"""🔔 <b>OC-Proxy: {success_text}</b> ✅
+
+📁 <b>{filename_text}</b>
+<code>{file_name}</code>
+
+📊 <b>{filesize_text}</b>
+<code>{file_size or '알 수 없음'}</code>
+
+⏱️ <b>{completed_time_text}</b>
+<code>{download_time or current_time}</code>
+
+📂 <b>{save_path_text}</b>
+<code>{save_path or '기본경로'}</code>"""
+
         elif status == "failed":
             failed_text = translations.get("telegram_download_failed", "Download Failed")
             filename_text = translations.get("telegram_filename", "Filename")
             error_text = translations.get("telegram_error", "Error")
-            
-            error_msg = error[:50] + '...' if error and len(error) > 50 else error or '알 수 없는 오류'
-            
-            message = f"""<b>🔔 OC-Proxy</b>
-<b>❌ {failed_text}</b>
+            failed_time_text = translations.get("telegram_failed_time", "실패시간")
 
-<code>┌─────────────────────────────────┐
-│ 📋 다운로드 실패 정보          │
-├─────────────────────────────────┤
-│ 📁 {filename_text}: {file_name[:25]}{'...' if len(file_name) > 25 else ''}
-│ ⚠️  {error_text}: {error_msg}
-│ 🕐 실패시간: {current_time}
-└─────────────────────────────────┘</code>"""
+            error_msg = error[:200] + '...' if error and len(error) > 200 else error or '알 수 없는 오류'
+
+            message = f"""🔔 <b>OC-Proxy: {failed_text}</b> ❌
+
+📁 <b>{filename_text}</b>
+<code>{file_name}</code>
+
+⚠️ <b>{error_text}</b>
+<code>{error_msg}</code>
+
+🕐 <b>{failed_time_text}</b>
+<code>{current_time}</code>"""
         else:
             return
             
@@ -1020,8 +1046,8 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
     """프록시를 순환하면서 Direct Link 파싱"""
     from .proxy_manager import get_working_proxy
     
-    # 먼저 작동하는 프록시를 찾아서 시도
-    working_proxy = get_working_proxy(db, max_test=50)
+    # 먼저 작동하는 프록시를 찾아서 시도 (10개로 제한)
+    working_proxy = get_working_proxy(db, max_test=10, req=req)
     if working_proxy:
         print(f"[LOG] 검증된 프록시로 파싱 시도: {working_proxy}")
         try:
@@ -2008,5 +2034,232 @@ def cleanup_download_file(file_path):
     except Exception as e:
         print(f"[LOG] 파일 정리 실패: {e}")
         raise e
+
+
+def download_general_file(request_id, language="ko", use_proxy=False):
+    """일반 파일 다운로드 (non-1fichier) - URL에서 직접 다운로드"""
+    from .db import SessionLocal
+    from .models import DownloadRequest, StatusEnum
+    from urllib.parse import urlparse, unquote
+    import requests
+    import re
+    
+    db = SessionLocal()
+    req = None  # 변수 초기화
+    
+    try:
+        # 다운로드 요청 조회
+        req = db.query(DownloadRequest).filter(DownloadRequest.id == request_id).first()
+        if not req:
+            print(f"[LOG] 일반 다운로드 요청을 찾을 수 없음: {request_id}")
+            return
+        
+        print(f"[LOG] 일반 다운로드 시작: {req.url}")
+        
+        # URL에서 파일명 추출
+        parsed_url = urlparse(req.url)
+        if parsed_url.path and '/' in parsed_url.path:
+            url_filename = unquote(parsed_url.path.split('/')[-1])
+            if url_filename and len(url_filename) > 3 and '.' in url_filename:
+                print(f"[LOG] URL에서 파일명 추출: '{url_filename}'")
+                req.file_name = url_filename
+                db.commit()
+        
+        # 파일명이 없으면 임시명 설정
+        if not req.file_name or req.file_name.strip() == '':
+            req.file_name = f"general_{request_id}.tmp"
+            db.commit()
+        
+        # HEAD 요청으로 파일 정보 확인
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            head_response = requests.head(req.url, headers=headers, timeout=30, allow_redirects=True)
+            if head_response.status_code == 200:
+                # Content-Type 체크 - 다운로드 가능한 파일인지 확인
+                content_type = head_response.headers.get('Content-Type', '').lower()
+                
+                # HTML 페이지나 일반 웹페이지는 다운로드하지 않음
+                if any(web_type in content_type for web_type in ['text/html', 'text/xml', 'application/json', 'text/plain']):
+                    print(f"[LOG] 웹페이지 Content-Type 감지: {content_type} - 다운로드 불가")
+                    req.status = StatusEnum.failed
+                    req.error_message = f"웹페이지는 다운로드할 수 없습니다. (Content-Type: {content_type})"
+                    db.commit()
+                    return
+                
+                print(f"[LOG] 다운로드 가능한 Content-Type: {content_type}")
+                
+                # Content-Length에서 파일 크기 추출
+                content_length = head_response.headers.get('Content-Length')
+                if content_length:
+                    bytes_size = int(content_length)
+                    
+                    # 1fichier처럼 포맷팅된 크기를 문자열로 저장
+                    formatted_size = format_file_size(bytes_size)
+                    req.file_size = formatted_size
+                    print(f"[LOG] ★ 파일크기 최초 설정: '{formatted_size}' ({content_length} bytes)")
+                
+                # Content-Disposition에서 파일명 재추출 시도
+                content_disposition = head_response.headers.get('Content-Disposition')
+                if content_disposition and 'filename=' in content_disposition:
+                    filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';]+)["\']?', content_disposition, re.IGNORECASE)
+                    if filename_match:
+                        extracted_filename = unquote(filename_match.group(1))
+                        req.file_name = extracted_filename
+                        print(f"[LOG] Content-Disposition에서 파일명 추출: '{extracted_filename}'")
+                
+                db.commit()
+            else:
+                print(f"[LOG] HEAD 요청 실패: {head_response.status_code}")
+                req.status = StatusEnum.failed
+                req.error_message = f"서버 응답 오류: {head_response.status_code}"
+                db.commit()
+                return
+                
+        except Exception as head_e:
+            print(f"[LOG] HEAD 요청 중 오류: {head_e}")
+            req.status = StatusEnum.failed
+            req.error_message = f"HEAD 요청 실패: {str(head_e)}"
+            db.commit()
+            return
+        
+        # 상태를 다운로드 중으로 변경
+        req.status = StatusEnum.downloading
+        db.commit()
+        
+        # WebSocket으로 상태 업데이트 알림
+        send_websocket_message("status_update", {
+            "id": req.id,
+            "url": req.url,
+            "file_name": req.file_name,
+            "file_size": req.file_size,
+            "status": "downloading",
+            "error": None,
+            "progress": 0,
+            "downloaded_size": 0,
+            "total_size": 0, # 실제 크기는 다운로드 시작 시 업데이트됨
+            "save_path": None,
+            "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+            "finished_at": None,
+            "password": req.password,
+            "direct_link": None,
+            "use_proxy": req.use_proxy
+        })
+        
+        # 다운로드 경로 설정
+        download_path = get_download_path()
+        
+        # Windows에서 파일명에 사용할 수 없는 문자 제거
+        safe_filename = re.sub(r'[<>:"/\\|?*]', '_', req.file_name.strip())
+        safe_filename = safe_filename.strip('. ')
+        
+        if not safe_filename:
+            safe_filename = f"general_{request_id}.unknown"
+            
+        # 중복 파일명 방지
+        final_path = download_path / safe_filename
+        counter = 1
+        while final_path.exists():
+            name, ext = os.path.splitext(safe_filename)
+            safe_filename = f"{name}_{counter}{ext}"
+            final_path = download_path / safe_filename
+            counter += 1
+            
+        file_path = final_path
+        part_file_path = download_path / (safe_filename + ".part")
+        
+        # DB에 저장 경로 업데이트
+        req.save_path = str(file_path)
+        db.commit()
+        print(f"[LOG] 저장 경로 설정: {file_path}")
+        
+        # 기존 파일 확인
+        initial_size = 0
+        if part_file_path.exists():
+            file_path = part_file_path
+            initial_size = part_file_path.stat().st_size
+            print(f"[LOG] 이어받기: {initial_size} bytes")
+        elif file_path.exists():
+            initial_size = file_path.stat().st_size
+            print(f"[LOG] 기존 파일 발견: {initial_size} bytes")
+        else:
+            file_path = part_file_path
+            print(f"[LOG] 새 다운로드 시작")
+        
+        # 실제 다운로드는 기존 다운로드 로직 재사용
+        if use_proxy:
+            print(f"[LOG] 프록시 모드로 일반 파일 다운로드")
+            download_with_proxy_cycling(req.url, file_path, None, initial_size, req, db)
+        else:
+            print(f"[LOG] 로컬 모드로 일반 파일 다운로드")
+            download_local(req.url, file_path, initial_size, req, db)
+            
+        # 3단계: 완료 처리
+        db.refresh(req)
+        if req.status == StatusEnum.stopped:
+            print(f"[LOG] 다운로드 정지됨 (완료 처리 전): ID {request_id}")
+            return
+
+        final_file_path = cleanup_download_file(file_path)
+
+        req.status = StatusEnum.done
+        import datetime
+        req.finished_at = datetime.datetime.utcnow()
+        if final_file_path:
+            req.save_path = str(final_file_path)
+        db.commit()
+
+        # 텔레그램 알림 전송 (완료)
+        unknown_file = get_translations(language).get("telegram_unknown_file", "알 수 없는 파일")
+        
+        file_size_str = req.file_size or "알 수 없음"
+        
+        download_time_str = None
+        if req.finished_at:
+            download_time_str = req.finished_at.strftime("%H:%M:%S")
+        
+        save_path_str = req.save_path or "기본경로"
+        
+        send_telegram_notification(
+            req.file_name or unknown_file, 
+            "done", 
+            None, 
+            language,
+            file_size=file_size_str,
+            download_time=download_time_str,
+            save_path=save_path_str
+        )
+        
+        # WebSocket으로 완료 상태 전송
+        send_websocket_message("status_update", {
+            "id": req.id,
+            "url": req.url,
+            "file_name": req.file_name,
+            "status": "done",
+            "error": None,
+            "downloaded_size": req.downloaded_size or 0,
+            "total_size": req.total_size or 0,
+            "progress": 100.0,
+            "save_path": req.save_path,
+            "requested_at": req.requested_at.isoformat() if req.requested_at else None,
+            "finished_at": req.finished_at.isoformat() if req.finished_at else None,
+            "password": req.password,
+            "direct_link": req.direct_link,
+            "use_proxy": req.use_proxy
+        })
+        
+        print(f"[LOG] 일반 다운로드 완료: {req.file_name}")
+            
+    except Exception as e:
+        print(f"[LOG] 일반 다운로드 중 오류: {e}")
+        if req:
+            req.status = StatusEnum.failed
+            req.error_message = str(e)
+            db.commit()
+        raise e
+    finally:
+        db.close()
 
 

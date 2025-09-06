@@ -590,6 +590,19 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 
         except Exception as e:
             print(f"[LOG] 시도 {attempt} 중 오류 발생: {e}")
+            
+            # 프록시 연결 오류인 경우 재시도하지 않고 즉시 실패 처리
+            error_str = str(e)
+            if any(error_keyword in error_str for error_keyword in [
+                "Unable to connect to proxy", 
+                "WinError 10061", 
+                "Connection refused",
+                "ProxyError",
+                "Failed to establish a new connection"
+            ]):
+                print(f"[LOG] ❌ 프록시 연결 오류 감지, 재시도 없이 다음 프록시로 이동")
+                break
+            
             if attempt >= max_attempts:
                 break
             time.sleep(2)

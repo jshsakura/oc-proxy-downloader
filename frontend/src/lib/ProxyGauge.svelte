@@ -7,7 +7,7 @@
   export let availableProxies = 0;
   export let successCount = 0;
   export let failCount = 0;
-  
+
   // 실시간 프록시 상태
   export let currentProxy = "";
   export let currentStep = "";
@@ -16,37 +16,51 @@
   export let totalAttempting = 0;
   export let activeDownloadCount = 0;
 
-  $: usagePercentage = totalProxies > 0 ? ((totalProxies - availableProxies) / totalProxies) * 100 : 0;
-  $: successRate = (successCount + failCount) > 0 ? (successCount / (successCount + failCount)) * 100 : 0;
-  $: successPercentage = totalProxies > 0 ? (successCount / totalProxies) * 100 : 0;
+  $: usagePercentage =
+    totalProxies > 0
+      ? ((totalProxies - availableProxies) / totalProxies) * 100
+      : 0;
+  $: successRate =
+    successCount + failCount > 0
+      ? (successCount / (successCount + failCount)) * 100
+      : 0;
+  $: successPercentage =
+    totalProxies > 0 ? (successCount / totalProxies) * 100 : 0;
   $: failPercentage = totalProxies > 0 ? (failCount / totalProxies) * 100 : 0;
-  $: unusedPercentage = totalProxies > 0 ? (availableProxies / totalProxies) * 100 : 0;
+  $: unusedPercentage =
+    totalProxies > 0 ? (availableProxies / totalProxies) * 100 : 0;
+
+  // 게이지 표시용 퍼센티지 (연한 녹색 기본, 실패시 빨간색 추가)
+  $: availableDisplayPercentage =
+    totalProxies > 0 ? (availableProxies / totalProxies) * 100 : 0;
+  $: failDisplayPercentage =
+    totalProxies > 0 ? (failCount / totalProxies) * 100 : 0;
 
   let isRefreshing = false;
-  
+
   async function refreshProxies() {
     if (isRefreshing) return;
-    
+
     try {
       isRefreshing = true;
-      const response = await fetch('/api/proxy-status/reset', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem("access_token")}`
-        }
+      const response = await fetch("/api/proxy-status/reset", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
       });
       if (response.ok) {
         // 성공적으로 리셋됨을 알림
-        console.log($t('proxy_reset_success'));
+        console.log($t("proxy_reset_success"));
         // 부모 컴포넌트에서 상태를 다시 가져오도록 이벤트 발생
-        const event = new CustomEvent('proxy-refreshed');
+        const event = new CustomEvent("proxy-refreshed");
         document.dispatchEvent(event);
       } else {
-        console.error($t('proxy_refresh_failed'));
+        console.error($t("proxy_refresh_failed"));
       }
     } catch (error) {
-      console.error($t('proxy_reset_failed'), error);
+      console.error($t("proxy_reset_failed"), error);
     } finally {
       isRefreshing = false;
     }
@@ -60,53 +74,64 @@
         <span class="label-icon"><NetworkIcon /></span>
         <span class="label-text">{$t("proxy_title")}</span>
       </div>
-      <div class="proxy-stats">
-        <span class="success-badge">{successCount}</span>
-        <span class="fail-badge">{failCount}</span>
-      </div>
     </div>
     <div class="status-right">
       <div class="gauge-bar">
-        <div 
-          class="gauge-fill success" 
-          style="width: {successPercentage}%"
-          title={$t("proxy_success_tooltip", { count: successCount })}
-        ></div>
-        <div 
-          class="gauge-fill failed" 
-          style="width: {failPercentage}%"
+        <!-- 전체 배경을 연한 녹색으로 채우기 -->
+        <div class="gauge-background"></div>
+        <!-- 실패한 프록시는 빨간색으로 우측에서부터 표시 -->
+        <div
+          class="gauge-fill failed"
+          style="width: {failDisplayPercentage}%"
           title={$t("proxy_failed_tooltip", { count: failCount })}
         ></div>
-        <div 
-          class="gauge-fill unused" 
-          style="width: {unusedPercentage}%"
-          title={$t("proxy_unused_tooltip", { count: availableProxies })}
-        ></div>
         <div class="gauge-text">
-          <span class="gauge-available">{availableProxies.toLocaleString()}</span>
+          <span class="gauge-available"
+            >{availableProxies.toLocaleString()}</span
+          >
+          <span class="gauge-separator">/</span>
+          <span class="gauge-failed">{failCount.toLocaleString()}</span>
           <span class="gauge-separator">/</span>
           <span class="gauge-total">{totalProxies.toLocaleString()}</span>
         </div>
       </div>
-      <button 
-        class="refresh-button" 
+      <button
+        class="refresh-button"
         class:refreshing={isRefreshing}
-        on:click={refreshProxies} 
+        on:click={refreshProxies}
         disabled={isRefreshing}
-        title="{isRefreshing ? $t('proxy_refreshing') : $t('proxy_refresh')}"
-        aria-label="{isRefreshing ? $t('proxy_refreshing') : $t('proxy_refresh')}"
+        title={isRefreshing ? $t("proxy_refreshing") : $t("proxy_refresh")}
+        aria-label={isRefreshing ? $t("proxy_refreshing") : $t("proxy_refresh")}
       >
-        <svg class:spin={isRefreshing} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg
+          class:spin={isRefreshing}
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
           <polyline points="23 4 23 10 17 10"></polyline>
           <polyline points="1 20 1 14 7 14"></polyline>
-          <path d="m3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          <path
+            d="m3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+          ></path>
         </svg>
       </button>
     </div>
   </div>
-  
+
   <!-- 실시간 프록시 상태 표시 (항상 표시) -->
-  <div class="proxy-status" class:trying={status === "trying"} class:success={status === "success"} class:failed={status === "failed"} class:idle={!status || !currentProxy}>
+  <div
+    class="proxy-status"
+    class:trying={status === "trying"}
+    class:success={status === "success"}
+    class:failed={status === "failed"}
+    class:idle={!status || !currentProxy}
+  >
     {#if activeDownloadCount > 1}
       <!-- 다중 다운로드 진행 중일 때 -->
       <span class="status-icon trying-icon"></span>
@@ -119,18 +144,26 @@
     {:else if status === "trying" && currentProxy}
       <span class="status-icon trying-icon"></span>
       <span class="status-text">
-        {currentStep === "parsing" ? $t("proxy_link_parsing") : $t("proxy_downloading")} {$t("proxy_in_progress")}... 
-        ({currentIndex}/{totalAttempting}) {currentProxy}
+        {currentStep === "parsing"
+          ? $t("proxy_link_parsing")
+          : $t("proxy_downloading")}
+        {$t("proxy_in_progress")}... ({currentIndex}/{totalAttempting}) {currentProxy}
       </span>
     {:else if status === "success" && currentProxy}
       <span class="status-icon success-icon"></span>
       <span class="status-text">
-        {currentStep === "parsing" ? $t("proxy_link_parsing") : $t("proxy_downloading")} {$t("proxy_success_msg")}! {currentProxy}
+        {currentStep === "parsing"
+          ? $t("proxy_link_parsing")
+          : $t("proxy_downloading")}
+        {$t("proxy_success_msg")}! {currentProxy}
       </span>
     {:else if status === "failed" && currentProxy}
       <span class="status-icon failed-icon"></span>
       <span class="status-text">
-        {currentStep === "parsing" ? $t("proxy_link_parsing") : $t("proxy_downloading")} {$t("proxy_failed_msg")}: {currentProxy}
+        {currentStep === "parsing"
+          ? $t("proxy_link_parsing")
+          : $t("proxy_downloading")}
+        {$t("proxy_failed_msg")}: {currentProxy}
       </span>
     {:else}
       <span class="status-icon idle-icon"></span>
@@ -143,7 +176,7 @@
       </span>
     {/if}
   </div>
-  
+
   {#if availableProxies === 0 && totalProxies > 0}
     <div class="warning">
       <span class="warning-icon"></span>
@@ -162,16 +195,18 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+    transition:
+      background-color 0.3s ease,
+      border-color 0.3s ease,
+      box-shadow 0.3s ease;
     font-size: 0.85rem;
   }
 
-  
   .proxy-label {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background-color: #FFB74D;
+    background-color: #ffb74d;
     color: white;
     padding: 4px 10px;
     border-radius: 16px;
@@ -179,13 +214,13 @@
     font-weight: 500;
     min-height: 26px;
   }
-  
+
   .label-icon {
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  
+
   .label-text {
     line-height: 1;
   }
@@ -202,8 +237,8 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    flex-shrink: 0;
-    min-width: fit-content;
+    flex: 0 0 30%;
+    min-width: 0;
   }
 
   .status-right {
@@ -211,7 +246,8 @@
     align-items: center;
     justify-content: flex-end;
     gap: 0.5rem;
-    flex-shrink: 0;
+    flex: 0 0 65%;
+    min-width: 0;
   }
 
   .refresh-button {
@@ -264,31 +300,53 @@
 
   /* 게이지 바 스타일 */
   .gauge-bar {
-    flex-shrink: 0;
-    width: 120px;
-    height: 24px;
-    background-color: var(--card-border);
-    border-radius: 12px;
+    flex: 1;
+    min-width: 0;
+    height: 30px;
+    border-radius: 5px;
     overflow: hidden;
     display: flex;
     position: relative;
+    border: 1px solid var(--card-border);
+    margin-right: 0.5rem;
   }
 
+  .gauge-background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      rgba(129, 199, 132, 0.3) 0%,
+      rgba(129, 199, 132, 0.2) 100%
+    );
+    z-index: 0;
+  }
 
   .gauge-text {
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     white-space: nowrap;
-    z-index: 2;
+    z-index: 3;
     pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    width: calc(100% - 8px);
+    text-align: center;
+    overflow: hidden;
   }
 
   .gauge-available {
     color: var(--success-color);
+  }
+
+  .gauge-failed {
+    color: var(--danger-color);
   }
 
   .gauge-separator {
@@ -299,51 +357,19 @@
     color: var(--text-secondary);
   }
 
-
   .gauge-fill {
     height: 100%;
     transition: width 0.3s ease;
-    position: relative;
-  }
-
-  .gauge-fill.success {
-    background-color: var(--success-color);
+    position: absolute;
+    top: 0;
+    z-index: 1;
   }
 
   .gauge-fill.failed {
     background-color: var(--danger-color);
+    right: 0;
+    background: rgba(239, 68, 68, 0.4);
   }
-
-  .gauge-fill.unused {
-    background-color: var(--text-secondary);
-    opacity: 0.3;
-  }
-
-  .proxy-stats {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.65rem;
-    font-weight: 600;
-  }
-
-  .success-badge {
-    color: var(--success-color);
-    background: rgba(16, 185, 129, 0.1);
-    padding: 0.15rem 0.3rem;
-    border-radius: 4px;
-    border: 1px solid rgba(16, 185, 129, 0.2);
-  }
-
-  .fail-badge {
-    color: var(--danger-color);
-    background: rgba(239, 68, 68, 0.1);
-    padding: 0.15rem 0.3rem;
-    border-radius: 4px;
-    border: 1px solid rgba(239, 68, 68, 0.2);
-  }
-
-
 
   .warning {
     margin-top: 0.75rem;
@@ -401,7 +427,7 @@
     height: 12px;
     margin-right: 4px;
   }
-  
+
   .trying-icon {
     border: 2px solid transparent;
     border-top: 2px solid currentColor;
@@ -409,15 +435,15 @@
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
-  
+
   .success-icon {
     position: relative;
     border-radius: 50%;
     background: currentColor;
   }
-  
+
   .success-icon::after {
-    content: '';
+    content: "";
     position: absolute;
     top: 2px;
     left: 4px;
@@ -427,16 +453,16 @@
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
   }
-  
+
   .failed-icon {
     position: relative;
     border-radius: 50%;
     background: currentColor;
   }
-  
+
   .failed-icon::before,
   .failed-icon::after {
-    content: '';
+    content: "";
     position: absolute;
     top: 50%;
     left: 50%;
@@ -445,12 +471,11 @@
     background: white;
     transform: translate(-50%, -50%) rotate(45deg);
   }
-  
+
   .failed-icon::after {
     transform: translate(-50%, -50%) rotate(-45deg);
   }
-  
-  
+
   .warning-icon {
     display: inline-block;
     width: 0;
@@ -462,9 +487,9 @@
     vertical-align: middle;
     position: relative;
   }
-  
+
   .warning-icon::after {
-    content: '!';
+    content: "!";
     position: absolute;
     top: 2px;
     left: -2px;
@@ -472,16 +497,16 @@
     font-size: 8px;
     font-weight: bold;
   }
-  
+
   .idle-icon {
     position: relative;
     border: 2px solid currentColor;
     border-radius: 50%;
     opacity: 0.5;
   }
-  
+
   .idle-icon::after {
-    content: '';
+    content: "";
     position: absolute;
     top: 50%;
     left: 50%;
@@ -500,10 +525,12 @@
     white-space: nowrap;
   }
 
-
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
-
 </style>

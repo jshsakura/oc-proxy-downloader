@@ -245,8 +245,7 @@ class DownloadManager:
                     pass
     
     def _start_waiting_download(self, waiting_request):
-        """대기 중인 다운로드 시작"""
-        from core.download_core import download_1fichier_file_new
+        """대기 중인 다운로드 시작 - 1fichier와 일반 다운로드 분기"""
         import threading
         
         # 이미 실행 중인지 체크 (중복 시작 방지)
@@ -258,8 +257,20 @@ class DownloadManager:
         # 원래 프록시 설정 사용
         use_proxy = getattr(waiting_request, 'use_proxy', False)
         
+        # URL 타입에 따라 적절한 다운로드 함수 선택
+        if "1fichier.com" in waiting_request.url.lower():
+            # 1fichier 다운로드
+            from core.download_core import download_1fichier_file_new
+            target_function = download_1fichier_file_new
+            print(f"[LOG] 1fichier 다운로드 시작: {waiting_request.id}")
+        else:
+            # 일반 다운로드
+            from core.download_core import download_general_file
+            target_function = download_general_file
+            print(f"[LOG] 일반 다운로드 시작: {waiting_request.id}")
+        
         thread = threading.Thread(
-            target=download_1fichier_file_new,
+            target=target_function,
             args=(waiting_request.id, "ko", use_proxy),
             daemon=True
         )
