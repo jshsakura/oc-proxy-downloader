@@ -284,9 +284,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         # 프록시가 아닌 경우 다운로드 제한 체크
         if not use_proxy:
             if not download_manager.can_start_download(req.url):
-                # 사용자가 명시적으로 정지한 경우는 대기 상태로 변경하지 않음
+                # 사용자가 명시적으로 정지하거나 완료된 경우는 대기 상태로 변경하지 않음
                 db.refresh(req)
-                if req.status != StatusEnum.stopped:
+                if req.status not in [StatusEnum.stopped, StatusEnum.done]:
                     print(f"[LOG] 다운로드 제한에 걸림. 대기 상태로 설정: ID {request_id}")
                     req.status = StatusEnum.pending
                     db.commit()
