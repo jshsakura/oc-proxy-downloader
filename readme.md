@@ -1,4 +1,4 @@
-![OC-Proxy]([https://raw.githubusercontent.com/your-username/your-repo/main/images/logo.png](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/logo.png))
+![OC-Proxy](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/logo.png))
 
 <div align="center">
   <img src="https://github.com/jshsakura/oc-proxy-downloader/blob/main/docs/preview/preview1.png?raw=true" alt="OC Proxy Downloader 미리보기" style="max-width: 700px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin-bottom: 1rem;" />
