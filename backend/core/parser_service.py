@@ -435,6 +435,35 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
             if wait_seconds:
                 print(f"[LOG] 🕐 {wait_seconds}초 대기 중... (시도 {attempt}/{max_attempts})")
                 
+                # 대기 시작할 때 상태를 downloading으로 업데이트
+                try:
+                    from .download_core import send_websocket_message
+                    from .db import SessionLocal
+                    from .models import DownloadRequest
+                    
+                    # DB에서 다운로드 ID 찾기
+                    temp_db = SessionLocal()
+                    try:
+                        download_req = temp_db.query(DownloadRequest).filter(
+                            DownloadRequest.url == url
+                        ).order_by(DownloadRequest.requested_at.desc()).first()
+                        
+                        if download_req:
+                            # 상태를 downloading으로 업데이트
+                            download_req.status = "downloading"
+                            temp_db.commit()
+                            
+                            # WebSocket으로 상태 업데이트 전송
+                            send_websocket_message("status_update", {
+                                "id": download_req.id,
+                                "status": "downloading"
+                            })
+                            print(f"[LOG] 다운로드 상태를 'downloading'으로 업데이트: ID {download_req.id}")
+                    finally:
+                        temp_db.close()
+                except Exception as e:
+                    print(f"[LOG] 상태 업데이트 실패: {e}")
+                
                 # 시간 표시
                 if wait_seconds > 300:  # 5분 이상
                     print(f"[LOG] ⚠️  긴 대기시간 감지: {wait_seconds//60}분 {wait_seconds%60}초")
