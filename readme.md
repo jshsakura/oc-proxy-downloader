@@ -331,20 +331,6 @@ docker-compose logs --since="2023-01-01T10:00:00"
 
 ---
 
-## 💾 Windows Standalone 버전
-
-Windows 사용자를 위한 단일 실행 파일 버전:
-
-```bash
-cd standalone
-.\build.bat     # EXE 빌드
-.\test.bat      # 테스트 실행
-```
-
-자세한 내용은 [Standalone README](./standalone/README.md)를 참조하세요.
-
----
-
 ## 🛠️ 개발 환경에서 실행하기
 
 Docker 없이 로컬 환경에서 개발하는 경우:
