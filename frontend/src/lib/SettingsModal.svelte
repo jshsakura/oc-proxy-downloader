@@ -6,6 +6,7 @@
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
+  import ConfirmModal from "./ConfirmModal.svelte";
   import { toastMessage, showToast, showToastMsg } from "./toast.js";
   import { onMount, onDestroy } from "svelte";
   import {
@@ -32,12 +33,37 @@
   let selectedLocale = settings.language || "ko";
   let selectedLocaleWasSet = false;
   let initialSettingsLoaded = false;
+  
+  function getGravatarUrl(email, size = 40) {
+    if (!email || !email.includes('@')) return null;
+    
+    const crypto = window.crypto || window.msCrypto;
+    if (!crypto || !crypto.subtle) return null;
+    
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(email.toLowerCase().trim()))
+      .then(hashBuffer => {
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return `https://www.gravatar.com/avatar/${hashHex}?s=${size}&d=404`;
+      })
+      .catch(() => null);
+  }
+  
+  let gravatarUrl = null;
+  $: if ($authUser?.username) {
+    getGravatarUrl($authUser.username).then(url => {
+      gravatarUrl = url;
+    });
+  }
 
   let userProxies = [];
   let newProxyAddress = "";
   let newProxyDescription = "";
   let isAddingProxy = false;
-  let telegramExpanded = false;
+  let telegramGuideExpanded = false;
+  let telegramSettingsExpanded = false;
+  let detailedGuideExpanded = false;
+  let showLogoutConfirm = false;
 
   $: if (
     currentSettings &&
@@ -317,6 +343,20 @@
     selectedLocale = e.target.value;
   }
 
+  function handleLogout() {
+    showLogoutConfirm = true;
+  }
+
+  function confirmLogout() {
+    authManager.logout();
+    closeModal();
+    showLogoutConfirm = false;
+  }
+
+  function cancelLogout() {
+    showLogoutConfirm = false;
+  }
+
   onMount(() => {
     document.body.style.overflow = "hidden";
   });
@@ -371,7 +411,16 @@
             <div class="form-group">
               <div class="auth-info-card">
                 <div class="user-info-compact">
-                  <div class="user-avatar">👤</div>
+                  <div class="user-avatar">
+                    {#if gravatarUrl}
+                      <img src={gravatarUrl} alt="User Avatar" on:error={() => gravatarUrl = null} />
+                    {:else}
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
+                      </svg>
+                    {/if}
+                  </div>
                   <div class="user-details">
                     <span class="user-greeting">{$t("logged_in_as")}</span>
                     <strong class="user-name">{$authUser?.username}</strong>
@@ -380,10 +429,7 @@
                 <button
                   type="button"
                   class="logout-btn compact"
-                  on:click={() => {
-                    authManager.logout();
-                    closeModal();
-                  }}
+                  on:click={handleLogout}
                 >
                   <svg
                     width="16"
@@ -501,34 +547,35 @@
             </div>
           </fieldset>
 
-          <fieldset class="form-group proxy-management">
-            <legend>{$t("proxy_management")}</legend>
+          <div class="form-group proxy-management">
+            <div class="proxy-management-title">{$t("proxy_management")}</div>
+          </div>
 
-            <div class="proxy-add-section">
-              <div class="proxy-input-group">
-                <input
-                  type="text"
-                  class="input proxy-address-input"
-                  bind:value={newProxyAddress}
-                  placeholder={$t("proxy_add_address")}
-                />
-                <input
-                  type="text"
-                  class="input proxy-description-input"
-                  bind:value={newProxyDescription}
-                  placeholder={$t("proxy_add_description")}
-                />
-                <button
-                  class="button button-primary proxy-add-button"
-                  on:click={addProxy}
-                  disabled={isAddingProxy}
-                >
-                  {isAddingProxy ? $t("adding_proxy") : $t("proxy_add_button")}
-                </button>
-              </div>
+          <div class="form-group proxy-form-section">
+            <div class="proxy-input-group">
+              <input
+                type="text"
+                class="input proxy-address-input"
+                bind:value={newProxyAddress}
+                placeholder={$t("proxy_add_address")}
+              />
+              <input
+                type="text"
+                class="input proxy-description-input"
+                bind:value={newProxyDescription}
+                placeholder={$t("proxy_add_description")}
+              />
+              <button
+                class="button button-primary proxy-add-button"
+                on:click={addProxy}
+                disabled={isAddingProxy}
+              >
+                {isAddingProxy ? $t("adding_proxy") : $t("proxy_add_button")}
+              </button>
             </div>
+          </div>
 
-            <div class="proxy-list-section">
+          <div class="form-group proxy-list-section">
               {#if userProxies.length === 0}
                 <div class="proxy-empty-state">
                   <p>{$t("proxy_empty_message")}</p>
@@ -536,16 +583,17 @@
                 </div>
               {:else}
                 <div class="proxy-table-container">
-                  <table class="proxy-table">
-                    <thead>
-                      <tr>
-                        <th>{$t("proxy_address")}</th>
-                        <th class="text-center">{$t("proxy_type")}</th>
-                        <th class="text-center">{$t("proxy_status")}</th>
-                        <th class="text-center">{$t("proxy_added_date")}</th>
-                        <th class="text-center">{$t("proxy_actions")}</th>
-                      </tr>
-                    </thead>
+                  <div class="proxy-table-wrapper">
+                    <table class="proxy-table">
+                      <thead>
+                        <tr>
+                          <th class="text-center">{$t("proxy_address")}</th>
+                          <th class="text-center">{$t("proxy_type")}</th>
+                          <th class="text-center">{$t("proxy_status")}</th>
+                          <th class="text-center">{$t("proxy_added_date")}</th>
+                          <th class="text-center">{$t("proxy_actions")}</th>
+                        </tr>
+                      </thead>
                     <tbody>
                       {#each userProxies as proxy (proxy.id)}
                         <tr
@@ -628,24 +676,25 @@
                         </tr>
                       {/each}
                     </tbody>
-                  </table>
+                    </table>
+                  </div>
                 </div>
               {/if}
-            </div>
-          </fieldset>
+          </div>
 
           <fieldset class="form-group telegram-notifications">
             <legend>{$t("telegram_notifications")}</legend>
 
+            <!-- 텔레그램 설정 가이드 아코디언 -->
             <button
               type="button"
               class="telegram-header"
-              on:click={() => (telegramExpanded = !telegramExpanded)}
+              on:click={() => (telegramGuideExpanded = !telegramGuideExpanded)}
             >
               <div class="telegram-info">
-                <p class="telegram-desc">📱 {$t("telegram_description")}</p>
+                <p class="telegram-desc">📚 {$t("telegram_setup_guide")}</p>
               </div>
-              <div class="toggle-chevron" class:expanded={telegramExpanded}>
+              <div class="toggle-chevron" class:expanded={telegramGuideExpanded}>
                 <svg
                   width="20"
                   height="20"
@@ -661,7 +710,124 @@
               </div>
             </button>
 
-            {#if telegramExpanded}
+            {#if telegramGuideExpanded}
+              <div class="telegram-accordion">
+                <div class="accordion-content">
+                  <!-- 텔레그램 설정 가이드 -->
+                  <div class="telegram-setup-guide">
+                    <div class="setup-guide-header">
+                      <h4 class="guide-title">🚀 {$t("telegram_setup_guide")}</h4>
+                      <p class="guide-description">{$t("telegram_description")}</p>
+                    </div>
+                    
+                    <div class="setup-steps">
+                      <div class="setup-step">
+                        <div class="step-header">
+                          <span class="step-icon">🤖</span>
+                          <h5 class="step-title">{$t("telegram_step1_title")}</h5>
+                        </div>
+                        <p class="step-description">{$t("telegram_step1_desc")}</p>
+                        <a 
+                          href="https://t.me/botfather" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          class="telegram-link botfather-link"
+                        >
+                          🔗 {$t("telegram_botfather_link")}
+                        </a>
+                      </div>
+                      
+                      <div class="setup-step">
+                        <div class="step-header">
+                          <span class="step-icon">🆔</span>
+                          <h5 class="step-title">{$t("telegram_step2_title")}</h5>
+                        </div>
+                        <p class="step-description">{$t("telegram_step2_desc")}</p>
+                        <a 
+                          href="https://t.me/userinfobot" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          class="telegram-link getid-link"
+                        >
+                          🔗 {$t("telegram_getid_bot")}
+                        </a>
+                      </div>
+                    </div>
+                    
+                    <div class="detailed-guide">
+                      <button
+                        type="button"
+                        class="guide-header-button"
+                        on:click={() => (detailedGuideExpanded = !detailedGuideExpanded)}
+                      >
+                        <div class="guide-info">
+                          <p class="guide-desc">📋 {$t("telegram_guide_detailed")}</p>
+                        </div>
+                        <div class="toggle-chevron" class:expanded={detailedGuideExpanded}>
+                          <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <polyline points="6,9 12,15 18,9"></polyline>
+                          </svg>
+                        </div>
+                      </button>
+
+                      {#if detailedGuideExpanded}
+                        <div class="guide-accordion">
+                          <div class="guide-accordion-content">
+                            <ol class="guide-steps">
+                              <li>{$t("telegram_guide_step1_detail")}</li>
+                              <li>{$t("telegram_guide_step2_detail")}</li>
+                              <li>{$t("telegram_guide_step3_detail")}</li>
+                              <li>{$t("telegram_guide_step4_detail")}</li>
+                              <li>{$t("telegram_guide_step5_detail")}</li>
+                              <li>{$t("telegram_guide_step6_detail")}</li>
+                            </ol>
+                            <div class="guide-note">
+                              💡 {$t("telegram_guide_group_note")}
+                            </div>
+                          </div>
+                        </div>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {/if}
+
+            <!-- 텔레그램 설정 아코디언 -->
+            <button
+              type="button"
+              class="telegram-header"
+              on:click={() => (telegramSettingsExpanded = !telegramSettingsExpanded)}
+            >
+              <div class="telegram-info">
+                <p class="telegram-desc">⚙️ {$t("telegram_settings")}</p>
+              </div>
+              <div class="toggle-chevron" class:expanded={telegramSettingsExpanded}>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="6,9 12,15 18,9"></polyline>
+                </svg>
+              </div>
+            </button>
+
+            {#if telegramSettingsExpanded}
               <div class="telegram-accordion">
                 <div class="accordion-content">
                   <div class="telegram-input-group">
@@ -770,6 +936,17 @@
 {#if $showToast}
   <div class="toast">{$toastMessage}</div>
 {/if}
+
+<ConfirmModal
+  bind:showModal={showLogoutConfirm}
+  title={$t("logout_confirm_title")}
+  message={$t("logout_confirm_message")}
+  confirmText={$t("logout_confirm_yes")}
+  cancelText={$t("logout_confirm_no")}
+  isDeleteAction={true}
+  on:confirm={confirmLogout}
+  on:cancel={cancelLogout}
+/>
 
 <style>
   .modern-backdrop {
@@ -975,6 +1152,16 @@
     text-transform: uppercase;
     letter-spacing: 0.025em;
     padding: 0;
+  }
+
+  .proxy-management-title {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
   }
 
   label {
@@ -1271,6 +1458,16 @@
 
   .proxy-management {
     margin-top: 1.5rem;
+    margin-bottom: 0;
+  }
+
+  .proxy-form-section {
+    margin-top: 0;
+    margin-bottom: 1rem;
+  }
+
+  .proxy-list-section {
+    margin-top: 0;
   }
 
   .telegram-notifications {
@@ -1290,6 +1487,10 @@
     cursor: pointer;
     transition: all 0.2s ease;
     text-align: left;
+  }
+
+  .telegram-header + .telegram-header {
+    margin-top: 0.5rem;
   }
 
   .telegram-header:hover {
@@ -1468,6 +1669,237 @@
     min-height: 2.5rem;
   }
 
+  /* Telegram Setup Guide Styles */
+  .telegram-setup-guide {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 197, 253, 0.05) 100%);
+    border: 1px solid rgba(59, 130, 246, 0.15);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .setup-guide-header {
+    text-align: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .guide-title {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--primary-color);
+  }
+
+  .guide-description {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .setup-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .setup-step {
+    background: var(--card-background);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    transition: all 0.2s ease;
+  }
+
+  .setup-step:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .step-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+
+  .step-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .step-description {
+    margin: 0 0 1rem 0;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .telegram-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover, #1e40af) 100%);
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+  }
+
+  .telegram-link:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(var(--primary-color-rgb, 59, 130, 246), 0.3);
+    color: white;
+    text-decoration: none;
+  }
+
+  .botfather-link {
+    background: linear-gradient(135deg, #0088cc 0%, #006ba6 100%);
+  }
+
+  .getid-link {
+    background: linear-gradient(135deg, #28a745 0%, #20853e 100%);
+  }
+
+  .detailed-guide {
+    border-top: 1px solid var(--card-border);
+    padding-top: 1.5rem;
+  }
+
+  .guide-header-button {
+    width: 100%;
+    background: var(--card-background);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+  }
+
+  .guide-header-button:hover {
+    background: var(--bg-secondary, #f8f9fa);
+    border-color: var(--primary-color);
+    box-shadow: var(--shadow-light);
+  }
+
+  .guide-info {
+    flex: 1;
+  }
+
+  .guide-desc {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    line-height: 1.4;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .guide-accordion {
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--card-background);
+    animation: slideDown 0.2s ease-out;
+  }
+
+  .guide-accordion-content {
+    padding: 1.5rem;
+    border-top: none;
+  }
+
+  .guide-header-button .toggle-chevron {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: var(--bg-secondary, #f8f9fa);
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+    margin-left: 1rem;
+  }
+
+  .guide-header-button .toggle-chevron svg {
+    transition: transform 0.3s ease;
+    transform: rotate(0deg);
+  }
+
+  .guide-header-button .toggle-chevron.expanded svg {
+    transform: rotate(180deg);
+  }
+
+  .guide-header-button:hover .toggle-chevron {
+    background: var(--primary-color);
+    color: white;
+  }
+
+  .guide-steps {
+    margin: 0 0 1rem 0;
+    padding-left: 1.5rem;
+    color: var(--text-primary);
+  }
+
+  .guide-steps li {
+    margin-bottom: 0.5rem;
+    line-height: 1.5;
+    font-size: 0.875rem;
+  }
+
+  .guide-note {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 6px;
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+  }
+
+  /* Dark theme adjustments */
+  :global(body.dark) .telegram-setup-guide {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 197, 253, 0.08) 100%);
+  }
+
+  :global(body.dark) .setup-step:hover {
+    box-shadow: 0 2px 8px rgba(255, 255, 255, 0.08);
+  }
+
+  :global(body.dark) .guide-note {
+    background: rgba(59, 130, 246, 0.15);
+  }
+
+  /* Dracula theme adjustments */
+  :global(body.dracula) .telegram-setup-guide {
+    background: linear-gradient(135deg, rgba(139, 233, 253, 0.08) 0%, rgba(189, 147, 249, 0.08) 100%);
+    border-color: rgba(139, 233, 253, 0.2);
+  }
+
+  :global(body.dracula) .guide-note {
+    background: rgba(139, 233, 253, 0.15);
+    border-color: rgba(139, 233, 253, 0.3);
+  }
+
   .proxy-add-section {
     margin-bottom: 1rem;
   }
@@ -1514,19 +1946,40 @@
 
   .proxy-table-container {
     max-height: 250px;
+    min-height: 150px;
     overflow-y: auto;
     overflow-x: hidden;
     border: 1px solid var(--card-border);
     border-radius: 8px;
-    max-width: 100%;
     width: 100%;
+  }
+
+  .proxy-table-wrapper {
+    overflow-x: auto;
   }
 
   .proxy-table {
     width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
+    border-collapse: collapse;
     table-layout: fixed;
+    display: table !important;
+  }
+  
+  .proxy-table thead {
+    display: table-header-group !important;
+  }
+  
+  .proxy-table tbody {
+    display: table-row-group !important;
+  }
+  
+  .proxy-table tr {
+    display: table-row !important;
+  }
+  
+  .proxy-table th,
+  .proxy-table td {
+    display: table-cell !important;
   }
 
   .proxy-table th,
@@ -1536,41 +1989,18 @@
     border-bottom: 1px solid var(--card-border);
     font-size: 0.85rem;
     vertical-align: middle;
+    white-space: nowrap;
   }
 
   .text-center {
     text-align: center !important;
   }
 
-  .proxy-table th:nth-child(1),
-  .proxy-table td:nth-child(1) {
-    width: 35%;
-  }
-  .proxy-table th:nth-child(2),
-  .proxy-table td:nth-child(2) {
-    width: 12%;
-  }
-  .proxy-table th:nth-child(3),
-  .proxy-table td:nth-child(3) {
-    width: 12%;
-  }
-  .proxy-table th:nth-child(4),
-  .proxy-table td:nth-child(4) {
-    width: 26%;
-  }
-  .proxy-table th:nth-child(5),
-  .proxy-table td:nth-child(5) {
-    width: 15%;
-  }
-
-  .proxy-table td {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
   .proxy-table td:nth-child(1) {
     white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .proxy-table th {
@@ -1618,7 +2048,7 @@
     height: 28px;
     min-width: 28px;
     max-width: 28px;
-    display: flex;
+    display: flex !important;
     align-items: center;
     justify-content: center;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -1658,7 +2088,7 @@
   }
 
   .proxy-action-buttons {
-    display: flex;
+    display: flex !important;
     gap: 0.25rem;
     justify-content: center;
   }
@@ -1673,7 +2103,7 @@
     transition: all 0.2s;
     min-width: 24px;
     height: 24px;
-    display: flex;
+    display: flex !important;
     align-items: center;
     justify-content: center;
   }
@@ -1778,6 +2208,14 @@
     justify-content: center;
     font-size: 1.2rem;
     color: white;
+    overflow: hidden;
+  }
+
+  .user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
   }
 
   .user-details {
@@ -1825,14 +2263,21 @@
   }
 
   @media (max-width: 600px) {
-    .auth-info-container {
+    .auth-info-card {
       flex-direction: column;
-      align-items: flex-start;
-      gap: 0.75rem;
+      align-items: stretch;
+      gap: 1rem;
+    }
+
+    .user-info-compact {
+      justify-content: flex-start;
     }
 
     .logout-btn {
-      align-self: flex-end;
+      align-self: stretch;
+      width: 100%;
+      justify-content: center;
+      margin-top: 0.5rem;
     }
   }
 
@@ -1848,20 +2293,127 @@
     .proxy-input-group {
       grid-template-columns: 1fr;
       grid-template-rows: auto auto auto;
+      gap: 0.75rem;
     }
 
     .proxy-address-input,
     .proxy-description-input,
     .proxy-add-button {
       grid-column: 1;
+      width: 100%;
+    }
+
+    .proxy-add-button {
+      justify-self: stretch;
+    }
+
+    .proxy-table-wrapper {
+      overflow-x: auto;
     }
 
     .proxy-table-container {
+      font-size: 0.75rem;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .proxy-input-group {
+      gap: 1rem;
+    }
+
+    .proxy-table-wrapper {
+      overflow-x: auto;
+    }
+
+    .proxy-table-container {
+      font-size: 0.7rem;
+    }
+
+    .telegram-input-group {
+      gap: 1rem;
+    }
+
+    .telegram-checkbox-group {
+      gap: 1rem;
+    }
+
+    .telegram-test-section {
+      margin-top: 1.5rem;
+    }
+
+    .test-telegram-button {
+      width: 100%;
+      justify-content: center;
+    }
+
+    /* Telegram Setup Guide Mobile Styles */
+    .telegram-setup-guide {
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .setup-steps {
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+
+    .setup-step {
+      padding: 1rem;
+    }
+
+    .step-header {
+      gap: 0.5rem;
+    }
+
+    .step-icon {
+      font-size: 1.25rem;
+    }
+
+    .step-title {
+      font-size: 0.9rem;
+    }
+
+    .telegram-link {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+      width: 100%;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .guide-header-button {
+      padding: 1rem;
+    }
+
+    .guide-desc {
+      font-size: 0.875rem;
+    }
+
+    .guide-accordion-content {
+      padding: 1rem;
+    }
+
+    .guide-steps {
+      padding-left: 1rem;
+    }
+
+    .guide-steps li {
       font-size: 0.8rem;
     }
 
-    .proxy-address {
-      max-width: 120px;
+    .guide-note {
+      padding: 0.5rem;
+      font-size: 0.8rem;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .proxy-table-wrapper {
+      overflow-x: auto;
+    }
+
+    .proxy-table-container {
+      font-size: 0.65rem;
     }
   }
 </style>

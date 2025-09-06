@@ -11,7 +11,14 @@
     loadTranslations,
     formatTimestamp,
   } from "./lib/i18n.js";
-  import { needsLogin, authLoading, isAuthenticated, authRequired, authManager, authUser } from "./lib/auth.js";
+  import {
+    needsLogin,
+    authLoading,
+    isAuthenticated,
+    authRequired,
+    authManager,
+    authUser,
+  } from "./lib/auth.js";
   import LoginScreen from "./lib/LoginScreen.svelte";
   import DetailModal from "./lib/DetailModal.svelte";
   import PauseIcon from "./icons/PauseIcon.svelte";
@@ -33,7 +40,7 @@
   import LocalGauge from "./lib/LocalGauge.svelte";
 
   console.log(
-    '%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n' +
+    "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
       "██    ███         ██   ████   ████    ████ ██  ██  ██    ██   ████    ████     ██████   ███    ██    ████   ████   ████     ██   ██ \n" +
       "██    ████        ██████ ██████ ██    ██ ███    ████     ██   ████    ████  █  ████ ██  ███    ██    ███████████   ███████  ██████  \n" +
       "██    ███         ██     ██   ████    ████ ██    ██      ██   ████    ████ ███ ████  ██ ███    ██    ████   ████   ████     ██   ██ \n" +
@@ -43,7 +50,7 @@
     "color: #474BDF; font-weight: bold; font-size: 12px;"
   );
   console.log(
-    '%cBy Husband of Rebekah',
+    "%cBy Husband of Rebekah",
     "color: #bd93f9; font-weight: bold; font-size: 12px;"
   );
 
@@ -80,7 +87,7 @@
     currentIndex: 0,
     totalAttempting: 0,
     status: "",
-    lastError: ""
+    lastError: "",
   };
 
   let localStats = {
@@ -151,7 +158,7 @@
         prevLang = localStorage.getItem("lang");
       }
     }
-    
+
     // 로그인이 필요하지 않거나 이미 인증된 경우에만 WebSocket 연결
     if (!$needsLogin || $isAuthenticated) {
       fetchDownloads(currentPage);
@@ -160,13 +167,13 @@
       fetchProxyStatus();
       checkProxyAvailability();
     }
-    
+
     // 프록시 새로고침 이벤트 리스너 추가
     const handleProxyRefresh = () => {
       fetchProxyStatus();
       checkProxyAvailability();
     };
-    document.addEventListener('proxy-refreshed', handleProxyRefresh);
+    document.addEventListener("proxy-refreshed", handleProxyRefresh);
 
     const unsubscribe = t.subscribe((t_func) => {
       document.title = t_func("title");
@@ -174,11 +181,11 @@
 
     // 테이블 컬럼 리사이징 기능 추가
     const cleanupResize = initTableColumnResize();
-    
+
     // cleanup 함수를 onDestroy에 등록
     return () => {
       cleanupResize && cleanupResize();
-      document.removeEventListener('proxy-refreshed', handleProxyRefresh);
+      document.removeEventListener("proxy-refreshed", handleProxyRefresh);
     };
   });
 
@@ -191,19 +198,20 @@
     // 마우스 다운 이벤트 (리사이징 시작)
     function handleMouseDown(e) {
       // 테이블 헤더의 :after 가상 요소 영역인지 확인
-      const th = e.target.closest('th');
-      if (!th || !th.closest('table')) return;
-      
+      const th = e.target.closest("th");
+      if (!th || !th.closest("table")) return;
+
       const rect = th.getBoundingClientRect();
-      const isInResizeArea = e.clientX > rect.right - 10 && e.clientX <= rect.right;
-      
+      const isInResizeArea =
+        e.clientX > rect.right - 10 && e.clientX <= rect.right;
+
       if (isInResizeArea && th.nextElementSibling) {
         isResizing = true;
         currentColumn = th;
         startX = e.clientX;
         startWidth = th.offsetWidth;
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
         e.preventDefault();
         e.stopPropagation();
       }
@@ -213,36 +221,40 @@
     function handleMouseMove(e) {
       if (!isResizing || !currentColumn) {
         // 리사이징 중이 아닐 때 커서 변경
-        const th = e.target.closest('th');
-        if (th && th.closest('table')) {
+        const th = e.target.closest("th");
+        if (th && th.closest("table")) {
           const rect = th.getBoundingClientRect();
-          const isInResizeArea = e.clientX > rect.right - 10 && e.clientX <= rect.right;
-          document.body.style.cursor = isInResizeArea && th.nextElementSibling ? 'col-resize' : '';
+          const isInResizeArea =
+            e.clientX > rect.right - 10 && e.clientX <= rect.right;
+          document.body.style.cursor =
+            isInResizeArea && th.nextElementSibling ? "col-resize" : "";
         }
         return;
       }
-      
+
       const diff = e.clientX - startX;
       const newWidth = Math.max(50, startWidth + diff);
-      
+
       // 헤더 너비 설정
-      currentColumn.style.width = newWidth + 'px';
-      currentColumn.style.minWidth = newWidth + 'px';
-      currentColumn.style.maxWidth = newWidth + 'px';
-      
+      currentColumn.style.width = newWidth + "px";
+      currentColumn.style.minWidth = newWidth + "px";
+      currentColumn.style.maxWidth = newWidth + "px";
+
       // 같은 컬럼의 모든 td에도 동일한 너비 적용
-      const columnIndex = Array.from(currentColumn.parentElement.children).indexOf(currentColumn);
-      const table = currentColumn.closest('table');
-      const rows = table.querySelectorAll('tbody tr');
-      rows.forEach(row => {
+      const columnIndex = Array.from(
+        currentColumn.parentElement.children
+      ).indexOf(currentColumn);
+      const table = currentColumn.closest("table");
+      const rows = table.querySelectorAll("tbody tr");
+      rows.forEach((row) => {
         const td = row.children[columnIndex];
         if (td) {
-          td.style.width = newWidth + 'px';
-          td.style.minWidth = newWidth + 'px';
-          td.style.maxWidth = newWidth + 'px';
+          td.style.width = newWidth + "px";
+          td.style.minWidth = newWidth + "px";
+          td.style.maxWidth = newWidth + "px";
         }
       });
-      
+
       e.preventDefault();
     }
 
@@ -251,21 +263,21 @@
       if (isResizing) {
         isResizing = false;
         currentColumn = null;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
       }
     }
 
     // 이벤트 리스너 등록
-    document.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
     // cleanup 함수 반환 (컴포넌트 해제 시 사용)
     return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
   }
 
@@ -305,7 +317,7 @@
 
   async function fetchProxyStatus() {
     try {
-      const response = await fetch('/api/proxy-status');
+      const response = await fetch("/api/proxy-status");
       if (response.ok) {
         const data = await response.json();
         proxyStats = {
@@ -313,17 +325,17 @@
           availableProxies: data.available_proxies,
           usedProxies: data.used_proxies,
           successCount: data.success_count,
-          failCount: data.fail_count
+          failCount: data.fail_count,
         };
       }
     } catch (error) {
-      console.error($t('proxy_status_fetch_failed'), error);
+      console.error($t("proxy_status_fetch_failed"), error);
     }
   }
 
   async function checkProxyAvailability() {
     try {
-      const response = await fetch('/api/proxies/available');
+      const response = await fetch("/api/proxies/available");
       if (response.ok) {
         const data = await response.json();
         proxyAvailable = data.available;
@@ -332,7 +344,7 @@
         }
       }
     } catch (error) {
-      console.error($t('proxy_availability_check_failed'), error);
+      console.error($t("proxy_availability_check_failed"), error);
       proxyAvailable = false;
     }
   }
@@ -351,11 +363,15 @@
       wsReconnectTimeout = null;
     }
 
-    console.log(`Attempting to connect WebSocket (attempt ${wsReconnectAttempts + 1})...`);
+    console.log(
+      `Attempting to connect WebSocket (attempt ${wsReconnectAttempts + 1})...`
+    );
     const isHttps = window.location.protocol === "https:";
     const wsProtocol = isHttps ? "wss" : "ws";
     const wsUrl = `${wsProtocol}://${window.location.host}/ws/status`;
-    console.log(`Protocol: ${window.location.protocol}, Using WebSocket protocol: ${wsProtocol}`);
+    console.log(
+      `Protocol: ${window.location.protocol}, Using WebSocket protocol: ${wsProtocol}`
+    );
     console.log("Connecting to WebSocket at:", wsUrl);
     ws = new WebSocket(wsUrl);
 
@@ -370,7 +386,12 @@
       const message = JSON.parse(event.data);
       if (message.type === "status_update") {
         const updatedDownload = message.data;
-        console.log("Status update:", updatedDownload.id, "->", updatedDownload.status);
+        console.log(
+          "Status update:",
+          updatedDownload.id,
+          "->",
+          updatedDownload.status
+        );
         const index = downloads.findIndex((d) => d.id === updatedDownload.id);
         if (index !== -1) {
           // 기존 항목 업데이트 - 상태 변화 감지를 위해 새 배열 생성
@@ -387,23 +408,34 @@
         updateLocalStats(downloads);
 
         if (updatedDownload.status === "failed" && updatedDownload.error) {
-          showToastMsg($t('download_failed_with_error', {error: updatedDownload.error}));
+          showToastMsg(
+            $t("download_failed_with_error", { error: updatedDownload.error })
+          );
         }
-        
+
         if (updatedDownload.status === "done") {
-          showToastMsg($t('download_complete_with_filename', {filename: updatedDownload.file_name || $t('file')}));
+          showToastMsg(
+            $t("download_complete_with_filename", {
+              filename: updatedDownload.file_name || $t("file"),
+            })
+          );
           if (currentTab === "working") {
             setTimeout(() => {
               currentTab = "completed";
             }, 1500);
           }
         }
-        
+
         if (["stopped", "done", "failed"].includes(updatedDownload.status)) {
           if (downloadWaitInfo[updatedDownload.id]) {
             delete downloadWaitInfo[updatedDownload.id];
             downloadWaitInfo = { ...downloadWaitInfo };
-            console.log($t('wait_info_removed', {id: updatedDownload.id, status: updatedDownload.status}));
+            console.log(
+              $t("wait_info_removed", {
+                id: updatedDownload.id,
+                status: updatedDownload.status,
+              })
+            );
           }
         }
       } else if (message.type === "proxy_update") {
@@ -411,54 +443,66 @@
       } else if (message.type === "proxy_reset") {
         console.log("Proxy reset:", message.data);
         fetchProxyStatus();
-        showToastMsg($t('proxy_reset_success'), "success");
+        showToastMsg($t("proxy_reset_success"), "success");
 
         fetchActiveDownloads();
       } else if (message.type === "progress_update") {
         const progressData = message.data;
         console.log("Progress update received:", progressData);
-        
+
         const index = downloads.findIndex((d) => d.id === progressData.id);
-        console.log("Found download at index:", index, "for ID:", progressData.id);
-        
+        console.log(
+          "Found download at index:",
+          index,
+          "for ID:",
+          progressData.id
+        );
+
         if (index !== -1) {
           console.log("Before update:", {
             downloaded_size: downloads[index].downloaded_size,
             total_size: downloads[index].total_size,
-            progress: downloads[index].progress
+            progress: downloads[index].progress,
           });
-          
+
           // 불변성을 유지하면서 업데이트
-          downloads = downloads.map((d, i) => 
-            i === index 
-              ? { ...d, 
+          downloads = downloads.map((d, i) =>
+            i === index
+              ? {
+                  ...d,
                   downloaded_size: progressData.downloaded_size,
                   total_size: progressData.total_size,
                   progress: progressData.progress,
-                  download_speed: progressData.download_speed ?? d.download_speed
+                  download_speed:
+                    progressData.download_speed ?? d.download_speed,
                 }
               : d
           );
-          
+
           console.log("After update:", {
             downloaded_size: downloads[index].downloaded_size,
             total_size: downloads[index].total_size,
-            progress: downloads[index].progress
+            progress: downloads[index].progress,
           });
         } else {
-          console.log("Download not found in list. Current downloads:", downloads.map(d => ({ id: d.id, url: d.url })));
+          console.log(
+            "Download not found in list. Current downloads:",
+            downloads.map((d) => ({ id: d.id, url: d.url }))
+          );
         }
       } else if (message.type === "proxy_trying") {
         console.log("Proxy trying:", message.data);
-        
+
         proxyStats.currentProxy = message.data.proxy;
         proxyStats.currentStep = message.data.step;
         proxyStats.currentIndex = message.data.current;
         proxyStats.totalAttempting = message.data.total;
         proxyStats.status = "trying";
         proxyStats = { ...proxyStats };
-        
-        const matchingDownload = downloads.find(d => d.url === message.data.url);
+
+        const matchingDownload = downloads.find(
+          (d) => d.url === message.data.url
+        );
         if (matchingDownload) {
           downloadProxyInfo[matchingDownload.id] = {
             proxy: message.data.proxy,
@@ -466,43 +510,45 @@
             current: message.data.current,
             total: message.data.total,
             status: "trying",
-            timestamp: Date.now()
+            timestamp: Date.now(),
           };
           downloadProxyInfo = { ...downloadProxyInfo };
         }
-        
       } else if (message.type === "proxy_success") {
         console.log("Proxy success:", message.data);
-        
+
         proxyStats.currentProxy = message.data.proxy;
         proxyStats.currentStep = message.data.step;
         proxyStats.status = "success";
         proxyStats = { ...proxyStats };
         fetchProxyStatus();
-        
-        const matchingDownload = downloads.find(d => d.url === message.data.url);
+
+        const matchingDownload = downloads.find(
+          (d) => d.url === message.data.url
+        );
         if (matchingDownload) {
           downloadProxyInfo[matchingDownload.id] = {
             ...downloadProxyInfo[matchingDownload.id],
             proxy: message.data.proxy,
             step: message.data.step,
             status: "success",
-            timestamp: Date.now()
+            timestamp: Date.now(),
           };
           downloadProxyInfo = { ...downloadProxyInfo };
         }
-        
       } else if (message.type === "proxy_failed") {
         console.log("Proxy failed:", message.data);
-        
+
         proxyStats.currentProxy = message.data.proxy;
         proxyStats.currentStep = message.data.step;
         proxyStats.status = "failed";
         proxyStats.lastError = message.data.error;
         proxyStats = { ...proxyStats };
         fetchProxyStatus();
-        
-        const matchingDownload = downloads.find(d => d.url === message.data.url);
+
+        const matchingDownload = downloads.find(
+          (d) => d.url === message.data.url
+        );
         if (matchingDownload) {
           downloadProxyInfo[matchingDownload.id] = {
             ...downloadProxyInfo[matchingDownload.id],
@@ -510,22 +556,23 @@
             step: message.data.step,
             status: "failed",
             error: message.data.error,
-            timestamp: Date.now()
+            timestamp: Date.now(),
           };
           downloadProxyInfo = { ...downloadProxyInfo };
         }
       } else if (message.type === "wait_countdown") {
-        
-        const matchingDownload = downloads.find(d => d.url === message.data.url);
+        const matchingDownload = downloads.find(
+          (d) => d.url === message.data.url
+        );
         if (matchingDownload) {
           downloadWaitInfo[matchingDownload.id] = {
             remaining_time: message.data.remaining_time,
             total_wait_time: message.data.total_wait_time,
             proxy_addr: message.data.proxy_addr,
-            timestamp: Date.now()
+            timestamp: Date.now(),
           };
           downloadWaitInfo = { ...downloadWaitInfo };
-          
+
           if (message.data.remaining_time <= 0) {
             setTimeout(() => {
               delete downloadWaitInfo[matchingDownload.id];
@@ -535,7 +582,7 @@
         }
       } else if (message.type === "wait_countdown_complete") {
         console.log("Wait countdown complete:", message.data);
-        
+
         // 해당 다운로드의 대기 정보 즉시 정리
         if (downloadWaitInfo[message.data.id]) {
           delete downloadWaitInfo[message.data.id];
@@ -543,16 +590,23 @@
           console.log("Wait info cleared for download:", message.data.id);
         }
       } else if (message.type === "filename_update") {
-        console.log("File info update:", message.data.id, message.data.file_name, message.data.file_size);
+        console.log(
+          "File info update:",
+          message.data.id,
+          message.data.file_name,
+          message.data.file_size
+        );
         const index = downloads.findIndex((d) => d.id === message.data.id);
         if (index !== -1) {
           // 불변성을 유지하면서 파일명과 파일 크기 업데이트
-          downloads = downloads.map((d, i) => 
-            i === index ? { 
-              ...d, 
-              file_name: message.data.file_name,
-              file_size: message.data.file_size || d.file_size
-            } : d
+          downloads = downloads.map((d, i) =>
+            i === index
+              ? {
+                  ...d,
+                  file_name: message.data.file_name,
+                  file_size: message.data.file_size || d.file_size,
+                }
+              : d
           );
           updateLocalStats(downloads);
         }
@@ -560,32 +614,40 @@
     };
 
     ws.onclose = (event) => {
-      console.log(`WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`);
-      
+      console.log(
+        `WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`
+      );
+
       // 최대 재시도 횟수를 초과한 경우
       if (wsReconnectAttempts >= wsMaxReconnectAttempts) {
-        console.log(`WebSocket 최대 재연결 시도 횟수(${wsMaxReconnectAttempts})에 도달했습니다. 재연결을 중단합니다.`);
+        console.log(
+          `WebSocket 최대 재연결 시도 횟수(${wsMaxReconnectAttempts})에 도달했습니다. 재연결을 중단합니다.`
+        );
         return;
       }
-      
+
       // 의도적인 종료(1000, 1001)가 아닌 경우에만 재연결 시도
       if (event.code !== 1000 && event.code !== 1001) {
         wsReconnectAttempts++;
-        
+
         // exponential backoff with jitter
         const jitter = Math.random() * 1000; // 0-1초 랜덤 지연
         const delay = Math.min(wsReconnectDelay, wsMaxReconnectDelay) + jitter;
-        
-        console.log(`WebSocket 재연결 시도 ${wsReconnectAttempts}/${wsMaxReconnectAttempts} (${Math.round(delay/1000)}초 후)`);
-        
+
+        console.log(
+          `WebSocket 재연결 시도 ${wsReconnectAttempts}/${wsMaxReconnectAttempts} (${Math.round(delay / 1000)}초 후)`
+        );
+
         wsReconnectTimeout = setTimeout(() => {
           connectWebSocket();
         }, delay);
-        
+
         // 다음 재시도를 위해 지연 시간 증가 (exponential backoff)
         wsReconnectDelay = Math.min(wsReconnectDelay * 2, wsMaxReconnectDelay);
       } else {
-        console.log("WebSocket이 정상적으로 종료되었습니다. 재연결하지 않습니다.");
+        console.log(
+          "WebSocket이 정상적으로 종료되었습니다. 재연결하지 않습니다."
+        );
       }
     };
 
@@ -616,12 +678,15 @@
         console.log("History API response:", data);
         if (Array.isArray(data) && data.length > 0) {
           console.log("First download status:", data[0].status);
-          console.log("All download statuses:", data.map(d => d.status));
+          console.log(
+            "All download statuses:",
+            data.map((d) => d.status)
+          );
         }
         downloads = data;
         currentPage = 1;
         totalPages = 1;
-        
+
         updateLocalStats(data);
       } else {
         console.error("History API failed with status:", response.status);
@@ -642,24 +707,30 @@
 
   function updateLocalStats(downloadsData) {
     if (!downloadsData) return;
-    
-    const localDownloads = downloadsData.filter(d => !d.use_proxy);
-    
-    const activeLocalDownloads = localDownloads.filter(d => 
-      ['downloading', 'pending'].includes(d.status?.toLowerCase())
+
+    const localDownloads = downloadsData.filter((d) => !d.use_proxy);
+
+    const activeLocalDownloads = localDownloads.filter((d) =>
+      ["downloading", "pending"].includes(d.status?.toLowerCase())
     );
-    
-    const currentDownloading = activeLocalDownloads.find(d => d.status?.toLowerCase() === 'downloading');
-    
+
+    const currentDownloading = activeLocalDownloads.find(
+      (d) => d.status?.toLowerCase() === "downloading"
+    );
+
     localStats.localDownloadCount = activeLocalDownloads.length;
-    localStats.localCurrentFile = currentDownloading?.file_name || 
-                                  activeLocalDownloads[0]?.file_name || "";
-    
+    localStats.localCurrentFile =
+      currentDownloading?.file_name || activeLocalDownloads[0]?.file_name || "";
+
     if (currentDownloading) {
       localStats.localStatus = "downloading";
-      if (currentDownloading.total_size > 0 && currentDownloading.downloaded_size >= 0) {
+      if (
+        currentDownloading.total_size > 0 &&
+        currentDownloading.downloaded_size >= 0
+      ) {
         localStats.localProgress = Math.round(
-          (currentDownloading.downloaded_size / currentDownloading.total_size) * 100
+          (currentDownloading.downloaded_size / currentDownloading.total_size) *
+            100
         );
       } else {
         localStats.localProgress = 0;
@@ -671,13 +742,16 @@
       localStats.localStatus = "";
       localStats.localProgress = 0;
     }
-    
-    localStats.activeLocalDownloads = activeLocalDownloads.map(d => ({
+
+    localStats.activeLocalDownloads = activeLocalDownloads.map((d) => ({
       file_name: d.file_name,
-      progress: d.total_size > 0 ? Math.round((d.downloaded_size / d.total_size) * 100) : 0,
-      status: d.status
+      progress:
+        d.total_size > 0
+          ? Math.round((d.downloaded_size / d.total_size) * 100)
+          : 0,
+      status: d.status,
     }));
-    
+
     localStats = { ...localStats };
   }
 
@@ -692,7 +766,7 @@
       });
       if (response.ok) {
         const newDownload = await response.json();
-        if (newDownload.status === 'waiting' && newDownload.message_key) {
+        if (newDownload.status === "waiting" && newDownload.message_key) {
           showToastMsg($t(newDownload.message_key, newDownload.message_args));
         } else {
           showToastMsg($t("download_added_successfully"));
@@ -703,11 +777,11 @@
         fetchDownloads(currentPage);
       } else {
         const errorData = await response.json();
-        showToastMsg($t('add_download_failed', {detail: errorData.detail}));
+        showToastMsg($t("add_download_failed", { detail: errorData.detail }));
       }
     } catch (error) {
       console.error("Error adding download:", error);
-      showToastMsg($t('add_download_error'));
+      showToastMsg($t("add_download_error"));
     } finally {
       isAddingDownload = false;
     }
@@ -725,14 +799,18 @@
     }
   }
 
-  async function callApi(endpoint, downloadId = null, expectedNewStatus = null) {
+  async function callApi(
+    endpoint,
+    downloadId = null,
+    expectedNewStatus = null
+  ) {
     try {
       const response = await fetch(endpoint, { method: "POST" });
       if (response.ok) {
         const responseData = await response.json();
-        
+
         // 응답에서 대기 상태 메시지 확인
-        if (responseData.status === 'waiting' && responseData.message_key) {
+        if (responseData.status === "waiting" && responseData.message_key) {
           showToastMsg($t(responseData.message_key, responseData.message_args));
           // 대기 상태로 UI 업데이트
           if (downloadId !== null) {
@@ -744,16 +822,16 @@
           }
         } else {
           console.log(`API 호출 성공: ${endpoint}`);
-          
+
           // 사용자 피드백을 위한 토스트 메시지
-          if (endpoint.includes('/resume/')) {
-            showToastMsg($t('resume_request_sent'), 'info');
-          } else if (endpoint.includes('/pause/')) {
-            showToastMsg($t('stop_request_sent'), 'info');
-          } else if (endpoint.includes('/retry/')) {
-            showToastMsg($t('retry_request_sent'), 'info');
+          if (endpoint.includes("/resume/")) {
+            showToastMsg($t("resume_request_sent"), "info");
+          } else if (endpoint.includes("/pause/")) {
+            showToastMsg($t("stop_request_sent"), "info");
+          } else if (endpoint.includes("/retry/")) {
+            showToastMsg($t("retry_request_sent"), "info");
           }
-          
+
           // 즉시 상태 새로고침
           fetchDownloads(currentPage);
         }
@@ -773,15 +851,17 @@
             method: "DELETE",
           });
           if (response.ok) {
-            showToastMsg($t('download_deleted_success'));
-            downloads = downloads.filter(download => download.id !== id);
+            showToastMsg($t("download_deleted_success"));
+            downloads = downloads.filter((download) => download.id !== id);
           } else {
             const errorData = await response.json();
-            showToastMsg($t('delete_failed_with_detail', {detail: errorData.detail}));
+            showToastMsg(
+              $t("delete_failed_with_detail", { detail: errorData.detail })
+            );
           }
         } catch (error) {
           console.error("Error deleting download:", error);
-          showToastMsg($t('delete_error'));
+          showToastMsg($t("delete_error"));
         }
       },
       title: $t("confirm_delete_title"),
@@ -812,78 +892,89 @@
 
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
-    
+
     // 1fichier 자동 재시도 상태 체크
-    if (download.status.toLowerCase() === "pending" && download.error && download.error.includes("1fichier 자동 재시도 중")) {
+    if (
+      download.status.toLowerCase() === "pending" &&
+      download.error &&
+      download.error.includes("1fichier 자동 재시도 중")
+    ) {
       return download.error + "\n3분마다 자동 재시도됩니다.";
     }
-    
+
     if (download.status.toLowerCase() === "failed" && download.error) {
       if (proxyInfo && proxyInfo.error) {
-        return $t('status_tooltip_failed_with_proxy', {error: download.error, proxy: proxyInfo.proxy, proxy_error: proxyInfo.error});
+        return $t("status_tooltip_failed_with_proxy", {
+          error: download.error,
+          proxy: proxyInfo.proxy,
+          proxy_error: proxyInfo.error,
+        });
       }
       return download.error;
     }
-    
+
     if (proxyInfo) {
       const statusIcon = {
-        'trying': '⟳',
-        'success': '✓', 
-        'failed': '✗'
+        trying: "⟳",
+        success: "✓",
+        failed: "✗",
       };
-      
-      const icon = statusIcon[proxyInfo.status] || '●';
+
+      const icon = statusIcon[proxyInfo.status] || "●";
       let tooltip = `${icon} ${$t("proxy_tooltip_proxy")}: ${proxyInfo.proxy}\n${$t("proxy_tooltip_step")}: ${proxyInfo.step}`;
-      
+
       if (proxyInfo.current && proxyInfo.total) {
         tooltip += `\n${$t("proxy_tooltip_progress")}: ${proxyInfo.current}/${proxyInfo.total}`;
       }
-      
-      if (proxyInfo.status === 'trying') {
+
+      if (proxyInfo.status === "trying") {
         const timeSince = Math.floor((Date.now() - proxyInfo.timestamp) / 1000);
         tooltip += `\n${$t("proxy_tooltip_trying")} (${timeSince}${$t("proxy_tooltip_seconds")})`;
       }
-      
+
       if (proxyInfo.error) {
         tooltip += `\n${$t("proxy_tooltip_error")}: ${proxyInfo.error}`;
       }
-      
+
       return tooltip;
     }
-    
+
     const statusTooltips = {
-      'pending': $t("download_pending"),
-      'proxying': $t("download_proxying"), 
-      'downloading': $t("download_downloading"),
-      'done': $t("download_done"),
-      'stopped': $t("download_stopped"),
-      'failed': $t("download_failed")
+      pending: $t("download_pending"),
+      proxying: $t("download_proxying"),
+      downloading: $t("download_downloading"),
+      done: $t("download_done"),
+      stopped: $t("download_stopped"),
+      failed: $t("download_failed"),
     };
-    
+
     return statusTooltips[download.status.toLowerCase()] || download.status;
   }
 
   function formatDate(dateString) {
     if (!dateString) return "-";
-    const currentLocale = localStorage.getItem('lang') || 'en';
+    const currentLocale = localStorage.getItem("lang") || "en";
     const date = new Date(dateString);
     const today = new Date();
-    
+
     // 오늘이면 시간만 표시
     if (date.toDateString() === today.toDateString()) {
-      return date.toLocaleTimeString(currentLocale === 'ko' ? 'ko-KR' : 'en-US', {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      return date.toLocaleTimeString(
+        currentLocale === "ko" ? "ko-KR" : "en-US",
+        {
+          hour: "2-digit",
+          minute: "2-digit",
+        }
+      );
     }
-    
+
     // 다른 날이면 간단한 날짜 형식
-    if (currentLocale === 'ko') {
+    if (currentLocale === "ko") {
       return `${date.getMonth() + 1}월 ${date.getDate()}일`;
     } else {
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
+      return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
       });
     }
   }
@@ -908,7 +999,7 @@
     if (download.progress !== undefined && download.progress !== null) {
       return Math.round(download.progress * 2) / 2; // 0.5% 단위로 반올림
     }
-    
+
     const downloaded = Number(
       download.downloaded_size ?? download.downloaded ?? 0
     );
@@ -922,7 +1013,7 @@
   function isValidUrl(string) {
     try {
       const url = new URL(string);
-      return url.protocol === 'http:' || url.protocol === 'https:';
+      return url.protocol === "http:" || url.protocol === "https:";
     } catch (_) {
       return false;
     }
@@ -935,10 +1026,10 @@
         showToastMsg($t("clipboard_empty"));
         return;
       }
-      
+
       const trimmedText = text.trim();
       url = trimmedText;
-      
+
       // URL이 유효하면 자동으로 다운로드 추가
       if (isValidUrl(trimmedText)) {
         showToastMsg($t("clipboard_url_auto_download"));
@@ -992,9 +1083,9 @@
     const link = download.url;
     try {
       await navigator.clipboard.writeText(link);
-      showToastMsg($t('clipboard_copy_success_with_link', {link}));
+      showToastMsg($t("clipboard_copy_success_with_link", { link }));
     } catch (e) {
-      showToastMsg($t('clipboard_copy_failed'));
+      showToastMsg($t("clipboard_copy_failed"));
     }
   }
 
@@ -1004,42 +1095,43 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          url: download.url, 
+          url: download.url,
           password: "",
-          use_proxy: download.use_proxy || false
+          use_proxy: download.use_proxy || false,
         }),
       });
       if (response.ok) {
-        showToastMsg($t('redownload_requested'));
+        showToastMsg($t("redownload_requested"));
         fetchDownloads(currentPage);
         currentTab = "working";
       } else {
         const errorData = await response.json();
-        showToastMsg($t('redownload_failed_with_detail', {detail: errorData.detail}));
+        showToastMsg(
+          $t("redownload_failed_with_detail", { detail: errorData.detail })
+        );
       }
     } catch (error) {
       console.error("Error redownloading:", error);
-      showToastMsg($t('redownload_error'));
+      showToastMsg($t("redownload_error"));
     }
   }
 
   async function handleSettingsChanged(event) {
     console.log("[DEBUG] Settings changed:", event.detail);
-    
+
     if (event.detail) {
       currentSettings = { ...event.detail };
       downloadPath = currentSettings.download_path || "";
     }
-    
+
     const lang = localStorage.getItem("lang");
     if (lang && lang !== prevLang) {
       loadTranslations(lang);
       prevLang = lang;
     }
-    
+
     await fetchSettings();
   }
-
 
   // Tab change handler to refresh data when switching tabs
   function onTabChange(newTab) {
@@ -1050,37 +1142,59 @@
     }
   }
 
-  $: workingCount = downloads.filter(d => {
+  $: workingCount = downloads.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
     // stopped는 100% 완료된 경우 completed로 처리
-    if (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100)) {
+    if (
+      status === "stopped" &&
+      (d.progress >= 100 || getDownloadProgress(d) >= 100)
+    ) {
       return false; // working 탭에서 제외
     }
-    return ["pending", "downloading", "proxying", "stopped", "failed"].includes(status);
+    return ["pending", "downloading", "proxying", "stopped", "failed"].includes(
+      status
+    );
   }).length;
-  
-  $: completedCount = downloads.filter(d => {
+
+  $: completedCount = downloads.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
     // done 상태 또는 100% 완료된 stopped 상태
-    return status === "done" || (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100));
+    return (
+      status === "done" ||
+      (status === "stopped" &&
+        (d.progress >= 100 || getDownloadProgress(d) >= 100))
+    );
   }).length;
-  
+
   $: filteredDownloads = (() => {
     if (currentTab === "working") {
-      return downloads.filter(d => {
+      return downloads.filter((d) => {
         const status = d.status?.toLowerCase?.() || "";
         // stopped는 100% 완료된 경우 working에서 제외
-        if (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100)) {
+        if (
+          status === "stopped" &&
+          (d.progress >= 100 || getDownloadProgress(d) >= 100)
+        ) {
           return false;
         }
-        return ["pending", "downloading", "proxying", "stopped", "failed"].includes(status);
+        return [
+          "pending",
+          "downloading",
+          "proxying",
+          "stopped",
+          "failed",
+        ].includes(status);
       });
     } else {
       // 완료 탭: done 상태 또는 100% 완료된 stopped 상태
       return downloads
-        .filter(d => {
+        .filter((d) => {
           const status = d.status?.toLowerCase?.() || "";
-          return status === "done" || (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100));
+          return (
+            status === "done" ||
+            (status === "stopped" &&
+              (d.progress >= 100 || getDownloadProgress(d) >= 100))
+          );
         })
         .sort((a, b) => {
           // completed_at이 있으면 그것으로, 없으면 updated_at으로 정렬
@@ -1101,7 +1215,7 @@
 
   // 페이징된 다운로드
   $: paginatedDownloads = filteredDownloads.slice(
-    (currentPage - 1) * itemsPerPage, 
+    (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
 
@@ -1117,8 +1231,10 @@
     currentPage = 1;
   }
 
-  $: activeProxyDownloadCount = downloads.filter(d => 
-    d.use_proxy && ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
+  $: activeProxyDownloadCount = downloads.filter(
+    (d) =>
+      d.use_proxy &&
+      ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
   ).length;
 </script>
 
@@ -1188,20 +1304,29 @@
           <div class="proxy-toggle-container">
             <button
               type="button"
-              class="proxy-toggle-button {useProxy ? 'proxy' : 'local'} {!proxyAvailable ? 'disabled' : ''}"
+              class="proxy-toggle-button {useProxy
+                ? 'proxy'
+                : 'local'} {!proxyAvailable ? 'disabled' : ''}"
               on:click={() => {
                 if (proxyAvailable) {
                   useProxy = !useProxy;
                 } else {
-                  showToastMsg($t('proxy_unavailable_tooltip'), 'warning');
+                  showToastMsg($t("proxy_unavailable_tooltip"), "warning");
                 }
               }}
-              title={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
-              aria-label={!proxyAvailable ? $t('proxy_unavailable_tooltip') : useProxy ? $t('proxy_mode_tooltip') : $t('local_mode_tooltip')}
+              title={!proxyAvailable
+                ? $t("proxy_unavailable_tooltip")
+                : useProxy
+                  ? $t("proxy_mode_tooltip")
+                  : $t("local_mode_tooltip")}
+              aria-label={!proxyAvailable
+                ? $t("proxy_unavailable_tooltip")
+                : useProxy
+                  ? $t("proxy_mode_tooltip")
+                  : $t("local_mode_tooltip")}
             >
               <div class="proxy-toggle-slider"></div>
-              <div class="proxy-toggle-icons">
-              </div>
+              <div class="proxy-toggle-icons"></div>
             </button>
           </div>
           <button
@@ -1223,7 +1348,7 @@
 
     <div class="gauge-container">
       <div class="gauge-item">
-        <ProxyGauge 
+        <ProxyGauge
           totalProxies={proxyStats.totalProxies}
           availableProxies={proxyStats.availableProxies}
           usedProxies={proxyStats.usedProxies}
@@ -1240,7 +1365,7 @@
       </div>
 
       <div class="gauge-item">
-        <LocalGauge 
+        <LocalGauge
           localDownloadCount={localStats.localDownloadCount}
           localStatus={localStats.localStatus}
           localCurrentFile={localStats.localCurrentFile}
@@ -1254,15 +1379,15 @@
     <div class="downloads-section">
       <div class="tabs-container">
         <div class="tabs">
-          <button 
-            class="tab" 
+          <button
+            class="tab"
             class:active={currentTab === "working"}
             on:click={() => onTabChange("working")}
           >
             {$t("tab_working")} ({workingCount})
           </button>
-          <button 
-            class="tab" 
+          <button
+            class="tab"
             class:active={currentTab === "completed"}
             on:click={() => onTabChange("completed")}
           >
@@ -1270,8 +1395,11 @@
           </button>
         </div>
       </div>
-      
-      <div class="table-container" class:empty-table={filteredDownloads.length === 0}>
+
+      <div
+        class="table-container"
+        class:empty-table={filteredDownloads.length === 0}
+      >
         <table>
           <thead>
             <tr>
@@ -1284,13 +1412,15 @@
               {/if}
               <th class="center-align">{$t("table_header_requested_date")}</th>
               <th class="center-align">{$t("table_header_proxy")}</th>
-              <th class="center-align actions-header">{$t("table_header_actions")}</th>
+              <th class="center-align actions-header"
+                >{$t("table_header_actions")}</th
+              >
             </tr>
           </thead>
           <tbody>
             {#if isDownloadsLoading}
               <tr>
-                <td colspan="{currentTab === 'completed' ? '7' : '8'}">
+                <td colspan={currentTab === "completed" ? "7" : "8"}>
                   <div class="table-loading-container">
                     <div class="modal-spinner"></div>
                     <div class="modal-loading-text">{$t("loading")}</div>
@@ -1299,15 +1429,25 @@
               </tr>
             {:else if filteredDownloads.length === 0}
               <tr class="empty-row">
-                <td colspan="{currentTab === 'completed' ? '7' : '8'}" class="no-downloads-message">
-                  {currentTab === "working" ? $t("no_working_downloads") : $t("no_completed_downloads")}
+                <td
+                  colspan={currentTab === "completed" ? "7" : "8"}
+                  class="no-downloads-message"
+                >
+                  {currentTab === "working"
+                    ? $t("no_working_downloads")
+                    : $t("no_completed_downloads")}
                 </td>
               </tr>
             {:else}
               {#each paginatedDownloads as download (download.id)}
                 <tr>
-                  <td class="filename" title={download.file_name || $t("file_name_na")}>
-                    <span class="filename-text">{download.file_name || $t("file_name_na")}</span>
+                  <td
+                    class="filename"
+                    title={download.file_name || $t("file_name_na")}
+                  >
+                    <span class="filename-text"
+                      >{download.file_name || $t("file_name_na")}</span
+                    >
                   </td>
                   <td class="center-align">
                     <span
@@ -1317,36 +1457,47 @@
                       {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
                         <span class="wait-countdown">
                           {#if downloadWaitInfo[download.id].remaining_time >= 60}
-                            {$t("download_waiting")} ({Math.floor(downloadWaitInfo[download.id].remaining_time / 60)}{$t("time_minutes")})
+                            {$t("download_waiting")} ({Math.floor(
+                              downloadWaitInfo[download.id].remaining_time / 60
+                            )}{$t("time_minutes")})
                           {:else}
-                            {$t("download_waiting")} ({downloadWaitInfo[download.id].remaining_time}{$t("time_seconds")})
+                            {$t("download_waiting")} ({downloadWaitInfo[
+                              download.id
+                            ].remaining_time}{$t("time_seconds")})
                           {/if}
                         </span>
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
-                        {#if downloadProxyInfo[download.id] && (download.status.toLowerCase() === 'downloading' || download.status.toLowerCase() === 'proxying')}
+                        {#if downloadProxyInfo[download.id] && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying")}
                           <span class="proxy-indicator"></span>
                         {/if}
                       {/if}
                     </span>
                   </td>
                   <td class="center-align">
-                    {download.file_size || (download.total_size ? formatBytes(download.total_size) : "-")}
+                    {download.file_size ||
+                      (download.total_size
+                        ? formatBytes(download.total_size)
+                        : "-")}
                   </td>
                   <td class="center-align">
                     <div class="progress-container">
                       <div
                         class="progress-bar"
-                        style="width: {currentTab === 'completed' ? '100' : getDownloadProgress(download)}%"
+                        style="width: {currentTab === 'completed'
+                          ? '100'
+                          : getDownloadProgress(download)}%"
                       ></div>
                       <span class="progress-text">
-                        {currentTab === 'completed' ? '100' : getDownloadProgress(download)}%
+                        {currentTab === "completed"
+                          ? "100"
+                          : getDownloadProgress(download)}%
                       </span>
                     </div>
                   </td>
                   {#if currentTab !== "completed"}
                     <td class="center-align speed-cell">
-                      {#if download.download_speed && (download.status.toLowerCase() === 'downloading' || download.status.toLowerCase() === 'proxying')}
+                      {#if download.download_speed && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying")}
                         <span class="speed-text">
                           {formatSpeed(download.download_speed)}
                         </span>
@@ -1355,15 +1506,22 @@
                       {/if}
                     </td>
                   {/if}
-                  <td class="center-align" title={formatFullDateTime(download.requested_at)}>
+                  <td
+                    class="center-align"
+                    title={formatFullDateTime(download.requested_at)}
+                  >
                     {formatDate(download.requested_at)}
                   </td>
                   <td class="proxy-toggle-cell">
                     <button
                       type="button"
-                      class="grid-proxy-toggle {download.use_proxy ? 'proxy' : 'local'}"
+                      class="grid-proxy-toggle {download.use_proxy
+                        ? 'proxy'
+                        : 'local'}"
                       disabled={download.status.toLowerCase() !== "stopped"}
-                      title={download.use_proxy ? $t('proxy_mode') : $t('local_mode')}
+                      title={download.use_proxy
+                        ? $t("proxy_mode")
+                        : $t("local_mode")}
                       on:click={() => {
                         downloads = downloads.map((d) =>
                           d.id === download.id
@@ -1371,11 +1529,12 @@
                             : d
                         );
                       }}
-                      aria-label={download.use_proxy ? $t('proxy_mode') : $t('local_mode')}
+                      aria-label={download.use_proxy
+                        ? $t("proxy_mode")
+                        : $t("local_mode")}
                     >
                       <div class="grid-toggle-slider"></div>
-                      <div class="grid-toggle-icons">
-                      </div>
+                      <div class="grid-toggle-icons"></div>
                     </button>
                   </td>
                   <td class="actions-cell">
@@ -1490,7 +1649,7 @@
         </table>
       </div>
     </div>
-    
+
     <!-- 페이지네이션 - 항상 표시 -->
     <div class="pagination-footer">
       <div class="page-info">
@@ -1499,10 +1658,13 @@
         {/if}
         <div class="items-info">
           {#if filteredDownloads.length > 0}
-            {$t("pagination_items_info", { 
+            {$t("pagination_items_info", {
               total: filteredDownloads.length,
-              start: (currentPage-1)*itemsPerPage + 1,
-              end: Math.min(currentPage*itemsPerPage, filteredDownloads.length)
+              start: (currentPage - 1) * itemsPerPage + 1,
+              end: Math.min(
+                currentPage * itemsPerPage,
+                filteredDownloads.length
+              ),
             })}
           {/if}
         </div>
@@ -1516,7 +1678,7 @@
           >
             ‹
           </button>
-          
+
           <!-- 페이지 번호 버튼들 -->
           {#each Array(Math.min(totalPages, 5)) as _, i}
             {@const pageNum = Math.max(1, currentPage - 2) + i}
@@ -1530,7 +1692,7 @@
               </button>
             {/if}
           {/each}
-          
+
           <button
             class="page-number-btn prev-next-btn"
             on:click={() => goToPage(currentPage + 1)}
@@ -1541,7 +1703,7 @@
         </div>
       {/if}
     </div>
-{/if}
+  {/if}
 
   <SettingsModal
     bind:showModal={showSettingsModal}
@@ -1593,7 +1755,7 @@
   .proxy-toggle-cell {
     text-align: center;
   }
-  
+
   .proxy-toggle-cell .grid-proxy-toggle {
     margin: 0 auto;
     display: block;
@@ -1603,14 +1765,14 @@
     width: 100%;
     min-width: 800px; /* 최소 너비 보장으로 모바일에서 스크롤 가능 */
   }
-  
+
   table th {
     text-align: center;
   }
-  
+
   /* 파일명 컬럼 오버플로우 처리 */
-  table th:nth-child(1), 
-  table td:nth-child(1) { 
+  table th:nth-child(1),
+  table td:nth-child(1) {
     max-width: 300px;
     min-width: 150px;
     width: auto;
@@ -1618,8 +1780,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  
-  
+
   table td {
     vertical-align: middle;
     height: 60px;
@@ -1631,11 +1792,11 @@
   table th:first-child {
     padding-left: 2rem;
   }
-  
+
   .actions-cell {
     text-align: center;
   }
-  
+
   .actions-cell .button-icon {
     display: inline-block;
     margin: 0 2px;
@@ -1816,8 +1977,12 @@
   }
 
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .status-proxying.interactive-status,
@@ -1826,8 +1991,15 @@
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.8; transform: scale(1.02); }
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.8;
+      transform: scale(1.02);
+    }
   }
 
   .status-proxying.interactive-status {
@@ -1849,33 +2021,45 @@
   /* 1fichier 자동 재시도 상태 스타일 */
   .status-pending.interactive-status[title*="1fichier 자동 재시도"] {
     border: 1px solid var(--warning-color);
-    background: linear-gradient(45deg, transparent 30%, var(--warning-color) 30%, var(--warning-color) 70%, transparent 70%);
+    background: linear-gradient(
+      45deg,
+      transparent 30%,
+      var(--warning-color) 30%,
+      var(--warning-color) 70%,
+      transparent 70%
+    );
     background-size: 10px 10px;
     animation: retry-pulse 3s ease-in-out infinite;
   }
 
   @keyframes retry-pulse {
-    0%, 100% { 
-      opacity: 1; 
-      transform: scale(1); 
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
       background-position: 0 0;
     }
-    50% { 
-      opacity: 0.7; 
-      transform: scale(1.02); 
+    50% {
+      opacity: 0.7;
+      transform: scale(1.02);
       background-position: 5px 5px;
     }
   }
-  
+
   .wait-countdown {
     color: var(--warning-color);
     font-weight: bold;
     animation: waitPulse 1.5s ease-in-out infinite;
   }
-  
+
   @keyframes waitPulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.6;
+    }
   }
 
   .tabs-container {
@@ -1922,7 +2106,6 @@
     opacity: 1;
   }
 
-
   .tab.active:hover {
     color: var(--primary-color);
     background-color: var(--card-background);
@@ -1964,24 +2147,24 @@
   }
 
   .proxy-toggle-button.local {
-    background-color: #81C784;
-    border-color: #66BB6A;
+    background-color: #81c784;
+    border-color: #66bb6a;
   }
 
   .proxy-toggle-button.proxy {
-    background-color: #FFB74D;
-    border-color: #FFA726;
+    background-color: #ffb74d;
+    border-color: #ffa726;
   }
 
   .proxy-toggle-button.disabled {
-    background-color: #9E9E9E !important;
+    background-color: #9e9e9e !important;
     border-color: #757575 !important;
     cursor: not-allowed !important;
     opacity: 0.6;
   }
 
   .proxy-toggle-button.disabled .proxy-toggle-slider {
-    background-color: #BDBDBD !important;
+    background-color: #bdbdbd !important;
   }
 
   .proxy-toggle-slider {
@@ -2034,13 +2217,13 @@
   }
 
   .grid-proxy-toggle.local {
-    background-color: #81C784;
-    border-color: #66BB6A;
+    background-color: #81c784;
+    border-color: #66bb6a;
   }
 
   .grid-proxy-toggle.proxy {
-    background-color: #FFB74D;
-    border-color: #FFA726;
+    background-color: #ffb74d;
+    border-color: #ffa726;
   }
 
   .grid-proxy-toggle:disabled {
@@ -2108,7 +2291,7 @@
     font-size: 12px;
     font-weight: bold;
     color: #ffffff;
-    text-shadow: 
+    text-shadow:
       0 0 2px rgba(0, 0, 0, 0.3),
       1px 1px 1px rgba(0, 0, 0, 0.2);
     z-index: 50;
@@ -2118,9 +2301,9 @@
   /* 라이트 테마에서 진행률 텍스트를 프라이머리 컬러로 변경 */
   :global(html:not(.dark):not(.dracula)) .progress-text {
     color: var(--primary-color);
-    text-shadow: 
-      0 0 2px rgba(255, 255, 255, 0.8),
-      1px 1px 1px rgba(255, 255, 255, 0.6);
+    text-shadow:
+      0 0 2px rgba(255, 255, 255, 0.1),
+      1px 1px 1px rgba(255, 255, 255, 0.3);
   }
 
   .gauge-container {
@@ -2140,7 +2323,7 @@
       flex-direction: column;
       gap: 0.5rem;
     }
-    
+
     .gauge-item {
       min-height: auto;
     }

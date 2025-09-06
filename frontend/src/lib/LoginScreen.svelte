@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { t } from './i18n.js';
+  import { t, loadTranslations } from './i18n.js';
   import { authManager } from './auth.js';
   
   const dispatch = createEventDispatcher();
@@ -12,6 +12,7 @@
   let error = '';
   let remainingLockoutTime = 0;
   let lockoutInterval = null;
+  let selectedLocale = localStorage.getItem('lang') || 'ko';
   
   async function handleLogin() {
     if (!username || !password) {
@@ -81,6 +82,12 @@
     if (event.key === 'Enter') {
       handleLogin();
     }
+  }
+  
+  async function changeLocale(e) {
+    selectedLocale = e.target.value;
+    localStorage.setItem('lang', selectedLocale);
+    await loadTranslations(selectedLocale);
   }
 </script>
 
@@ -181,6 +188,13 @@
       
       <p class="login-subtitle">{$t('login_welcome')}</p>
     </form>
+    
+    <div class="language-selector">
+      <select bind:value={selectedLocale} on:change={changeLocale}>
+        <option value="ko">{$t('language_korean')}</option>
+        <option value="en">{$t('language_english')}</option>
+      </select>
+    </div>
   </div>
 </div>
 
@@ -375,6 +389,42 @@
   @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+  }
+
+  .language-selector {
+    display: flex;
+    justify-content: center;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--card-border);
+  }
+
+  .language-selector select {
+    background: var(--card-background);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 0.5rem 2rem 0.5rem 1rem;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+    min-width: 110px;
+    background-position: right 0.75rem center;
+    background-size: 1rem;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+  }
+
+  .language-selector select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+  }
+
+  .language-selector select:hover {
+    border-color: var(--primary-color);
   }
 
   /* Mobile responsive */

@@ -12,13 +12,22 @@
       <span class="label-icon"><FolderIcon /></span>
       <span class="label-text">{$t("local_title")}</span>
     </div>
-    <span class="local-count">{$t("local_progress_text", { count: localDownloadCount })}</span>
+    <span class="local-count"
+      >{$t("local_progress_text", { count: localDownloadCount })}</span
+    >
     <div class="local-indicator">
       <div class="local-dot {localStatus}"></div>
     </div>
   </div>
-  
-  <div class="local-status" class:downloading={localStatus === "downloading"} class:waiting={localStatus === "waiting"} class:completed={localStatus === "completed"} class:failed={localStatus === "failed"} class:idle={!localStatus || localDownloadCount === 0}>
+
+  <div
+    class="local-status"
+    class:downloading={localStatus === "downloading"}
+    class:waiting={localStatus === "waiting"}
+    class:completed={localStatus === "completed"}
+    class:failed={localStatus === "failed"}
+    class:idle={!localStatus || localDownloadCount === 0}
+  >
     {#if localStatus === "waiting"}
       <span class="status-icon waiting-icon"></span>
       <span class="status-text">
@@ -58,7 +67,10 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+    transition:
+      background-color 0.3s ease,
+      border-color 0.3s ease,
+      box-shadow 0.3s ease;
     font-size: 0.85rem;
   }
 
@@ -73,7 +85,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background-color: #81C784;
+    background-color: #81c784;
     color: white;
     padding: 4px 10px;
     border-radius: 16px;
@@ -81,20 +93,19 @@
     font-weight: 500;
     min-height: 26px;
   }
-  
+
   .label-icon {
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  
+
   .label-text {
     line-height: 1;
   }
 
   .local-count {
-    font-weight: 700;
-    color: var(--text-primary);
+    color: var(--text-secondary);
     min-width: 80px;
   }
 
@@ -110,12 +121,12 @@
   }
 
   .local-dot.downloading {
-    background-color: #81C784;
+    background-color: #81c784;
     animation: pulse 2s infinite;
   }
 
   .local-dot.waiting {
-    background-color: #FF9800;
+    background-color: #ff9800;
     animation: blink 1s infinite;
   }
 
@@ -148,15 +159,15 @@
   }
 
   .local-status.downloading {
-    background-color: #81C784;
+    background-color: #81c784;
     color: white;
-    border: 1px solid #81C784;
+    border: 1px solid #81c784;
   }
 
   .local-status.waiting {
-    background-color: #FF9800;
+    background-color: #ff9800;
     color: white;
-    border: 1px solid #FF9800;
+    border: 1px solid #ff9800;
   }
 
   .local-status.completed {
@@ -184,7 +195,7 @@
     height: 12px;
     margin-right: 4px;
   }
-  
+
   .downloading-icon {
     border: 2px solid transparent;
     border-top: 2px solid currentColor;
@@ -198,15 +209,15 @@
     border-radius: 50%;
     animation: blink 1s infinite;
   }
-  
+
   .completed-icon {
     position: relative;
     border-radius: 50%;
     background: currentColor;
   }
-  
+
   .completed-icon::after {
-    content: '';
+    content: "";
     position: absolute;
     top: 2px;
     left: 4px;
@@ -216,16 +227,16 @@
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
   }
-  
+
   .failed-icon {
     position: relative;
     border-radius: 50%;
     background: currentColor;
   }
-  
+
   .failed-icon::before,
   .failed-icon::after {
-    content: '';
+    content: "";
     position: absolute;
     top: 50%;
     left: 50%;
@@ -234,20 +245,20 @@
     background: white;
     transform: translate(-50%, -50%) rotate(45deg);
   }
-  
+
   .failed-icon::after {
     transform: translate(-50%, -50%) rotate(-45deg);
   }
-  
+
   .idle-icon {
     position: relative;
     border: 2px solid currentColor;
     border-radius: 50%;
     opacity: 0.5;
   }
-  
+
   .idle-icon::after {
-    content: '';
+    content: "";
     position: absolute;
     top: 50%;
     left: 50%;
@@ -265,14 +276,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  
+
   .local-status.downloading .status-text,
   .local-status.waiting .status-text,
   .local-status.completed .status-text,
   .local-status.failed .status-text {
     color: white;
   }
-  
+
   .local-status.idle .status-text {
     color: var(--text-secondary);
   }
@@ -313,18 +324,32 @@
   }
 
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
   }
 
   @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
   }
 
   /* Mobile responsiveness */
@@ -334,7 +359,7 @@
       padding: 0.75rem;
       margin-bottom: 1rem;
     }
-    
+
     .local-info {
       gap: 0.75rem;
     }
