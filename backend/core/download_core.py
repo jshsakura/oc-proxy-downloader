@@ -116,17 +116,18 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
         wait_text = translations.get("telegram_wait_detected", "Wait Time Detected")
         filename_text = translations.get("telegram_filename", "Filename")
         wait_time_text = translations.get("telegram_wait_time", "Wait Time")
+        filesize_text = translations.get("telegram_filesize", "File Size")
         
-        message = f"""<b>🔔 OC-Proxy</b>
-<b>⏳ {wait_text}</b>
+        message = f"""🔔 <b>OC-Proxy: {wait_text}</b> ⏳
 
-<code>┌─────────────────────────────────┐
-│ 📋 다운로드 정보               │
-├─────────────────────────────────┤
-│ 📁 {filename_text}: {file_name[:30]}{'...' if len(file_name) > 30 else ''}
-│ ⏰ {wait_time_text}: {wait_minutes}분
-│ 🕐 알림시간: {current_time}
-└─────────────────────────────────┘</code>"""
+📁 <b>{filename_text}</b>
+<code>{file_name}</code>
+
+📊 <b>{filesize_text}</b>
+<code>{filesize_text or '알 수 없음'}</code>
+
+⏰ <b>{wait_time_text}</b>
+<code>{current_time or '알 수 없음'}</code>"""
         
         # 텔레그램 API 호출 (비동기)
         import requests

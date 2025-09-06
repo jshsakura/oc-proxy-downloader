@@ -5,7 +5,7 @@
       "Bash(pip install:*)",
       "Bash(grep:*)",
       "WebFetch(domain:1fichier.com)",
-      "Bash(set AUTH_USERNAME=admin)",
+      "Bash(set AUTH_USERNAME=jshsakura@gmail.com)",
       "Bash(set AUTH_PASSWORD=test123)",
       "Bash(find:*)",
       "Bash(del backenddownloads.db)",
