@@ -144,7 +144,12 @@
       "Bash(sed:*)",
       "Bash(curl:*)",
       "Bash(timeout:*)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(..venv_newScriptspip.exe install -r requirements.txt)",
+      "Bash(dir:*)",
+      "Bash(.venvScriptsactivate)",
+      "Bash(.\\.venv\\Scripts\\pip.exe install:*)",
+      "Bash(powershell:*)"
     ],
     "deny": [],
     "ask": [],

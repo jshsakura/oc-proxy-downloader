@@ -284,6 +284,16 @@ class DownloadManager:
                 req.status = StatusEnum.stopped
                 db.commit()
                 print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경 (이어받기 지원)")
+                
+                # WebSocket 상태 업데이트 브로드캐스트
+                import json
+                status_queue.put(json.dumps({
+                    "type": "status_update",
+                    "data": {
+                        "id": download_id,
+                        "status": "stopped"
+                    }
+                }))
         except Exception as e:
             print(f"[LOG] 다운로드 상태 변경 실패: {e}")
         finally:
@@ -316,11 +326,21 @@ class DownloadManager:
             db = None
             try:
                 db = next(get_db())
+                import json
                 for download_id in download_ids:
                     req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
                     if req and req.status in [StatusEnum.downloading, StatusEnum.proxying]:
                         req.status = StatusEnum.stopped
                         print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경 (이어받기 지원)")
+                        
+                        # WebSocket 상태 업데이트 브로드캐스트
+                        status_queue.put(json.dumps({
+                            "type": "status_update",
+                            "data": {
+                                "id": download_id,
+                                "status": "stopped"
+                            }
+                        }))
                 db.commit()
             except Exception as e:
                 print(f"[LOG] 다운로드 상태 변경 실패: {e}")

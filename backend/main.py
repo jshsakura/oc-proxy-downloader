@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# print("[DEBUG] main.py 모듈 로딩 시작")
 import sys
 import os
 import locale
@@ -35,7 +34,6 @@ JWT_EXPIRATION_HOURS = int(os.getenv('JWT_EXPIRATION_HOURS', '24'))  # 토큰 �
 
 # 인증이 활성화되었는지 확인
 AUTHENTICATION_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
-print(f"[LOG] Authentication enabled: {AUTHENTICATION_ENABLED}")
 
 # 로그 레벨에 따른 메시지 필터링
 def smart_print(*args, **kwargs):
@@ -127,10 +125,8 @@ from logger import log_once
 # 데이터베이스 초기화 (스키마 에러 시 자동 재생성)
 try:
     Base.metadata.create_all(bind=engine)
-    print("[LOG] 데이터베이스 테이블 생성/확인 완료")
 except Exception as e:
     print(f"[LOG] 데이터베이스 스키마 에러 감지: {e}")
-    print("[LOG] 기존 데이터베이스 삭제 후 재생성...")
     
     # SQLite 파일 삭제 - CONFIG_DIR 경로 사용
     from core.db import DB_PATH
@@ -141,7 +137,6 @@ except Exception as e:
     # 새로운 엔진과 세션 생성
     from core.db import engine
     Base.metadata.create_all(bind=engine)
-    print("[LOG] 새 데이터베이스 생성 완료")
 
 # 전역 변수로 중복 실행 방지
 _startup_executed = False
@@ -178,7 +173,6 @@ async def lifespan(app: FastAPI):
         _startup_executed = True
         
         # 번역 파일 로드
-        print("[LOG] 번역 파일 로딩 중...")
         load_all_translations()
         
         # WebSocket broadcaster 시작
@@ -204,7 +198,7 @@ async def lifespan(app: FastAPI):
                     "type": "status_update",
                     "data": {
                         "id": req.id,
-                        "status": "paused",
+                        "status": "stopped",
                         "url": req.url,
                         "file_name": req.file_name,
                         "total_size": req.total_size,
@@ -221,9 +215,7 @@ async def lifespan(app: FastAPI):
         
         if len(downloading_requests) > 0:
             print(f"[LOG] 서버 재시작: {len(downloading_requests)}개의 진행 중 다운로드를 stopped로 변경")
-        else:
-            print(f"[LOG] 서버 시작 완료")
-    
+        
     yield
     
     # Shutdown
@@ -2084,6 +2076,6 @@ if __name__ == "__main__":
     port = int(os.getenv('UVICORN_PORT', '8000'))
     host = os.getenv('UVICORN_HOST', '0.0.0.0')
     
-    print(f"[LOG] 서버 시작: http://{host}:{port}")
+    print(f"Server started on http://{host}:{port}")
     
     uvicorn.run("main:app", host=host, port=port, reload=False)
