@@ -1,5 +1,4 @@
-![OC-Proxy](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/logo.png)
-
+[https://github.com/jshsakura/oc-downloader/blob/master/public/logo256.png?raw=true](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/logo.png)
 
 **🧙‍♂️ OC-Proxy 프로젝트.**
 
