@@ -150,7 +150,10 @@
       "Bash(.venvScriptsactivate)",
       "Bash(.\\.venv\\Scripts\\pip.exe install:*)",
       "Bash(powershell:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(git tag:*)",
+      "Bash(git push:*)",
+      "Bash(gh release create:*)"
     ],
     "deny": [],
     "ask": [],

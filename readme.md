@@ -1,8 +1,6 @@
-![Project Logo](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/logo.png)
-
+![Project Logo](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docs/banner.png)
 
 **🧙‍♂️ OC-Proxy 다운로더 프로젝트.**
-
 
 프록시를 활용한 1fichier 파일 다운로드 관리 시스템입니다. FastAPI 백엔드와 Svelte 프론트엔드로 구성되어 있으며, Docker를 통해 쉽게 배포할 수 있습니다.
 
@@ -15,7 +13,7 @@
 - 🌙 **다크 테마**: 다크/라이트 테마 지원
 - 🌐 **다국어**: 한국어/영어 지원
 - 📱 **반응형**: 모바일/데스크톱 지원
-  
+
 ---
 
 <div align="center">
@@ -25,7 +23,6 @@
   <b>OC Proxy Downloader</b>
   <p>1fichier 파일 다운로드를 위한 프록시 지원 웹 애플리케이션</p>
 </div>
-
 
 ---
 
@@ -78,37 +75,38 @@ docker run -d \
 
 #### 인증 설정 (선택사항)
 
-| 변수명                | 기본값 | 설명                                    | 필수 |
-| -------------------- | ------ | -------------------------------------- | ---- |
-| `AUTH_USERNAME`      | -      | 로그인 사용자명 (미설정 시 인증 비활성화) | ❌   |
-| `AUTH_PASSWORD`      | -      | 로그인 비밀번호                          | ❌   |
-| `JWT_SECRET_KEY`     | -      | JWT 토큰 암호화 키 (자동 생성)            | ❌   |
-| `JWT_EXPIRATION_HOURS` | `24` | JWT 토큰 만료 시간(시간)                 | ❌   |
+| 변수명                 | 기본값 | 설명                                      | 필수 |
+| ---------------------- | ------ | ----------------------------------------- | ---- |
+| `AUTH_USERNAME`        | -      | 로그인 사용자명 (미설정 시 인증 비활성화) | ❌   |
+| `AUTH_PASSWORD`        | -      | 로그인 비밀번호                           | ❌   |
+| `JWT_SECRET_KEY`       | -      | JWT 토큰 암호화 키 (자동 생성)            | ❌   |
+| `JWT_EXPIRATION_HOURS` | `24`   | JWT 토큰 만료 시간(시간)                  | ❌   |
 
-> **참고**: `AUTH_USERNAME`과 `AUTH_PASSWORD`를 설정하지 않으면 인증 없이 접근할 수 있습니다. 
+> **참고**: `AUTH_USERNAME`과 `AUTH_PASSWORD`를 설정하지 않으면 인증 없이 접근할 수 있습니다.
 > 보안이 필요한 환경에서는 반드시 설정하세요. 로그인 실패 5회 시 50- IP가 차단됩니다.
 
 #### 시스템 최적화 설정
 
-| 변수명                     | 기본값    | 설명                                   | 필수 |
-| -------------------------- | --------- | -------------------------------------- | ---- |
-| `LOG_LEVEL`                | `WARNING` | 로그 출력 레벨                         | ❌   |
-| `PARENT_CHECK_INTERVAL`    | `5`       | 부모 프로세스 체크 간격(초) - CPU 최적화 | ❌   |
-| `MAX_WEBSOCKET_CONNECTIONS`| `10`      | WebSocket 최대 연결 수 (비정상 접근 차단용) | ❌   |
-| `MAX_TOTAL_DOWNLOADS`      | `5`       | 최대 동시 다운로드 수                   | ❌   |
+| 변수명                      | 기본값    | 설명                                        | 필수 |
+| --------------------------- | --------- | ------------------------------------------- | ---- |
+| `LOG_LEVEL`                 | `WARNING` | 로그 출력 레벨                              | ❌   |
+| `PARENT_CHECK_INTERVAL`     | `5`       | 부모 프로세스 체크 간격(초) - CPU 최적화    | ❌   |
+| `MAX_WEBSOCKET_CONNECTIONS` | `10`      | WebSocket 최대 연결 수 (비정상 접근 차단용) | ❌   |
+| `MAX_TOTAL_DOWNLOADS`       | `5`       | 최대 동시 다운로드 수                       | ❌   |
 
 #### 📊 로그 레벨 설명
 
-| 레벨      | 출력 내용                    | 사용 시기              |
-| --------- | ---------------------------- | ---------------------- |
-| `DEBUG`   | 모든 로그 (상세한 디버그 정보) | 개발, 문제 진단       |
-| `INFO`    | 일반 정보 이상               | 테스트 환경           |
-| `WARNING` | 경고 이상만 (기본값)         | **운영 환경 권장**    |
-| `ERROR`   | 오류만                       | 최소 로그가 필요한 경우 |
+| 레벨      | 출력 내용                      | 사용 시기               |
+| --------- | ------------------------------ | ----------------------- |
+| `DEBUG`   | 모든 로그 (상세한 디버그 정보) | 개발, 문제 진단         |
+| `INFO`    | 일반 정보 이상                 | 테스트 환경             |
+| `WARNING` | 경고 이상만 (기본값)           | **운영 환경 권장**      |
+| `ERROR`   | 오류만                         | 최소 로그가 필요한 경우 |
 
 #### 💡 WebSocket 연결 제한이 필요한 이유
 
 일반적으로 사용자당 **브라우저 탭 1~2개**만 연결되지만:
+
 - **비정상적 접근 차단**: 봇이나 악의적 스크립트 방지
 - **메모리 보호**: 무제한 연결로 인한 시스템 부하 방지
 - **기본 10개 제한**: 정상 사용에는 충분하며, 필요시 조정 가능
@@ -160,10 +158,10 @@ services:
       - DOWNLOAD_PATH=/downloads
       - CONFIG_PATH=/config
       # 시스템 최적화 설정
-      - LOG_LEVEL=WARNING                     # 로그 레벨: DEBUG, INFO, WARNING, ERROR (기본: WARNING)
-      - PARENT_CHECK_INTERVAL=5               # 부모 프로세스 체크 간격(초) - CPU 최적화
-      - MAX_WEBSOCKET_CONNECTIONS=10          # WebSocket 최대 연결 수 (비정상 접근 차단용)
-      - MAX_TOTAL_DOWNLOADS=5                 # 최대 동시 다운로드 수
+      - LOG_LEVEL=WARNING # 로그 레벨: DEBUG, INFO, WARNING, ERROR (기본: WARNING)
+      - PARENT_CHECK_INTERVAL=5 # 부모 프로세스 체크 간격(초) - CPU 최적화
+      - MAX_WEBSOCKET_CONNECTIONS=10 # WebSocket 최대 연결 수 (비정상 접근 차단용)
+      - MAX_TOTAL_DOWNLOADS=5 # 최대 동시 다운로드 수
     volumes:
       - ./downloads:/downloads
       - ./backend/config:/config
