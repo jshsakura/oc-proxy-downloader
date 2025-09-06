@@ -3,17 +3,6 @@
 
 **🧙‍♂️ OC-Proxy 프로젝트.**
 
-<div align="center">
-  <img src="https://github.com/jshsakura/oc-proxy-downloader/blob/main/docs/preview/preview1.png?raw=true" alt="OC Proxy Downloader 미리보기" style="max-width: 700px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin-bottom: 1rem;" />
-  <img src="https://github.com/jshsakura/oc-proxy-downloader/blob/main/docs/preview/preview2.png?raw=true" alt="OC Proxy Downloader 미리보기" style="max-width: 700px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin-bottom: 1rem;" />
-  <br/>
-  <b>OC Proxy Downloader</b>
-  <p>1fichier 파일 다운로드를 위한 프록시 지원 웹 애플리케이션</p>
-</div>
-
----
-
-# OC Proxy Downloader
 
 프록시를 활용한 1fichier 파일 다운로드 관리 시스템입니다. FastAPI 백엔드와 Svelte 프론트엔드로 구성되어 있으며, Docker를 통해 쉽게 배포할 수 있습니다.
 
@@ -26,6 +15,17 @@
 - 🌙 **다크 테마**: 다크/라이트 테마 지원
 - 🌐 **다국어**: 한국어/영어 지원
 - 📱 **반응형**: 모바일/데스크톱 지원
+  
+---
+
+<div align="center">
+  <img src="https://github.com/jshsakura/oc-proxy-downloader/blob/main/docs/preview/preview1.png?raw=true" alt="OC Proxy Downloader 미리보기" style="max-width: 700px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin-bottom: 1rem;" />
+  <img src="https://github.com/jshsakura/oc-proxy-downloader/blob/main/docs/preview/preview2.png?raw=true" alt="OC Proxy Downloader 미리보기" style="max-width: 700px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin-bottom: 1rem;" />
+  <br/>
+  <b>OC Proxy Downloader</b>
+  <p>1fichier 파일 다운로드를 위한 프록시 지원 웹 애플리케이션</p>
+</div>
+
 
 ---
 
