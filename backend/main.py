@@ -2047,13 +2047,27 @@ async def test_telegram_notification(data: dict = Body(...)):
         
         test_title = translations.get("telegram_test_notification", "테스트 알림")  
         test_message = translations.get("telegram_test_message", "OC Proxy Downloader에서 전송된 테스트 메시지입니다.")
-        message = f"🔔 *{test_title}*\n\n{test_message}"
+        
+        # HTML 형식으로 예쁜 테스트 메시지 작성
+        import datetime
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        message = f"""<b>🔔 OC-Proxy</b>
+<b>🚀 {test_title}</b>
+
+<code>┌─────────────────────────────────┐
+│ 📋 테스트 알림 정보            │
+├─────────────────────────────────┤
+│ ✅ 상태: 텔레그램 연결 성공
+│ 🕐 테스트시간: {current_time}
+│ 📱 {test_message}
+└─────────────────────────────────┘</code>"""
         
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         payload = {
             "chat_id": chat_id,
             "text": message,
-            "parse_mode": "Markdown"
+            "parse_mode": "HTML"
         }
         
         response = requests.post(url, json=payload, timeout=10)

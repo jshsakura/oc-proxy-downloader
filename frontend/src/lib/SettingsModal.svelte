@@ -50,6 +50,7 @@
       telegram_chat_id: currentSettings.telegram_chat_id || "",
       telegram_notify_success: currentSettings.telegram_notify_success || false,
       telegram_notify_failure: currentSettings.telegram_notify_failure || true,
+      telegram_notify_wait: currentSettings.telegram_notify_wait !== false, // 기본값 true
     };
     selectedTheme = settings.theme || $theme;
     initialSettingsLoaded = true;
@@ -709,6 +710,19 @@
                           >❌ {$t("telegram_notify_failure")}</span
                         >
                       </label>
+
+                      <label class="telegram-checkbox-label">
+                        <input
+                          type="checkbox"
+                          bind:checked={settings.telegram_notify_wait}
+                        />
+                        <span class="telegram-checkbox-text"
+                          >⏳ {$t("telegram_notify_wait")}</span
+                        >
+                      </label>
+                      <div class="telegram-option-description">
+                        {$t("telegram_notify_wait_description")}
+                      </div>
                     </div>
                   </div>
 
@@ -1422,6 +1436,15 @@
   .telegram-checkbox-text {
     color: var(--text-primary);
     font-weight: 500;
+  }
+
+  .telegram-option-description {
+    margin-top: -0.25rem;
+    margin-left: 2rem;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.3;
+    padding-bottom: 0.5rem;
   }
 
   .telegram-test-section {

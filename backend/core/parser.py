@@ -185,6 +185,19 @@ class FichierParser:
                     wait_minutes = int(wait_match.group(1))
                     wait_seconds = wait_minutes * 60  # 분을 초로 변환
                     print(f"[LOG] 1fichier 대기시간 감지: {wait_minutes}분 ({wait_seconds}초)")
+                    
+                    # 5분 이상 대기시간일 때 텔레그램 알림 (로컬 다운로드만)
+                    if wait_minutes >= 5:
+                        try:
+                            from .download_core import send_telegram_wait_notification
+                            # URL에서 파일명 추출 시도
+                            import re
+                            file_name_match = re.search(r'/([^/]+)$', url)
+                            file_name = file_name_match.group(1) if file_name_match else "Unknown File"
+                            send_telegram_wait_notification(file_name, wait_minutes, "ko")
+                        except Exception as e:
+                            print(f"[WARN] 텔레그램 대기시간 알림 실패: {e}")
+                    
                     return None  # 기존 방식대로 None 반환하여 대기시간 처리 위임
             
             # 우선 정규식으로 직접 다운로드 링크 패턴 검색

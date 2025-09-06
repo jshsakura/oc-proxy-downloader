@@ -265,5 +265,9 @@
   "telegram_test_message": "OC Proxy Downloader에서 전송된 테스트 메시지입니다.",
   "telegram_unknown_file": "알 수 없는 파일",
   "telegram_description": "다운로드 완료/실패 시 텔레그램으로 알림을 받을 수 있습니다.",
-  "telegram_settings": "설정"
+  "telegram_settings": "설정",
+  "telegram_notify_wait": "대기시간 알림 (5분 이상)",
+  "telegram_notify_wait_description": "5분 이상 대기시간이 발생할 때 알림을 받습니다",
+  "telegram_wait_detected": "대기시간 감지",
+  "telegram_wait_time": "대기시간"
 }

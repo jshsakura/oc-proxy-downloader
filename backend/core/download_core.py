@@ -49,7 +49,69 @@ def get_translations(lang: str = "ko") -> dict:
         return {}
 
 
-def send_telegram_notification(file_name: str, status: str, error: str = None, lang: str = "ko"):
+def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str = "ko"):
+    """대기시간 텔레그램 알림 전송 (5분 이상 대기시간)"""
+    try:
+        config = get_config()
+        
+        bot_token = config.get("telegram_bot_token", "").strip()
+        chat_id = config.get("telegram_chat_id", "").strip()
+        notify_wait = config.get("telegram_notify_wait", True)  # 대기시간 알림 설정
+        
+        # 설정이 없거나 대기시간 알림이 비활성화된 경우
+        if not bot_token or not chat_id or not notify_wait:
+            return
+        
+        # 번역 가져오기
+        translations = get_translations(lang)
+        
+        # HTML 형식으로 예쁜 메시지 작성
+        import datetime
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        
+        wait_text = translations.get("telegram_wait_detected", "Wait Time Detected")
+        filename_text = translations.get("telegram_filename", "Filename")
+        wait_time_text = translations.get("telegram_wait_time", "Wait Time")
+        
+        message = f"""<b>🔔 OC-Proxy</b>
+<b>⏳ {wait_text}</b>
+
+<code>┌─────────────────────────────────┐
+│ 📋 다운로드 정보               │
+├─────────────────────────────────┤
+│ 📁 {filename_text}: {file_name[:30]}{'...' if len(file_name) > 30 else ''}
+│ ⏰ {wait_time_text}: {wait_minutes}분
+│ 🕐 알림시간: {current_time}
+└─────────────────────────────────┘</code>"""
+        
+        # 텔레그램 API 호출 (비동기)
+        import requests
+        import threading
+        
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML"
+        }
+        
+        def send_async():
+            try:
+                response = requests.post(url, json=payload, timeout=10)
+                if response.status_code == 200:
+                    print(f"[LOG] 텔레그램 대기시간 알림 전송 성공: {file_name} ({wait_minutes}분)")
+                else:
+                    print(f"[WARN] 텔레그램 대기시간 알림 전송 실패: {response.status_code}")
+            except Exception as e:
+                print(f"[WARN] 텔레그램 대기시간 알림 전송 오류: {e}")
+        
+        threading.Thread(target=send_async, daemon=True).start()
+        
+    except Exception as e:
+        print(f"[WARN] 텔레그램 대기시간 알림 설정 오류: {e}")
+
+
+def send_telegram_notification(file_name: str, status: str, error: str = None, lang: str = "ko", file_size: str = None, download_time: str = None, save_path: str = None):
     """텔레그램 알림 전송"""
     try:
         config = get_config()
@@ -72,18 +134,43 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
         # 번역 데이터 가져오기
         translations = get_translations(lang)
         
-        # 메시지 작성
+        # HTML 형식으로 예쁜 메시지 작성
+        import datetime
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        
         if status == "done":
             success_text = translations.get("telegram_download_success", "Download Complete")
             filename_text = translations.get("telegram_filename", "Filename")
-            message = f"✅ *{success_text}*\n\n📁 {filename_text}: `{file_name}`"
+            
+            message = f"""<b>🔔 OC-Proxy</b>
+<b>✅ {success_text}</b>
+
+<code>┌─────────────────────────────────┐
+│ 📋 다운로드 완료 정보          │
+├─────────────────────────────────┤
+│ 📁 {filename_text}: {file_name[:25]}{'...' if len(file_name) > 25 else ''}
+│ 📊 파일크기: {file_size or '알 수 없음'}
+│ ⏱️  완료시간: {download_time or current_time}
+│ 📂 저장경로: {save_path[:25] + '...' if save_path and len(save_path) > 25 else save_path or '기본경로'}
+└─────────────────────────────────┘</code>"""
+            
         elif status == "failed":
             failed_text = translations.get("telegram_download_failed", "Download Failed")
             filename_text = translations.get("telegram_filename", "Filename")
             error_text = translations.get("telegram_error", "Error")
-            message = f"❌ *{failed_text}*\n\n📁 {filename_text}: `{file_name}`"
-            if error:
-                message += f"\n🔍 {error_text}: `{error[:100]}{'...' if len(error) > 100 else ''}`"
+            
+            error_msg = error[:50] + '...' if error and len(error) > 50 else error or '알 수 없는 오류'
+            
+            message = f"""<b>🔔 OC-Proxy</b>
+<b>❌ {failed_text}</b>
+
+<code>┌─────────────────────────────────┐
+│ 📋 다운로드 실패 정보          │
+├─────────────────────────────────┤
+│ 📁 {filename_text}: {file_name[:25]}{'...' if len(file_name) > 25 else ''}
+│ ⚠️  {error_text}: {error_msg}
+│ 🕐 실패시간: {current_time}
+└─────────────────────────────────┘</code>"""
         else:
             return
             
@@ -94,7 +181,7 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
         payload = {
             "chat_id": chat_id,
             "text": message,
-            "parse_mode": "Markdown"
+            "parse_mode": "HTML"
         }
         
         # 백그라운드에서 전송 (블로킹 방지)
@@ -139,12 +226,12 @@ def should_retry_download(retry_count: int, error_message: str) -> bool:
     error_lower = error_message.lower()
     is_network_error = any(retry_error in error_lower for retry_error in retry_network_errors)
     
-    # 네트워크 오류인 경우 최대 3번까지 재시도 허용, 일반 오류는 1번
-    max_retries_for_error = 3 if is_network_error else 1
+    # 최대 10번까지 재시도 허용
+    max_retries_for_error = 10
     
     # 재시도 한도 확인
     if retry_count >= max_retries_for_error:
-        print(f"[LOG] 재시도 한도 초과: {retry_count}/{max_retries_for_error} (네트워크 오류: {is_network_error})")
+        print(f"[LOG] 재시도 한도 초과: {retry_count}/{max_retries_for_error}")
         return False
     
     # dstorage.fr DNS 오류는 1fichier 링크 만료를 의미하므로 재시도하지 않음
@@ -270,6 +357,31 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         if req is None:
             print(f"[LOG] 다운로드 요청을 찾을 수 없음: ID {request_id}")
             return
+            
+        # 지연 시간 체크 (5번 이후 재시도에서 3분 지연)
+        if req.error and "delay_until:" in req.error:
+            try:
+                import datetime
+                delay_part = req.error.split("delay_until:")[1].strip()
+                delay_until = datetime.datetime.fromisoformat(delay_part)
+                current_time = datetime.datetime.utcnow()
+                
+                if current_time < delay_until:
+                    remaining_seconds = int((delay_until - current_time).total_seconds())
+                    print(f"[LOG] 재시도 지연 시간 대기 중: {remaining_seconds}초 남음 - ID {request_id}")
+                    # 지연 시간이 남아있으면 다시 대기 상태로 유지
+                    req.status = StatusEnum.pending
+                    req.error = req.error.replace("delay_until:", f"지연대기 중 ({remaining_seconds}초 남음) delay_until:")
+                    db.commit()
+                    return
+                else:
+                    # 지연 시간이 지났으면 delay_until 부분 제거
+                    req.error = req.error.split(" | delay_until:")[0] if " | delay_until:" in req.error else req.error
+                    db.commit()
+                    print(f"[LOG] 지연 시간 완료, 다운로드 진행 - ID {request_id}")
+            except Exception as delay_error:
+                print(f"[LOG] 지연 시간 파싱 오류: {delay_error}")
+                # 파싱 오류 시 그냥 진행
         
         # 정지 상태 체크
         if req.status == StatusEnum.stopped:
@@ -620,9 +732,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 return
             
             # 2단계: 프록시 순환으로 실제 다운로드
-            if use_proxy and used_proxy_addr:
-                print(f"[LOG] 프록시 {used_proxy_addr}로 다운로드 시작")
-                download_with_proxy(direct_link, file_path, used_proxy_addr, initial_downloaded_size, req, db)
+            if use_proxy:
+                print(f"[LOG] 프록시 순환 다운로드 시작 (시작 프록시: {used_proxy_addr})")
+                download_with_proxy_cycling(direct_link, file_path, used_proxy_addr, initial_downloaded_size, req, db)
             else:
                 print(f"[LOG] 로컬 연결로 다운로드 시작")
                 download_local(direct_link, file_path, initial_downloaded_size, req, db)
@@ -681,7 +793,36 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         
         # 텔레그램 알림 전송 (완료)
         unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
-        send_telegram_notification(req.file_name or unknown_file, "done", None, lang)
+        
+        # 파일 크기 포맷팅
+        file_size_str = "알 수 없음"
+        if req.total_size:
+            if req.total_size >= 1024*1024*1024:  # GB
+                file_size_str = f"{req.total_size/(1024*1024*1024):.2f} GB"
+            elif req.total_size >= 1024*1024:  # MB
+                file_size_str = f"{req.total_size/(1024*1024):.2f} MB"
+            elif req.total_size >= 1024:  # KB
+                file_size_str = f"{req.total_size/1024:.2f} KB"
+            else:
+                file_size_str = f"{req.total_size} B"
+        
+        # 완료 시간 포맷팅
+        download_time_str = None
+        if req.finished_at:
+            download_time_str = req.finished_at.strftime("%H:%M:%S")
+        
+        # 저장 경로
+        save_path_str = req.save_path or "기본경로"
+        
+        send_telegram_notification(
+            req.file_name or unknown_file, 
+            "done", 
+            None, 
+            lang,
+            file_size=file_size_str,
+            download_time=download_time_str,
+            save_path=save_path_str
+        )
         
         # WebSocket으로 완료 상태 전송
         send_websocket_message("status_update", {
@@ -722,10 +863,19 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 if should_retry and req.status != StatusEnum.done:
                     new_retry_count = retry_count + 1
                     req.status = StatusEnum.pending  # 다시 대기 상태로
-                    req.error = f"재시도 {new_retry_count}: {str(e)}"
-                    db.commit()
                     
-                    print(f"[LOG] 다운로드 재시도 예약: {new_retry_count}")
+                    # 5번 이후부터는 3분(180초) 지연 추가
+                    import datetime
+                    current_time = datetime.datetime.utcnow()
+                    if new_retry_count > 5:
+                        delay_until = current_time + datetime.timedelta(minutes=3)
+                        req.error = f"재시도 {new_retry_count} (3분 지연 후 재시도): {str(e)} | delay_until:{delay_until.isoformat()}"
+                        print(f"[LOG] 다운로드 재시도 예약 (3분 지연): {new_retry_count} - {delay_until.isoformat()}")
+                    else:
+                        req.error = f"재시도 {new_retry_count}: {str(e)}"
+                        print(f"[LOG] 다운로드 재시도 예약: {new_retry_count}")
+                    
+                    db.commit()
                     
                     # WebSocket으로 재시도 상태 전송
                     send_websocket_message("status_update", {
@@ -760,7 +910,17 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         
                         # 상태를 pending으로 설정하여 대기 중임을 표시
                         req.status = StatusEnum.pending
-                        req.error = f"1fichier 자동 재시도 중 ({new_fichier_retry_count}/10) - {str(e)}"
+                        
+                        # 5번 이후부터는 3분(180초) 지연 추가
+                        import datetime
+                        current_time = datetime.datetime.utcnow()
+                        if new_fichier_retry_count > 5:
+                            delay_until = current_time + datetime.timedelta(minutes=3)
+                            req.error = f"1fichier 자동 재시도 중 ({new_fichier_retry_count}/10, 3분 지연 후 재시도) - {str(e)} | delay_until:{delay_until.isoformat()}"
+                            print(f"[LOG] 1fichier 자동 재시도 (3분 지연): {new_fichier_retry_count}/10 - {delay_until.isoformat()}")
+                        else:
+                            req.error = f"1fichier 자동 재시도 중 ({new_fichier_retry_count}/10) - {str(e)}"
+                        
                         db.commit()
                         
                         # WebSocket으로 재시도 대기 상태 전송
@@ -793,7 +953,26 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         
                         # 텔레그램 알림 전송 (최종 실패)  
                         unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
-                        send_telegram_notification(req.file_name or unknown_file, "failed", str(e), lang)
+                        
+                        # 파일 크기 포맷팅
+                        file_size_str = "알 수 없음"
+                        if req.total_size:
+                            if req.total_size >= 1024*1024*1024:  # GB
+                                file_size_str = f"{req.total_size/(1024*1024*1024):.2f} GB"
+                            elif req.total_size >= 1024*1024:  # MB
+                                file_size_str = f"{req.total_size/(1024*1024):.2f} MB"
+                            elif req.total_size >= 1024:  # KB
+                                file_size_str = f"{req.total_size/1024:.2f} KB"
+                            else:
+                                file_size_str = f"{req.total_size} B"
+                        
+                        send_telegram_notification(
+                            req.file_name or unknown_file, 
+                            "failed", 
+                            str(e), 
+                            lang,
+                            file_size=file_size_str
+                        )
                         
                         # WebSocket으로 실패 상태 전송
                         send_websocket_message("status_update", {
@@ -1017,6 +1196,86 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
     
     print(f"[LOG] 모든 프록시에서 파싱 실패")
     return None, None
+
+
+def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial_size, req, db):
+    """프록시를 순환하면서 다운로드 - 실패시 자동으로 다음 프록시로 이동"""
+    from .proxy_manager import get_unused_proxies, mark_proxy_used
+    
+    # 선호 프록시부터 시작하여 모든 프록시 시도
+    unused_proxies = get_unused_proxies(db)
+    
+    # 선호 프록시가 있으면 맨 앞에 배치
+    if preferred_proxy and preferred_proxy not in unused_proxies:
+        unused_proxies.insert(0, preferred_proxy)
+    elif preferred_proxy and preferred_proxy in unused_proxies:
+        # 선호 프록시를 맨 앞으로 이동
+        unused_proxies.remove(preferred_proxy)
+        unused_proxies.insert(0, preferred_proxy)
+    
+    if not unused_proxies:
+        print("[LOG] 사용 가능한 프록시가 없음")
+        req.status = StatusEnum.failed
+        req.error = "사용 가능한 프록시가 없음"
+        db.commit()
+        return
+    
+    print(f"[LOG] {len(unused_proxies)}개 프록시로 다운로드 순환 시도")
+    
+    last_error = None
+    for i, proxy_addr in enumerate(unused_proxies):
+        # 매 프록시 시도마다 정지 상태 체크
+        db.refresh(req)
+        if req.status == StatusEnum.stopped:
+            print(f"[LOG] 프록시 다운로드 중 정지됨: {req.id}")
+            return
+        
+        try:
+            print(f"[LOG] 다운로드 시도 {i+1}/{len(unused_proxies)}: {proxy_addr}")
+            
+            # WebSocket으로 프록시 시도 중 알림
+            send_websocket_message("proxy_trying", {
+                "proxy": proxy_addr,
+                "step": "다운로드 중",
+                "current": i + 1,
+                "total": len(unused_proxies),
+                "url": req.url
+            })
+            
+            # 프록시로 다운로드 시도
+            download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, db)
+            
+            # 성공하면 프록시 성공 마킹하고 종료
+            mark_proxy_used(db, proxy_addr, success=True)
+            print(f"[LOG] 프록시 다운로드 성공: {proxy_addr}")
+            return
+            
+        except Exception as e:
+            last_error = e
+            error_str = str(e)
+            print(f"[LOG] 프록시 {proxy_addr} 다운로드 실패: {error_str}")
+            
+            # 프록시 실패 마킹
+            mark_proxy_used(db, proxy_addr, success=False)
+            
+            # WebSocket으로 프록시 실패 알림
+            send_websocket_message("proxy_failed", {
+                "proxy": proxy_addr,
+                "error": error_str,
+                "current": i + 1,
+                "total": len(unused_proxies),
+                "url": req.url
+            })
+            
+            # 마지막 프록시가 아니면 계속 시도
+            if i < len(unused_proxies) - 1:
+                print(f"[LOG] 다음 프록시로 이동: {i+2}/{len(unused_proxies)}")
+                continue
+    
+    # 모든 프록시에서 실패
+    print(f"[LOG] 모든 프록시에서 다운로드 실패")
+    if last_error:
+        raise last_error  # 마지막 에러를 상위로 전파
 
 
 def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, db):

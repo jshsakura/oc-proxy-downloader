@@ -468,6 +468,19 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 if wait_seconds > 300:  # 5분 이상
                     print(f"[LOG] ⚠️  긴 대기시간 감지: {wait_seconds//60}분 {wait_seconds%60}초")
                 
+                # 5분 이상 대기시간일 때 텔레그램 알림 (로컬 다운로드만)
+                if wait_seconds >= 300:  # 300초 = 5분
+                    try:
+                        from .download_core import send_telegram_wait_notification
+                        # URL에서 파일명 추출 시도
+                        import re
+                        file_name_match = re.search(r'/([^/]+)$', url)
+                        file_name = file_name_match.group(1) if file_name_match else "Unknown File"
+                        wait_minutes = wait_seconds // 60
+                        send_telegram_wait_notification(file_name, wait_minutes, "ko")
+                    except Exception as e:
+                        print(f"[WARN] 텔레그램 대기시간 알림 실패: {e}")
+                
                 # 실제 대기 (대기시간에 따른 최적화된 카운트다운)
                 if wait_seconds <= 10:
                     # 10초 이하 짧은 대기시간 - 간단히 처리

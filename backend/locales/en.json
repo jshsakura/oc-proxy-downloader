@@ -265,5 +265,9 @@
   "telegram_test_message": "Test message sent from OC Proxy Downloader.",
   "telegram_unknown_file": "Unknown file",
   "telegram_description": "Receive Telegram notifications when downloads complete or fail.",
-  "telegram_settings": "Settings"
+  "telegram_settings": "Settings",
+  "telegram_notify_wait": "Wait Time Notifications (5+ minutes)",
+  "telegram_notify_wait_description": "Get notified when wait time of 5 minutes or more occurs",
+  "telegram_wait_detected": "Wait Time Detected",
+  "telegram_wait_time": "Wait Time"
 }
