@@ -420,8 +420,17 @@
             setTimeout(() => {
               delete downloadWaitInfo[matchingDownload.id];
               downloadWaitInfo = { ...downloadWaitInfo };
-            }, 2000);
+            }, 1000);
           }
+        }
+      } else if (message.type === "wait_countdown_complete") {
+        console.log("Wait countdown complete:", message.data);
+        
+        // 해당 다운로드의 대기 정보 즉시 정리
+        if (downloadWaitInfo[message.data.id]) {
+          delete downloadWaitInfo[message.data.id];
+          downloadWaitInfo = { ...downloadWaitInfo };
+          console.log("Wait info cleared for download:", message.data.id);
         }
       } else if (message.type === "filename_update") {
         console.log("File info update:", message.data.id, message.data.file_name, message.data.file_size);

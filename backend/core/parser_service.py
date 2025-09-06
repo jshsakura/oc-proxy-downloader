@@ -511,6 +511,30 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 
                 print(f"[LOG] ✅ 대기 완료! POST 요청 시작")
                 
+                # WebSocket으로 대기 완료 알림 (카운트다운 정리)
+                try:
+                    from .download_core import send_websocket_message
+                    from .db import SessionLocal
+                    from .models import DownloadRequest
+                    
+                    temp_db = SessionLocal()
+                    try:
+                        download_req = temp_db.query(DownloadRequest).filter(
+                            DownloadRequest.url == url
+                        ).order_by(DownloadRequest.requested_at.desc()).first()
+                        
+                        if download_req:
+                            # 대기 완료 - wait_info 정리 메시지
+                            send_websocket_message("wait_countdown_complete", {
+                                "id": download_req.id,
+                                "url": url
+                            })
+                            print(f"[LOG] 대기 완료 WebSocket 메시지 전송: ID {download_req.id}")
+                    finally:
+                        temp_db.close()
+                except Exception as e:
+                    print(f"[LOG] 대기 완료 WebSocket 전송 실패: {e}")
+                
                 # 5단계: POST 요청으로 다음 단계
                 # 폼 데이터 찾기
                 form_data = {'submit': 'Download'}
