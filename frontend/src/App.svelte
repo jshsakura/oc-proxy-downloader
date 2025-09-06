@@ -154,6 +154,13 @@
       fetchProxyStatus();
       checkProxyAvailability();
     }
+    
+    // 프록시 새로고침 이벤트 리스너 추가
+    const handleProxyRefresh = () => {
+      fetchProxyStatus();
+      checkProxyAvailability();
+    };
+    document.addEventListener('proxy-refreshed', handleProxyRefresh);
 
     const unsubscribe = t.subscribe((t_func) => {
       document.title = t_func("title");
@@ -165,6 +172,7 @@
     // cleanup 함수를 onDestroy에 등록
     return () => {
       cleanupResize && cleanupResize();
+      document.removeEventListener('proxy-refreshed', handleProxyRefresh);
     };
   });
 

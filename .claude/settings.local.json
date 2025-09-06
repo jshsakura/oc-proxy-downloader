@@ -149,7 +149,8 @@
       "Bash(dir:*)",
       "Bash(.venvScriptsactivate)",
       "Bash(.\\.venv\\Scripts\\pip.exe install:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": [],
