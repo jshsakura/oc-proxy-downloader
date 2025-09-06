@@ -74,7 +74,13 @@
     availableProxies: 0,
     usedProxies: 0,
     successCount: 0,
-    failCount: 0
+    failCount: 0,
+    currentProxy: "",
+    currentStep: "",
+    currentIndex: 0,
+    totalAttempting: 0,
+    status: "",
+    lastError: ""
   };
 
   let localStats = {
@@ -429,7 +435,7 @@
                   downloaded_size: progressData.downloaded_size,
                   total_size: progressData.total_size,
                   progress: progressData.progress,
-                  download_speed: progressData.download_speed || 0
+                  download_speed: progressData.download_speed ?? d.download_speed
                 }
               : d
           );

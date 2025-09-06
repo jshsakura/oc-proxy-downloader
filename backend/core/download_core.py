@@ -55,6 +55,30 @@ def send_websocket_message(message_type: str, data: dict):
     except Exception as e:
         print(f"[LOG] WebSocket 메시지 전송 실패: {e}")
 
+def get_unique_filepath(path: Path) -> Path:
+    """
+    파일 경로가 존재할 경우, 괄호 안에 숫자를 붙여 고유한 경로를 생성합니다.
+    (예: 'file.txt' -> 'file (1).txt')
+    """
+    if not path.exists():
+        return path
+
+    counter = 1
+    original_stem = path.stem
+    original_suffix = path.suffix
+    directory = path.parent
+
+    while True:
+        new_stem = f"{original_stem} ({counter})"
+        new_path = directory / (new_stem + original_suffix)
+        if not new_path.exists():
+            return new_path
+        counter += 1
+
+
+
+
+
 
 def get_translations(lang: str = "ko") -> dict:
     """번역 데이터 가져오기"""
@@ -131,7 +155,7 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
         print(f"[WARN] 텔레그램 대기시간 알림 설정 오류: {e}")
 
 
-def send_telegram_notification(file_name: str, status: str, error: str = None, lang: str = "ko", file_size: str = None, download_time: str = None, save_path: str = None):
+def send_telegram_notification(file_name: str, status: str, error: str = None, lang: str = "ko", file_size: str = None, download_time: str = None, save_path: str = None, requested_time: str = None, elapsed_time: str = None):
     """텔레그램 알림 전송"""
     try:
         config = get_config()
@@ -162,10 +186,12 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
             success_text = translations.get("telegram_download_success", "Download Complete")
             filename_text = translations.get("telegram_filename", "Filename")
             filesize_text = translations.get("telegram_filesize", "파일크기")
+            requested_time_text = translations.get("telegram_requested_time", "요청시간")
             completed_time_text = translations.get("telegram_completed_time", "완료시간")
+            elapsed_time_text = translations.get("telegram_elapsed_time", "소요시간")
             save_path_text = translations.get("telegram_save_path", "저장경로")
 
-            message = f"""🔔 <b>OC-Proxy: {success_text}</b> ✅
+            message = f"""🔔 <b>OC-Proxy: {success_text}</b> 🎉
 
 📁 <b>{filename_text}</b>
 <code>{file_name}</code>
@@ -173,10 +199,16 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
 📊 <b>{filesize_text}</b>
 <code>{file_size or '알 수 없음'}</code>
 
-⏱️ <b>{completed_time_text}</b>
+📥 <b>{requested_time_text}</b>
+<code>{requested_time or '알 수 없음'}</code>
+
+✅ <b>{completed_time_text}</b>
 <code>{download_time or current_time}</code>
 
-📂 <b>{save_path_text}</b>
+⏱️ <b>{elapsed_time_text}</b>
+<code>{elapsed_time or '알 수 없음'}</code>
+
+💾 <b>{save_path_text}</b>
 <code>{save_path or '기본경로'}</code>"""
 
         elif status == "failed":
@@ -495,16 +527,10 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         print(f"[LOG] 원본 파일명: '{base_filename}', 안전한 파일명: '{safe_filename}'")
         
         # 중복 파일명 방지
-        final_path = download_path / safe_filename
-        counter = 1
-        while final_path.exists():
-            name, ext = os.path.splitext(safe_filename)
-            safe_filename = f"{name}_{counter}{ext}"
-            final_path = download_path / safe_filename
-            counter += 1
+        final_path = get_unique_filepath(download_path / safe_filename)
         
         file_path = final_path
-        part_file_path = download_path / (safe_filename + ".part")
+        part_file_path = download_path / (final_path.name + ".part")
         
         # DB에 저장 경로 업데이트
         req.save_path = str(file_path)
@@ -625,13 +651,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             safe_filename = safe_filename.strip('. ')
             
             # 중복 파일명 방지
-            final_path = download_path / safe_filename
-            counter = 1
-            while final_path.exists():
-                name, ext = os.path.splitext(safe_filename)
-                safe_filename = f"{name}_{counter}{ext}"
-                final_path = download_path / safe_filename
-                counter += 1
+            final_path = get_unique_filepath(download_path / safe_filename)
             
             # 저장 경로 업데이트
             req.save_path = str(final_path)
@@ -793,18 +813,12 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 
                 if safe_filename:
                     # 중복 파일명 방지
-                    new_final_path = download_dir / safe_filename
-                    counter = 1
-                    while new_final_path.exists():
-                        name, ext = os.path.splitext(safe_filename)
-                        safe_filename = f"{name}_{counter}{ext}"
-                        new_final_path = download_dir / safe_filename
-                        counter += 1
+                    new_final_path = get_unique_filepath(download_dir / safe_filename)
                     
                     # 파일명 변경
                     os.rename(final_file_path, new_final_path)
                     final_file_path = new_final_path
-                    print(f"[LOG] 임시 파일명에서 실제 파일명으로 변경: {current_path.name} -> {safe_filename}")
+                    print(f"[LOG] 임시 파일명에서 실제 파일명으로 변경: {current_path.name} -> {new_final_path.name}")
                     
             except Exception as e:
                 print(f"[LOG] 파일명 변경 실패 (임시 파일명 유지): {e}")
@@ -823,19 +837,23 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         # 파일 크기 포맷팅
         file_size_str = "알 수 없음"
         if req.total_size:
-            if req.total_size >= 1024*1024*1024:  # GB
-                file_size_str = f"{req.total_size/(1024*1024*1024):.2f} GB"
-            elif req.total_size >= 1024*1024:  # MB
-                file_size_str = f"{req.total_size/(1024*1024):.2f} MB"
-            elif req.total_size >= 1024:  # KB
-                file_size_str = f"{req.total_size/1024:.2f} KB"
-            else:
-                file_size_str = f"{req.total_size} B"
-        
-        # 완료 시간 포맷팅
+            file_size_str = format_file_size(req.total_size)
+
+        # 시간 포맷팅
+        import datetime
+        requested_time_str = None
+        if req.requested_at:
+            requested_time_str = req.requested_at.strftime("%H:%M:%S")
+
         download_time_str = None
         if req.finished_at:
             download_time_str = req.finished_at.strftime("%H:%M:%S")
+        
+        elapsed_time_str = "알 수 없음"
+        if req.requested_at and req.finished_at:
+            elapsed_seconds = (req.finished_at - req.requested_at).total_seconds()
+            if elapsed_seconds >= 0:
+                elapsed_time_str = str(datetime.timedelta(seconds=int(elapsed_seconds)))
         
         # 저장 경로
         save_path_str = req.save_path or "기본경로"
@@ -847,7 +865,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             lang,
             file_size=file_size_str,
             download_time=download_time_str,
-            save_path=save_path_str
+            save_path=save_path_str,
+            requested_time=requested_time_str,
+            elapsed_time=elapsed_time_str
         )
         
         # WebSocket으로 완료 상태 전송
