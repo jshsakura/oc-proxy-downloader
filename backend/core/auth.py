@@ -26,7 +26,7 @@ AUTHENTICATION_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
 if not AUTHENTICATION_ENABLED:
     # 임시 테스트 계정 설정
     AUTH_USERNAME = AUTH_USERNAME or 'admin'
-    AUTH_PASSWORD = AUTH_PASSWORD or 'test123'
+    AUTH_PASSWORD = AUTH_PASSWORD or 'admin'
     AUTHENTICATION_ENABLED = True
     print(f"[개발모드] 임시 로그인 활성화 - 사용자명: {AUTH_USERNAME}, 비밀번호: {AUTH_PASSWORD}")
 
