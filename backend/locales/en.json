@@ -19,6 +19,7 @@
   "table_header_status": "Status",
   "table_header_size": "Size",
   "table_header_progress": "Progress",
+  "table_header_speed": "Speed",
   "table_header_requested_date": "Requested Date",
   "table_header_requested_time": "Requested Time",
   "table_header_actions": "Actions",

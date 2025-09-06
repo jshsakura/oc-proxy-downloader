@@ -21,6 +21,7 @@
   "table_header_requested_date": "요청 일자",
   "table_header_requested_time": "요청 시간",
   "table_header_progress": "진행률",
+  "table_header_speed": "속도",
   "table_header_actions": "작업",
   "pagination_previous": "이전",
   "pagination_next": "다음",

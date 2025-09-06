@@ -158,7 +158,102 @@
     const unsubscribe = t.subscribe((t_func) => {
       document.title = t_func("title");
     });
+
+    // 테이블 컬럼 리사이징 기능 추가
+    const cleanupResize = initTableColumnResize();
+    
+    // cleanup 함수를 onDestroy에 등록
+    return () => {
+      cleanupResize && cleanupResize();
+    };
   });
+
+  function initTableColumnResize() {
+    let isResizing = false;
+    let currentColumn = null;
+    let startX = 0;
+    let startWidth = 0;
+
+    // 마우스 다운 이벤트 (리사이징 시작)
+    function handleMouseDown(e) {
+      // 테이블 헤더의 :after 가상 요소 영역인지 확인
+      const th = e.target.closest('th');
+      if (!th || !th.closest('table')) return;
+      
+      const rect = th.getBoundingClientRect();
+      const isInResizeArea = e.clientX > rect.right - 10 && e.clientX <= rect.right;
+      
+      if (isInResizeArea && th.nextElementSibling) {
+        isResizing = true;
+        currentColumn = th;
+        startX = e.clientX;
+        startWidth = th.offsetWidth;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+
+    // 마우스 이동 이벤트 (리사이징 중)
+    function handleMouseMove(e) {
+      if (!isResizing || !currentColumn) {
+        // 리사이징 중이 아닐 때 커서 변경
+        const th = e.target.closest('th');
+        if (th && th.closest('table')) {
+          const rect = th.getBoundingClientRect();
+          const isInResizeArea = e.clientX > rect.right - 10 && e.clientX <= rect.right;
+          document.body.style.cursor = isInResizeArea && th.nextElementSibling ? 'col-resize' : '';
+        }
+        return;
+      }
+      
+      const diff = e.clientX - startX;
+      const newWidth = Math.max(50, startWidth + diff);
+      
+      // 헤더 너비 설정
+      currentColumn.style.width = newWidth + 'px';
+      currentColumn.style.minWidth = newWidth + 'px';
+      currentColumn.style.maxWidth = newWidth + 'px';
+      
+      // 같은 컬럼의 모든 td에도 동일한 너비 적용
+      const columnIndex = Array.from(currentColumn.parentElement.children).indexOf(currentColumn);
+      const table = currentColumn.closest('table');
+      const rows = table.querySelectorAll('tbody tr');
+      rows.forEach(row => {
+        const td = row.children[columnIndex];
+        if (td) {
+          td.style.width = newWidth + 'px';
+          td.style.minWidth = newWidth + 'px';
+          td.style.maxWidth = newWidth + 'px';
+        }
+      });
+      
+      e.preventDefault();
+    }
+
+    // 마우스 업 이벤트 (리사이징 종료)
+    function handleMouseUp() {
+      if (isResizing) {
+        isResizing = false;
+        currentColumn = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    }
+
+    // 이벤트 리스너 등록
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    
+    // cleanup 함수 반환 (컴포넌트 해제 시 사용)
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }
 
   onDestroy(() => {
     // WebSocket 정리
@@ -325,7 +420,8 @@
               ? { ...d, 
                   downloaded_size: progressData.downloaded_size,
                   total_size: progressData.total_size,
-                  progress: progressData.progress 
+                  progress: progressData.progress,
+                  download_speed: progressData.download_speed || 0
                 }
               : d
           );
@@ -691,6 +787,15 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
   }
 
+  function formatSpeed(bytesPerSecond) {
+    if (!bytesPerSecond || bytesPerSecond === 0) return "0 B/s";
+    const k = 1024;
+    const sizes = ["B/s", "KB/s", "MB/s", "GB/s"];
+    const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
+    const speed = (bytesPerSecond / Math.pow(k, i)).toFixed(i >= 2 ? 2 : 1);
+    return speed + " " + sizes[i];
+  }
+
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
     
@@ -748,19 +853,23 @@
     if (!dateString) return "-";
     const currentLocale = localStorage.getItem('lang') || 'en';
     const date = new Date(dateString);
-    const localeCode = currentLocale === 'ko' ? 'ko-KR' : 'en-US';
+    const today = new Date();
     
-    if (currentLocale === 'ko') {
-      return date.toLocaleDateString(localeCode, {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
+    // 오늘이면 시간만 표시
+    if (date.toDateString() === today.toDateString()) {
+      return date.toLocaleTimeString(currentLocale === 'ko' ? 'ko-KR' : 'en-US', {
+        hour: '2-digit',
+        minute: '2-digit'
       });
+    }
+    
+    // 다른 날이면 간단한 날짜 형식
+    if (currentLocale === 'ko') {
+      return `${date.getMonth() + 1}월 ${date.getDate()}일`;
     } else {
-      return date.toLocaleDateString(localeCode, {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric'
       });
     }
   }
@@ -783,7 +892,7 @@
 
   function getDownloadProgress(download) {
     if (download.progress !== undefined && download.progress !== null) {
-      return Math.round(download.progress);
+      return Math.round(download.progress * 2) / 2; // 0.5% 단위로 반올림
     }
     
     const downloaded = Number(
@@ -937,7 +1046,15 @@
         ["pending", "downloading", "proxying", "stopped", "failed"].includes(d.status?.toLowerCase?.() || "")
       );
     } else {
-      return downloads.filter(d => (d.status?.toLowerCase?.() || "") === "done");
+      // 완료 탭: 완료 시간 기준으로 역순 정렬 (최신 완료 먼저)
+      return downloads
+        .filter(d => (d.status?.toLowerCase?.() || "") === "done")
+        .sort((a, b) => {
+          // completed_at이 있으면 그것으로, 없으면 updated_at으로 정렬
+          const aTime = new Date(a.completed_at || a.updated_at || 0);
+          const bTime = new Date(b.completed_at || b.updated_at || 0);
+          return bTime - aTime; // 역순 정렬 (최신이 먼저)
+        });
     }
   })();
 
@@ -1128,7 +1245,10 @@
               <th>{$t("table_header_file_name")}</th>
               <th class="center-align">{$t("table_header_status")}</th>
               <th class="center-align">{$t("table_header_size")}</th>
-              <th class="center-align">{$t("table_header_progress")}</th>
+              {#if currentTab !== "completed"}
+                <th class="center-align">{$t("table_header_progress")}</th>
+                <th class="center-align">{$t("table_header_speed")}</th>
+              {/if}
               <th class="center-align">{$t("table_header_requested_date")}</th>
               <th class="center-align">{$t("table_header_proxy")}</th>
               <th class="center-align actions-header">{$t("table_header_actions")}</th>
@@ -1137,7 +1257,7 @@
           <tbody>
             {#if isDownloadsLoading}
               <tr>
-                <td colspan="7">
+                <td colspan="{currentTab === 'completed' ? '6' : '8'}">
                   <div class="table-loading-container">
                     <div class="modal-spinner"></div>
                     <div class="modal-loading-text">{$t("loading")}</div>
@@ -1146,7 +1266,7 @@
               </tr>
             {:else if filteredDownloads.length === 0}
               <tr class="empty-row">
-                <td colspan="7" class="no-downloads-message">
+                <td colspan="{currentTab === 'completed' ? '6' : '8'}" class="no-downloads-message">
                   {currentTab === "working" ? $t("no_working_downloads") : $t("no_completed_downloads")}
                 </td>
               </tr>
@@ -1180,17 +1300,28 @@
                   <td class="center-align">
                     {download.file_size || (download.total_size ? formatBytes(download.total_size) : "-")}
                   </td>
-                  <td class="center-align">
-                    <div class="progress-container">
-                      <div
-                        class="progress-bar"
-                        style="width: {getDownloadProgress(download)}%"
-                      ></div>
-                      <span class="progress-text">
-                        {getDownloadProgress(download)}%
-                      </span>
-                    </div>
-                  </td>
+                  {#if currentTab !== "completed"}
+                    <td class="center-align">
+                      <div class="progress-container">
+                        <div
+                          class="progress-bar"
+                          style="width: {getDownloadProgress(download)}%"
+                        ></div>
+                        <span class="progress-text">
+                          {getDownloadProgress(download)}%
+                        </span>
+                      </div>
+                    </td>
+                    <td class="center-align speed-cell">
+                      {#if download.download_speed && (download.status.toLowerCase() === 'downloading' || download.status.toLowerCase() === 'proxying')}
+                        <span class="speed-text">
+                          {formatSpeed(download.download_speed)}
+                        </span>
+                      {:else}
+                        <span class="speed-text-empty">-</span>
+                      {/if}
+                    </td>
+                  {/if}
                   <td class="center-align" title={formatFullDateTime(download.requested_at)}>
                     {formatDate(download.requested_at)}
                   </td>

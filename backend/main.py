@@ -216,6 +216,32 @@ async def lifespan(app: FastAPI):
         if len(downloading_requests) > 0:
             print(f"[LOG] 서버 재시작: {len(downloading_requests)}개의 진행 중 다운로드를 stopped로 변경")
         
+        # 서버 시작 시 pending 상태인 다운로드들을 자동으로 시작
+        pending_requests = db.query(DownloadRequest).filter(
+            DownloadRequest.status == StatusEnum.pending
+        ).all()
+        
+        if len(pending_requests) > 0:
+            print(f"[LOG] 서버 시작 시 {len(pending_requests)}개의 대기 중인 다운로드 발견")
+            db.close()
+            
+            # 잠시 대기 후 대기 중인 다운로드들 시작 (서버 완전 초기화 대기)
+            def start_pending_downloads():
+                import time
+                time.sleep(2)  # 서버 초기화 완료 대기
+                try:
+                    from core.shared import download_manager
+                    download_manager.check_and_start_waiting_downloads()
+                    print(f"[LOG] 서버 시작 시 대기 중인 다운로드 시작 완료")
+                except Exception as e:
+                    print(f"[LOG] 서버 시작 시 대기 다운로드 시작 실패: {e}")
+            
+            import threading
+            threading.Thread(target=start_pending_downloads, daemon=True).start()
+        else:
+            db.close()
+            print(f"[LOG] 서버 시작 시 대기 중인 다운로드 없음")
+        
     yield
     
     # Shutdown

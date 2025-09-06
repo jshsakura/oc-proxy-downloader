@@ -616,7 +616,7 @@ th {
   top: 0;
   z-index: 100;
   text-transform: uppercase;
-  resize: horizontal;
+  resize: none;
   overflow: hidden;
   height: 48px;
   box-sizing: border-box;
@@ -632,8 +632,8 @@ tbody tr:hover {
   background-color: rgba(var(--primary-color-rgb), 0.05);
 }
 .filename {
-  max-width: 500px;
-  min-width: 300px;
+  max-width: 250px;
+  min-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -757,6 +757,80 @@ tbody tr:hover {
   font-weight: 600;
   font-size: 0.8rem;
   z-index: 2;
+}
+
+.speed-cell {
+  min-width: 80px;
+  max-width: 100px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.speed-text {
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.speed-text-empty {
+  color: var(--text-secondary);
+}
+
+/* 컬럼 기본 너비 설정 (조정 가능) */
+table th:nth-child(1), table td:nth-child(1) { /* 파일명 */
+  min-width: 150px;
+  max-width: 300px;
+}
+table th:nth-child(2), table td:nth-child(2) { /* 상태 */
+  min-width: 100px;
+  width: 120px;
+}
+table th:nth-child(3), table td:nth-child(3) { /* 크기 */
+  min-width: 80px;
+  width: 90px;
+}
+table th:nth-child(4), table td:nth-child(4) { /* 진행률 */
+  min-width: 120px;
+  width: 140px;
+}
+table th:nth-child(5), table td:nth-child(5) { /* 속도 */
+  min-width: 80px;
+  width: 90px;
+}
+table th:nth-child(6), table td:nth-child(6) { /* 요청일자 */
+  min-width: 70px;
+  width: 80px;
+}
+table th:nth-child(7), table td:nth-child(7) { /* 프록시 */
+  min-width: 60px;
+  width: 70px;
+}
+table th:nth-child(8), table td:nth-child(8) { /* 작업 */
+  min-width: 100px;
+  width: 120px;
+}
+
+/* 컬럼 리사이징을 위한 헤더 스타일 */
+th {
+  position: relative;
+  user-select: none;
+}
+
+th:not(:last-child):after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 10px;
+  cursor: col-resize;
+  z-index: 2;
+  background-color: transparent;
+  transition: background-color 0.2s ease;
+}
+
+th:not(:last-child):hover:after {
+  background-color: var(--primary-color);
+  opacity: 0.2;
 }
 .button {
   display: inline-flex;
@@ -985,28 +1059,28 @@ html[data-theme="dark"] {
 }
 
 /* Responsive Modal Sizes */
-.modal {
+.modal, .modern-modal {
   width: 90vw;
   max-width: 600px; /* Default size */
 }
 
 /* Large screens */
 @media (min-width: 1200px) {
-  .modal {
+  .modal, .modern-modal {
     max-width: 800px;
   }
 }
 
 /* Medium screens */
 @media (min-width: 768px) and (max-width: 1199px) {
-  .modal {
+  .modal, .modern-modal {
     max-width: 700px;
   }
 }
 
 /* Small screens */
 @media (max-width: 767px) {
-  .modal {
+  .modal, .modern-modal {
     width: 95vw;
     max-width: none;
     margin: 1rem;

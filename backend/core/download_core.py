@@ -284,19 +284,25 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         # 프록시가 아닌 경우 다운로드 제한 체크
         if not use_proxy:
             if not download_manager.can_start_download(req.url):
-                print(f"[LOG] 다운로드 제한에 걸림. 대기 상태로 설정: ID {request_id}")
-                req.status = StatusEnum.pending
-                db.commit()
+                # 사용자가 명시적으로 정지한 경우는 대기 상태로 변경하지 않음
+                db.refresh(req)
+                if req.status != StatusEnum.stopped:
+                    print(f"[LOG] 다운로드 제한에 걸림. 대기 상태로 설정: ID {request_id}")
+                    req.status = StatusEnum.pending
+                    db.commit()
+                else:
+                    print(f"[LOG] 다운로드가 정지 상태이므로 제한 확인 생략: ID {request_id}")
+                    return
                 
-                # WebSocket으로 대기 상태 알림
-                send_websocket_message("status_update", {
-                    "id": req.id,
-                    "url": req.url,
-                    "file_name": req.file_name,
-                    "status": "pending", 
-                    "message": "다운로드 대기 중",
-                    "requested_at": req.requested_at.isoformat() if req.requested_at else None
-                })
+                    # WebSocket으로 대기 상태 알림
+                    send_websocket_message("status_update", {
+                        "id": req.id,
+                        "url": req.url,
+                        "file_name": req.file_name,
+                        "status": "pending", 
+                        "message": "다운로드 대기 중",
+                        "requested_at": req.requested_at.isoformat() if req.requested_at else None
+                    })
                 
                 # 매니저가 자동으로 시작해주므로 여기서는 그냥 종료
                 print(f"[LOG] 매니저의 자동 시작 기능에 의해 대기: ID {request_id}")
@@ -320,12 +326,23 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         print(f"[DEBUG] req.file_name.strip()이 비어있나: {req.file_name.strip() == '' if req.file_name else 'N/A'}")
         
         # DB에서 가져온 파일명이 있으면 그것을 사용, 없으면 fallback
+        print(f"[CRITICAL_DEBUG] === 파일명 결정 로직 ===")
+        print(f"[CRITICAL_DEBUG] request_id: {request_id}")
+        print(f"[CRITICAL_DEBUG] req.file_name 원본: '{req.file_name}' (type: {type(req.file_name)})")
+        print(f"[CRITICAL_DEBUG] req.file_name is None: {req.file_name is None}")
+        print(f"[CRITICAL_DEBUG] req.file_name == '': {req.file_name == '' if req.file_name is not None else 'N/A'}")
+        if req.file_name:
+            print(f"[CRITICAL_DEBUG] req.file_name.strip(): '{req.file_name.strip()}' (길이: {len(req.file_name.strip())})")
+            print(f"[CRITICAL_DEBUG] req.file_name.strip() == '': {req.file_name.strip() == ''}")
+        print(f"[CRITICAL_DEBUG] 조건 (req.file_name and req.file_name.strip()): {bool(req.file_name and req.file_name.strip())}")
+        
         if req.file_name and req.file_name.strip():
             base_filename = req.file_name.strip()
-            print(f"[LOG] ★ DB에서 가져온 파일명 사용: '{base_filename}'")
+            print(f"[LOG] ★★★ DB에서 가져온 파일명 사용: '{base_filename}' ★★★")
         else:
             base_filename = f"1fichier_{request_id}.unknown"
-            print(f"[LOG] ★ DB에 파일명이 없어서 fallback 사용: '{base_filename}'")
+            print(f"[LOG] ★★★ DB에 파일명이 없어서 fallback 사용: '{base_filename}' ★★★")
+            print(f"[CRITICAL_DEBUG] === 이 경우는 사전파싱 실패를 의미함! ===")
         print(f"[DEBUG] 결정된 base_filename: '{base_filename}'")
         
         # Windows에서 파일명에 사용할 수 없는 문자 제거 (간단하게)
@@ -620,6 +637,40 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         # 파일 정리 먼저 수행 (.part 제거)
         final_file_path = cleanup_download_file(file_path)
         
+        # 실제 파일명이 있고 현재 파일명이 임시 파일명인 경우 실제 파일명으로 변경
+        if (req.file_name and req.file_name.strip() and 
+            not req.file_name.startswith('1fichier_') and 
+            not req.file_name.endswith('.unknown') and
+            final_file_path and '1fichier_' in str(final_file_path)):
+            
+            try:
+                from pathlib import Path
+                
+                current_path = Path(final_file_path)
+                download_dir = current_path.parent
+                
+                # 안전한 파일명 생성
+                safe_filename = re.sub(r'[<>:"/\\|?*]', '_', req.file_name.strip())
+                safe_filename = safe_filename.strip('. ')
+                
+                if safe_filename:
+                    # 중복 파일명 방지
+                    new_final_path = download_dir / safe_filename
+                    counter = 1
+                    while new_final_path.exists():
+                        name, ext = os.path.splitext(safe_filename)
+                        safe_filename = f"{name}_{counter}{ext}"
+                        new_final_path = download_dir / safe_filename
+                        counter += 1
+                    
+                    # 파일명 변경
+                    os.rename(final_file_path, new_final_path)
+                    final_file_path = new_final_path
+                    print(f"[LOG] 임시 파일명에서 실제 파일명으로 변경: {current_path.name} -> {safe_filename}")
+                    
+            except Exception as e:
+                print(f"[LOG] 파일명 변경 실패 (임시 파일명 유지): {e}")
+        
         # DB 업데이트
         req.status = StatusEnum.done
         import datetime
@@ -699,7 +750,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     
                 else:
                     # 1fichier 자동 재시도 체크 (파일명과 용량이 있으면)
-                    if should_1fichier_auto_retry(req.url, req.file_name, req.file_size, fichier_retry_count, str(e)):
+                    # 단, 사용자가 명시적으로 정지한 경우는 재시도하지 않음
+                    db.refresh(req)
+                    if req.status != StatusEnum.stopped and should_1fichier_auto_retry(req.url, req.file_name, req.file_size, fichier_retry_count, str(e)):
                         new_fichier_retry_count = fichier_retry_count + 1
                         print(f"[LOG] 1fichier 자동 재시도 시작: {new_fichier_retry_count}/10")
                         
@@ -1127,22 +1180,53 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                     return
                             
                             # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
-                            if downloaded - last_update_size >= 10485760:  # 10MB마다 로그 출력
+                            # 진행률 및 속도 계산
+                            progress = (downloaded / total_size * 100) if total_size > 0 else 0
+                            current_percent_for_log = int(progress // 5) * 5  # 5% 단위 (로그용)
+                            current_percent_for_ui = int(progress * 2) / 2  # 0.5% 단위 (UI 업데이트용)
+                            
+                            # 속도 계산을 위한 시간 추적
+                            current_time = time.time()
+                            if not hasattr(req, '_speed_start_time'):
+                                req._speed_start_time = current_time
+                                req._speed_start_bytes = downloaded
+                            
+                            if downloaded - last_update_size >= 10485760 or current_percent_for_ui != getattr(req, '_last_ui_percent', 0):  # 10MB마다 또는 0.5% 단위로 업데이트
                                 req.downloaded_size = downloaded
                                 db.commit()
                                 last_update_size = downloaded
                                 
-                                progress = (downloaded / total_size * 100) if total_size > 0 else 0
-                                print(f"[LOG] 프록시 진행률: {progress:.1f}% ({downloaded}/{total_size})")
+                                # 5% 단위로만 로그 출력 (속도 포함)
+                                if current_percent_for_log != getattr(req, '_last_logged_percent', 0) and current_percent_for_log % 5 == 0 and current_percent_for_log > 0:
+                                    req._last_logged_percent = current_percent_for_log
+                                    # 속도 계산 (로그용)
+                                    time_elapsed = current_time - req._speed_start_time
+                                    if time_elapsed > 0:
+                                        bytes_diff = downloaded - req._speed_start_bytes
+                                        download_speed = bytes_diff / time_elapsed
+                                        speed_mb = download_speed / (1024 * 1024)
+                                        print(f"[LOG] 프록시 진행률: {current_percent_for_log}% ({downloaded}/{total_size}) - 속도: {speed_mb:.2f}MB/s")
+                                        req._speed_start_time = current_time
+                                        req._speed_start_bytes = downloaded
                                 
-                                # WebSocket으로 실시간 진행률 전송 (로그 제거)
-                                send_websocket_message("progress_update", {
-                                    "id": req.id,
-                                    "downloaded_size": downloaded,
-                                    "total_size": total_size,
-                                    "progress": round(progress, 1),
-                                    "status": "downloading"
-                                })
+                                # 1% 단위로 WebSocket 업데이트 (화면 업데이트, 속도 포함)
+                                if current_percent_for_ui != getattr(req, '_last_ui_percent', 0):
+                                    req._last_ui_percent = current_percent_for_ui
+                                    # 속도 계산 (UI용)
+                                    time_elapsed = current_time - req._speed_start_time
+                                    download_speed = 0
+                                    if time_elapsed > 0:
+                                        bytes_diff = downloaded - req._speed_start_bytes
+                                        download_speed = bytes_diff / time_elapsed
+                                    
+                                    send_websocket_message("progress_update", {
+                                        "id": req.id,
+                                        "downloaded_size": downloaded,
+                                        "total_size": total_size,
+                                        "progress": round(progress, 1),
+                                        "download_speed": round(download_speed, 0),
+                                        "status": "downloading"
+                                    })
                     
                     req.downloaded_size = downloaded
                     db.commit()
@@ -1394,22 +1478,53 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                     return
                             
                             # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
-                            if downloaded - last_update_size >= 10485760:  # 10MB마다 로그 출력
+                            # 진행률 및 속도 계산
+                            progress = (downloaded / total_size * 100) if total_size > 0 else 0
+                            current_percent_for_log = int(progress // 5) * 5  # 5% 단위 (로그용)
+                            current_percent_for_ui = int(progress * 2) / 2  # 0.5% 단위 (UI 업데이트용)
+                            
+                            # 속도 계산을 위한 시간 추적
+                            current_time = time.time()
+                            if not hasattr(req, '_local_speed_start_time'):
+                                req._local_speed_start_time = current_time
+                                req._local_speed_start_bytes = downloaded
+                            
+                            if downloaded - last_update_size >= 10485760 or current_percent_for_ui != getattr(req, '_last_ui_percent', 0):  # 10MB마다 또는 0.5% 단위로 업데이트
                                 req.downloaded_size = downloaded
                                 db.commit()
                                 last_update_size = downloaded
                                 
-                                progress = (downloaded / total_size * 100) if total_size > 0 else 0
-                                print(f"[LOG] 로컬 진행률: {progress:.1f}% ({downloaded}/{total_size})")
+                                # 5% 단위로만 로그 출력 (속도 포함)
+                                if current_percent_for_log != getattr(req, '_last_logged_percent', 0) and current_percent_for_log % 5 == 0 and current_percent_for_log > 0:
+                                    req._last_logged_percent = current_percent_for_log
+                                    # 속도 계산 (로그용)
+                                    time_elapsed = current_time - req._local_speed_start_time
+                                    if time_elapsed > 0:
+                                        bytes_diff = downloaded - req._local_speed_start_bytes
+                                        download_speed = bytes_diff / time_elapsed
+                                        speed_mb = download_speed / (1024 * 1024)
+                                        print(f"[LOG] 로컬 진행률: {current_percent_for_log}% ({downloaded}/{total_size}) - 속도: {speed_mb:.2f}MB/s")
+                                        req._local_speed_start_time = current_time
+                                        req._local_speed_start_bytes = downloaded
                                 
-                                # WebSocket으로 실시간 진행률 전송 (로그 제거)
-                                send_websocket_message("progress_update", {
-                                    "id": req.id,
-                                    "downloaded_size": downloaded,
-                                    "total_size": total_size,
-                                    "progress": round(progress, 1),
-                                    "status": "downloading"
-                                })
+                                # 1% 단위로 WebSocket 업데이트 (화면 업데이트, 속도 포함)
+                                if current_percent_for_ui != getattr(req, '_last_ui_percent', 0):
+                                    req._last_ui_percent = current_percent_for_ui
+                                    # 속도 계산 (UI용)
+                                    time_elapsed = current_time - req._local_speed_start_time
+                                    download_speed = 0
+                                    if time_elapsed > 0:
+                                        bytes_diff = downloaded - req._local_speed_start_bytes
+                                        download_speed = bytes_diff / time_elapsed
+                                    
+                                    send_websocket_message("progress_update", {
+                                        "id": req.id,
+                                        "downloaded_size": downloaded,
+                                        "total_size": total_size,
+                                        "progress": round(progress, 1),
+                                        "download_speed": round(download_speed, 0),
+                                        "status": "downloading"
+                                    })
                     
                     req.downloaded_size = downloaded
                     db.commit()
