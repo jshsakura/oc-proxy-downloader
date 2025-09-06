@@ -1245,8 +1245,8 @@
               <th>{$t("table_header_file_name")}</th>
               <th class="center-align">{$t("table_header_status")}</th>
               <th class="center-align">{$t("table_header_size")}</th>
+              <th class="center-align">{$t("table_header_progress")}</th>
               {#if currentTab !== "completed"}
-                <th class="center-align">{$t("table_header_progress")}</th>
                 <th class="center-align">{$t("table_header_speed")}</th>
               {/if}
               <th class="center-align">{$t("table_header_requested_date")}</th>
@@ -1257,7 +1257,7 @@
           <tbody>
             {#if isDownloadsLoading}
               <tr>
-                <td colspan="{currentTab === 'completed' ? '6' : '8'}">
+                <td colspan="{currentTab === 'completed' ? '7' : '8'}">
                   <div class="table-loading-container">
                     <div class="modal-spinner"></div>
                     <div class="modal-loading-text">{$t("loading")}</div>
@@ -1266,7 +1266,7 @@
               </tr>
             {:else if filteredDownloads.length === 0}
               <tr class="empty-row">
-                <td colspan="{currentTab === 'completed' ? '6' : '8'}" class="no-downloads-message">
+                <td colspan="{currentTab === 'completed' ? '7' : '8'}" class="no-downloads-message">
                   {currentTab === "working" ? $t("no_working_downloads") : $t("no_completed_downloads")}
                 </td>
               </tr>
@@ -1300,18 +1300,18 @@
                   <td class="center-align">
                     {download.file_size || (download.total_size ? formatBytes(download.total_size) : "-")}
                   </td>
+                  <td class="center-align">
+                    <div class="progress-container">
+                      <div
+                        class="progress-bar"
+                        style="width: {currentTab === 'completed' ? '100' : getDownloadProgress(download)}%"
+                      ></div>
+                      <span class="progress-text">
+                        {currentTab === 'completed' ? '100' : getDownloadProgress(download)}%
+                      </span>
+                    </div>
+                  </td>
                   {#if currentTab !== "completed"}
-                    <td class="center-align">
-                      <div class="progress-container">
-                        <div
-                          class="progress-bar"
-                          style="width: {getDownloadProgress(download)}%"
-                        ></div>
-                        <span class="progress-text">
-                          {getDownloadProgress(download)}%
-                        </span>
-                      </div>
-                    </td>
                     <td class="center-align speed-cell">
                       {#if download.download_speed && (download.status.toLowerCase() === 'downloading' || download.status.toLowerCase() === 'proxying')}
                         <span class="speed-text">
