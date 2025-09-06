@@ -317,11 +317,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(
-      90deg,
-      rgba(129, 199, 132, 0.3) 0%,
-      rgba(129, 199, 132, 0.2) 100%
-    );
+    background: var(--card-border);
     z-index: 0;
   }
 
