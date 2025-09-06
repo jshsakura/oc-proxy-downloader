@@ -476,9 +476,9 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     
     print(f"[LOG] 다운로드 상태를 stopped로 변경 완료: ID {download_id}")
     
-    # 정지 후 다운로드 매니저에서 해제 (대기 중인 다운로드 시작을 위해)
+    # 정지 후 다운로드 매니저에서 해제 (정지 시에는 자동 시작 안 함)
     from .shared import download_manager
-    download_manager.unregister_download(download_id)
+    download_manager.unregister_download(download_id, auto_start_next=False)
     
     # WebSocket으로 상태 업데이트 알림
     try:

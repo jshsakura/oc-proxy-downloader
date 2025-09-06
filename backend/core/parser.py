@@ -599,17 +599,15 @@ class FichierParser:
                 'type': None
             }
             
-            # 파일명 추출 시도 (정확한 1fichier 구조 기반)
+            # 파일명 추출 시도 (단순하고 확실한 방법)
             name_selectors = [
-                # QR코드 테이블의 정확한 파일명 위치 (최우선) - 예: Assassin's Creed Valhalla...
-                '//table[contains(@class, "premium")]//tr[td//img[contains(@src, "qr.pl")]]//td[@class="normal"]//span[@style="font-weight:bold"]/text()',
-                '//table[contains(@class, "premium")]//tr[td[@rowspan]]//td[@class="normal"]//span[@style="font-weight:bold"]/text()',
-                
-                # 파일명이 볼드체로 되어 있는 정확한 위치
-                '//table[contains(@class, "premium")]//td[@class="normal"]//span[@style="font-weight:bold"]/text()',
-                '//table[contains(@class, "premium")]//span[@style="font-weight:bold"]/text()',
-                
-                # 메타 태그 (안전한 백업)
+                # 가장 확실한: 볼드체 스팬 중에서 점이 있는 것 (파일명)
+                '//span[@style="font-weight:bold"]/text()',
+                # 테이블 내의 볼드체
+                '//table//span[@style="font-weight:bold"]/text()',
+                # td.normal 내의 볼드체
+                '//td[@class="normal"]//span[@style="font-weight:bold"]/text()',
+                # 메타 태그 백업
                 '//meta[@property="og:title"]/@content',
                 '//title/text()'
             ]
@@ -631,58 +629,23 @@ class FichierParser:
                                 continue
                         
                         text = text.strip()
-                        # 더 정교한 파일명 검증 (광고 텍스트 필터링 강화)
+                        # 기본적인 파일명 검증 (최소한의 필터링만)
                         if text and len(text) > 3 and len(text) < 200:
-                            # 광고/프로모션 텍스트 제외 (강화된 필터링)
-                            ad_keywords = [
-                                'télécharger', 'click here', 'cliquez', 'http://', 'https://',
-                                'subscription', 'unlimited', 'advertisement', 'captcha',
-                                'concurrent downloads', 'storage space', 'removal', 'www.',
-                                'api support', '€', '$', 'price', 'tarif',
-                                # 1fichier 특화 프로모션 텍스트 필터링
-                                'started on 1fichier.com', '1fichier.com !', 'summer started',
-                                'winter started', 'spring started', 'autumn started',
-                                'season started', 'premium account', 'free account',
-                                'download limit', 'waiting time', 'faster download',
-                                'no limit', 'premium members', 'register now',
-                                'upgrade to premium', 'buy premium', 'go premium'
+                            # 명확한 프로모션/광고 텍스트만 제외 (매우 제한적)
+                            obvious_ads = [
+                                '1fichier.com !',  # 정확한 프로모션 문구
+                                'started on 1fichier.com',  # 정확한 프로모션 문구
+                                'http://', 'https://',  # URL 포함
+                                '€', '$',  # 가격 표시
                             ]
                             
-                            # 프로모션 패턴 강화 검증 (1fichier 특화)
-                            promo_patterns = [
-                                r'.+started on 1fichier\.com.+',  # "Summer started on 1fichier.com !" 패턴
-                                r'.+(summer|winter|spring|autumn|season) started.+',  # 계절 시작 텍스트
-                                r'.+1fichier\.com\s*!+',  # "1fichier.com !" 패턴
-                                r'^\d+\s*(year|month|day|week)s?\s+(ago|since).+',  # 시간 관련 텍스트
-                                r'.+(premium|subscription|account|register|upgrade).+',  # 계정/프리미엄 관련
-                                r'.+(faster|unlimited|no limit|waiting time).+',  # 다운로드 속도 관련
-                                r'^.+\s+(GB|MB|KB|TB)\s+.+$',  # 크기가 중간에 있는 경우 (파일명이 아님)
-                                r'.+\s+started\s+.+',  # "started"가 포함된 모든 텍스트
-                            ]
-                            
-                            # 프로모션 패턴 매칭 시 제외
-                            is_promotional = any(re.match(pattern, text, re.IGNORECASE) for pattern in promo_patterns)
-                            
-                            # 먼저 프로모션 텍스트 강력 필터링 (1fichier 특화)
-                            if ('started' in text.lower() or 
-                                '1fichier.com' in text.lower() or
-                                any(season in text.lower() for season in ['summer', 'winter', 'spring', 'autumn'])):
-                                print(f"[DEBUG] 프로모션 텍스트 제외: {text}")
+                            # 명백한 광고 텍스트만 제외
+                            if any(ad in text for ad in obvious_ads):
+                                print(f"[DEBUG] 명백한 광고 텍스트 제외: {text}")
                                 continue
                             
-                            # 파일 확장자가 있는지 확인 (더 포괄적으로)
-                            if ('.' in text and 
-                                # 일반적인 파일 확장자 패턴
-                                (re.search(r'\.\w{2,5}$', text) or
-                                 # 파일명처럼 보이는 패턴
-                                 re.search(r'\w+\.\w+', text)) and
-                                # 광고/프로모션 텍스트 제외
-                                not any(keyword in text.lower() for keyword in ad_keywords) and
-                                # 프로모션 패턴 제외
-                                not is_promotional and
-                                # 너무 짧거나 의미없는 텍스트 제외
-                                len(text.replace('.', '').replace(' ', '')) > 3):
-                                
+                            # 점이 있는 텍스트면 파일명으로 인정 (확장자 제한 없음)
+                            if '.' in text:
                                 # 타이틀에서 온 경우 정리
                                 if 'title' in selector.lower():
                                     # "filename - 1fichier.com" 형태에서 파일명만 추출

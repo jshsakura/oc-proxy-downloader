@@ -454,8 +454,16 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             print(f"[LOG] 파싱된 파일명 사용: '{req.file_name}'")
 
         # 파일명이 업데이트된 경우 저장 경로도 다시 설정
-        if req.file_name and req.file_name.strip() and not req.file_name.startswith('1fichier_'):
-            print(f"[LOG] 파싱된 파일명으로 저장 경로 재설정: '{req.file_name}'")
+        # 조건: 실제 파일명이 있고, 현재 저장 경로가 임시 파일명을 사용하고 있는 경우
+        current_save_path = req.save_path or ""
+        is_temp_path = ('.unknown' in current_save_path or '1fichier_' in current_save_path)
+        has_real_filename = (req.file_name and req.file_name.strip() and 
+                           not req.file_name.startswith('1fichier_') and 
+                           not req.file_name.endswith('.tmp') and
+                           not req.file_name.endswith('.unknown'))
+        
+        if has_real_filename and (is_temp_path or not current_save_path):
+            print(f"[LOG] 임시 경로에서 실제 파일명으로 경로 재설정: '{req.file_name}'")
             
             # 안전한 파일명 생성
             safe_filename = re.sub(r'[<>:"/\\|?*]', '_', req.file_name.strip())
