@@ -156,6 +156,21 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
         print(f"[WARN] 텔레그램 대기시간 알림 설정 오류: {e}")
 
 
+def utc_to_kst(utc_time_str: str) -> str:
+    """UTC 시간 문자열을 KST로 변환"""
+    try:
+        import datetime
+        # ISO 형식의 UTC 시간을 파싱
+        if utc_time_str.endswith('Z'):
+            utc_time_str = utc_time_str[:-1]
+        
+        utc_dt = datetime.datetime.fromisoformat(utc_time_str)
+        # UTC+9 (한국 시간) 적용
+        kst_dt = utc_dt + datetime.timedelta(hours=9)
+        return kst_dt.strftime("%Y-%m-%d %H:%M:%S")
+    except:
+        return utc_time_str or "알 수 없음"
+
 def send_telegram_notification(file_name: str, status: str, error: str = None, lang: str = "ko", file_size: str = None, download_time: str = None, save_path: str = None, requested_time: str = None, elapsed_time: str = None):
     """텔레그램 알림 전송"""
     try:
@@ -181,7 +196,7 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
         
         # HTML 형식으로 예쁜 메시지 작성
         import datetime
-        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
         
         if status == "done":
             success_text = translations.get("telegram_download_success", "Download Complete")
@@ -844,11 +859,13 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         import datetime
         requested_time_str = None
         if req.requested_at:
-            requested_time_str = req.requested_at.strftime("%H:%M:%S")
+            kst_requested = req.requested_at + datetime.timedelta(hours=9)
+            requested_time_str = kst_requested.strftime("%Y-%m-%d %H:%M:%S")
 
         download_time_str = None
         if req.finished_at:
-            download_time_str = req.finished_at.strftime("%H:%M:%S")
+            kst_finished = req.finished_at + datetime.timedelta(hours=9)
+            download_time_str = kst_finished.strftime("%Y-%m-%d %H:%M:%S")
         
         elapsed_time_str = "알 수 없음"
         if req.requested_at and req.finished_at:
@@ -2239,7 +2256,8 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         
         download_time_str = None
         if req.finished_at:
-            download_time_str = req.finished_at.strftime("%H:%M:%S")
+            kst_finished = req.finished_at + datetime.timedelta(hours=9)
+            download_time_str = kst_finished.strftime("%Y-%m-%d %H:%M:%S")
         
         save_path_str = req.save_path or "기본경로"
         
