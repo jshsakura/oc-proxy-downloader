@@ -237,5 +237,8 @@
   "telegram_guide_step5_detail": "생성한 봇과 채팅을 시작합니다",
   "telegram_guide_step6_detail": "@userinfobot 또는 @get_id_bot을 사용해 채팅 ID를 확인합니다",
   "telegram_guide_group_note": "그룹 알림: 그룹에 봇을 추가하고 그룹 ID를 사용하세요 (음수로 시작)",
-  "telegram_settings": "텔레그램 알림 설정"
+  "telegram_settings": "텔레그램 알림 설정",
+  "local_download_limit_reached": "로컬 다운로드 제한에 도달했습니다 (최대 {limit}개)",
+  "fichier_cooldown_active": "1fichier 쿨다운이 활성화되어 있습니다 ({seconds}초 남음)",
+  "total_download_limit_reached": "전체 다운로드 제한에 도달했습니다 (최대 {limit}개)"
 }

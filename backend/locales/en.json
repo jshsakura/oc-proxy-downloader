@@ -237,5 +237,8 @@
   "telegram_guide_step5_detail": "Start a chat with your created bot",
   "telegram_guide_step6_detail": "Use @userinfobot or @get_id_bot to get your chat ID",
   "telegram_guide_group_note": "Group notifications: Add your bot to the group and use the group ID (starts with negative number)",
-  "telegram_settings": "Telegram Settings"
+  "telegram_settings": "Telegram Settings",
+  "local_download_limit_reached": "Local download limit reached (max {limit})",
+  "fichier_cooldown_active": "1fichier cooldown is active ({seconds}s remaining)",
+  "total_download_limit_reached": "Total download limit reached (max {limit})"
 }
