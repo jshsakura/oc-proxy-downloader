@@ -29,7 +29,7 @@
     class:idle={!localStatus || localDownloadCount === 0}
   >
     {#if localStatus === "waiting"}
-      <span class="status-icon waiting-icon"></span>
+      <span class="status-icon idle-icon"></span>
       <span class="status-text">
         {$t("local_waiting")}
       </span>
@@ -126,7 +126,7 @@
   }
 
   .local-dot.waiting {
-    background-color: #ff9800;
+    background-color: var(--success-color);
     animation: blink 1s infinite;
   }
 
@@ -144,7 +144,7 @@
   }
 
   .local-status {
-    margin-top: 0.5rem;
+    margin-top: 0.7rem;
     padding: 0.5rem 0.75rem;
     border-radius: 8px;
     font-size: 0.8rem;
@@ -153,40 +153,14 @@
     align-items: center;
     gap: 0.5rem;
     transition: background-color 0.3s ease;
-    background-color: var(--card-border);
-    color: var(--text-primary);
-    border: 1px solid var(--card-border);
-  }
-
-  .local-status.downloading {
-    background-color: #81c784;
-    color: white;
-    border: 1px solid #81c784;
-  }
-
-  .local-status.waiting {
-    background-color: #ff9800;
-    color: white;
-    border: 1px solid #ff9800;
-  }
-
-  .local-status.completed {
-    background-color: var(--success-color);
-    color: white;
-    border: 1px solid var(--success-color);
-  }
-
-  .local-status.failed {
-    background-color: var(--danger-color);
-    color: white;
-    border: 1px solid var(--danger-color);
-  }
-
-  .local-status.idle {
     background-color: var(--card-background);
     color: var(--text-secondary);
     border: 1px solid var(--card-border);
-    opacity: 0.7;
+  }
+
+  .local-status {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
   }
 
   .status-icon {
@@ -202,12 +176,6 @@
     border-right: 2px solid currentColor;
     border-radius: 50%;
     animation: spin 1s linear infinite;
-  }
-
-  .waiting-icon {
-    border: 2px solid currentColor;
-    border-radius: 50%;
-    animation: blink 1s infinite;
   }
 
   .completed-icon {
@@ -252,7 +220,7 @@
 
   .idle-icon {
     position: relative;
-    border: 2px solid currentColor;
+    border: 1px solid currentColor;
     border-radius: 50%;
     opacity: 0.5;
   }
@@ -275,17 +243,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .local-status.downloading .status-text,
-  .local-status.waiting .status-text,
-  .local-status.completed .status-text,
-  .local-status.failed .status-text {
-    color: white;
-  }
-
-  .local-status.idle .status-text {
-    color: var(--text-secondary);
   }
 
   .active-downloads {

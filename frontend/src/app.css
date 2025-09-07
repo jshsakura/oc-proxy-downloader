@@ -684,10 +684,16 @@ tbody tr:hover {
 
 .status-pending {
   color: var(--text-primary);
-  background-color: var(--card-border);
-  border: 1px solid var(--input-border);
 }
 .status-pending::before { 
+  background-color: #f97316; /* 주황색 도트 */ 
+  animation: pendingPulse 2s infinite; /* 반짝 효과 */
+}
+
+.status-waiting {
+  color: var(--text-primary);
+}
+.status-waiting::before { 
   background-color: #f97316; /* 주황색 도트 */ 
   animation: pendingPulse 2s infinite; /* 반짝 효과 */
 }
@@ -709,6 +715,12 @@ tbody tr:hover {
   background-color: var(--danger-color);
 }
 .status-failed::before { background-color: #fff; }
+
+.status-parsing {
+  color: #fff;
+  background-color: var(--warning-color); /* Same as proxying */
+}
+.status-parsing::before { background-color: #fff; animation: pulse 2s infinite; }
 
 .status-proxying {
   color: #fff;

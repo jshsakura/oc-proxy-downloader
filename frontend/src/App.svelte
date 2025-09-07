@@ -710,9 +710,7 @@
 
     const localDownloads = downloadsData.filter((d) => !d.use_proxy);
 
-    const activeLocalDownloads = localDownloads.filter((d) =>
-      ["downloading", "pending"].includes(d.status?.toLowerCase())
-    );
+    const activeLocalDownloads = localDownloads;
 
     const currentDownloading = activeLocalDownloads.find(
       (d) => d.status?.toLowerCase() === "downloading"
@@ -941,6 +939,7 @@
 
     const statusTooltips = {
       pending: $t("download_pending"),
+      parsing: $t("download_parsing"),
       proxying: $t("download_proxying"),
       downloading: $t("download_downloading"),
       done: $t("download_done"),
@@ -1180,6 +1179,7 @@
         return [
           "pending",
           "downloading",
+          "parsing",
           "proxying",
           "stopped",
           "failed",
@@ -1468,7 +1468,7 @@
                         </span>
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
-                        {#if downloadProxyInfo[download.id] && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying")}
+                        {#if downloadProxyInfo[download.id] && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying" || download.status.toLowerCase() === "parsing")}
                           <span class="proxy-indicator"></span>
                         {/if}
                       {/if}
@@ -1497,9 +1497,13 @@
                   </td>
                   {#if currentTab !== "completed"}
                     <td class="center-align speed-cell">
-                      {#if download.download_speed && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying")}
+                      {#if download.download_speed && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying" || download.status.toLowerCase() === "parsing")}
                         <span class="speed-text">
                           {formatSpeed(download.download_speed)}
+                        </span>
+                      {:else if ["parsing", "downloading", "proxying", "pending", "waiting"].includes(download.status.toLowerCase())}
+                        <span class="speed-text parsing-indicator {download.status.toLowerCase() === 'proxying' || download.status.toLowerCase() === 'parsing' ? 'proxy-loading' : 'local-loading'}">
+                          <span class="parsing-dots">•••</span>
                         </span>
                       {:else}
                         <span class="speed-text-empty">-</span>
@@ -1522,12 +1526,28 @@
                       title={download.use_proxy
                         ? $t("proxy_mode")
                         : $t("local_mode")}
-                      on:click={() => {
-                        downloads = downloads.map((d) =>
-                          d.id === download.id
-                            ? { ...d, use_proxy: !d.use_proxy }
-                            : d
-                        );
+                      on:click={async () => {
+                        try {
+                          const response = await fetch(`/api/downloads/${download.id}/proxy-toggle`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' }
+                          });
+                          
+                          if (response.ok) {
+                            const result = await response.json();
+                            // 프론트엔드 상태 업데이트
+                            downloads = downloads.map((d) =>
+                              d.id === download.id
+                                ? { ...d, use_proxy: result.use_proxy }
+                                : d
+                            );
+                          } else {
+                            showToastMsg("프록시 모드 변경에 실패했습니다.", "error");
+                          }
+                        } catch (error) {
+                          console.error("프록시 토글 오류:", error);
+                          showToastMsg("프록시 모드 변경 중 오류가 발생했습니다.", "error");
+                        }
                       }}
                       aria-label={download.use_proxy
                         ? $t("proxy_mode")
@@ -1985,6 +2005,7 @@
     }
   }
 
+  .status-parsing.interactive-status,
   .status-proxying.interactive-status,
   .status-downloading.interactive-status {
     animation: pulse 2s ease-in-out infinite;
@@ -1997,9 +2018,13 @@
       transform: scale(1);
     }
     50% {
-      opacity: 0.8;
-      transform: scale(1.02);
+      opacity: 0.9;
+      transform: scale(1.005);
     }
+  }
+
+  .status-parsing.interactive-status {
+    border: 1px solid var(--warning-color);
   }
 
   .status-proxying.interactive-status {
@@ -2469,5 +2494,29 @@
     background: var(--button-secondary-background-hover);
     transform: translateY(-1px);
     box-shadow: var(--shadow-light);
+  }
+
+  /* Parsing status loading animation */
+  .parsing-indicator {
+    font-weight: 500;
+  }
+
+  .parsing-indicator.proxy-loading {
+    color: var(--warning-color); /* 프록시/파싱 상태는 warning 색상 */
+  }
+
+  .parsing-indicator.local-loading {
+    color: var(--primary-color); /* 다운로드/대기 상태는 속도 색상과 동일 */
+  }
+
+  .parsing-dots {
+    animation: parsing-loading 1.5s infinite;
+    display: inline-block;
+  }
+
+  @keyframes parsing-loading {
+    0% { opacity: 0.3; }
+    50% { opacity: 1; }
+    100% { opacity: 0.3; }
   }
 </style>

@@ -584,6 +584,15 @@
     background-color: #fff;
   }
 
+  .status-parsing {
+    color: #fff;
+    background-color: var(--warning-color); /* Same as proxying */
+  }
+  .status-parsing::before {
+    background-color: #fff;
+    animation: pulse 2s infinite;
+  }
+
   .status-proxying {
     color: #fff;
     background-color: var(--warning-color);
@@ -626,6 +635,11 @@
 
   .status-badge.status-done {
     background: var(--success-color);
+    color: white;
+  }
+
+  .status-badge.status-parsing {
+    background: var(--warning-color);
     color: white;
   }
 

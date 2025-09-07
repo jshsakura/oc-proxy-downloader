@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 import json
 
-# Docker 환경에서는 /config 사용, 개발 환경에서는 기존 위치 사용
-CONFIG_DIR = Path(os.environ.get("CONFIG_PATH", Path(__file__).parent.parent))
+# Docker 환경에서는 /config 사용, 개발 환경에서는 backend/config 사용
+CONFIG_DIR = Path(os.environ.get("CONFIG_PATH", Path(__file__).parent.parent / "config"))
 CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_CONFIG = {
     "download_path": "/downloads",

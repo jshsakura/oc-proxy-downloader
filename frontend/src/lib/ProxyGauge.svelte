@@ -496,7 +496,7 @@
 
   .idle-icon {
     position: relative;
-    border: 2px solid currentColor;
+    border: 1px solid currentColor;
     border-radius: 50%;
     opacity: 0.5;
   }

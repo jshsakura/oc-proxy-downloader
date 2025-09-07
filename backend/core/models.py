@@ -5,6 +5,7 @@ import enum
 
 class StatusEnum(str, enum.Enum):
     pending = "pending"
+    parsing = "parsing"
     proxying = "proxying"
     downloading = "downloading"
     stopped = "stopped"

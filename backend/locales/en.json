@@ -12,6 +12,7 @@
   "download_stopped": "Stopped",
   "download_failed": "Failed",
   "download_waiting": "Waiting",
+  "download_parsing": "Parsing",
   "table_header_file_name": "File Name",
   "table_header_status": "Status",
   "table_header_size": "Size",
@@ -240,5 +241,8 @@
   "telegram_settings": "Telegram Settings",
   "local_download_limit_reached": "Local download limit reached (max {limit})",
   "fichier_cooldown_active": "1fichier cooldown is active ({seconds}s remaining)",
-  "total_download_limit_reached": "Total download limit reached (max {limit})"
+  "total_download_limit_reached": "Total download limit reached (max {limit})",
+  "proxy_parsing_started": "Parsing with proxies...",
+  "proxy_batch_testing": "Testing proxy batch {batch}...",
+  "proxy_verified_parsing": "Parsing with verified proxies... ({current}/{total})"
 }

@@ -12,6 +12,75 @@ import time
 from .parser import fichier_parser
 
 
+def parse_filename_only_with_proxy(url, password, proxy_addr):
+    """프록시를 사용해서 파일명만 빠르게 파싱"""
+    import re
+    
+    proxies = {
+        'http': f'http://{proxy_addr}',
+        'https': f'http://{proxy_addr}'
+    }
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    }
+    
+    try:
+        scraper = cloudscraper.create_scraper()
+        response = scraper.get(url, headers=headers, proxies=proxies, timeout=(5, 10))
+        
+        if response.status_code != 200:
+            return None
+            
+        html_content = response.text
+        
+        # 파일명 추출
+        filename_patterns = [
+            r'<td class="normal">([^<]+)</td>',  # 기본 파일명 패턴
+            r'<title>([^<]+)</title>',  # 제목에서 추출
+            r'filename=([^;]+)',  # Content-Disposition 헤더
+            r'<h1[^>]*>([^<]+)</h1>'  # h1 태그
+        ]
+        
+        filename = None
+        for pattern in filename_patterns:
+            match = re.search(pattern, html_content)
+            if match:
+                filename = match.group(1).strip()
+                if filename and filename != '1fichier.com: Cloud Storage':
+                    break
+                    
+        if not filename:
+            return None
+            
+        # 대기 시간 추출 (버튼 대기)
+        wait_patterns = [
+            r'var\s+ct\s*=\s*(\d+)',
+            r'countdown\s*=\s*(\d+)',
+            r'timer\s*=\s*(\d+)'
+        ]
+        
+        wait_time = 60  # 기본값
+        for pattern in wait_patterns:
+            match = re.search(pattern, html_content)
+            if match:
+                wait_time = int(match.group(1))
+                break
+                
+        return {
+            'filename': filename,
+            'wait_time': wait_time
+        }
+        
+    except Exception as e:
+        print(f"[LOG] 파일명 파싱 오류: {e}")
+        return None
+
 def get_or_parse_direct_link(req, proxies=None, use_proxy=False, force_reparse=False, proxy_addr=None):
     """다운로드 요청에서 직접 링크를 가져오거나 파싱하는 함수"""
     
@@ -30,7 +99,13 @@ def get_or_parse_direct_link(req, proxies=None, use_proxy=False, force_reparse=F
     
     # 기존 링크가 있는 경우 만료 여부 확인
     if is_direct_link_expired(req.direct_link, use_proxy=use_proxy, proxy_addr=proxy_addr):
-        print(f"[LOG] 기존 direct_link가 만료됨. 재파싱 시작: {req.direct_link} (proxy: {proxy_addr})")
+        print(f"[LOG] 기존 direct_link가 만료됨. DB 초기화 후 재파싱: {req.direct_link} (proxy: {proxy_addr})")
+        # 기존 링크 초기화
+        req.direct_link = None
+        from .db import get_db
+        db = next(get_db())
+        db.commit()
+        db.close()
         return parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy, proxy_addr=proxy_addr)
     
     print(f"[LOG] 기존 direct_link 재사용: {req.direct_link}")
@@ -304,6 +379,14 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                 
         except Exception as early_e:
             print(f"[LOG] 파일명 조기 추출 실패: {early_e}")
+            # 연결 오류인 경우 2단계 스킵 (어차피 같은 연결로 실패할 것)
+            error_msg = str(early_e)
+            if ("Connection aborted" in error_msg or "RemoteDisconnected" in error_msg or 
+                "BadStatusLine" in error_msg or "Read timed out" in error_msg or 
+                "ConnectTimeoutError" in error_msg or "Connection to" in error_msg or 
+                "ProxyError" in error_msg or "ConnectionError" in error_msg):
+                print(f"[LOG] 1단계 연결 실패로 2단계 스킵 (같은 연결로 시도해봐야 실패할 것)")
+                return None, None
         
         # STEP 2: 이제 정상적인 다운로드 링크 파싱 진행
         print(f"[LOG] 2단계: 다운로드 링크 파싱 진행")
@@ -311,10 +394,8 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit, proxy_addr=proxy_addr)
         
         if direct_link and html_content:
-            # Direct Link 유효성 체크
-            if is_direct_link_expired(direct_link, use_proxy=use_proxy, proxy_addr=proxy_addr):
-                print(f"[LOG] parse_direct_link_with_file_info에서 만료된 링크 감지: {direct_link}")
-                return None, None
+            # 방금 파싱한 새로운 링크는 만료 검사 불필요
+            print(f"[LOG] 새로 파싱한 direct_link 사용 (만료검사 스킵): {direct_link}")
                 
             # 파일 정보 추출 (최종 확인 및 보완)
             file_info = fichier_parser.extract_file_info(html_content)
@@ -344,10 +425,10 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     from bs4 import BeautifulSoup
     import time
     
-    max_attempts = 5
+    max_attempts = 1  # 1회만 시도
     attempt = 0
     
-    print(f"[LOG] 1fichier 세션 기반 파싱 시작 (최대 {max_attempts}회 시도)")
+    print(f"[LOG] 1fichier 세션 기반 파싱 시작 (1회 시도)")
     
     while attempt < max_attempts:
         attempt += 1
@@ -356,7 +437,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         try:
             # 1단계: 페이지 로드
             print(f"[LOG] 1fichier 페이지 로드")
-            response = scraper.get(url, headers=headers, proxies=proxies, timeout=30)
+            response = scraper.get(url, headers=headers, proxies=proxies, timeout=(3, 8))
             
             if response.status_code != 200:
                 print(f"[LOG] 페이지 로드 실패: HTTP {response.status_code}")
@@ -486,12 +567,53 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 
                 # 실제 대기 (대기시간에 따른 최적화된 카운트다운)
                 if wait_seconds <= 10:
-                    # 10초 이하 짧은 대기시간 - 간단히 처리
-                    print(f"[LOG] 짧은 대기시간 ({wait_seconds}초) - 단순 대기")
-                    time.sleep(wait_seconds)
+                    # 10초 이하 짧은 대기시간 - 1초씩 나누어 정지 상태 체크
+                    print(f"[LOG] 짧은 대기시간 ({wait_seconds}초) - 정지 상태 체크하며 대기")
+                    for i in range(wait_seconds):
+                        # 정지 상태 체크
+                        try:
+                            from .db import SessionLocal
+                            from .models import DownloadRequest, StatusEnum
+                            
+                            temp_db = SessionLocal()
+                            try:
+                                download_req = temp_db.query(DownloadRequest).filter(
+                                    DownloadRequest.url == url
+                                ).order_by(DownloadRequest.requested_at.desc()).first()
+                                
+                                if download_req and download_req.status == StatusEnum.stopped:
+                                    print(f"[LOG] 짧은 대기 중 정지 감지: ID {download_req.id}")
+                                    temp_db.close()
+                                    return None  # 정지된 경우 파싱 중단
+                            finally:
+                                temp_db.close()
+                        except Exception as e:
+                            print(f"[LOG] 짧은 대기 중 상태 체크 실패: {e}")
+                        
+                        time.sleep(1)
                 else:
-                    # 긴 대기시간 - 분 단위 카운트다운
+                    # 긴 대기시간 - 분 단위 카운트다운 (정지 상태 체크 포함)
                     for remaining in range(wait_seconds, 0, -1):
+                        # 매초마다 정지 상태 체크
+                        try:
+                            from .db import SessionLocal
+                            from .models import DownloadRequest, StatusEnum
+                            
+                            temp_db = SessionLocal()
+                            try:
+                                download_req = temp_db.query(DownloadRequest).filter(
+                                    DownloadRequest.url == url
+                                ).order_by(DownloadRequest.requested_at.desc()).first()
+                                
+                                if download_req and download_req.status == StatusEnum.stopped:
+                                    print(f"[LOG] 카운트다운 중 정지 감지: ID {download_req.id}")
+                                    temp_db.close()
+                                    return None  # 정지된 경우 파싱 중단
+                            finally:
+                                temp_db.close()
+                        except Exception as e:
+                            print(f"[LOG] 카운트다운 중 상태 체크 실패: {e}")
+                        
                         remaining_minutes = remaining // 60
                         remaining_seconds = remaining % 60
                         
@@ -561,7 +683,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                     form_data['adz'] = adz_match.group(1)
                 
                 print(f"[LOG] POST 폼 데이터: {form_data}")
-                post_response = scraper.post(url, data=form_data, headers=headers, proxies=proxies, timeout=30)
+                post_response = scraper.post(url, data=form_data, headers=headers, proxies=proxies, timeout=(3, 8))
                 
                 if post_response.status_code == 200:
                     print(f"[LOG] POST 요청 성공, 다운로드 링크 확인")
@@ -577,7 +699,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         if direct_link_match:
                             direct_link = direct_link_match.group(1)
                             print(f"[LOG] ✅ POST 후 다운로드 링크 발견: {direct_link}")
-                            return direct_link, None
+                            return direct_link, response.text
                     
                     print(f"[LOG] POST 후에도 다운로드 링크 없음, 다음 시도로 계속")
                     continue  # 다시 루프 시작 (새 페이지에서 링크 찾기)

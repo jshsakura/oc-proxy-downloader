@@ -495,7 +495,7 @@ def start_actual_download(download_id: int, db: Session = Depends(get_db)):
     return {"id": item.id, "status": item.status, "message": "Download started"}
 
 @router.post("/resume/{download_id}")
-def resume_download(download_id: int, db: Session = Depends(get_db)):
+def resume_download(download_id: int, use_proxy: bool = False, db: Session = Depends(get_db)):
     item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
     if item is None:
         raise HTTPException(status_code=404, detail="Download not found")
@@ -504,17 +504,17 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
     if getattr(item, 'status', None) in [StatusEnum.stopped, StatusEnum.pending]:
         print(f"[LOG] 다운로드 재개 요청: ID {download_id}, 현재 상태: {item.status}")
         
-        # 원래 프록시 설정 사용 (기본값 없이)
-        original_use_proxy = getattr(item, 'use_proxy', None)
-        if original_use_proxy is None:
-            # DB에 use_proxy가 없는 경우 (구버전 호환) - 기본값 False (로컬)
-            original_use_proxy = False
-            print(f"[LOG] use_proxy 설정이 없어 기본값 False(로컬) 사용: ID {download_id}")
-        else:
-            print(f"[LOG] 원래 프록시 설정 사용: use_proxy={original_use_proxy}, ID {download_id}")
+        # 새로운 프록시 설정 적용 (쿼리 파라미터 우선)
+        print(f"[LOG] 프록시 설정 - 요청된 use_proxy: {use_proxy}, DB 저장된 use_proxy: {getattr(item, 'use_proxy', None)}")
+        
+        # 새 설정을 DB에 저장
+        setattr(item, 'use_proxy', use_proxy)
+        db.commit()
+        
+        print(f"[LOG] 새 프록시 설정으로 재개: use_proxy={use_proxy}, ID {download_id}")
         
         # 로컬 다운로드인 경우 다운로드 제한 체크
-        if not original_use_proxy:
+        if not use_proxy:
             from .shared import download_manager
             if not download_manager.can_start_download(item.url):
                 # 대기 상태로 설정
@@ -573,7 +573,7 @@ def resume_download(download_id: int, db: Session = Depends(get_db)):
         
         thread = threading.Thread(
             target=target_function,
-            args=(download_id, "ko", original_use_proxy),
+            args=(download_id, "ko", use_proxy),
             daemon=True
         )
         thread.start()
@@ -727,4 +727,29 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
         else:
             # 대기 상태로 유지 (자동 큐 시스템이 처리)
             return {"id": item.id, "status": "waiting", "message": "Download added to queue for retry"}
+
+@router.put("/downloads/{download_id}/proxy-toggle")
+def toggle_download_proxy_mode(download_id: int, db: Session = Depends(get_db)):
+    """다운로드 항목의 프록시 모드 토글"""
+    item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Download not found")
+    
+    # 실행 중인 다운로드는 토글 불가
+    if item.status not in [StatusEnum.stopped, StatusEnum.failed, StatusEnum.done]:
+        raise HTTPException(status_code=400, detail="Cannot toggle proxy mode for active downloads")
+    
+    # 프록시 모드 토글
+    current_use_proxy = getattr(item, 'use_proxy', False)
+    new_use_proxy = not current_use_proxy
+    setattr(item, 'use_proxy', new_use_proxy)
+    db.commit()
+    
+    print(f"[LOG] 다운로드 ID {download_id} 프록시 모드 변경: {current_use_proxy} -> {new_use_proxy}")
+    
+    return {
+        "id": item.id,
+        "use_proxy": new_use_proxy,
+        "message": f"Proxy mode changed to {'proxy' if new_use_proxy else 'local'}"
+    }
 

@@ -176,7 +176,7 @@ def utc_to_kst(utc_time_str: str) -> str:
     except:
         return utc_time_str or "알 수 없음"
 
-def send_telegram_notification(file_name: str, status: str, error: str = None, lang: str = "ko", file_size: str = None, download_time: str = None, save_path: str = None, requested_time: str = None, elapsed_time: str = None):
+def send_telegram_notification(file_name: str, status: str, error: str = None, lang: str = "ko", file_size: str = None, download_time: str = None, save_path: str = None, requested_time: str = None):
     """텔레그램 알림 전송"""
     try:
         config = get_config()
@@ -214,7 +214,6 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
             filesize_text = translations.get("telegram_filesize", "파일크기")
             requested_time_text = translations.get("telegram_requested_time", "요청시간")
             completed_time_text = translations.get("telegram_completed_time", "완료시간")
-            elapsed_time_text = translations.get("telegram_elapsed_time", "소요시간")
             save_path_text = translations.get("telegram_save_path", "저장경로")
 
             message = f"""🔔 <b>OC-Proxy: {success_text}</b> 🎉
@@ -230,9 +229,6 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
 
 ✅ <b>{completed_time_text}</b>
 <code>{download_time or current_time}</code>
-
-⏱️ <b>{elapsed_time_text}</b>
-<code>{elapsed_time or '알 수 없음'}</code>
 
 💾 <b>{save_path_text}</b>
 <code>{save_path or '기본경로'}</code>"""
@@ -587,10 +583,18 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         used_proxy_addr = None
         
         if use_proxy:
-            print(f"[LOG] 프록시 모드로 Direct Link 파싱 시작")
+            print(f"[LOG] 프록시 모드로 다운로드 링크 파싱 시작")
             req.status = StatusEnum.proxying
             db.commit()
-            # 재시도이거나 이어받기인 경우 항상 강제 재파싱 (원본 URL로 새로 파싱)
+            
+            # WebSocket으로 상태 업데이트 알림
+            send_websocket_message("status_update", {
+                "id": req.id,
+                "url": req.url,
+                "file_name": req.file_name,
+                "status": "proxying",
+                "error": None
+            })
             force_reparse = initial_downloaded_size > 0 or req.direct_link is None
             print(f"[LOG] 강제 재파싱 모드: {force_reparse} (이어받기: {initial_downloaded_size > 0}, 링크없음: {req.direct_link is None})")
             direct_link, used_proxy_addr = parse_with_proxy_cycling(req, db, force_reparse=force_reparse)
@@ -598,6 +602,15 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             print(f"[LOG] 로컬 모드로 Direct Link 파싱")
             req.status = StatusEnum.downloading
             db.commit()
+            
+            # WebSocket으로 상태 업데이트 알림 
+            send_websocket_message("status_update", {
+                "id": req.id,
+                "url": req.url,
+                "file_name": req.file_name,
+                "status": "downloading",
+                "error": None
+            })
             
             # 재시도이거나 이어받기인 경우 항상 강제 재파싱 (원본 URL로 새로 파싱)
             force_reparse = initial_downloaded_size > 0 or req.direct_link is None
@@ -887,17 +900,6 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 # 영어 등 다른 언어는 UTC 그대로 표시
                 download_time_str = req.finished_at.strftime("%Y-%m-%d %H:%M:%S UTC")
         
-        # 소요시간 계산 및 언어별 기본값 설정
-        if lang == "ko":
-            elapsed_time_str = "알 수 없음"
-        else:
-            elapsed_time_str = "Unknown"
-            
-        if req.requested_at and req.finished_at:
-            elapsed_seconds = (req.finished_at - req.requested_at).total_seconds()
-            if elapsed_seconds >= 0:
-                elapsed_time_str = str(datetime.timedelta(seconds=int(elapsed_seconds)))
-        
         # 저장 경로 (언어별 기본값)
         if lang == "ko":
             save_path_str = req.save_path or "기본경로"
@@ -912,8 +914,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             file_size=file_size_str,
             download_time=download_time_str,
             save_path=save_path_str,
-            requested_time=requested_time_str,
-            elapsed_time=elapsed_time_str
+            requested_time=requested_time_str
         )
         
         # WebSocket으로 완료 상태 전송
@@ -1108,27 +1109,191 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         db.close()
 
 
-def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
-    """프록시를 순환하면서 Direct Link 파싱"""
-    from .proxy_manager import get_working_proxy
+def parse_filename_with_proxy_cycling(req, db: Session):
+    """프록시를 사용해서 파일명만 빠르게 파싱"""
+    from .proxy_manager import get_working_proxy_batch, get_unused_proxies
+    from .parser_service import parse_filename_only_with_proxy
+    from .i18n import get_message
     
-    # 먼저 작동하는 프록시를 찾아서 시도 (10개로 제한)
-    working_proxy = get_working_proxy(db, max_test=10, req=req)
-    if working_proxy:
-        print(f"[LOG] 검증된 프록시로 파싱 시도: {working_proxy}")
+    # 프록시 목록 가져오기
+    all_unused_proxies = get_unused_proxies(db)
+    if not all_unused_proxies:
+        print(f"[LOG] 사용 가능한 프록시가 없음")
+        return None
+        
+    print(f"[LOG] 파일명 파싱용 {len(all_unused_proxies)}개 프록시 확보")
+    
+    # 배치 단위로 프록시 테스트해서 성공하는 것 찾기
+    batch_size = 6
+    proxy_index = 0
+    
+    while proxy_index < len(all_unused_proxies):
+        if req.status == StatusEnum.stopped:
+            print(f"[LOG] 파일명 파싱이 정지된 상태: ID {req.id}")
+            return None
+            
+        batch_end = min(proxy_index + batch_size, len(all_unused_proxies))
+        current_batch = all_unused_proxies[proxy_index:batch_end]
+        
+        print(f"[LOG] 파일명 파싱 배치 테스트 {proxy_index}-{batch_end-1}: {len(current_batch)}개 프록시")
+        
+        working_proxies = get_working_proxy_batch(current_batch)
+        if not working_proxies:
+            print(f"[LOG] 이 배치에서 작동하는 프록시 없음")
+            proxy_index = batch_end
+            continue
+            
+        print(f"[LOG] {len(working_proxies)}개의 검증된 프록시로 파일명 파싱 시도")
+        
+        # 검증된 프록시들로 파일명 파싱 시도
+        for proxy_addr in working_proxies:
+            if req.status == StatusEnum.stopped:
+                return None
+                
+            try:
+                print(f"[LOG] 프록시 {proxy_addr}로 파일명 파싱 시도")
+                result = parse_filename_only_with_proxy(req.url, req.password, proxy_addr)
+                if result and result.get('filename'):
+                    print(f"[LOG] ✅ 파일명 파싱 성공: {result['filename']} (프록시: {proxy_addr})")
+                    return result
+                    
+            except Exception as e:
+                print(f"[LOG] ❌ 파일명 파싱 실패 (프록시: {proxy_addr}): {e}")
+                continue
+                
+        proxy_index = batch_end
+        
+    print(f"[LOG] ❌ 모든 프록시로 파일명 파싱 실패")
+    return None
+
+def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
+    """프록시 배치를 병렬 테스트해서 성공한 프록시들로 파싱"""
+    from .proxy_manager import get_working_proxy_batch, get_unused_proxies
+    from .i18n import get_message
+    from .shared import download_manager
+    
+    # 활성 다운로드 간섭 방지 - 이미 다운로드가 진행 중인 경우 상태 변경하지 않음
+    is_actively_downloading = download_manager.is_download_active(req.id)
+    if is_actively_downloading:
+        print(f"[LOG] ID {req.id}는 이미 활성 다운로드 중이므로 파싱 상태 변경 생략")
+    else:
+        # 프록시 파싱 시작 상태 알림  
+        req.status = StatusEnum.parsing
+        db.commit()
+        
+        send_websocket_message("status_update", {
+            "id": req.id,
+            "status": "parsing",
+            "message": get_message("proxy_parsing_started"),
+            "progress": 0,
+            "url": req.url
+        })
+    
+    # 프록시 목록 한 번만 가져와서 캐시
+    all_unused_proxies = get_unused_proxies(db)
+    if not all_unused_proxies:
+        print(f"[LOG] 사용 가능한 프록시가 없음")
+        return None, None
+        
+    print(f"[LOG] 총 {len(all_unused_proxies)}개 프록시 캐시됨")
+    
+    # 프록시가 다 소진될 때까지 배치 단위로 계속 시도
+    batch_size = 10
+    batch_num = 0
+    proxy_index = 0
+    
+    while True:
+        batch_num += 1
+        print(f"[LOG] 프록시 배치 {batch_num} 테스트 중...")
+        
+        # 배치 테스트 상태 알림 (활성 다운로드 중이 아닐 때만)
+        if not download_manager.is_download_active(req.id):
+            send_websocket_message("status_update", {
+                "id": req.id,
+                "status": "parsing",
+                "message": get_message("proxy_batch_testing").format(batch=batch_num),
+                "progress": 5,
+                "url": req.url
+            })
+        
+        # 정지 상태 체크
+        db.refresh(req)
+        if req.status == StatusEnum.stopped:
+            print(f"[LOG] 프록시 배치 테스트 중 정지됨: {req.id}")
+            return None, None
+        
+        # 현재 배치에 사용할 프록시들 선택
+        batch_proxies = all_unused_proxies[proxy_index:proxy_index + batch_size]
+        
+        if not batch_proxies:
+            print(f"[LOG] 모든 프록시가 소진됨 - 배치 테스트 종료")
+            break
+            
+        print(f"[LOG] 배치 {batch_num}: {len(batch_proxies)}개 프록시 테스트")
+        
+        # 배치 프록시를 병렬 테스트 (캐시된 목록 사용)
+        from .proxy_manager import test_proxy_batch, mark_proxy_used
+        working_proxies, failed_proxies = test_proxy_batch(db, batch_proxies, req=req)
+        
+        if working_proxies:
+            print(f"[LOG] 배치 {batch_num}에서 {len(working_proxies)}개 프록시 확보")
+            # 실패한 프록시들을 사용됨으로 표시
+            for failed_proxy in failed_proxies:
+                mark_proxy_used(db, failed_proxy, success=False)
+            break
+        else:
+            print(f"[LOG] 배치 {batch_num} 실패 - 다음 배치로 이동")
+            # 실패한 프록시들을 사용됨으로 표시
+            for failed_proxy in failed_proxies:
+                mark_proxy_used(db, failed_proxy, success=False)
+            proxy_index += batch_size
+            
+            # 배치 간 지연 (차단 방지용)
+            import time
+            print(f"[LOG] 배치 간 지연 (차단 방지): 2초 대기")
+            time.sleep(2)
+            continue
+    
+    if not working_proxies:
+        print(f"[LOG] 모든 프록시를 소진했지만 작동하는 프록시를 찾지 못함")
+        return None, None
+    
+    print(f"[LOG] {len(working_proxies)}개의 검증된 프록시로 파싱 시도")
+    
+    # 성공한 프록시들을 순차적으로 시도 (각각 1회씩만)
+    for i, working_proxy in enumerate(working_proxies):
+        print(f"[LOG] 검증된 프록시로 파싱 시도 {i+1}/{len(working_proxies)}: {working_proxy}")
+        
+        # 정지 상태 체크
+        db.refresh(req)
+        if req.status == StatusEnum.stopped:
+            print(f"[LOG] 프록시 파싱 중 정지됨: {req.id}")
+            return None, None
+        
         try:
-            # WebSocket으로 프록시 시도 중 알림
+            # WebSocket으로 프록시 시도 중 알림 (상세)
             send_websocket_message("proxy_trying", {
                 "proxy": working_proxy,
                 "step": "파싱 중 (검증됨)",
-                "current": 1,
-                "total": 1,
+                "current": i + 1,
+                "total": len(working_proxies),
                 "url": req.url
             })
             
-            # 프록시로 파싱 시도 (카운트다운 처리 포함) - 파일 정보도 함께 추출
+            # 상태 업데이트도 함께 (활성 다운로드 중이 아닐 때만)
+            if not download_manager.is_download_active(req.id):
+                send_websocket_message("status_update", {
+                    "id": req.id,
+                    "status": "parsing",
+                    "message": get_message("proxy_verified_parsing").format(current=i + 1, total=len(working_proxies)),
+                    "progress": 10 + int((i / len(working_proxies)) * 30),  # 10-40% 진행률
+                    "url": req.url
+                })
+            
+            # 프록시로 파싱 시도 (재시도 없이 1회만) - 파일 정보도 함께 추출
             try:
                 from .parser_service import parse_direct_link_with_file_info
+                print(f"[LOG] 프록시 {working_proxy}로 1회 파싱 시도")
                 direct_link, file_info = parse_direct_link_with_file_info(
                     req.url, 
                     req.password, 
@@ -1167,6 +1332,19 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             if direct_link:
                 print(f"[LOG] 검증된 프록시로 파싱 성공: {working_proxy}")
                 mark_proxy_used(db, working_proxy, success=True)
+                
+                # 파싱 완료, 프록시 연결 상태로 전환
+                req.status = StatusEnum.proxying
+                db.commit()
+                
+                send_websocket_message("status_update", {
+                    "id": req.id,
+                    "status": "proxying",
+                    "message": get_message("download_proxying") + f" ({working_proxy})",
+                    "progress": 50,
+                    "url": req.url
+                })
+                
                 return direct_link, working_proxy
                 
         except Exception as e:
@@ -1534,7 +1712,17 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                             
                             # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
                             # 진행률 및 속도 계산
-                            progress = (downloaded / total_size * 100) if total_size > 0 else 0
+                            # 안전한 진행률 계산 (NaN 방지)
+                            try:
+                                if total_size > 0 and downloaded >= 0:
+                                    progress = (downloaded / total_size * 100)
+                                    # NaN 체크
+                                    if not (0 <= progress <= 100):
+                                        progress = 0.0
+                                else:
+                                    progress = 0.0
+                            except (ZeroDivisionError, TypeError, ValueError):
+                                progress = 0.0
                             current_percent_for_log = int(progress // 5) * 5  # 5% 단위 (로그용)
                             current_percent_for_ui = int(progress * 2) / 2  # 0.5% 단위 (UI 업데이트용)
                             
@@ -1595,7 +1783,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                         "id": req.id,
                                         "downloaded_size": downloaded,
                                         "total_size": total_size,
-                                        "progress": round(progress, 1),
+                                        "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
                                         "download_speed": round(download_speed, 0),
                                         "status": "downloading"
                                     })
@@ -1851,7 +2039,17 @@ def download_local(direct_link, file_path, initial_size, req, db):
                             
                             # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
                             # 진행률 및 속도 계산
-                            progress = (downloaded / total_size * 100) if total_size > 0 else 0
+                            # 안전한 진행률 계산 (NaN 방지)
+                            try:
+                                if total_size > 0 and downloaded >= 0:
+                                    progress = (downloaded / total_size * 100)
+                                    # NaN 체크
+                                    if not (0 <= progress <= 100):
+                                        progress = 0.0
+                                else:
+                                    progress = 0.0
+                            except (ZeroDivisionError, TypeError, ValueError):
+                                progress = 0.0
                             current_percent_for_log = int(progress // 5) * 5  # 5% 단위 (로그용)
                             current_percent_for_ui = int(progress * 2) / 2  # 0.5% 단위 (UI 업데이트용)
                             
@@ -1912,7 +2110,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                         "id": req.id,
                                         "downloaded_size": downloaded,
                                         "total_size": total_size,
-                                        "progress": round(progress, 1),
+                                        "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
                                         "download_speed": round(download_speed, 0),
                                         "status": "downloading"
                                     })

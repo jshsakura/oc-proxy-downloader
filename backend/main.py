@@ -183,7 +183,7 @@ async def lifespan(app: FastAPI):
         
         # 진행 중이던 다운로드들을 가져와서 개별적으로 처리
         downloading_requests = db.query(DownloadRequest).filter(
-            DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying])
+            DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing])
         ).all()
         
         for req in downloading_requests:
@@ -395,7 +395,7 @@ def cleanup_and_exit():
     db = next(get_db())
     try:
         affected = db.query(DownloadRequest).filter(
-            DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying])
+            DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing])
         ).update({"status": "stopped"})
         db.commit()
         print(f"[LOG] 서버 종료 시 {affected}개의 진행 중 다운로드를 stopped로 변경")
@@ -1901,15 +1901,31 @@ async def resume_download(download_id: int, use_proxy: bool = True, db: Session 
             force_reparse=False
         )
         
-        # 상태 업데이트 알림
+        # 상태 업데이트 알림 (즉시)
         notify_status_update(db, download_id)
         print(f"[LOG] ★ 재개 WebSocket 알림 전송 완료: ID={download_id}, 상태={req.status}")
+        
+        # 약간 지연 후 다시 한번 상태 알림 (race condition 방지)
+        import asyncio
+        asyncio.create_task(delayed_status_update(db, download_id))
         
         return {"message": "다운로드가 재시작되었습니다", "download_id": download_id}
         
     except Exception as e:
         print(f"[ERROR] 다운로드 재시작 실패: {e}")
         raise HTTPException(status_code=500, detail=f"다운로드 재시작 실패: {str(e)}")
+
+async def delayed_status_update(db: Session, download_id: int):
+    """지연된 상태 업데이트"""
+    await asyncio.sleep(0.5)  # 500ms 지연
+    try:
+        # DB 새로고침 후 최신 상태로 다시 알림
+        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        if req:
+            notify_status_update(db, download_id)
+            print(f"[LOG] ★ 지연 상태 알림 전송: ID={download_id}, 상태={req.status}")
+    except Exception as e:
+        print(f"[LOG] 지연 상태 알림 실패: {e}")
 
 # Retry download endpoint
 @api_router.post("/retry/{download_id}")
@@ -1937,8 +1953,12 @@ async def retry_download(download_id: int, db: Session = Depends(get_db)):
             force_reparse=True
         )
         
-        # 상태 업데이트 알림
+        # 상태 업데이트 알림 (즉시)
         notify_status_update(db, download_id)
+        
+        # 약간 지연 후 다시 한번 상태 알림 (race condition 방지)
+        import asyncio
+        asyncio.create_task(delayed_status_update(db, download_id))
         
         return {"message": "다운로드 재시도가 시작되었습니다", "download_id": download_id}
         
@@ -1955,7 +1975,7 @@ async def pause_download(download_id: int, db: Session = Depends(get_db)):
         if not req:
             raise HTTPException(status_code=404, detail="다운로드를 찾을 수 없습니다")
         
-        if req.status not in [StatusEnum.downloading, StatusEnum.proxying, StatusEnum.pending]:
+        if req.status not in [StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing, StatusEnum.pending]:
             raise HTTPException(status_code=400, detail="진행 중이거나 대기 중인 다운로드만 정지할 수 있습니다")
         
         # 상태를 stopped로 변경

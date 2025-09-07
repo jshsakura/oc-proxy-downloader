@@ -12,6 +12,7 @@
   "download_stopped": "정지됨",
   "download_failed": "실패",
   "download_waiting": "대기",
+  "download_parsing": "준비중",
   "table_header_file_name": "파일명",
   "table_header_status": "상태",
   "table_header_size": "크기",
@@ -240,5 +241,8 @@
   "telegram_settings": "텔레그램 알림 설정",
   "local_download_limit_reached": "로컬 다운로드 제한에 도달했습니다 (최대 {limit}개)",
   "fichier_cooldown_active": "1fichier 쿨다운이 활성화되어 있습니다 ({seconds}초 남음)",
-  "total_download_limit_reached": "전체 다운로드 제한에 도달했습니다 (최대 {limit}개)"
+  "total_download_limit_reached": "전체 다운로드 제한에 도달했습니다 (최대 {limit}개)",
+  "proxy_parsing_started": "프록시로 파싱 중...",
+  "proxy_batch_testing": "프록시 배치 {batch} 테스트 중...",
+  "proxy_verified_parsing": "검증된 프록시로 파싱 중... ({current}/{total})"
 }

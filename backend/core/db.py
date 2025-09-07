@@ -3,8 +3,8 @@ from sqlalchemy.orm import sessionmaker
 import os
 from pathlib import Path
 
-# Docker 환경에서는 /config 사용, 개발 환경에서는 기존 위치 사용
-CONFIG_DIR = Path(os.environ.get("CONFIG_PATH", os.path.join(os.path.dirname(__file__), '..')))
+# Docker 환경에서는 /config 사용, 개발 환경에서는 backend/config 사용
+CONFIG_DIR = Path(os.environ.get("CONFIG_PATH", os.path.join(os.path.dirname(__file__), '..', 'config')))
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = CONFIG_DIR / 'downloads.db'
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"

@@ -41,8 +41,7 @@ yarn-error.log*
 backend/config/downloads.db
 
 backend/config/*.db
-backend/config.json
-backend/downloads.db
+backend/config/*.json
 backend/downloads/*
 backend/*.log
 downloads/

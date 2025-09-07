@@ -155,7 +155,9 @@
       "Bash(git push:*)",
       "Bash(gh release create:*)",
       "Bash(pip show:*)",
-      "Bash(pip uninstall:*)"
+      "Bash(pip uninstall:*)",
+      "Bash(move:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": [],
