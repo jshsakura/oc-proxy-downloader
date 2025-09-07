@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 import os
+import re
 
 # UTF-8 인코딩 강제 설정
 if sys.platform.startswith('win'):
@@ -97,16 +98,118 @@ def parse_file_info_only(request: DownloadRequestCreate, db: Session = Depends(g
         
         print(f"[LOG] 파일 정보 파싱 요청 생성: ID {db_req.id}")
         
-        # 파일 정보 파싱
-        from .parser_service import parse_direct_link_with_file_info
+        # URL 타입 확인 후 적절한 파싱 방법 선택
+        url_str = str(request.url)
+        if re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', url_str.lower()):
+            # 1fichier URL - 기존 파서 사용
+            from .parser_service import parse_direct_link_with_file_info
+            
+            try:
+                print(f"[LOG] 1fichier 파일 정보 파싱 시작...")
+                direct_link, file_info = parse_direct_link_with_file_info(
+                    url_str,
+                    request.password,
+                    use_proxy=request.use_proxy
+                )
+            except Exception as parse_error:
+                print(f"[ERROR] 1fichier 파일 정보 파싱 실패: {parse_error}")
+                db_req.error = f"파싱 실패: {str(parse_error)}"
+                db_req.status = StatusEnum.failed
+                db.commit()
+                
+                return {
+                    "id": db_req.id,
+                    "status": "failed",
+                    "error": str(parse_error)
+                }
+        else:
+            # 일반 URL - Content-Type 체크 후 파일 정보 추출
+            try:
+                print(f"[LOG] 일반 URL 파일 정보 체크 시작...")
+                import requests
+                from urllib.parse import urlparse, unquote
+                
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                
+                head_response = requests.head(url_str, headers=headers, timeout=30, allow_redirects=True)
+                if head_response.status_code == 200:
+                    # Content-Type 체크 - 웹페이지는 바로 차단
+                    content_type = head_response.headers.get('Content-Type', '').lower()
+                    
+                    if any(web_type in content_type for web_type in ['text/html', 'text/xml', 'application/json', 'text/plain']):
+                        print(f"[LOG] 웹페이지 Content-Type 감지: {content_type} - 파싱 불가")
+                        db_req.error = f"웹페이지는 다운로드할 수 없습니다. (Content-Type: {content_type})"
+                        db_req.status = StatusEnum.failed
+                        db.commit()
+                        
+                        return {
+                            "id": db_req.id,
+                            "status": "failed",
+                            "error": f"웹페이지는 다운로드할 수 없습니다. (Content-Type: {content_type})"
+                        }
+                    
+                    # 파일 정보 추출
+                    file_info = {}
+                    direct_link = url_str  # 일반 URL은 그 자체가 다운로드 링크
+                    
+                    # URL에서 파일명 추출
+                    parsed_url = urlparse(url_str)
+                    if parsed_url.path and '/' in parsed_url.path:
+                        url_filename = unquote(parsed_url.path.split('/')[-1])
+                        if url_filename and len(url_filename) > 3 and '.' in url_filename:
+                            file_info['name'] = url_filename
+                    
+                    # Content-Disposition에서 파일명 재추출 시도
+                    content_disposition = head_response.headers.get('Content-Disposition')
+                    if content_disposition and 'filename=' in content_disposition:
+                        filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';]+)["\']?', content_disposition, re.IGNORECASE)
+                        if filename_match:
+                            file_info['name'] = unquote(filename_match.group(1))
+                    
+                    # Content-Length에서 파일 크기 추출
+                    content_length = head_response.headers.get('Content-Length')
+                    if content_length:
+                        bytes_size = int(content_length)
+                        
+                        # 포맷팅된 크기 생성
+                        if bytes_size >= 1024**3:
+                            file_info['size'] = f"{bytes_size / (1024**3):.1f} GB"
+                        elif bytes_size >= 1024**2:
+                            file_info['size'] = f"{bytes_size / (1024**2):.1f} MB"
+                        elif bytes_size >= 1024:
+                            file_info['size'] = f"{bytes_size / 1024:.1f} KB"
+                        else:
+                            file_info['size'] = f"{bytes_size} bytes"
+                    
+                    print(f"[LOG] 일반 URL 파일 정보 추출 완료: {file_info}")
+                    
+                else:
+                    print(f"[LOG] HEAD 요청 실패: {head_response.status_code}")
+                    db_req.error = f"서버 응답 오류: {head_response.status_code}"
+                    db_req.status = StatusEnum.failed
+                    db.commit()
+                    
+                    return {
+                        "id": db_req.id,
+                        "status": "failed",
+                        "error": f"서버 응답 오류: {head_response.status_code}"
+                    }
+                    
+            except Exception as parse_error:
+                print(f"[ERROR] 일반 URL 파일 정보 체크 실패: {parse_error}")
+                db_req.error = f"파일 정보 체크 실패: {str(parse_error)}"
+                db_req.status = StatusEnum.failed
+                db.commit()
+                
+                return {
+                    "id": db_req.id,
+                    "status": "failed",
+                    "error": str(parse_error)
+                }
         
         try:
-            print(f"[LOG] 파일 정보 파싱 시작...")
-            direct_link, file_info = parse_direct_link_with_file_info(
-                str(request.url),
-                request.password,
-                use_proxy=request.use_proxy
-            )
             
             # 파일 정보 업데이트
             if file_info and file_info.get('name'):
@@ -190,11 +293,38 @@ def create_download_task(
     import sys
     sys.stdout.flush()  # 즉시 출력 강제
     
-    # URL 형식 기본 검증
+    # URL 타입별 사전 검증
     url_str = str(request.url)
-    if not url_str.startswith('https://1fichier.com/'):
-        print(f"[LOG] 경고: 표준 1fichier URL 형식이 아님: {url_str}")
-        # 에러는 발생시키지 않고 계속 진행 (다른 도메인일 수도 있음)
+    
+    # 1fichier가 아닌 일반 URL인 경우 Content-Type 미리 체크
+    if not re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', url_str.lower()):
+        print(f"[LOG] 일반 URL 감지, Content-Type 사전 체크: {url_str}")
+        
+        try:
+            import requests
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            head_response = requests.head(url_str, headers=headers, timeout=30, allow_redirects=True)
+            if head_response.status_code == 200:
+                content_type = head_response.headers.get('Content-Type', '').lower()
+                
+                # 웹페이지는 바로 거부
+                if any(web_type in content_type for web_type in ['text/html', 'text/xml', 'application/json', 'text/plain']):
+                    print(f"[LOG] 웹페이지 Content-Type 감지: {content_type} - 다운로드 요청 거부")
+                    raise HTTPException(status_code=400, detail=f"웹페이지는 다운로드할 수 없습니다. (Content-Type: {content_type})")
+                
+                print(f"[LOG] 다운로드 가능한 Content-Type 확인: {content_type}")
+            else:
+                print(f"[LOG] HEAD 요청 실패: {head_response.status_code}")
+                raise HTTPException(status_code=400, detail=f"URL에 접근할 수 없습니다. (응답 코드: {head_response.status_code})")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"[LOG] URL 접근 실패: {e}")
+            raise HTTPException(status_code=400, detail=f"URL에 접근할 수 없습니다: {str(e)}")
+    else:
+        print(f"[LOG] 1fichier URL 감지: {url_str}")
     
     db_req = DownloadRequest(
         url=str(request.url),
@@ -261,7 +391,7 @@ def create_download_task(
     import threading
     
     # URL 타입에 따라 적절한 다운로드 함수 선택
-    if "1fichier.com" in db_req.url.lower():
+    if re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', db_req.url.lower()):
         # 1fichier 다운로드
         from .download_core import download_1fichier_file_new
         target_function = download_1fichier_file_new

@@ -522,7 +522,6 @@ def parse_direct_link(url, password=None, proxies=None, req_id=None, use_proxy=T
                 print(f"[LOG] {method_name} GET 500 오류지만 HTML 응답 있음, 계속 진행...")
             
             # 대기 시간 확인 (JavaScript 타이머)
-            import re
             timer_matches = re.findall(r'setTimeout\s*\([^,]+,\s*(\d+)', r1.text)
             wait_time = 0
             for match in timer_matches:
@@ -1813,7 +1812,6 @@ def debug_parse_fixed(data: dict = Body(...)):
                     result["steps"].append("파서에서 다운로드 링크를 찾지 못함")
                     
                     # 디버깅을 위해 모든 링크 표시
-                    import re
                     all_links = re.findall(r'href=["\']([^"\']+)["\']', post_response.text)
                     external_links = [link for link in all_links if link.startswith('http')][:10]
                     result["all_links"] = external_links
@@ -1990,8 +1988,8 @@ async def get_file_info(data: dict = Body(...)):
         if not url:
             raise HTTPException(status_code=400, detail="URL이 필요합니다")
         
-        # 1fichier URL인지 확인
-        if "1fichier.com" not in url.lower():
+        # 1fichier URL인지 확인 (정확한 도메인 체크)
+        if not re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', url.lower()):
             raise HTTPException(status_code=400, detail="1fichier URL만 지원됩니다")
         
         # URL에서 HTML 가져오기

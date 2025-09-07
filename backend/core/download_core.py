@@ -2122,21 +2122,7 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         
         print(f"[LOG] 일반 다운로드 시작: {req.url}")
         
-        # URL에서 파일명 추출
-        parsed_url = urlparse(req.url)
-        if parsed_url.path and '/' in parsed_url.path:
-            url_filename = unquote(parsed_url.path.split('/')[-1])
-            if url_filename and len(url_filename) > 3 and '.' in url_filename:
-                print(f"[LOG] URL에서 파일명 추출: '{url_filename}'")
-                req.file_name = url_filename
-                db.commit()
-        
-        # 파일명이 없으면 임시명 설정
-        if not req.file_name or req.file_name.strip() == '':
-            req.file_name = f"general_{request_id}.tmp"
-            db.commit()
-        
-        # HEAD 요청으로 파일 정보 확인
+        # 먼저 HEAD 요청으로 파일 정보 확인 (파일명 생성 전)
         try:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -2144,10 +2130,10 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             
             head_response = requests.head(req.url, headers=headers, timeout=30, allow_redirects=True)
             if head_response.status_code == 200:
-                # Content-Type 체크 - 다운로드 가능한 파일인지 확인
+                # Content-Type 체크 - 다운로드 가능한 파일인지 먼저 확인
                 content_type = head_response.headers.get('Content-Type', '').lower()
                 
-                # HTML 페이지나 일반 웹페이지는 다운로드하지 않음
+                # HTML 페이지나 일반 웹페이지는 다운로드하지 않음 (파일명 생성 전에 차단)
                 if any(web_type in content_type for web_type in ['text/html', 'text/xml', 'application/json', 'text/plain']):
                     print(f"[LOG] 웹페이지 Content-Type 감지: {content_type} - 다운로드 불가")
                     req.status = StatusEnum.failed
@@ -2157,26 +2143,6 @@ def download_general_file(request_id, language="ko", use_proxy=False):
                 
                 print(f"[LOG] 다운로드 가능한 Content-Type: {content_type}")
                 
-                # Content-Length에서 파일 크기 추출
-                content_length = head_response.headers.get('Content-Length')
-                if content_length:
-                    bytes_size = int(content_length)
-                    
-                    # 1fichier처럼 포맷팅된 크기를 문자열로 저장
-                    formatted_size = format_file_size(bytes_size)
-                    req.file_size = formatted_size
-                    print(f"[LOG] ★ 파일크기 최초 설정: '{formatted_size}' ({content_length} bytes)")
-                
-                # Content-Disposition에서 파일명 재추출 시도
-                content_disposition = head_response.headers.get('Content-Disposition')
-                if content_disposition and 'filename=' in content_disposition:
-                    filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';]+)["\']?', content_disposition, re.IGNORECASE)
-                    if filename_match:
-                        extracted_filename = unquote(filename_match.group(1))
-                        req.file_name = extracted_filename
-                        print(f"[LOG] Content-Disposition에서 파일명 추출: '{extracted_filename}'")
-                
-                db.commit()
             else:
                 print(f"[LOG] HEAD 요청 실패: {head_response.status_code}")
                 req.status = StatusEnum.failed
@@ -2190,6 +2156,40 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             req.error_message = f"HEAD 요청 실패: {str(head_e)}"
             db.commit()
             return
+        
+        # Content-Type 확인 후 파일명 생성
+        # URL에서 파일명 추출
+        parsed_url = urlparse(req.url)
+        if parsed_url.path and '/' in parsed_url.path:
+            url_filename = unquote(parsed_url.path.split('/')[-1])
+            if url_filename and len(url_filename) > 3 and '.' in url_filename:
+                print(f"[LOG] URL에서 파일명 추출: '{url_filename}'")
+                req.file_name = url_filename
+                db.commit()
+        
+        # Content-Disposition에서 파일명 재추출 시도
+        content_disposition = head_response.headers.get('Content-Disposition')
+        if content_disposition and 'filename=' in content_disposition:
+            filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';]+)["\']?', content_disposition, re.IGNORECASE)
+            if filename_match:
+                extracted_filename = unquote(filename_match.group(1))
+                req.file_name = extracted_filename
+                print(f"[LOG] Content-Disposition에서 파일명 추출: '{extracted_filename}'")
+        
+        # 파일명이 없으면 임시명 설정
+        if not req.file_name or req.file_name.strip() == '':
+            req.file_name = f"general_{request_id}.tmp"
+            print(f"[LOG] 파일명을 추출할 수 없어 임시명 사용: {req.file_name}")
+            
+        # Content-Length에서 파일 크기 추출
+        content_length = head_response.headers.get('Content-Length')
+        if content_length:
+            bytes_size = int(content_length)
+            
+            # 1fichier처럼 포맷팅된 크기를 문자열로 저장
+            formatted_size = format_file_size(bytes_size)
+            req.file_size = formatted_size
+            print(f"[LOG] ★ 파일크기 최초 설정: '{formatted_size}' ({content_length} bytes)")
         
         # 상태를 다운로드 중으로 변경
         req.status = StatusEnum.downloading
