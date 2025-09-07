@@ -349,8 +349,12 @@
 
   function confirmLogout() {
     authManager.logout();
-    closeModal();
     showLogoutConfirm = false;
+    closeModal();
+    // 로그아웃 후 페이지 새로고침으로 상태 완전 초기화
+    setTimeout(() => {
+      window.location.reload();
+    }, 100);
   }
 
   function cancelLogout() {
@@ -1958,7 +1962,7 @@
     max-height: 250px;
     min-height: 150px;
     overflow-y: auto;
-    overflow-x: hidden;
+    overflow-x: auto;
     border: 1px solid var(--card-border);
     border-radius: 8px;
     width: 100%;
@@ -1970,6 +1974,7 @@
 
   .proxy-table {
     width: 100%;
+    min-width: 600px;
     border-collapse: collapse;
     table-layout: fixed;
     display: table !important;

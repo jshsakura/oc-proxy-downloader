@@ -1,0 +1,74 @@
+version: '3.8'
+services:
+  oc-proxy-downloader:
+    image: jshsakura/oc-proxy-downloader:latest  # Docker Hub 이미지 사용
+    container_name: oc-proxy-downloader
+    
+    # Synology NAS 환경 설정
+    environment:
+      - TZ=Asia/Seoul
+      - PUID=1026      # Synology에서 사용자 ID 확인 필요 (Control Panel > User & Group > User > Advanced > User ID)
+      - PGID=100       # Synology에서 그룹 ID 확인 필요 (일반적으로 users 그룹은 100)
+      
+      # 경로 설정
+      - DOWNLOAD_PATH=/downloads
+      - CONFIG_PATH=/config
+      
+      # 인증 설정 (보안을 위해 설정 권장)
+      - AUTH_USERNAME=admin                    # 로그인 사용자명
+      - AUTH_PASSWORD=your-secure-password     # 강력한 비밀번호로 변경
+      - JWT_SECRET_KEY=your-random-secret-key  # 랜덤한 문자열로 변경
+      - JWT_EXPIRATION_HOURS=24                # JWT 토큰 만료 시간
+      
+      # 시스템 최적화 설정
+      - LOG_LEVEL=WARNING                      # 로그 레벨 (DEBUG, INFO, WARNING, ERROR)
+      - PARENT_CHECK_INTERVAL=5                # 부모 프로세스 체크 간격(초)
+      - MAX_WEBSOCKET_CONNECTIONS=10           # WebSocket 최대 연결 수
+      - MAX_TOTAL_DOWNLOADS=5                  # 최대 동시 다운로드 수 (Synology 성능에 맞게 조정)
+      
+      # 1fichier 쿨다운 설정 (필요시)
+      - FICHIER_COOLDOWN=300                   # 1fichier 쿨다운 시간(초) - 기본 5분
+      
+    volumes:
+      # Synology 경로 예시 - 실제 환경에 맞게 수정 필요
+      - /volume1/downloads:/downloads          # 다운로드 저장 폴더
+      - /volume1/docker/oc-proxy-downloader/config:/config  # 설정 파일 저장 폴더
+      
+      # 또는 Docker 폴더 사용 시:
+      # - /volume1/docker/oc-proxy-downloader/downloads:/downloads
+      # - /volume1/docker/oc-proxy-downloader/config:/config
+      
+    ports:
+      - "8000:8000"    # 웹 인터페이스 포트 (다른 포트 사용 시 변경)
+      
+    restart: unless-stopped
+    
+    # 헬스체크 설정
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/settings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      
+    # 리소스 제한 (선택사항 - Synology 성능에 맞게 조정)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'      # CPU 제한
+          memory: 1G       # 메모리 제한
+        reservations:
+          cpus: '0.5'      # CPU 예약
+          memory: 256M     # 메모리 예약
+
+# 네트워크 설정 (선택사항)
+networks:
+  default:
+    driver: bridge
+
+# 볼륨 설정 (선택사항 - Docker 볼륨 사용 시)
+# volumes:
+#   oc-proxy-downloads:
+#     driver: local
+#   oc-proxy-config:
+#     driver: local
