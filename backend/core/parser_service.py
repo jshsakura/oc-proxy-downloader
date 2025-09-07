@@ -472,10 +472,13 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 if wait_seconds >= 300:  # 300초 = 5분
                     try:
                         from .download_core import send_telegram_wait_notification
-                        # URL에서 파일명 추출 시도
-                        import re
-                        file_name_match = re.search(r'/([^/]+)$', url)
-                        file_name = file_name_match.group(1) if file_name_match else "Unknown File"
+                        # DB에서 실제 파일명 가져오기
+                        from .database import get_db_instance
+                        from .models import DownloadRequest
+                        
+                        db = get_db_instance()
+                        req = db.query(DownloadRequest).filter(DownloadRequest.url == url).first()
+                        file_name = req.file_name if req and req.file_name else "1fichier File"
                         wait_minutes = wait_seconds // 60
                         send_telegram_wait_notification(file_name, wait_minutes, "ko")
                     except Exception as e:

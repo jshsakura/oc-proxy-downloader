@@ -111,7 +111,12 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
         
         # HTML 형식으로 예쁜 메시지 작성
         import datetime
-        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        if lang == "ko":
+            # 한국어일 때만 KST로 표시
+            current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            # 영어 등 다른 언어는 UTC로 표시
+            current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         
         wait_text = translations.get("telegram_wait_detected", "Wait Time Detected")
         filename_text = translations.get("telegram_filename", "Filename")
@@ -127,7 +132,7 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
 <code>{filesize_text or '알 수 없음'}</code>
 
 ⏰ <b>{wait_time_text}</b>
-<code>{current_time or '알 수 없음'}</code>"""
+<code>{wait_minutes}분</code>"""
         
         # 텔레그램 API 호출 (비동기)
         import requests
@@ -196,7 +201,12 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
         
         # HTML 형식으로 예쁜 메시지 작성
         import datetime
-        current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+        if lang == "ko":
+            # 한국어일 때만 KST로 표시
+            current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            # 영어 등 다른 언어는 UTC로 표시
+            current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         
         if status == "done":
             success_text = translations.get("telegram_download_success", "Download Complete")
@@ -859,22 +869,40 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         import datetime
         requested_time_str = None
         if req.requested_at:
-            kst_requested = req.requested_at + datetime.timedelta(hours=9)
-            requested_time_str = kst_requested.strftime("%Y-%m-%d %H:%M:%S")
+            if lang == "ko":
+                # 한국어일 때만 KST로 변환
+                kst_requested = req.requested_at + datetime.timedelta(hours=9)
+                requested_time_str = kst_requested.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                # 영어 등 다른 언어는 UTC 그대로 표시
+                requested_time_str = req.requested_at.strftime("%Y-%m-%d %H:%M:%S UTC")
 
         download_time_str = None
         if req.finished_at:
-            kst_finished = req.finished_at + datetime.timedelta(hours=9)
-            download_time_str = kst_finished.strftime("%Y-%m-%d %H:%M:%S")
+            if lang == "ko":
+                # 한국어일 때만 KST로 변환
+                kst_finished = req.finished_at + datetime.timedelta(hours=9)
+                download_time_str = kst_finished.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                # 영어 등 다른 언어는 UTC 그대로 표시
+                download_time_str = req.finished_at.strftime("%Y-%m-%d %H:%M:%S UTC")
         
-        elapsed_time_str = "알 수 없음"
+        # 소요시간 계산 및 언어별 기본값 설정
+        if lang == "ko":
+            elapsed_time_str = "알 수 없음"
+        else:
+            elapsed_time_str = "Unknown"
+            
         if req.requested_at and req.finished_at:
             elapsed_seconds = (req.finished_at - req.requested_at).total_seconds()
             if elapsed_seconds >= 0:
                 elapsed_time_str = str(datetime.timedelta(seconds=int(elapsed_seconds)))
         
-        # 저장 경로
-        save_path_str = req.save_path or "기본경로"
+        # 저장 경로 (언어별 기본값)
+        if lang == "ko":
+            save_path_str = req.save_path or "기본경로"
+        else:
+            save_path_str = req.save_path or "Default path"
         
         send_telegram_notification(
             req.file_name or unknown_file, 
@@ -2256,10 +2284,19 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         
         download_time_str = None
         if req.finished_at:
-            kst_finished = req.finished_at + datetime.timedelta(hours=9)
-            download_time_str = kst_finished.strftime("%Y-%m-%d %H:%M:%S")
+            if language == "ko":
+                # 한국어일 때만 KST로 변환
+                kst_finished = req.finished_at + datetime.timedelta(hours=9)
+                download_time_str = kst_finished.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                # 영어 등 다른 언어는 UTC 그대로 표시
+                download_time_str = req.finished_at.strftime("%Y-%m-%d %H:%M:%S UTC")
         
-        save_path_str = req.save_path or "기본경로"
+        # 저장 경로 (언어별 기본값)
+        if language == "ko":
+            save_path_str = req.save_path or "기본경로"
+        else:
+            save_path_str = req.save_path or "Default path"
         
         send_telegram_notification(
             req.file_name or unknown_file, 
