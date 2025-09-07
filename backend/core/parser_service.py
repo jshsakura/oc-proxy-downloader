@@ -473,12 +473,12 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                     try:
                         from .download_core import send_telegram_wait_notification
                         # DB에서 실제 파일명 가져오기
-                        from .database import get_db_instance
+                        from .db import SessionLocal
                         from .models import DownloadRequest
                         
-                        db = get_db_instance()
-                        req = db.query(DownloadRequest).filter(DownloadRequest.url == url).first()
-                        file_name = req.file_name if req and req.file_name else "1fichier File"
+                        with SessionLocal() as db:
+                            req = db.query(DownloadRequest).filter(DownloadRequest.url == url).first()
+                            file_name = req.file_name if req and req.file_name else "1fichier File"
                         wait_minutes = wait_seconds // 60
                         send_telegram_wait_notification(file_name, wait_minutes, "ko")
                     except Exception as e:
