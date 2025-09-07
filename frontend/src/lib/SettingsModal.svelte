@@ -1962,7 +1962,7 @@
     max-height: 250px;
     min-height: 150px;
     overflow-y: auto;
-    overflow-x: auto;
+    overflow-x: hidden;
     border: 1px solid var(--card-border);
     border-radius: 8px;
     width: 100%;
@@ -1970,13 +1970,14 @@
 
   .proxy-table-wrapper {
     overflow-x: auto;
+    width: 100%;
   }
 
   .proxy-table {
     width: 100%;
-    min-width: 600px;
+    min-width: 700px;
     border-collapse: collapse;
-    table-layout: fixed;
+    table-layout: auto;
     display: table !important;
   }
   
@@ -2005,6 +2006,13 @@
     font-size: 0.85rem;
     vertical-align: middle;
     white-space: nowrap;
+    min-width: fit-content;
+  }
+
+  .proxy-table th:first-child,
+  .proxy-table td:first-child {
+    min-width: 200px;
+    max-width: 300px;
   }
 
   .text-center {
@@ -2013,9 +2021,10 @@
 
 
   .proxy-table td:nth-child(1) {
-    white-space: normal;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    word-break: break-all;
   }
 
   .proxy-table th {
