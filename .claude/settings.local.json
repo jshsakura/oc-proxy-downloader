@@ -153,7 +153,9 @@
       "Bash(npm run build:*)",
       "Bash(git tag:*)",
       "Bash(git push:*)",
-      "Bash(gh release create:*)"
+      "Bash(gh release create:*)",
+      "Bash(pip show:*)",
+      "Bash(pip uninstall:*)"
     ],
     "deny": [],
     "ask": [],
