@@ -209,6 +209,24 @@ def test_proxy(proxy_addr, timeout=10):
         session.verify = False  # SSL 인증서 검증 비활성화
         session.timeout = timeout
         
+        # 환경 변수 무시 및 SSL 관련 설정 강화
+        session.trust_env = False
+        
+        # SSL 어댑터 설정
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.ssl_ import create_urllib3_context
+        import ssl
+        
+        class NoSSLAdapter(HTTPAdapter):
+            def init_poolmanager(self, *args, **pool_kwargs):
+                context = create_urllib3_context()
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                pool_kwargs['ssl_context'] = context
+                return super().init_poolmanager(*args, **pool_kwargs)
+        
+        session.mount('https://', NoSSLAdapter())
+        
         # 실제 브라우저와 유사한 헤더
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

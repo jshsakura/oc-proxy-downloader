@@ -201,12 +201,16 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
         
         # HTML 형식으로 예쁜 메시지 작성
         import datetime
+        
+        # 현재 시간 처리 (시간대 고려)
         if lang == "ko":
-            # 한국어일 때만 KST로 표시
-            current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+            # 한국어일 때는 KST 시간 사용 (UTC+9)
+            kst_time = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+            current_time = kst_time.strftime("%Y-%m-%d %H:%M:%S KST")
         else:
-            # 영어 등 다른 언어는 UTC로 표시
-            current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            # 영어 등 다른 언어는 UTC 시간 사용
+            utc_time = datetime.datetime.utcnow()
+            current_time = utc_time.strftime("%Y-%m-%d %H:%M:%S UTC")
         
         if status == "done":
             success_text = translations.get("telegram_download_success", "Download Complete")
@@ -883,9 +887,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         requested_time_str = None
         if req.requested_at:
             if lang == "ko":
-                # 한국어일 때만 KST로 변환
+                # 한국어일 때는 KST 시간으로 변환 (UTC+9)
                 kst_requested = req.requested_at + datetime.timedelta(hours=9)
-                requested_time_str = kst_requested.strftime("%Y-%m-%d %H:%M:%S")
+                requested_time_str = kst_requested.strftime("%Y-%m-%d %H:%M:%S KST")
             else:
                 # 영어 등 다른 언어는 UTC 그대로 표시
                 requested_time_str = req.requested_at.strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -893,9 +897,9 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         download_time_str = None
         if req.finished_at:
             if lang == "ko":
-                # 한국어일 때만 KST로 변환
+                # 한국어일 때는 KST 시간으로 변환 (UTC+9)
                 kst_finished = req.finished_at + datetime.timedelta(hours=9)
-                download_time_str = kst_finished.strftime("%Y-%m-%d %H:%M:%S")
+                download_time_str = kst_finished.strftime("%Y-%m-%d %H:%M:%S KST")
             else:
                 # 영어 등 다른 언어는 UTC 그대로 표시
                 download_time_str = req.finished_at.strftime("%Y-%m-%d %H:%M:%S UTC")
