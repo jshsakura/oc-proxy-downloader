@@ -1505,7 +1505,9 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
             return
         
         try:
-            print(f"[LOG] 다운로드 시도 {i+1}/{len(unused_proxies)}: {proxy_addr}")
+            print(f"[LOG] ===== 프록시 순환 시도 {i+1}/{len(unused_proxies)} 시작 =====")
+            print(f"[LOG] Download ID: {req.id}, 프록시: {proxy_addr}")
+            print(f"[LOG] 현재 상태 - downloaded_size: {req.downloaded_size}, total_size: {req.total_size}")
             
             # WebSocket으로 프록시 시도 중 알림
             send_websocket_message("proxy_trying", {
@@ -1516,12 +1518,39 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
                 "url": req.url
             })
             
+            # 프록시 시도 전 상태 확인 및 정리
+            print(f"[LOG] 프록시 시도 전 - initial_size: {initial_size}, req.downloaded_size: {req.downloaded_size}")
+            
+            # 새 다운로드인데 이전 시도에서 진행률이 남아있는 경우 정리
+            if initial_size == 0 and req.downloaded_size > 0:
+                print(f"[LOG] 새 다운로드인데 진행률이 남아있음: {req.downloaded_size} - 초기화")
+                req.downloaded_size = 0
+                # 진행률 관련 속성 초기화
+                for attr in ['_last_ui_percent', '_last_logged_percent', '_last_speed_percent', 
+                           '_ui_speed_time', '_ui_speed_bytes', '_speed_start_time', '_speed_start_bytes',
+                           '_download_start_time', '_last_download_speed']:
+                    if hasattr(req, attr):
+                        delattr(req, attr)
+                db.commit()
+                
+                # WebSocket으로 진행률 초기화 전송
+                send_websocket_message("progress_update", {
+                    "id": req.id,
+                    "downloaded_size": 0,
+                    "total_size": req.total_size or 0,
+                    "progress": 0.0,
+                    "download_speed": 0,
+                    "status": "downloading"
+                })
+            
             # 프록시로 다운로드 시도
             download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, db)
             
             # 성공하면 프록시 성공 마킹하고 종료
             mark_proxy_used(db, proxy_addr, success=True)
-            print(f"[LOG] 프록시 다운로드 성공: {proxy_addr}")
+            print(f"[LOG] ===== 프록시 순환 성공 완료 =====")
+            print(f"[LOG] 성공한 프록시: {proxy_addr}, Download ID: {req.id}")
+            print(f"[LOG] 최종 다운로드 크기: {req.downloaded_size}/{req.total_size}")
             return
             
         except Exception as e:
@@ -1541,6 +1570,15 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
                 "url": req.url
             })
             
+            # 실패한 프록시 시도 후 임시 파일 정리 (이어받기가 아닌 경우에만)
+            if initial_size == 0:
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        print(f"[LOG] 실패한 프록시 시도 후 임시 파일 정리: {file_path}")
+                except Exception as cleanup_error:
+                    print(f"[LOG] 임시 파일 정리 실패: {cleanup_error}")
+            
             # 마지막 프록시가 아니면 계속 시도
             if i < len(unused_proxies) - 1:
                 print(f"[LOG] 다음 프록시로 이동: {i+2}/{len(unused_proxies)}")
@@ -1554,6 +1592,9 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
 
 def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, db):
     """지정된 프록시로 다운로드"""
+    print(f"[LOG] download_with_proxy 시작 - Download ID: {req.id}, Proxy: {proxy_addr}, initial_size: {initial_size}, req.downloaded_size: {req.downloaded_size}")
+    print(f"[LOG] 프록시 {proxy_addr} 점유 시작 - Download ID: {req.id}")
+    
     proxies = {
         'http': f'http://{proxy_addr}',
         'https': f'http://{proxy_addr}'
@@ -1820,6 +1861,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             except:
                 pass
         
+        print(f"[LOG] 프록시 {proxy_addr} 다운로드 성공 완료 - Download ID: {req.id}, 최종 크기: {downloaded} bytes")
         mark_proxy_used(db, proxy_addr, success=True)
         
         # WebSocket으로 다운로드 성공 알림
@@ -1829,9 +1871,12 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             "url": req.url
         })
         
+        print(f"[LOG] 프록시 {proxy_addr} 점유 종료 (성공) - Download ID: {req.id}")
+        
     except Exception as e:
         error_str = str(e)
-        print(f"[LOG] 프록시 다운로드 실패: {e}")
+        print(f"[LOG] 프록시 {proxy_addr} 다운로드 실패 - Download ID: {req.id}, 에러: {e}")
+        print(f"[LOG] 프록시 {proxy_addr} 점유 종료 (실패) - Download ID: {req.id}")
         mark_proxy_used(db, proxy_addr, success=False)
         
         # DNS 오류 감지 시 재파싱 시도 (프록시에서도)

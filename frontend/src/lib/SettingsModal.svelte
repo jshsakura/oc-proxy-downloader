@@ -1957,7 +1957,7 @@
 
   .proxy-table-container {
     max-height: 250px;
-    min-height: 150px;
+    min-height: 60px;
     overflow-y: auto;
     overflow-x: hidden;
     border: 1px solid var(--card-border);
@@ -1997,13 +1997,18 @@
 
   .proxy-table th,
   .proxy-table td {
-    padding: 0.5rem;
+    padding: 0.4rem 0.5rem;
     text-align: left;
     border-bottom: 1px solid var(--card-border);
     font-size: 0.85rem;
     vertical-align: middle;
     white-space: nowrap;
     min-width: fit-content;
+    line-height: 1.3;
+  }
+
+  .proxy-table tbody tr:last-child td {
+    border-bottom: 1px solid var(--card-border);
   }
 
   .proxy-table th:first-child,
