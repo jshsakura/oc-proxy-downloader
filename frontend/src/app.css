@@ -783,6 +783,14 @@ tbody tr:hover {
   font-weight: 500;
 }
 
+.speed-text.proxy-speed {
+  color: var(--proxy-color);
+}
+
+.speed-text.local-speed {
+  color: var(--primary-color);
+}
+
 .speed-text-empty {
   color: var(--text-secondary);
 }

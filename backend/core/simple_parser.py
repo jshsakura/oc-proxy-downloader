@@ -34,7 +34,7 @@ def parse_1fichier_simple(url, password=None, proxies=None, proxy_addr=None):
     try:
         # 1단계: 페이지 로드
         print(f"[LOG] 1fichier 페이지 로드: {url}")
-        response = scraper.get(url, headers=headers, proxies=proxies, timeout=(3, 8))
+        response = scraper.get(url, headers=headers, proxies=proxies, timeout=(10, 30))
         
         if response.status_code != 200:
             raise Exception(f"페이지 로드 실패: HTTP {response.status_code}")
@@ -184,7 +184,7 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
         })
         
         response = scraper.post(url, data=form_data, headers=post_headers, 
-                              proxies=proxies, timeout=(3, 8), allow_redirects=False)
+                              proxies=proxies, timeout=(30, 60), allow_redirects=False)
         
         # 리다이렉트 처리
         if response.status_code in [301, 302, 303, 307, 308]:

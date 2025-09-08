@@ -187,9 +187,10 @@ def reset_proxy_usage(db: Session):
         db.rollback()
 
 
-def test_proxy(proxy_addr, timeout=10):
-    """프록시 연결 테스트 - 직접 1fichier.com 터널 테스트"""
-    import requests
+def test_proxy(proxy_addr, timeout=15):
+    """프록시 연결 테스트 - 실제 파싱과 동일한 조건으로 테스트"""
+    import cloudscraper
+    import ssl
     import urllib3
     
     # SSL 경고 무시
@@ -202,43 +203,59 @@ def test_proxy(proxy_addr, timeout=10):
     }
     
     try:
-        print(f"[DEBUG] 프록시 {proxy_addr} 1fichier 직접 터널 테스트")
+        print(f"[DEBUG] 프록시 {proxy_addr} 1fichier CloudScraper 테스트")
         
-        # 직접 1fichier.com에 GET 요청으로 터널 테스트
-        session = requests.Session()
-        session.verify = False  # SSL 인증서 검증 비활성화
-        session.timeout = timeout
+        # 실제 파싱에서 사용하는 것과 동일한 CloudScraper 설정
+        scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            },
+            delay=1
+        )
+        scraper.verify = False
         
-        # 환경 변수 무시 및 SSL 관련 설정 강화
-        session.trust_env = False
-        
-        # SSL 어댑터 설정
+        # SSL 컨텍스트 설정 (파싱 서비스와 동일)
         from requests.adapters import HTTPAdapter
         from urllib3.util.ssl_ import create_urllib3_context
-        import ssl
         
-        class NoSSLAdapter(HTTPAdapter):
-            def init_poolmanager(self, *args, **pool_kwargs):
+        class NoSSLVerifyHTTPAdapter(HTTPAdapter):
+            def init_poolmanager(self, *args, **kwargs):
                 context = create_urllib3_context()
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
-                pool_kwargs['ssl_context'] = context
-                return super().init_poolmanager(*args, **pool_kwargs)
+                kwargs['ssl_context'] = context
+                return super().init_poolmanager(*args, **kwargs)
         
-        session.mount('https://', NoSSLAdapter())
+        scraper.mount('https://', NoSSLVerifyHTTPAdapter())
         
-        # 실제 브라우저와 유사한 헤더
+        # 파싱 서비스와 동일한 헤더 설정
+        import random
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0'
+        ]
+        
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
+            'User-Agent': random.choice(user_agents),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'DNT': '1'
         }
         
-        # 1fichier.com에 직접 GET 요청
-        response = session.get(
+        # 1fichier.com에 직접 GET 요청 (실제 파싱과 동일한 타임아웃)
+        response = scraper.get(
             "https://1fichier.com/", 
             proxies=proxy_config, 
             headers=headers,

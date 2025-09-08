@@ -1212,11 +1212,16 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
         
         # 배치 테스트 상태 알림 (활성 다운로드 중이 아닐 때만)
         if not download_manager.is_download_active(req.id):
+            # 진행률 계산: 이미 다운로드된 부분이 있으면 그것부터, 없으면 0부터
+            current_progress = 0
+            if req.total_size > 0 and req.downloaded_size > 0:
+                current_progress = min(95, (req.downloaded_size / req.total_size) * 100)
+            
             send_websocket_message("status_update", {
                 "id": req.id,
                 "status": "parsing",
                 "message": get_message("proxy_batch_testing").format(batch=batch_num),
-                "progress": 5,
+                "progress": current_progress,
                 "url": req.url
             })
         
@@ -1290,7 +1295,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                     "id": req.id,
                     "status": "parsing",
                     "message": get_message("proxy_verified_parsing").format(current=i + 1, total=len(working_proxies)),
-                    "progress": 10 + int((i / len(working_proxies)) * 30),  # 10-40% 진행률
+                    "progress": max(0, min(40, (req.downloaded_size / req.total_size * 100 if req.total_size > 0 else 0) + int((i / len(working_proxies)) * 30))),  # 현재 진행률 + 추가 진행률
                     "url": req.url
                 })
             
@@ -1341,11 +1346,16 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                 req.status = StatusEnum.proxying
                 db.commit()
                 
+                # 파싱 완료 후 다운로드 준비 단계의 진행률
+                parsing_complete_progress = 50
+                if req.total_size > 0 and req.downloaded_size > 0:
+                    parsing_complete_progress = max(50, (req.downloaded_size / req.total_size) * 100)
+                
                 send_websocket_message("status_update", {
                     "id": req.id,
                     "status": "proxying",
                     "message": get_message("download_proxying") + f" ({working_proxy})",
-                    "progress": 50,
+                    "progress": parsing_complete_progress,
                     "url": req.url
                 })
                 
@@ -1476,6 +1486,33 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
     """프록시를 순환하면서 다운로드 - 실패시 자동으로 다음 프록시로 이동"""
     from .proxy_manager import get_unused_proxies, mark_proxy_used
     
+    print(f"[LOG] ===== 프록시 순환 다운로드 시작 =====")
+    print(f"[LOG] Download ID: {req.id}, file_path: {file_path}")
+    print(f"[LOG] initial_size: {initial_size}, req.downloaded_size: {req.downloaded_size}")
+    print(f"[LOG] req.total_size: {req.total_size}")
+    
+    # 실제 파일 크기 확인 및 이어받기 설정
+    if os.path.exists(file_path):
+        actual_file_size = os.path.getsize(file_path)
+        print(f"[LOG] 기존 파일 존재 - 실제 크기: {actual_file_size} bytes")
+        
+        # initial_size가 0인데 실제 파일이 있으면 이어받기로 변경
+        if initial_size == 0 and actual_file_size > 0:
+            print(f"[LOG] ⚠️ initial_size: 0인데 기존 파일 존재 - 이어받기로 변경: {actual_file_size}")
+            initial_size = actual_file_size
+            # DB의 downloaded_size도 동기화
+            if req.downloaded_size != actual_file_size:
+                print(f"[LOG] DB downloaded_size 동기화: {req.downloaded_size} → {actual_file_size}")
+                req.downloaded_size = actual_file_size
+                db.commit()
+    else:
+        print(f"[LOG] 기존 파일 없음")
+        # 파일이 없으면 DB의 downloaded_size도 0으로 초기화
+        if req.downloaded_size > 0:
+            print(f"[LOG] DB downloaded_size 초기화: {req.downloaded_size} → 0")
+            req.downloaded_size = 0
+            db.commit()
+    
     # 선호 프록시부터 시작하여 모든 프록시 시도
     unused_proxies = get_unused_proxies(db)
     
@@ -1521,27 +1558,12 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
             # 프록시 시도 전 상태 확인 및 정리
             print(f"[LOG] 프록시 시도 전 - initial_size: {initial_size}, req.downloaded_size: {req.downloaded_size}")
             
-            # 새 다운로드인데 이전 시도에서 진행률이 남아있는 경우 정리
-            if initial_size == 0 and req.downloaded_size > 0:
-                print(f"[LOG] 새 다운로드인데 진행률이 남아있음: {req.downloaded_size} - 초기화")
-                req.downloaded_size = 0
-                # 진행률 관련 속성 초기화
-                for attr in ['_last_ui_percent', '_last_logged_percent', '_last_speed_percent', 
-                           '_ui_speed_time', '_ui_speed_bytes', '_speed_start_time', '_speed_start_bytes',
-                           '_download_start_time', '_last_download_speed']:
-                    if hasattr(req, attr):
-                        delattr(req, attr)
-                db.commit()
-                
-                # WebSocket으로 진행률 초기화 전송
-                send_websocket_message("progress_update", {
-                    "id": req.id,
-                    "downloaded_size": 0,
-                    "total_size": req.total_size or 0,
-                    "progress": 0.0,
-                    "download_speed": 0,
-                    "status": "downloading"
-                })
+            # 진행률 관련 속성 초기화 (프록시 시도마다)
+            for attr in ['_last_ui_percent', '_last_logged_percent', '_last_speed_percent', 
+                       '_ui_speed_time', '_ui_speed_bytes', '_speed_start_time', '_speed_start_bytes',
+                       '_download_start_time', '_last_download_speed']:
+                if hasattr(req, attr):
+                    delattr(req, attr)
             
             # 프록시로 다운로드 시도
             download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, db)
@@ -1556,7 +1578,18 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
         except Exception as e:
             last_error = e
             error_str = str(e)
+            
+            # 실패 시 이 프록시가 얼마나 다운로드했는지 확인
+            db.refresh(req)
+            current_downloaded = req.downloaded_size
+            downloaded_this_proxy = current_downloaded - initial_size if current_downloaded > initial_size else 0
+            
             print(f"[LOG] 프록시 {proxy_addr} 다운로드 실패: {error_str}")
+            print(f"[LOG] 🔄 이 프록시 다운로드량: {downloaded_this_proxy} bytes")
+            print(f"[LOG] 🔄 시작: {initial_size} → 실패 시: {current_downloaded}")
+            if downloaded_this_proxy > 0:
+                percentage = (downloaded_this_proxy / req.total_size * 100) if req.total_size > 0 else 0
+                print(f"[LOG] 🔄 이 프록시 기여도: +{percentage:.2f}%")
             
             # 프록시 실패 마킹
             mark_proxy_used(db, proxy_addr, success=False)
@@ -1570,18 +1603,14 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
                 "url": req.url
             })
             
-            # 실패한 프록시 시도 후 임시 파일 정리 (이어받기가 아닌 경우에만)
-            if initial_size == 0:
-                try:
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                        print(f"[LOG] 실패한 프록시 시도 후 임시 파일 정리: {file_path}")
-                except Exception as cleanup_error:
-                    print(f"[LOG] 임시 파일 정리 실패: {cleanup_error}")
+            # 파일은 이어받기를 위해 보존
             
             # 마지막 프록시가 아니면 계속 시도
             if i < len(unused_proxies) - 1:
                 print(f"[LOG] 다음 프록시로 이동: {i+2}/{len(unused_proxies)}")
+                # 다음 프록시는 현재까지 다운로드된 부분부터 시작
+                initial_size = current_downloaded
+                print(f"[LOG] 🔄 다음 프록시 시작점 업데이트: {initial_size} bytes")
                 continue
     
     # 모든 프록시에서 실패
@@ -1830,7 +1859,8 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                         "total_size": total_size,
                                         "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
                                         "download_speed": round(download_speed, 0),
-                                        "status": "downloading"
+                                        "status": "downloading",
+                                        "use_proxy": req.use_proxy
                                     })
                     
                     req.downloaded_size = downloaded
@@ -1875,7 +1905,19 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
         
     except Exception as e:
         error_str = str(e)
-        print(f"[LOG] 프록시 {proxy_addr} 다운로드 실패 - Download ID: {req.id}, 에러: {e}")
+        
+        # 실패 시 얼마나 다운로드했는지 확인  
+        db.refresh(req)  # 최신 상태 확인
+        current_downloaded = req.downloaded_size
+        downloaded_this_proxy = current_downloaded - initial_size if current_downloaded > initial_size else 0
+        
+        print(f"[LOG] 프록시 {proxy_addr} 다운로드 실패 - Download ID: {req.id}")
+        print(f"[LOG] ⚠️ 이 프록시로 다운로드한 양: {downloaded_this_proxy} bytes")
+        print(f"[LOG] ⚠️ 시작 시: {initial_size} bytes → 실패 시: {current_downloaded} bytes")
+        if downloaded_this_proxy > 0:
+            percentage = (downloaded_this_proxy / req.total_size * 100) if req.total_size > 0 else 0
+            print(f"[LOG] ⚠️ 이 프록시 진행률: +{percentage:.2f}%")
+        print(f"[LOG] 에러: {e}")
         print(f"[LOG] 프록시 {proxy_addr} 점유 종료 (실패) - Download ID: {req.id}")
         mark_proxy_used(db, proxy_addr, success=False)
         
@@ -2161,7 +2203,8 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                         "total_size": total_size,
                                         "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
                                         "download_speed": round(download_speed, 0),
-                                        "status": "downloading"
+                                        "status": "downloading",
+                                        "use_proxy": req.use_proxy
                                     })
                     
                     req.downloaded_size = downloaded

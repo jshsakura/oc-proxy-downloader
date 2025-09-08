@@ -815,6 +815,10 @@ def download_1fichier_file_NEW_VERSION(request_id: int, lang: str = "ko", use_pr
             # 새 다운로드는 .part 파일로 시작
             file_path = part_file_path
             print(f"[LOG] Starting new download for {req.id}. File: {file_path}")
+            # 파일이 없으면 DB의 downloaded_size도 0으로 초기화
+            if req.downloaded_size > 0:
+                print(f"[LOG] DB downloaded_size 초기화: {req.downloaded_size} → 0")
+                req.downloaded_size = 0
         
         # Removed: req.status = "proxying" # Set status to proxying before parsing direct link
         # The status should be set by the calling endpoint (e.g., create_download_task, resume_download)

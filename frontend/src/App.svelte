@@ -500,6 +500,7 @@
                   progress: progressData.progress,
                   download_speed:
                     progressData.download_speed ?? d.download_speed,
+                  use_proxy: progressData.use_proxy ?? d.use_proxy,
                 }
               : d
           );
@@ -1543,7 +1544,7 @@
                   {#if currentTab !== "completed"}
                     <td class="center-align speed-cell">
                       {#if download.download_speed && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying" || download.status.toLowerCase() === "parsing")}
-                        <span class="speed-text">
+                        <span class="speed-text {download.use_proxy ? 'proxy-speed' : 'local-speed'}">
                           {formatSpeed(download.download_speed)}
                         </span>
                       {:else if ["parsing", "downloading", "proxying", "pending", "waiting"].includes(download.status.toLowerCase())}
@@ -1637,7 +1638,7 @@
                         <DeleteIcon />
                       </button>
                     {:else}
-                      {#if ["downloading", "proxying", "pending"].includes(download.status?.toLowerCase())}
+                      {#if ["downloading", "proxying", "pending", "parsing"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
                           title={$t("action_pause")}

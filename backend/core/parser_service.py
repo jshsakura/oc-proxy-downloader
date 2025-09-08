@@ -9,7 +9,7 @@ import os
 import requests
 import cloudscraper
 import time
-from .parser import fichier_parser
+from .parser import FichierParser
 
 
 def parse_filename_only_with_proxy(url, password, proxy_addr):
@@ -307,7 +307,8 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                 print(f"[LOG] 초기 페이지 로드 성공 - 파일 정보 추출 시도")
                 
                 # 파일 정보를 가능한 한 빨리 추출
-                early_file_info = fichier_parser.extract_file_info(initial_response.text)
+                parser = FichierParser()
+                early_file_info = parser.extract_file_info(initial_response.text)
                 if early_file_info and early_file_info.get('name'):
                     print(f"[LOG] ★ 파일명 조기 추출 성공: '{early_file_info['name']}'")
                     
@@ -398,7 +399,8 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
             print(f"[LOG] 새로 파싱한 direct_link 사용 (만료검사 스킵): {direct_link}")
                 
             # 파일 정보 추출 (최종 확인 및 보완)
-            file_info = fichier_parser.extract_file_info(html_content)
+            parser = FichierParser()
+            file_info = parser.extract_file_info(html_content)
             
             # 조기 추출한 정보와 비교하여 더 완전한 정보 사용
             if not file_info.get('name') and 'early_file_info' in locals() and early_file_info.get('name'):
@@ -437,7 +439,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         try:
             # 1단계: 페이지 로드
             print(f"[LOG] 1fichier 페이지 로드")
-            response = scraper.get(url, headers=headers, proxies=proxies, timeout=(3, 8))
+            response = scraper.get(url, headers=headers, proxies=proxies, timeout=(10, 30))
             
             if response.status_code != 200:
                 print(f"[LOG] 페이지 로드 실패: HTTP {response.status_code}")
@@ -682,8 +684,27 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 if adz_match:
                     form_data['adz'] = adz_match.group(1)
                 
+                # 파일명 조기 추출을 시도하여 프록시 연결 품질 확인
+                try:
+                    from .parser import extract_file_info
+                    early_file_info = extract_file_info(response.text)
+                    early_success = early_file_info and early_file_info.get('name')
+                    
+                    if early_success:
+                        print(f"[LOG] ★ 파일명 조기 추출 성공: '{early_file_info['name']}' - 긴 타임아웃으로 파싱 진행")
+                        post_timeout = (60, 120)  # 연결 60초, 읽기 120초
+                    else:
+                        print(f"[LOG] ❌ 파일명 조기 추출 실패 - 프록시 연결 불량으로 판단, 다음 프록시로 이동")
+                        raise Exception("파일명 조기 추출 실패 - 프록시 검증 실패")
+                except Exception as e:
+                    if "파일명 조기 추출 실패" in str(e):
+                        # 조기 추출 실패로 인한 의도적 예외는 그대로 전파
+                        raise e
+                    print(f"[LOG] 파일명 조기 추출 중 오류 - 다음 프록시로 이동: {e}")
+                    raise Exception(f"파일명 조기 추출 오류: {e}")
+                
                 print(f"[LOG] POST 폼 데이터: {form_data}")
-                post_response = scraper.post(url, data=form_data, headers=headers, proxies=proxies, timeout=(3, 8))
+                post_response = scraper.post(url, data=form_data, headers=headers, proxies=proxies, timeout=post_timeout)
                 
                 if post_response.status_code == 200:
                     print(f"[LOG] POST 요청 성공, 다운로드 링크 확인")
@@ -832,9 +853,8 @@ def parse_file_info_only(url, password=None, use_proxy=True):
             return None
             
         # 파일 정보 추출
-        from .parser import FichierParser
-        fichier_parser = FichierParser()
-        file_info = fichier_parser.extract_file_info(response.text)
+        parser = FichierParser()
+        file_info = parser.extract_file_info(response.text)
         
         if file_info and file_info.get('name'):
             print(f"[LOG] 파일 정보 추출 성공: {file_info['name']} ({file_info.get('size', '알 수 없음')})")

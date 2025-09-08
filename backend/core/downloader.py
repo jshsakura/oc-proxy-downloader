@@ -591,7 +591,7 @@ def delete_download(download_id: int, db: Session = Depends(get_db)):
     print(f"[LOG] 다운로드 삭제 요청: ID {download_id}, 현재 상태: {item.status}")
     
     # 다운로드 중인 경우 먼저 정지
-    if item.status in [StatusEnum.downloading, StatusEnum.proxying]:
+    if item.status in [StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing, StatusEnum.pending]:
         print(f"[LOG] 다운로드 중이므로 먼저 정지: ID {download_id}")
         setattr(item, "status", StatusEnum.stopped)
         db.commit()
@@ -620,8 +620,8 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     
     print(f"[LOG] 다운로드 정지 요청: ID {download_id}, 현재 상태: {item.status}")
     
-    # pending, downloading, proxying 상태만 정지 가능
-    if item.status not in [StatusEnum.pending, StatusEnum.downloading, StatusEnum.proxying]:
+    # pending, downloading, proxying, parsing 상태만 정지 가능
+    if item.status not in [StatusEnum.pending, StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing]:
         raise HTTPException(status_code=400, detail=f"현재 상태({item.status})에서는 정지할 수 없습니다")
     
     # 상태를 stopped로 변경
