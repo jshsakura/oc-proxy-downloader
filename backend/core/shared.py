@@ -25,6 +25,9 @@ class DownloadManager:
         self.last_1fichier_completion_time = 0  # 마지막 1fichier 다운로드 완료 시간
         self.FICHIER_COOLDOWN_SECONDS = 90  # 1fichier 다운로드 간 대기 시간 (초) - 1fichier 서버 부하 방지
         
+        # 전역 정지 플래그 시스템 (안전한 즉시 정지)
+        self.stop_events = {}  # {download_id: threading.Event}
+        
         # 스레드 안전성을 위한 락
         self._lock = threading.Lock()
 
@@ -32,24 +35,28 @@ class DownloadManager:
         """다운로드를 시작할 수 있는지 확인 (전체 제한 + 1fichier 개별 제한 + 쿨다운)"""
         with self._lock:
             # 전체 다운로드 수 체크
+            print(f"[LOG] can_start_download 체크 - 전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS}, 로컬: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS}")
             if len(self.all_downloads) >= self.MAX_TOTAL_DOWNLOADS:
+                print(f"[LOG] 전체 다운로드 제한으로 시작 불가 ({self.MAX_TOTAL_DOWNLOADS}개)")
                 return False
             
             # 1fichier인 경우 개별 제한도 체크
             if url and '1fichier.com' in url:
                 if len(self.local_downloads) >= self.MAX_LOCAL_DOWNLOADS:
+                    print(f"[LOG] 1fichier 로컬 다운로드 제한으로 시작 불가 ({self.MAX_LOCAL_DOWNLOADS}개)")
                     return False
                 
-                # 1fichier 대기 중인 다운로드가 있는지 체크 (proxying 상태)
+                # 1fichier 로컬 다운로드 대기 중인 것이 있는지 체크 (proxying 상태, 로컬만)
                 db = None
                 try:
                     db = next(get_db())
-                    waiting_fichier = db.query(DownloadRequest).filter(
+                    waiting_local_fichier = db.query(DownloadRequest).filter(
                         DownloadRequest.status == StatusEnum.proxying,
-                        DownloadRequest.url.contains('1fichier.com')
+                        DownloadRequest.url.contains('1fichier.com'),
+                        DownloadRequest.use_proxy == False  # 로컬 다운로드만 체크
                     ).first()
-                    if waiting_fichier:
-                        print(f"[LOG] 1fichier 대기 중인 다운로드 있음: ID {waiting_fichier.id}")
+                    if waiting_local_fichier:
+                        print(f"[LOG] 1fichier 로컬 대기 중인 다운로드 있음: ID {waiting_local_fichier.id}")
                         return False
                 except Exception as e:
                     print(f"[LOG] 1fichier 대기 상태 체크 실패: {e}")
@@ -96,18 +103,22 @@ class DownloadManager:
             t.start()
             self.active_downloads[download_id] = t
     
-    def register_download(self, download_id, url=None):
+    def register_download(self, download_id, url=None, use_proxy=False):
         """다운로드 등록 (전체 + 1fichier 개별)"""
         with self._lock:
             # 모든 다운로드 등록
             self.all_downloads.add(download_id)
             
-            # 1fichier인 경우 별도 등록
-            if url and '1fichier.com' in url:
+            # 정지 플래그 초기화
+            self.stop_events[download_id] = threading.Event()
+            
+            # 1fichier이고 로컬 다운로드인 경우만 별도 등록
+            if url and '1fichier.com' in url and not use_proxy:
                 self.local_downloads.add(download_id)
-                print(f"[LOG] 1fichier 다운로드 등록: {download_id} (1fichier: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS}, 전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+                print(f"[LOG] 1fichier 로컬 다운로드 등록: {download_id} (1fichier: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS}, 전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
             else:
-                print(f"[LOG] 다운로드 등록: {download_id} (전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+                proxy_type = "프록시" if use_proxy else "일반"
+                print(f"[LOG] {proxy_type} 다운로드 등록: {download_id} (전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
     
     def register_local_download(self, download_id, url=None):
         """로컬 다운로드 등록 - 하위 호환성"""
@@ -119,6 +130,10 @@ class DownloadManager:
         with self._lock:
             # 전체 다운로드에서 해제
             self.all_downloads.discard(download_id)
+            
+            # 정지 플래그 정리
+            if download_id in self.stop_events:
+                del self.stop_events[download_id]
             
             # 1fichier 다운로드에서 해제
             was_fichier = download_id in self.local_downloads
@@ -148,12 +163,37 @@ class DownloadManager:
             threading.Thread(target=delayed_check, daemon=True).start()
         else:
             # 즉시 대기 중인 다운로드 체크 (auto_start_next가 True인 경우만)
+            print(f"[LOG] 다운로드 해제 후 자동 시작 체크: auto_start_next={auto_start_next}")
             if auto_start_next:
+                print(f"[LOG] 대기 중인 다운로드 자동 시작 체크 호출")
                 self.check_and_start_waiting_downloads()
+            else:
+                print(f"[LOG] auto_start_next=False이므로 자동 시작 건너뜀")
     
     def unregister_local_download(self, download_id):
         """로컬 다운로드 해제 - 하위 호환성"""
         self.unregister_download(download_id)
+    
+    def stop_download_immediately(self, download_id):
+        """특정 다운로드를 즉시 정지 (안전한 방법)"""
+        with self._lock:
+            if download_id in self.stop_events:
+                self.stop_events[download_id].set()
+                print(f"[LOG] ★★★ 다운로드 {download_id} 즉시 정지 플래그 설정 완료 ★★★")
+                return True
+            else:
+                print(f"[LOG] ⚠️ 다운로드 {download_id} 정지 플래그를 찾을 수 없음 - 등록되지 않은 다운로드")
+                return False
+    
+    def is_download_stopped(self, download_id):
+        """특정 다운로드가 정지되었는지 확인"""
+        with self._lock:
+            if download_id in self.stop_events:
+                is_stopped = self.stop_events[download_id].is_set()
+                if is_stopped:
+                    print(f"[LOG] ★★★ 다운로드 {download_id} 정지 플래그 감지됨 ★★★")
+                return is_stopped
+            return False
     
     def check_and_start_waiting_downloads(self):
         """대기 중인 다운로드를 확인하고 시작 (전체 제한 + 1fichier 개별 제한 고려)"""

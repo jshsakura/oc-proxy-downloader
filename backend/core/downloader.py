@@ -423,7 +423,9 @@ def create_download_task(
                 return {"id": db_req.id, "status": "waiting", "message_key": "local_download_limit_reached", "message_args": {"limit": download_manager.MAX_LOCAL_DOWNLOADS}}
             else:
                 cooldown_remaining = download_manager.get_1fichier_cooldown_remaining()
-                return {"id": db_req.id, "status": "waiting", "message_key": "fichier_cooldown_active", "message_args": {"seconds": int(cooldown_remaining)}}
+                if cooldown_remaining > 0:
+                    return {"id": db_req.id, "status": "waiting", "message_key": "fichier_cooldown_active", "message_args": {"seconds": max(1, int(cooldown_remaining))}}
+                # 쿨다운이 끝난 경우는 정상 진행
     
     return {"id": db_req.id, "status": db_req.status}
 
@@ -532,18 +534,26 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
                 except Exception as e:
                     print(f"[LOG] WebSocket 알림 전송 실패: {e}")
                 
-                # 어떤 제한인지 확인
+                # 어떤 제한인지 확인하고 DB 상태를 pending으로 설정
                 if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
                     print(f"[LOG] 재개 - 전체 다운로드 제한 도달 ({download_manager.MAX_TOTAL_DOWNLOADS}개). 대기 상태로 설정: {download_id}")
+                    setattr(item, "status", StatusEnum.pending)
+                    db.commit()
                     return {"id": item.id, "status": "waiting", "message_key": "total_download_limit_reached", "message_args": {"limit": download_manager.MAX_TOTAL_DOWNLOADS}}
                 elif len(download_manager.local_downloads) >= download_manager.MAX_LOCAL_DOWNLOADS:
                     print(f"[LOG] 재개 - 1fichier 로컬 다운로드 제한 도달 ({download_manager.MAX_LOCAL_DOWNLOADS}개). 대기 상태로 설정: {download_id}")
+                    setattr(item, "status", StatusEnum.pending)
+                    db.commit()
                     return {"id": item.id, "status": "waiting", "message_key": "local_download_limit_reached", "message_args": {"limit": download_manager.MAX_LOCAL_DOWNLOADS}}
                 else:
                     # 쿨다운 제한인 경우
                     cooldown_remaining = download_manager.get_1fichier_cooldown_remaining()
-                    print(f"[LOG] 재개 - 1fichier 쿨다운 중 ({cooldown_remaining:.1f}초 남음). 대기 상태로 설정: {download_id}")
-                    return {"id": item.id, "status": "waiting", "message_key": "fichier_cooldown_active", "message_args": {"seconds": int(cooldown_remaining)}}
+                    if cooldown_remaining > 0:
+                        print(f"[LOG] 재개 - 1fichier 쿨다운 중 ({cooldown_remaining:.1f}초 남음). 대기 상태로 설정: {download_id}")
+                        setattr(item, "status", StatusEnum.pending)
+                        db.commit()
+                        return {"id": item.id, "status": "waiting", "message_key": "fichier_cooldown_active", "message_args": {"seconds": max(1, int(cooldown_remaining))}}
+                    # 쿨다운이 끝난 경우는 정상 진행
         
         # 제한에 걸리지 않은 경우 즉시 시작
         setattr(item, "status", StatusEnum.downloading)
@@ -578,7 +588,14 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
         )
         thread.start()
         
-        return {"id": item.id, "status": item.status, "message": "Download resumed"}
+        # 실제로 이어받기인지 새 다운로드인지 구분하여 메시지 반환
+        downloaded_size = getattr(item, 'downloaded_size', 0) or 0
+        print(f"[LOG] Resume API - downloaded_size: {downloaded_size}, is_resume: {downloaded_size > 0}")
+        
+        if downloaded_size > 0:
+            return {"id": item.id, "status": item.status, "message": "Download resumed"}
+        else:
+            return {"id": item.id, "status": item.status, "message": "Download started"}
     else:
         raise HTTPException(status_code=400, detail="Download is not in a stopped or pending state")
 
@@ -630,19 +647,32 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     
     print(f"[LOG] 다운로드 상태를 stopped로 변경 완료: ID {download_id}")
     
-    # 정지 후 다운로드 매니저에서 해제 (정지 시에는 자동 시작 안 함)
+    # 즉시 정지 플래그 설정 (안전한 즉시 정지)
     from .shared import download_manager
+    download_manager.stop_download_immediately(download_id)
+    
+    # 정지 후 다운로드 매니저에서 해제 (정지 시에는 자동 시작 안 함)
     download_manager.unregister_download(download_id, auto_start_next=False)
     
-    # WebSocket으로 상태 업데이트 알림
+    # WebSocket으로 상태 업데이트 알림 (강제 새로고침)
     try:
         from core.download_core import send_websocket_message
         send_websocket_message("status_update", {
             "id": download_id,
             "status": item.status.value if hasattr(item.status, 'value') else str(item.status),
-            "message": "다운로드가 정지되었습니다"
+            "message": "다운로드가 정지되었습니다",
+            "force_update": True,  # 강제 UI 업데이트
+            "timestamp": time.time()  # 최신 상태임을 보장
         })
         print(f"[LOG] ★ 정지 WebSocket 알림 전송 완료: ID={download_id}")
+        
+        # 즉시 한번 더 전송하여 UI 동기화 확실히 함
+        send_websocket_message("force_refresh", {
+            "id": download_id,
+            "status": "stopped",
+            "action": "pause_confirmed"
+        })
+        
     except Exception as e:
         print(f"[LOG] WebSocket 알림 전송 실패: {e}")
     

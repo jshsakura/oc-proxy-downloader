@@ -427,7 +427,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
     print(f"[LOG] 재시도 카운터: {retry_count}, 1fichier 재시도 카운터: {fichier_retry_count}")
     print("=" * 80)
     
-    # 로컬 다운로드 등록 (1fichier만)
+    # 다운로드 매니저 import
     from .shared import download_manager
     
     # 새로운 DB 세션 생성
@@ -436,11 +436,20 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
     req = None
     
     try:
+        # 즉시 정지 체크 (시작 시점)
+        if download_manager.is_download_stopped(request_id):
+            print(f"[LOG] 다운로드 시작 전 정지 플래그 감지: ID {request_id}")
+            return
+        
         # 요청 정보 조회
         req = db.query(DownloadRequest).filter(DownloadRequest.id == request_id).first()
         if req is None:
             print(f"[LOG] 다운로드 요청을 찾을 수 없음: ID {request_id}")
             return
+        
+        # 다운로드 매니저에 등록 (즉시 정지 플래그 초기화)
+        download_manager.register_download(request_id, req.url, use_proxy)
+        print(f"[LOG] 다운로드 {request_id} 등록 완료 - 즉시 정지 플래그 초기화됨")
             
         # 지연 시간 체크 (5번 이후 재시도에서 3분 지연)
         if req.error and "delay_until:" in req.error:
@@ -505,7 +514,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 return
         
         # 다운로드 등록 (제한에 걸리지 않은 경우만)
-        download_manager.register_download(request_id, req.url)
+        download_manager.register_download(request_id, req.url, use_proxy)
         
         
         # 다운로드 경로 설정
@@ -563,15 +572,41 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         db.commit()
         print(f"[LOG] 저장 경로 설정: {file_path}")
         
-        # 기존 파일 확인
+        # 기존 파일 확인 (재시도/재개 여부에 따라 메시지 구분)
         initial_downloaded_size = 0
+        is_resume = (retry_count > 0 or req.status == StatusEnum.stopped)  # 재시도이거나 정지 상태에서 재개
+        
         if part_file_path.exists():
             file_path = part_file_path
             initial_downloaded_size = part_file_path.stat().st_size
-            print(f"[LOG] 이어받기: {initial_downloaded_size} bytes")
+            if is_resume:
+                print(f"[LOG] 이어받기: {initial_downloaded_size} bytes")
+            else:
+                print(f"[LOG] 기존 미완료 파일 발견 - 새 다운로드로 계속: {initial_downloaded_size} bytes")
         elif file_path.exists():
             initial_downloaded_size = file_path.stat().st_size
-            print(f"[LOG] 기존 파일 발견: {initial_downloaded_size} bytes")
+            if is_resume:
+                print(f"[LOG] 기존 파일 발견 - 이어받기: {initial_downloaded_size} bytes")
+            else:
+                # 완전히 다운로드된 파일이면 100% 완료 처리하고 종료
+                print(f"[LOG] 기존 완료 파일 발견: {initial_downloaded_size} bytes - 완료 처리")
+                req.status = StatusEnum.done
+                req.downloaded_size = initial_downloaded_size
+                req.total_size = initial_downloaded_size
+                import datetime
+                req.finished_at = datetime.datetime.utcnow()
+                db.commit()
+                
+                # WebSocket으로 완료 알림
+                send_websocket_message("status_update", {
+                    "id": req.id,
+                    "status": "done",
+                    "progress": 100.0,
+                    "downloaded_size": initial_downloaded_size,
+                    "total_size": initial_downloaded_size,
+                    "message": "기존 완료 파일 발견 - 완료 처리됨"
+                })
+                return  # 다운로드 종료
         else:
             file_path = part_file_path
             print(f"[LOG] 새 다운로드 시작")
@@ -588,8 +623,19 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         
         if use_proxy:
             print(f"[LOG] 프록시 모드로 다운로드 링크 파싱 시작")
+            
+            # 즉시 정지 체크 - proxying 상태 변경 전에
+            if download_manager.is_download_stopped(request_id):
+                print(f"[LOG] proxying 상태 변경 전 즉시 정지 플래그 감지: ID {request_id}")
+                return
+            
             req.status = StatusEnum.proxying
             db.commit()
+            
+            # 즉시 정지 체크 - WebSocket 메시지 전송 전에
+            if download_manager.is_download_stopped(request_id):
+                print(f"[LOG] WebSocket 메시지 전송 전 즉시 정지 플래그 감지: ID {request_id}")
+                return
             
             # WebSocket으로 상태 업데이트 알림
             send_websocket_message("status_update", {
@@ -1341,9 +1387,19 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                 print(f"[LOG] 검증된 프록시로 파싱 성공: {working_proxy}")
                 mark_proxy_used(db, working_proxy, success=True)
                 
+                # 즉시 정지 체크 - 파싱 완료 후 상태 변경 전에
+                if download_manager.is_download_stopped(req.id):
+                    print(f"[LOG] 파싱 완료 후 즉시 정지 플래그 감지: ID {req.id}")
+                    return result
+                
                 # 파싱 완료, 프록시 연결 상태로 전환
                 req.status = StatusEnum.proxying
                 db.commit()
+                
+                # 즉시 정지 체크 - WebSocket 메시지 전송 전에
+                if download_manager.is_download_stopped(req.id):
+                    print(f"[LOG] 파싱 완료 WebSocket 전송 전 즉시 정지 플래그 감지: ID {req.id}")
+                    return result
                 
                 # 파싱 완료 후 다운로드 준비 단계의 진행률 (새 다운로드는 낮은 진행률 유지)
                 if req.total_size > 0 and req.downloaded_size > 0:
@@ -1377,7 +1433,12 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
     print(f"[LOG] {len(unused_proxies)}개 프록시로 파싱 시도 (폴백)")
     
     for i, proxy_addr in enumerate(unused_proxies):
-        # 매 프록시 시도마다 정지 상태 체크
+        # 매 프록시 시도마다 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
+        from .shared import download_manager
+        if download_manager.is_download_stopped(req.id):
+            print(f"[LOG] 프록시 파싱 중 즉시 정지 플래그 감지: {req.id}")
+            return None, None
+        
         db.refresh(req)
         if req.status == StatusEnum.stopped:
             print(f"[LOG] 프록시 파싱 중 정지됨: {req.id}")
@@ -1537,7 +1598,12 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
     
     last_error = None
     for i, proxy_addr in enumerate(unused_proxies):
-        # 매 프록시 시도마다 정지 상태 체크
+        # 매 프록시 시도마다 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
+        from .shared import download_manager
+        if download_manager.is_download_stopped(req.id):
+            print(f"[LOG] 프록시 다운로드 중 즉시 정지 플래그 감지: {req.id}")
+            return
+        
         db.refresh(req)
         if req.status == StatusEnum.stopped:
             print(f"[LOG] 프록시 다운로드 중 정지됨: {req.id}")
@@ -1779,8 +1845,13 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                             downloaded += len(chunk)
                             chunk_count += 1
                             
-                            # 매 64KB마다(8개 청크) 정지 상태 체크
+                            # 매 64KB마다(8개 청크) 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
                             if chunk_count % 8 == 0:
+                                from .shared import download_manager
+                                if download_manager.is_download_stopped(req.id):
+                                    print(f"[LOG] 다운로드 중 즉시 정지 플래그 감지: {req.id} (진행률: {downloaded}/{total_size})")
+                                    return
+                                
                                 db.refresh(req)
                                 if req.status == StatusEnum.stopped:
                                     print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
@@ -2117,8 +2188,13 @@ def download_local(direct_link, file_path, initial_size, req, db):
                             downloaded += len(chunk)
                             chunk_count += 1
                             
-                            # 매 64KB마다(8개 청크) 정지 상태 체크
+                            # 매 64KB마다(8개 청크) 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
                             if chunk_count % 8 == 0:
+                                from .shared import download_manager
+                                if download_manager.is_download_stopped(req.id):
+                                    print(f"[LOG] 다운로드 중 즉시 정지 플래그 감지: {req.id} (진행률: {downloaded}/{total_size})")
+                                    return
+                                
                                 db.refresh(req)
                                 if req.status == StatusEnum.stopped:
                                     print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
@@ -2400,6 +2476,11 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             print(f"[LOG] 일반 다운로드 요청을 찾을 수 없음: {request_id}")
             return
         
+        # 다운로드 매니저에 등록 (즉시 정지 플래그 초기화)
+        from .shared import download_manager
+        download_manager.register_download(request_id, req.url, use_proxy)
+        print(f"[LOG] 일반 다운로드 {request_id} 등록 완료 - 즉시 정지 플래그 초기화됨")
+        
         print(f"[LOG] 일반 다운로드 시작: {req.url}")
         
         # 먼저 HEAD 요청으로 파일 정보 확인 (파일명 생성 전)
@@ -2521,15 +2602,33 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         db.commit()
         print(f"[LOG] 저장 경로 설정: {file_path}")
         
-        # 기존 파일 확인
+        # 기존 파일 확인 (일반 파일 다운로드)
         initial_size = 0
         if part_file_path.exists():
             file_path = part_file_path
             initial_size = part_file_path.stat().st_size
-            print(f"[LOG] 이어받기: {initial_size} bytes")
+            print(f"[LOG] 기존 미완료 파일 발견 - 이어받기: {initial_size} bytes")
         elif file_path.exists():
             initial_size = file_path.stat().st_size
-            print(f"[LOG] 기존 파일 발견: {initial_size} bytes")
+            # 완전히 다운로드된 파일이면 100% 완료 처리하고 종료
+            print(f"[LOG] 기존 완료 파일 발견: {initial_size} bytes - 완료 처리")
+            req.status = StatusEnum.done
+            req.downloaded_size = initial_size
+            req.total_size = initial_size
+            import datetime
+            req.finished_at = datetime.datetime.utcnow()
+            db.commit()
+            
+            # WebSocket으로 완료 알림
+            send_websocket_message("status_update", {
+                "id": req.id,
+                "status": "done", 
+                "progress": 100.0,
+                "downloaded_size": initial_size,
+                "total_size": initial_size,
+                "message": "기존 완료 파일 발견 - 완료 처리됨"
+            })
+            return  # 다운로드 종료
         else:
             file_path = part_file_path
             print(f"[LOG] 새 다운로드 시작")

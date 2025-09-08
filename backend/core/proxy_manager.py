@@ -203,7 +203,7 @@ def test_proxy(proxy_addr, timeout=15):
     }
     
     try:
-        print(f"[DEBUG] 프록시 {proxy_addr} 1fichier CloudScraper 테스트")
+        print(f"[DEBUG] 프록시 {proxy_addr} HTTPS 터널 테스트")
         
         # 실제 파싱에서 사용하는 것과 동일한 CloudScraper 설정
         scraper = cloudscraper.create_scraper(
@@ -254,27 +254,44 @@ def test_proxy(proxy_addr, timeout=15):
             'DNT': '1'
         }
         
-        # 1fichier.com에 직접 GET 요청 (실제 파싱과 동일한 타임아웃)
+        # 실제 1fichier 파일 URL 패턴에 GET 요청 (실제 파싱과 동일한 조건)
+        # 터널 테스트에서도 CloudScraper가 정상 작동하는지 확인
         response = scraper.get(
             "https://1fichier.com/", 
             proxies=proxy_config, 
             headers=headers,
-            timeout=timeout
+            timeout=(10, 30)  # 파싱 서비스와 동일한 타임아웃
         )
         
-        print(f"[DEBUG] 프록시 {proxy_addr} 1fichier 응답: {response.status_code}")
+        print(f"[DEBUG] 프록시 {proxy_addr} HTTPS 터널 응답: {response.status_code}")
         
-        # 성공적인 응답 코드들
+        # CloudScraper 처리 가능한 응답 코드들 (실제 파싱과 동일한 기준)
         success_codes = [200, 301, 302, 403, 429, 404, 503]
         if response.status_code in success_codes:
-            print(f"[LOG] ✅ 작동 프록시: {proxy_addr}")
-            return True
+            # 응답 내용이 있는지 확인 (빈 응답이면 프록시 문제)
+            if len(response.text) > 100:  # 최소한의 HTML 내용이 있어야 함
+                print(f"[LOG] ✅ HTTPS 터널 작동: {proxy_addr}")
+                return True
+            else:
+                print(f"[LOG] ❌ 터널 실패: {proxy_addr} (응답 내용 없음)")
+                return False
         else:
-            print(f"[LOG] ❌ 실패 프록시: {proxy_addr} (응답 코드: {response.status_code})")
+            print(f"[LOG] ❌ 터널 실패: {proxy_addr} (응답 코드: {response.status_code})")
             return False
             
+    except (requests.exceptions.ProxyError, 
+            requests.exceptions.ConnectTimeout, 
+            requests.exceptions.ReadTimeout) as e:
+        error_msg = str(e)
+        if "Tunnel connection failed" in error_msg or "400 Bad Request" in error_msg:
+            print(f"[LOG] ❌ HTTPS 터널 실패: {proxy_addr}")
+        elif "Unable to connect to proxy" in error_msg:
+            print(f"[LOG] ❌ 프록시 연결 불가: {proxy_addr}")
+        else:
+            print(f"[LOG] ❌ 터널 테스트 실패: {proxy_addr} ({str(e)[:100]})")
+        return False
     except Exception as e:
-        print(f"[LOG] ❌ 실패 프록시: {proxy_addr} (오류: {str(e)[:100]})")
+        print(f"[LOG] ❌ 터널 테스트 오류: {proxy_addr} ({str(e)[:100]})")
         return False
 
 
@@ -287,8 +304,13 @@ def test_proxy_batch(db: Session, batch_proxies, req=None):
 
     print(f"[LOG] {len(batch_proxies)}개 프록시 병렬 테스트 시작... (캐시된 목록 사용)")
     
-    # 요청이 있는 경우 정지 상태 체크
+    # 요청이 있는 경우 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
     if req:
+        from .shared import download_manager
+        if download_manager.is_download_stopped(req.id):
+            print(f"[LOG] 프록시 테스트 중 즉시 정지 플래그 감지: {req.id}")
+            return [], []
+        
         db.refresh(req)
         if req.status == StatusEnum.stopped:
             print(f"[LOG] 프록시 테스트 중 정지됨: {req.id}")
@@ -347,8 +369,13 @@ def get_working_proxy_batch(db: Session, batch_size=10, req=None):
     batch_proxies = unused_proxies[:batch_size]
     print(f"[LOG] {len(batch_proxies)}개 프록시 병렬 테스트 시작...")
     
-    # 요청이 있는 경우 정지 상태 체크
+    # 요청이 있는 경우 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
     if req:
+        from .shared import download_manager
+        if download_manager.is_download_stopped(req.id):
+            print(f"[LOG] 프록시 테스트 중 즉시 정지 플래그 감지: {req.id}")
+            return []
+        
         db.refresh(req)
         if req.status == StatusEnum.stopped:
             print(f"[LOG] 프록시 테스트 중 정지됨: {req.id}")

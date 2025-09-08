@@ -712,13 +712,15 @@
     }
   }
 
-  async function fetchDownloads(page = 1) {
+  async function fetchDownloads(page = 1, retryCount = 0) {
     console.log("=== fetchDownloads called ===");
     isDownloadsLoading = true;
     console.log("isDownloadsLoading set to:", isDownloadsLoading);
+    
     try {
-      const response = await fetch(`/api/history/`);
+      const response = await fetch(`/api/history/`, { timeout: 10000 });
       console.log("History API response status:", response.status);
+      
       if (response.ok) {
         const data = await response.json();
         console.log("History API response:", data);
@@ -738,16 +740,32 @@
         console.error("History API failed with status:", response.status);
         const errorText = await response.text();
         console.error("Error response:", errorText);
+        
+        // 재시도 로직
+        if (retryCount < 2 && (response.status >= 500 || response.status === 0)) {
+          console.log(`재시도 중... (${retryCount + 1}/3)`);
+          setTimeout(() => fetchDownloads(page, retryCount + 1), 2000);
+          return;
+        }
         downloads = [];
       }
     } catch (error) {
       console.error("Error fetching downloads:", error);
+      
+      // 네트워크 오류 시 재시도
+      if (retryCount < 2) {
+        console.log(`네트워크 오류 재시도 중... (${retryCount + 1}/3)`);
+        setTimeout(() => fetchDownloads(page, retryCount + 1), 2000);
+        return;
+      }
       downloads = [];
     } finally {
-      isDownloadsLoading = false;
-      console.log("isDownloadsLoading set to:", isDownloadsLoading);
-      console.log("Final downloads state:", downloads);
-      console.log("=== fetchDownloads completed ===");
+      if (retryCount === 0 || retryCount >= 2) {
+        isDownloadsLoading = false;
+        console.log("isDownloadsLoading set to:", isDownloadsLoading);
+        console.log("Final downloads state:", downloads);
+        console.log("=== fetchDownloads completed ===");
+      }
     }
   }
 
@@ -867,9 +885,14 @@
         } else {
           console.log(`API 호출 성공: ${endpoint}`);
 
-          // 사용자 피드백을 위한 토스트 메시지
+          // 사용자 피드백을 위한 토스트 메시지 (응답 내용에 따라 구분)
           if (endpoint.includes("/resume/")) {
-            showToastMsg($t("resume_request_sent"), "info");
+            // 응답에서 실제로 이어받기인지 새 다운로드인지 구분
+            if (data && data.message && data.message.includes("resume")) {
+              showToastMsg($t("resume_request_sent"), "info");
+            } else {
+              showToastMsg($t("download_request_sent") || "다운로드 요청을 보냈습니다.", "info");
+            }
           } else if (endpoint.includes("/pause/")) {
             showToastMsg($t("stop_request_sent"), "info");
           } else if (endpoint.includes("/retry/")) {
@@ -1511,6 +1534,7 @@
                               download.id
                             ].remaining_time}{$t("time_seconds")})
                           {/if}
+                          <span class="wait-indicator"></span>
                         </span>
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
@@ -2137,6 +2161,38 @@
     animation: waitPulse 1.5s ease-in-out infinite;
   }
 
+  /* 프록시 상태 배지의 공통 텍스트 스타일 */
+  .status.proxy-status {
+    color: white;
+  }
+
+  .proxy-status .wait-countdown {
+    color: white;
+  }
+
+  .proxy-status .proxy-indicator {
+    border-top-color: white;
+    border-right-color: white;
+  }
+
+  .wait-indicator {
+    display: inline-block;
+    margin-left: 6px;
+    width: 8px;
+    height: 8px;
+    border: 1.5px solid transparent;
+    border-top: 1.5px solid currentColor;
+    border-right: 1.5px solid currentColor;
+    border-radius: 50%;
+    animation: spin 1.2s linear infinite;
+    vertical-align: middle;
+  }
+
+  .proxy-status .wait-indicator {
+    border-top-color: white;
+    border-right-color: white;
+  }
+
   @keyframes waitPulse {
     0%,
     100% {
@@ -2589,5 +2645,41 @@
     0% { opacity: 0.3; }
     50% { opacity: 1; }
     100% { opacity: 0.3; }
+  }
+
+  /* 로딩 스피너 */
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid transparent;
+    border-top: 2px solid currentColor;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 8px;
+  }
+
+  .modal-spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top: 3px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 12px;
+  }
+
+  .table-loading-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    gap: 12px;
+  }
+
+  .modal-loading-text {
+    color: var(--text-primary);
+    font-size: 1rem;
   }
 </style>
