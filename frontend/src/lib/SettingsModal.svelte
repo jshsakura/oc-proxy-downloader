@@ -946,9 +946,6 @@
   </div>
 {/if}
 
-{#if $showToast}
-  <div class="toast">{$toastMessage}</div>
-{/if}
 
 <ConfirmModal
   bind:showModal={showLogoutConfirm}

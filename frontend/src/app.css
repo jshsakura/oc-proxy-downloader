@@ -1447,8 +1447,12 @@ html.dracula .system-theme-card {
   font-size: 1rem;
   z-index: 2000;
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  animation: fadein 0.3s, fadeout 0.5s 1.5s;
+  animation: fadein 0.3s ease-out;
   opacity: 0.8;
+}
+
+.toast.fadeout {
+  animation: fadeout 0.3s ease-in;
 }
 
 @keyframes fadein {

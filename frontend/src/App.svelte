@@ -798,7 +798,7 @@
     localStats = { ...localStats };
   }
 
-  async function addDownload() {
+  async function addDownload(isAutoDownload = false) {
     if (!url) return;
     isAddingDownload = true;
     try {
@@ -811,7 +811,7 @@
         const newDownload = await response.json();
         if (newDownload.status === "waiting" && newDownload.message_key) {
           showToastMsg($t(newDownload.message_key, newDownload.message_args));
-        } else {
+        } else if (!isAutoDownload) {
           showToastMsg($t("download_added_successfully"));
         }
         url = "";
@@ -1077,7 +1077,7 @@
       // URL이 유효하면 자동으로 다운로드 추가
       if (isValidUrl(trimmedText)) {
         showToastMsg($t("clipboard_url_auto_download"));
-        await addDownload();
+        await addDownload(true);
       } else {
         showToastMsg($t("clipboard_pasted"));
       }
@@ -1804,6 +1804,10 @@
     on:confirm={confirmAction}
   />
 </main>
+
+{#if $showToast}
+  <div class="toast">{$toastMessage}</div>
+{/if}
 
 <style>
   .button-icon.danger,
