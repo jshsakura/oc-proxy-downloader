@@ -46,17 +46,17 @@ class DownloadManager:
                     print(f"[LOG] 1fichier 로컬 다운로드 제한으로 시작 불가 ({self.MAX_LOCAL_DOWNLOADS}개)")
                     return False
                 
-                # 1fichier 로컬 다운로드 대기 중인 것이 있는지 체크 (proxying 상태, 로컬만)
+                # 1fichier 로컬 다운로드 실행중이거나 대기 중인 것이 있는지 체크 (downloading/proxying/parsing 상태, 로컬만)
                 db = None
                 try:
                     db = next(get_db())
-                    waiting_local_fichier = db.query(DownloadRequest).filter(
-                        DownloadRequest.status == StatusEnum.proxying,
+                    active_local_fichier = db.query(DownloadRequest).filter(
+                        DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing]),
                         DownloadRequest.url.contains('1fichier.com'),
                         DownloadRequest.use_proxy == False  # 로컬 다운로드만 체크
                     ).first()
-                    if waiting_local_fichier:
-                        print(f"[LOG] 1fichier 로컬 대기 중인 다운로드 있음: ID {waiting_local_fichier.id}")
+                    if active_local_fichier:
+                        print(f"[LOG] 1fichier 로컬 다운로드 실행/대기중 있음: ID {active_local_fichier.id}, 상태: {active_local_fichier.status}")
                         return False
                 except Exception as e:
                     print(f"[LOG] 1fichier 대기 상태 체크 실패: {e}")
@@ -274,14 +274,14 @@ class DownloadManager:
         try:
             db = next(get_db())
             
-            # DB에서 실제 downloading 상태인 다운로드 수 확인 (더 정확함)
+            # DB에서 실제 활성 상태인 다운로드 수 확인 (downloading/proxying/parsing)
             from .models import DownloadRequest, StatusEnum
             active_downloads_count = db.query(DownloadRequest).filter(
-                DownloadRequest.status == StatusEnum.downloading
+                DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing])
             ).count()
             
             active_1fichier_count = db.query(DownloadRequest).filter(
-                DownloadRequest.status == StatusEnum.downloading,
+                DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing]),
                 DownloadRequest.use_proxy == False,
                 DownloadRequest.url.contains('1fichier.com')
             ).count()
