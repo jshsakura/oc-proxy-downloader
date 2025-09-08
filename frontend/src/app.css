@@ -683,7 +683,7 @@ tbody tr:hover {
 }
 
 .status-pending {
-  color: var(--text-primary);
+  color: #fff;
   background-color: var(--card-border);
   border: 1px solid var(--input-border);
 }
