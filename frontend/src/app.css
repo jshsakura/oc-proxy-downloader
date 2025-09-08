@@ -688,7 +688,7 @@ tbody tr:hover {
   border: 1px solid var(--input-border);
 }
 .status-pending::before { 
-  background-color: #f97316; /* 주황색 도트 */ 
+  background-color: var(--warning-color); /* 주황색 도트 */ 
   animation: pendingPulse 2s infinite; /* 반짝 효과 */
 }
 
@@ -698,7 +698,7 @@ tbody tr:hover {
   border: 1px solid var(--input-border);
 }
 .status-waiting::before { 
-  background-color: #f97316; /* 주황색 도트 */ 
+  background-color: var(--warning-color); /* 주황색 도트 */ 
   animation: pendingPulse 2s infinite; /* 반짝 효과 */
 }
 
@@ -722,7 +722,7 @@ tbody tr:hover {
 
 .status-parsing {
   color: #fff;
-  background-color: var(--danger-color);
+  background-color: var(--warning-color);
 }
 .status-parsing::before { background-color: #fff; animation: pulse 2s infinite; }
 
