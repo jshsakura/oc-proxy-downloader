@@ -960,6 +960,11 @@
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
 
+    // 1fichier 쿨다운 상태 체크
+    if (download.status.toLowerCase() === "cooldown" && download.message) {
+      return download.message;
+    }
+
     // 1fichier 자동 재시도 상태 체크
     if (
       download.status.toLowerCase() === "pending" &&
@@ -1014,6 +1019,7 @@
       done: $t("download_done"),
       stopped: $t("download_stopped"),
       failed: $t("download_failed"),
+      cooldown: $t("download_cooldown"),
     };
 
     return statusTooltips[download.status.toLowerCase()] || download.status;
@@ -1523,7 +1529,12 @@
                       class="status status-{download.status.toLowerCase()} interactive-status {download.use_proxy ? 'proxy-status' : 'local-status'}"
                       title={getStatusTooltip(download)}
                     >
-                      {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
+                      {#if download.status.toLowerCase() === "cooldown" && download.cooldown_remaining}
+                        <span class="cooldown-countdown">
+                          {$t("download_cooldown")} ({download.cooldown_remaining}{$t("time_seconds")})
+                          <span class="cooldown-indicator"></span>
+                        </span>
+                      {:else if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
                         <span class="wait-countdown">
                           {#if downloadWaitInfo[download.id].remaining_time >= 60}
                             {$t("download_waiting")} ({Math.floor(
@@ -2125,6 +2136,53 @@
 
   .status-done.interactive-status {
     border: 1px solid var(--success-color);
+  }
+
+  /* 1fichier 쿨다운 상태 스타일 */
+  .status-cooldown.interactive-status {
+    border: 1px solid #ff9800;
+    background: linear-gradient(
+      90deg,
+      transparent 40%,
+      #ff9800 40%,
+      #ff9800 60%,
+      transparent 60%
+    );
+    background-size: 20px 100%;
+    animation: cooldown-progress 2s linear infinite;
+  }
+
+  @keyframes cooldown-progress {
+    0% {
+      background-position: -20px 0;
+    }
+    100% {
+      background-position: 20px 0;
+    }
+  }
+
+  .cooldown-countdown {
+    font-weight: bold;
+    color: #ff9800;
+  }
+
+  .cooldown-indicator {
+    display: inline-block;
+    margin-left: 5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #ff9800;
+    animation: cooldown-blink 1s ease-in-out infinite alternate;
+  }
+
+  @keyframes cooldown-blink {
+    from {
+      opacity: 0.3;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   /* 1fichier 자동 재시도 상태 스타일 */

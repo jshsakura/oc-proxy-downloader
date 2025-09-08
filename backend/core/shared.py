@@ -92,6 +92,82 @@ class DownloadManager:
             
             return self.FICHIER_COOLDOWN_SECONDS - time_since_completion
     
+    def _send_cooldown_updates(self, db):
+        """1fichier 쿨다운 중인 대기 다운로드들에 쿨다운 상태 메시지 전송"""
+        try:
+            cooldown_remaining = self.get_1fichier_cooldown_remaining()
+            if cooldown_remaining <= 0:
+                return
+            
+            # 1fichier 로컬 다운로드 중에서 pending 상태인 것들 찾기
+            waiting_fichier_downloads = db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.pending,
+                DownloadRequest.use_proxy == False,
+                DownloadRequest.url.contains('1fichier.com')
+            ).all()
+            
+            if waiting_fichier_downloads:
+                import json
+                cooldown_message = f"1fichier 쿨다운 대기 중: {int(cooldown_remaining)}초 남음"
+                
+                for waiting_download in waiting_fichier_downloads:
+                    # 각 대기중인 1fichier 다운로드에 쿨다운 상태 전송
+                    status_queue.put(json.dumps({
+                        "type": "status_update",
+                        "data": {
+                            "id": waiting_download.id,
+                            "status": "cooldown",
+                            "message": cooldown_message,
+                            "cooldown_remaining": int(cooldown_remaining)
+                        }
+                    }))
+                
+                print(f"[LOG] {len(waiting_fichier_downloads)}개 1fichier 다운로드에 쿨다운 상태 전송: {int(cooldown_remaining)}초 남음")
+        except Exception as e:
+            print(f"[LOG] 쿨다운 상태 전송 실패: {e}")
+    
+    def _start_cooldown_timer(self):
+        """1fichier 쿨다운 타이머 시작 - 주기적으로 대기중인 다운로드들에 상태 업데이트"""
+        def cooldown_timer():
+            try:
+                cooldown_duration = self.FICHIER_COOLDOWN_SECONDS
+                update_interval = 5  # 5초마다 업데이트
+                
+                for elapsed in range(0, cooldown_duration, update_interval):
+                    remaining = cooldown_duration - elapsed
+                    
+                    # 대기 중인 1fichier 다운로드들에 쿨다운 상태 전송
+                    db = None
+                    try:
+                        db = next(get_db())
+                        self._send_cooldown_updates(db)
+                    except Exception as e:
+                        print(f"[LOG] 쿨다운 타이머 업데이트 실패: {e}")
+                    finally:
+                        if db:
+                            try:
+                                db.close()
+                            except:
+                                pass
+                    
+                    # 쿨다운이 끝나기 전까지 대기
+                    time.sleep(min(update_interval, remaining))
+                    
+                    # 쿨다운이 끝났으면 종료
+                    if remaining <= update_interval:
+                        break
+                
+                print(f"[LOG] 1fichier 쿨다운 타이머 완료")
+                
+                # 쿨다운 완료 후 대기 중인 다운로드 체크
+                self.check_and_start_waiting_downloads()
+                
+            except Exception as e:
+                print(f"[LOG] 쿨다운 타이머 중 오류: {e}")
+        
+        # 백그라운드에서 쿨다운 타이머 실행
+        threading.Thread(target=cooldown_timer, daemon=True).start()
+    
     def can_start_local_download(self, url=None):
         """로컬 다운로드를 시작할 수 있는지 확인 (1fichier만 제한) - 하위 호환성"""
         return self.can_start_download(url)
@@ -151,23 +227,14 @@ class DownloadManager:
                 if is_completed:
                     self.last_1fichier_completion_time = time.time()
                     print(f"[LOG] 1fichier 다운로드 완료. 쿨다운 {self.FICHIER_COOLDOWN_SECONDS}초 시작")
+                    # 쿨다운 타이머 시작
+                    self._start_cooldown_timer()
             else:
                 print(f"[LOG] 다운로드 해제: {download_id} (전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
         
         # 락 외부에서 대기 중인 다운로드 체크 (데드락 방지)
-        # 1fichier 로컬 다운로드 완료 후에는 쿨다운 시간만큼 지연
-        if was_fichier and is_completed:
-            # 쿨다운 시간 후에 대기 중인 다운로드 체크
-            def delayed_check():
-                try:
-                    time.sleep(self.FICHIER_COOLDOWN_SECONDS)
-                    print(f"[LOG] 1fichier 쿨다운 완료. 대기 중인 다운로드 체크")
-                    self.check_and_start_waiting_downloads()
-                except Exception as e:
-                    print(f"[LOG] 지연된 다운로드 체크 중 오류: {e}")
-            
-            threading.Thread(target=delayed_check, daemon=True).start()
-        else:
+        # 1fichier가 아니거나 완료되지 않은 경우 즉시 체크
+        if not (was_fichier and is_completed):
             # 즉시 대기 중인 다운로드 체크 (auto_start_next가 True인 경우만)
             print(f"[LOG] 다운로드 해제 후 자동 시작 체크: auto_start_next={auto_start_next}")
             if auto_start_next:
@@ -220,6 +287,9 @@ class DownloadManager:
             ).count()
             
             print(f"[LOG] 대기 중인 다운로드 체크 시작 (실제 활성: {active_downloads_count}/{self.MAX_TOTAL_DOWNLOADS}, 1fichier: {active_1fichier_count}/{self.MAX_LOCAL_DOWNLOADS})")
+            
+            # 1fichier 쿨다운 상태인 대기중인 다운로드들에 쿨다운 메시지 전송
+            self._send_cooldown_updates(db)
             
             # 전체 다운로드 수가 5개 이상이면 시작하지 않음
             if active_downloads_count >= self.MAX_TOTAL_DOWNLOADS:
