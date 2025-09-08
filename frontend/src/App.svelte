@@ -1225,7 +1225,7 @@
     ) {
       return false; // working 탭에서 제외
     }
-    return ["pending", "downloading", "proxying", "stopped", "failed"].includes(
+    return ["pending", "downloading", "proxying", "stopped", "failed", "cooldown"].includes(
       status
     );
   }).length;
@@ -1258,6 +1258,7 @@
           "proxying",
           "stopped",
           "failed",
+          "cooldown",
         ].includes(status);
       });
     } else {
@@ -1582,7 +1583,7 @@
                         <span class="speed-text {download.use_proxy ? 'proxy-speed' : 'local-speed'}">
                           {formatSpeed(download.download_speed)}
                         </span>
-                      {:else if ["parsing", "downloading", "proxying", "pending", "waiting"].includes(download.status.toLowerCase())}
+                      {:else if ["parsing", "downloading", "proxying", "pending", "waiting", "cooldown"].includes(download.status.toLowerCase())}
                         <span class="speed-text parsing-indicator {download.use_proxy ? 'proxy-loading' : 'local-loading'}">
                           <span class="parsing-dots">•••</span>
                         </span>
@@ -1673,7 +1674,7 @@
                         <DeleteIcon />
                       </button>
                     {:else}
-                      {#if ["downloading", "proxying", "pending", "parsing"].includes(download.status?.toLowerCase())}
+                      {#if ["downloading", "proxying", "pending", "parsing", "cooldown"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
                           title={$t("action_pause")}
