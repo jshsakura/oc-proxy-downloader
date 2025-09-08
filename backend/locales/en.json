@@ -244,5 +244,5 @@
   "total_download_limit_reached": "Total download limit reached (max {limit})",
   "proxy_parsing_started": "Parsing with proxies...",
   "proxy_batch_testing": "Testing proxy batch {batch}...",
-  "proxy_verified_parsing": "Parsing with verified proxies... ({current}/{total})"
+  "proxy_verified_parsing": "Trying verified proxies... (#{current}/{total})"
 }

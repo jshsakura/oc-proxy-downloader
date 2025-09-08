@@ -1514,7 +1514,7 @@
                         </span>
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
-                        {#if downloadProxyInfo[download.id] && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying" || download.status.toLowerCase() === "parsing")}
+                        {#if ['proxying', 'parsing', 'downloading'].includes(download.status.toLowerCase())}
                           <span class="proxy-indicator"></span>
                         {/if}
                       {/if}
