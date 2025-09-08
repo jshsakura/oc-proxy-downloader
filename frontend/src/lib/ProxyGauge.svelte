@@ -146,8 +146,7 @@
       <span class="status-text">
         {currentStep === "parsing"
           ? $t("proxy_link_parsing")
-          : $t("proxy_downloading")}
-        {$t("proxy_in_progress")}... ({currentIndex}/{totalAttempting}) {currentProxy}
+          : $t("proxy_downloading")}... ({currentIndex}/{totalAttempting}) {currentProxy}
       </span>
     {:else if status === "success" && currentProxy}
       <span class="status-icon success-icon"></span>

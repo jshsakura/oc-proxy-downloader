@@ -1497,7 +1497,7 @@
                   </td>
                   <td class="center-align">
                     <span
-                      class="status status-{download.status.toLowerCase()} interactive-status"
+                      class="status status-{download.status.toLowerCase()} interactive-status {download.use_proxy ? 'proxy-status' : 'local-status'}"
                       title={getStatusTooltip(download)}
                     >
                       {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
@@ -1548,7 +1548,7 @@
                           {formatSpeed(download.download_speed)}
                         </span>
                       {:else if ["parsing", "downloading", "proxying", "pending", "waiting"].includes(download.status.toLowerCase())}
-                        <span class="speed-text parsing-indicator {download.status.toLowerCase() === 'proxying' || download.status.toLowerCase() === 'parsing' ? 'proxy-loading' : 'local-loading'}">
+                        <span class="speed-text parsing-indicator {download.use_proxy ? 'proxy-loading' : 'local-loading'}">
                           <span class="parsing-dots">•••</span>
                         </span>
                       {:else}
@@ -2081,8 +2081,18 @@
     border: 1px solid var(--warning-color);
   }
 
-  .status-downloading.interactive-status {
+  .status-downloading.interactive-status.local-status {
     border: 1px solid var(--primary-color);
+  }
+
+  .status-downloading.interactive-status.proxy-status,
+  .status-parsing.interactive-status.proxy-status,
+  .status-proxying.interactive-status.proxy-status,
+  .status-pending.interactive-status.proxy-status,
+  .status-waiting.interactive-status.proxy-status {
+    background-color: var(--warning-color);
+    color: white;
+    border: 1px solid var(--warning-color);
   }
 
   .status-failed.interactive-status {
@@ -2557,6 +2567,17 @@
 
   .parsing-indicator.local-loading {
     color: var(--primary-color); /* 다운로드/대기 상태는 속도 색상과 동일 */
+  }
+
+  /* 속도 텍스트 색상 */
+  .speed-text.proxy-speed {
+    color: var(--warning-color); /* 프록시 속도는 warning 색상 */
+    font-weight: 500;
+  }
+
+  .speed-text.local-speed {
+    color: var(--primary-color); /* 로컬 속도는 primary 색상 */
+    font-weight: 500;
   }
 
   .parsing-dots {
