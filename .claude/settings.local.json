@@ -158,7 +158,8 @@
       "Bash(pip uninstall:*)",
       "Bash(move:*)",
       "Bash(taskkill:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": [],
