@@ -722,7 +722,7 @@ tbody tr:hover {
 
 .status-parsing {
   color: #fff;
-  background-color: var(--warning-color); /* Same as proxying */
+  background-color: var(--danger-color);
 }
 .status-parsing::before { background-color: #fff; animation: pulse 2s infinite; }
 
