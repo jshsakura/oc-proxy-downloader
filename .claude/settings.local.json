@@ -157,7 +157,8 @@
       "Bash(pip show:*)",
       "Bash(pip uninstall:*)",
       "Bash(move:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": [],

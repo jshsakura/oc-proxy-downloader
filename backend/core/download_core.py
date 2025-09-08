@@ -921,6 +921,10 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             req.save_path = str(final_file_path)
         db.commit()
         
+        # 다운로드 완료 - 매니저에서 해제하여 다음 큐 자동 시작
+        download_manager.unregister_download(request_id, is_completed=True, auto_start_next=True)
+        print(f"[LOG] 다운로드 완료 - 매니저에서 해제하여 다음 큐 자동 시작: ID {request_id}")
+        
         # 텔레그램 알림 전송 (완료)
         unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
         
@@ -2708,7 +2712,9 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             "use_proxy": req.use_proxy
         })
         
-        print(f"[LOG] 일반 다운로드 완료: {req.file_name}")
+        # 다운로드 완료 - 매니저에서 해제하여 다음 큐 자동 시작 (일반 파일)
+        download_manager.unregister_download(request_id, is_completed=True, auto_start_next=True)
+        print(f"[LOG] 일반 다운로드 완료: {req.file_name} - 다음 큐 자동 시작")
             
     except Exception as e:
         print(f"[LOG] 일반 다운로드 중 오류: {e}")
@@ -2718,6 +2724,14 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             db.commit()
         raise e
     finally:
+        # 일반 다운로드 종료 시 매니저에서 해제 (실패한 경우도 다음 큐 시작)
+        try:
+            if req and req.status != StatusEnum.done:  # 완료가 아닌 경우 (실패/정지)
+                download_manager.unregister_download(request_id, is_completed=False, auto_start_next=True)
+                print(f"[LOG] 일반 다운로드 실패/정지 - 매니저에서 해제하여 다음 큐 자동 시작: ID {request_id}")
+        except:
+            pass
+        
         db.close()
 
 
