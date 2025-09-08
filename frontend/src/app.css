@@ -684,6 +684,8 @@ tbody tr:hover {
 
 .status-pending {
   color: var(--text-primary);
+  background-color: var(--card-border);
+  border: 1px solid var(--input-border);
 }
 .status-pending::before { 
   background-color: #f97316; /* 주황색 도트 */ 
@@ -692,6 +694,8 @@ tbody tr:hover {
 
 .status-waiting {
   color: var(--text-primary);
+  background-color: var(--card-border);
+  border: 1px solid var(--input-border);
 }
 .status-waiting::before { 
   background-color: #f97316; /* 주황색 도트 */ 
