@@ -1679,14 +1679,14 @@
                       {:else if ["stopped"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
-                          title={$t("action_resume")}
+                          title={download.progress > 0 ? $t("action_resume") : $t("action_start")}
                           on:click={() =>
                             callApi(
                               `/api/resume/${download.id}?use_proxy=${download.use_proxy}`,
                               download.id,
                               null
                             )}
-                          aria-label={$t("action_resume")}
+                          aria-label={download.progress > 0 ? $t("action_resume") : $t("action_start")}
                         >
                           <ResumeIcon />
                         </button>

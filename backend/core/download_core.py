@@ -447,9 +447,10 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             print(f"[LOG] 다운로드 요청을 찾을 수 없음: ID {request_id}")
             return
         
-        # 다운로드 매니저에 등록 (즉시 정지 플래그 초기화)
-        download_manager.register_download(request_id, req.url, use_proxy)
-        print(f"[LOG] 다운로드 {request_id} 등록 완료 - 즉시 정지 플래그 초기화됨")
+        # 즉시 정지 플래그만 초기화 (등록은 실제 다운로드 시작 시점에)
+        with download_manager._lock:
+            download_manager.stop_events[request_id] = threading.Event()
+        print(f"[LOG] 다운로드 {request_id} 정지 플래그 초기화 완료 (등록은 나중에)")
             
         # 지연 시간 체크 (5번 이후 재시도에서 3분 지연)
         if req.error and "delay_until:" in req.error:
@@ -2476,8 +2477,10 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             print(f"[LOG] 일반 다운로드 요청을 찾을 수 없음: {request_id}")
             return
         
-        # 다운로드 매니저에 등록 (즉시 정지 플래그 초기화)
+        # 즉시 정지 플래그만 초기화 (일반 파일은 제한 없으므로 바로 등록)
         from .shared import download_manager
+        with download_manager._lock:
+            download_manager.stop_events[request_id] = threading.Event()
         download_manager.register_download(request_id, req.url, use_proxy)
         print(f"[LOG] 일반 다운로드 {request_id} 등록 완료 - 즉시 정지 플래그 초기화됨")
         

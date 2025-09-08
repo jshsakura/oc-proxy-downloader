@@ -104,13 +104,19 @@ class DownloadManager:
             self.active_downloads[download_id] = t
     
     def register_download(self, download_id, url=None, use_proxy=False):
-        """다운로드 등록 (전체 + 1fichier 개별)"""
+        """다운로드 등록 (전체 + 1fichier 개별) - 중복 등록 방지"""
         with self._lock:
+            # 이미 등록된 경우 건너뛰기
+            if download_id in self.all_downloads:
+                print(f"[LOG] ⚠️ 다운로드 {download_id} 이미 등록됨 - 중복 등록 방지")
+                return
+            
             # 모든 다운로드 등록
             self.all_downloads.add(download_id)
             
-            # 정지 플래그 초기화
-            self.stop_events[download_id] = threading.Event()
+            # 정지 플래그 초기화 (없는 경우만)
+            if download_id not in self.stop_events:
+                self.stop_events[download_id] = threading.Event()
             
             # 1fichier이고 로컬 다운로드인 경우만 별도 등록
             if url and '1fichier.com' in url and not use_proxy:

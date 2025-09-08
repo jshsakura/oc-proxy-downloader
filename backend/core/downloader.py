@@ -590,9 +590,28 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
         
         # 실제로 이어받기인지 새 다운로드인지 구분하여 메시지 반환
         downloaded_size = getattr(item, 'downloaded_size', 0) or 0
-        print(f"[LOG] Resume API - downloaded_size: {downloaded_size}, is_resume: {downloaded_size > 0}")
         
-        if downloaded_size > 0:
+        # 실제 파일 존재 여부도 체크
+        is_actual_resume = False
+        if item.file_name:
+            from .config import get_download_path
+            from pathlib import Path
+            import os
+            
+            download_dir = Path(get_download_path())
+            part_file = download_dir / f"{item.file_name}.part"
+            complete_file = download_dir / item.file_name
+            
+            if part_file.exists() and part_file.stat().st_size > 0:
+                is_actual_resume = True
+                print(f"[LOG] Resume API - .part 파일 존재: {part_file.stat().st_size} bytes")
+            elif complete_file.exists():
+                is_actual_resume = True
+                print(f"[LOG] Resume API - 완료 파일 존재: {complete_file.stat().st_size} bytes")
+        
+        print(f"[LOG] Resume API - downloaded_size: {downloaded_size}, file_exists: {is_actual_resume}")
+        
+        if downloaded_size > 0 or is_actual_resume:
             return {"id": item.id, "status": item.status, "message": "Download resumed"}
         else:
             return {"id": item.id, "status": item.status, "message": "Download started"}
