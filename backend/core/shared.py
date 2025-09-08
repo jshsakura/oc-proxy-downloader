@@ -30,6 +30,10 @@ class DownloadManager:
         
         # 스레드 안전성을 위한 락
         self._lock = threading.Lock()
+        
+        # DB 쿼리 캐시 (부하 감소)
+        self._last_check_time = 0
+        self._check_interval = 2.0  # 2초 간격으로만 DB 체크
 
     def can_start_download(self, url=None):
         """다운로드를 시작할 수 있는지 확인 (전체 제한 + 1fichier 개별 제한 + 쿨다운)"""
@@ -135,24 +139,25 @@ class DownloadManager:
         def cooldown_timer():
             try:
                 cooldown_duration = self.FICHIER_COOLDOWN_SECONDS
-                update_interval = 5  # 5초마다 업데이트
+                update_interval = 10  # 10초마다 업데이트 (부하 감소)
                 
                 for elapsed in range(0, cooldown_duration, update_interval):
                     remaining = cooldown_duration - elapsed
                     
-                    # 대기 중인 1fichier 다운로드들에 쿨다운 상태 전송
-                    db = None
-                    try:
-                        db = next(get_db())
-                        self._send_cooldown_updates(db)
-                    except Exception as e:
-                        print(f"[LOG] 쿨다운 타이머 업데이트 실패: {e}")
-                    finally:
-                        if db:
-                            try:
-                                db.close()
-                            except:
-                                pass
+                    # 대기 중인 1fichier 다운로드들에 쿨다운 상태 전송 (DB 접근 최소화)
+                    if remaining > update_interval:  # 마지막 업데이트가 아닐 때만
+                        db = None
+                        try:
+                            db = next(get_db())
+                            self._send_cooldown_updates(db)
+                        except Exception as e:
+                            print(f"[LOG] 쿨다운 타이머 업데이트 실패: {e}")
+                        finally:
+                            if db:
+                                try:
+                                    db.close()
+                                except:
+                                    pass
                     
                     # 쿨다운이 끝나기 전까지 대기
                     time.sleep(min(update_interval, remaining))
@@ -274,6 +279,14 @@ class DownloadManager:
     
     def check_and_start_waiting_downloads(self):
         """대기 중인 다운로드를 확인하고 시작 (전체 제한 + 1fichier 개별 제한 고려)"""
+        # 부하 감소를 위한 중복 호출 방지
+        current_time = time.time()
+        if current_time - self._last_check_time < self._check_interval:
+            print(f"[LOG] 대기 중인 다운로드 체크 스킵 (최근 체크: {current_time - self._last_check_time:.1f}초 전)")
+            return
+        
+        self._last_check_time = current_time
+        
         db = None
         try:
             db = next(get_db())
