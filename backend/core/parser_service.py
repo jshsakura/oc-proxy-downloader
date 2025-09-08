@@ -686,8 +686,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 
                 # 파일명 조기 추출을 시도하여 프록시 연결 품질 확인
                 try:
-                    from .parser import extract_file_info
-                    early_file_info = extract_file_info(response.text)
+                    parser = FichierParser()
+                    early_file_info = parser.extract_file_info(response.text)
                     early_success = early_file_info and early_file_info.get('name')
                     
                     if early_success:

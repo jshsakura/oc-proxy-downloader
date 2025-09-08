@@ -1295,7 +1295,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                     "id": req.id,
                     "status": "parsing",
                     "message": get_message("proxy_verified_parsing").format(current=i + 1, total=len(working_proxies)),
-                    "progress": max(0, min(40, (req.downloaded_size / req.total_size * 100 if req.total_size > 0 else 0) + int((i / len(working_proxies)) * 30))),  # 현재 진행률 + 추가 진행률
+                    "progress": max(0, min(10, int((i / len(working_proxies)) * 10))),  # 파싱 단계는 최대 10%까지만 (0-10%)
                     "url": req.url
                 })
             
@@ -1346,10 +1346,13 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                 req.status = StatusEnum.proxying
                 db.commit()
                 
-                # 파싱 완료 후 다운로드 준비 단계의 진행률
-                parsing_complete_progress = 50
+                # 파싱 완료 후 다운로드 준비 단계의 진행률 (새 다운로드는 낮은 진행률 유지)
                 if req.total_size > 0 and req.downloaded_size > 0:
-                    parsing_complete_progress = max(50, (req.downloaded_size / req.total_size) * 100)
+                    # 이어받기인 경우 실제 진행률 사용
+                    parsing_complete_progress = max(15, (req.downloaded_size / req.total_size) * 100)
+                else:
+                    # 새 다운로드인 경우 낮은 진행률 유지
+                    parsing_complete_progress = 15
                 
                 send_websocket_message("status_update", {
                     "id": req.id,
