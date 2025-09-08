@@ -175,6 +175,30 @@
     };
     document.addEventListener("proxy-refreshed", handleProxyRefresh);
 
+    // 모바일에서 앱 포그라운드 복귀 시 조용한 동기화
+    let lastVisibilityTime = Date.now();
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        const now = Date.now();
+        const timeSinceLastVisible = now - lastVisibilityTime;
+        
+        // 5초 이상 백그라운드에 있었다면 동기화
+        if (timeSinceLastVisible > 5000) {
+          console.log("[SYNC] 앱 포그라운드 복귀, 백그라운드 동기화 실행");
+          syncDownloadsSilently();
+          
+          // WebSocket도 재연결 (연결이 끊어졌을 수 있음)
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            console.log("[SYNC] WebSocket 재연결");
+            reconnectWebSocket();
+          }
+        }
+      } else {
+        lastVisibilityTime = Date.now();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     const unsubscribe = t.subscribe((t_func) => {
       document.title = t_func("title");
     });
@@ -186,6 +210,7 @@
     return () => {
       cleanupResize && cleanupResize();
       document.removeEventListener("proxy-refreshed", handleProxyRefresh);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   });
 
@@ -666,6 +691,26 @@
     connectWebSocket();
   }
 
+  // 조용한 백그라운드 동기화 (깜빡거림 없음)
+  async function syncDownloadsSilently() {
+    try {
+      const response = await fetch(`/api/history/`);
+      if (response.ok) {
+        const newData = await response.json();
+        
+        // 기존 데이터와 비교해서 실제 변경사항만 업데이트
+        const hasChanges = JSON.stringify(downloads) !== JSON.stringify(newData);
+        if (hasChanges) {
+          console.log("[SYNC] 백그라운드에서 데이터 변경 감지, 조용히 업데이트");
+          downloads = newData;
+          // 로딩 상태 변경 없이 부드럽게 업데이트
+        }
+      }
+    } catch (error) {
+      console.log("[SYNC] 백그라운드 동기화 실패:", error);
+    }
+  }
+
   async function fetchDownloads(page = 1) {
     console.log("=== fetchDownloads called ===");
     isDownloadsLoading = true;
@@ -772,7 +817,7 @@
         url = "";
         password = "";
         hasPassword = false;
-        fetchDownloads(currentPage);
+        syncDownloadsSilently(); // 새 다운로드 추가 후 조용한 업데이트
       } else {
         const errorData = await response.json();
         showToastMsg($t("add_download_failed", { detail: errorData.detail }));
@@ -830,8 +875,8 @@
             showToastMsg($t("retry_request_sent"), "info");
           }
 
-          // 즉시 상태 새로고침
-          fetchDownloads(currentPage);
+          // 즉시 상태 새로고침 (깜빡거림 없이)
+          syncDownloadsSilently();
         }
       }
       await fetchActiveDownloads();
@@ -1101,7 +1146,7 @@
       });
       if (response.ok) {
         showToastMsg($t("redownload_requested"));
-        fetchDownloads(currentPage);
+        syncDownloadsSilently(); // 재다운로드 요청 후 조용한 업데이트
         currentTab = "working";
       } else {
         const errorData = await response.json();
@@ -1136,8 +1181,8 @@
   function onTabChange(newTab) {
     if (currentTab !== newTab) {
       currentTab = newTab;
-      // Force data refresh when switching tabs
-      fetchDownloads();
+      // 탭 전환 시 조용한 데이터 새로고침
+      syncDownloadsSilently();
     }
   }
 
