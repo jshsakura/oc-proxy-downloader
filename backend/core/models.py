@@ -11,6 +11,7 @@ class StatusEnum(str, enum.Enum):
     stopped = "stopped"
     done = "done"
     failed = "failed"
+    cooldown = "cooldown"
 
 Base = declarative_base()
 

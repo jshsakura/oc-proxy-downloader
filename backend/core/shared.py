@@ -99,30 +99,34 @@ class DownloadManager:
             if cooldown_remaining <= 0:
                 return
             
-            # 1fichier 로컬 다운로드 중에서 pending 상태인 것들 찾기
-            waiting_fichier_downloads = db.query(DownloadRequest).filter(
+            # 1fichier 로컬 다운로드 중에서 다음에 실행될 1개만 찾기 (가장 먼저 요청된 것)
+            next_fichier_download = db.query(DownloadRequest).filter(
                 DownloadRequest.status == StatusEnum.pending,
                 DownloadRequest.use_proxy == False,
                 DownloadRequest.url.contains('1fichier.com')
-            ).all()
+            ).order_by(DownloadRequest.requested_at.asc()).first()
             
-            if waiting_fichier_downloads:
+            if next_fichier_download:
                 import json
                 cooldown_message = f"1fichier 쿨다운 대기 중: {int(cooldown_remaining)}초 남음"
                 
-                for waiting_download in waiting_fichier_downloads:
-                    # 각 대기중인 1fichier 다운로드에 쿨다운 상태 전송
-                    status_queue.put(json.dumps({
-                        "type": "status_update",
-                        "data": {
-                            "id": waiting_download.id,
-                            "status": "cooldown",
-                            "message": cooldown_message,
-                            "cooldown_remaining": int(cooldown_remaining)
-                        }
-                    }))
+                # DB에서 다운로드 상태를 cooldown으로 변경 (처음 한 번만)
+                if next_fichier_download.status != StatusEnum.cooldown:
+                    next_fichier_download.status = StatusEnum.cooldown
+                    db.commit()
                 
-                print(f"[LOG] {len(waiting_fichier_downloads)}개 1fichier 다운로드에 쿨다운 상태 전송: {int(cooldown_remaining)}초 남음")
+                # 다음에 실행될 1fichier 다운로드에만 쿨다운 상태 전송
+                status_queue.put(json.dumps({
+                    "type": "status_update",
+                    "data": {
+                        "id": next_fichier_download.id,
+                        "status": "cooldown",
+                        "message": cooldown_message,
+                        "cooldown_remaining": int(cooldown_remaining)
+                    }
+                }))
+                
+                print(f"[LOG] 다음 1fichier 다운로드 ID {next_fichier_download.id}에 쿨다운 상태 전송: {int(cooldown_remaining)}초 남음")
         except Exception as e:
             print(f"[LOG] 쿨다운 상태 전송 실패: {e}")
     
@@ -288,8 +292,23 @@ class DownloadManager:
             
             print(f"[LOG] 대기 중인 다운로드 체크 시작 (실제 활성: {active_downloads_count}/{self.MAX_TOTAL_DOWNLOADS}, 1fichier: {active_1fichier_count}/{self.MAX_LOCAL_DOWNLOADS})")
             
-            # 1fichier 쿨다운 상태인 대기중인 다운로드들에 쿨다운 메시지 전송
-            self._send_cooldown_updates(db)
+            # 쿨다운이 끝났으면 cooldown 상태인 다운로드를 pending으로 되돌리기
+            if self.get_1fichier_cooldown_remaining() <= 0:
+                cooldown_downloads = db.query(DownloadRequest).filter(
+                    DownloadRequest.status == StatusEnum.cooldown,
+                    DownloadRequest.use_proxy == False,
+                    DownloadRequest.url.contains('1fichier.com')
+                ).all()
+                
+                for cooldown_download in cooldown_downloads:
+                    cooldown_download.status = StatusEnum.pending
+                    print(f"[LOG] 쿨다운 완료 - ID {cooldown_download.id}를 pending으로 복원")
+                
+                if cooldown_downloads:
+                    db.commit()
+            else:
+                # 1fichier 쿨다운 상태인 대기중인 다운로드들에 쿨다운 메시지 전송
+                self._send_cooldown_updates(db)
             
             # 전체 다운로드 수가 5개 이상이면 시작하지 않음
             if active_downloads_count >= self.MAX_TOTAL_DOWNLOADS:
