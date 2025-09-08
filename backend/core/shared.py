@@ -254,8 +254,15 @@ class DownloadManager:
                 print(f"[LOG] 다운로드 {waiting_request.id}는 이미 실행 중 - 중복 시작 방지")
                 return
         
-        # 원래 프록시 설정 사용
-        use_proxy = getattr(waiting_request, 'use_proxy', False)
+        # DB에서 최신 프록시 설정 다시 조회 (실시간 업데이트 반영)
+        try:
+            db = next(get_db())
+            fresh_request = db.query(DownloadRequest).filter(DownloadRequest.id == waiting_request.id).first()
+            use_proxy = fresh_request.use_proxy if fresh_request else getattr(waiting_request, 'use_proxy', False)
+            print(f"[LOG] 다운로드 {waiting_request.id} 최신 프록시 설정: {use_proxy}")
+        except:
+            use_proxy = getattr(waiting_request, 'use_proxy', False)
+            print(f"[LOG] 다운로드 {waiting_request.id} 기본 프록시 설정 사용: {use_proxy}")
         
         # URL 타입에 따라 적절한 다운로드 함수 선택
         if "1fichier.com" in waiting_request.url.lower():
