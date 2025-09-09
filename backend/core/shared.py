@@ -47,6 +47,9 @@ class DownloadManager:
         # 스레드 안전성을 위한 락
         self._lock = threading.Lock()
         
+        # 서버 시작 시간 기록 (재시작 복구 판단용)
+        self._server_start_time = time.time()
+        
         # DB 쿼리 캐시 (부하 감소)
         self._last_check_time = 0
         self._check_interval = 2.0  # 2초 간격으로만 DB 체크

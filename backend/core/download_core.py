@@ -1291,8 +1291,13 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
         print(f"[LOG] 배치 {batch_num}: {len(batch_proxies)}개 프록시 테스트")
         
         # 배치 프록시를 병렬 테스트 (캐시된 목록 사용)
+        # 재시작 직후 5분 이내에는 관대한 모드 사용
+        import time
+        server_start_time = getattr(download_manager, '_server_start_time', time.time())
+        use_lenient_mode = (time.time() - server_start_time) < 300  # 5분
+        
         from .proxy_manager import test_proxy_batch, mark_proxy_used
-        working_proxies, failed_proxies = test_proxy_batch(db, batch_proxies, req=req)
+        working_proxies, failed_proxies = test_proxy_batch(db, batch_proxies, req=req, lenient_mode=use_lenient_mode)
         
         if working_proxies:
             print(f"[LOG] 배치 {batch_num}에서 {len(working_proxies)}개 프록시 확보")

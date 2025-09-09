@@ -151,11 +151,15 @@ def mark_proxy_used(db: Session, proxy_addr: str, success: bool):
             ProxyStatus.port == int(port)
         ).first()
         
+        current_time = datetime.datetime.now()
+        
         if existing:
             # 기존 레코드 업데이트
             existing.last_status = 'success' if success else 'fail'
             existing.success = success  # 호환성을 위해 추가
-            existing.last_used_at = datetime.datetime.now()
+            existing.last_used_at = current_time
+            if not success:
+                existing.last_failed_at = current_time
         else:
             # 새 레코드 생성
             new_record = ProxyStatus(
@@ -163,7 +167,8 @@ def mark_proxy_used(db: Session, proxy_addr: str, success: bool):
                 port=int(port),
                 last_status='success' if success else 'fail',
                 success=success,  # 호환성을 위해 추가
-                last_used_at=datetime.datetime.now()
+                last_used_at=current_time,
+                last_failed_at=current_time if not success else None
             )
             db.add(new_record)
         
@@ -186,9 +191,33 @@ def reset_proxy_usage(db: Session):
         print(f"[LOG] 프록시 사용 기록 초기화 실패: {e}")
         db.rollback()
 
+def reset_recent_failed_proxies(db: Session, hours_back: int = 1):
+    """최근 실패한 프록시만 초기화 (재시작 복구용)"""
+    try:
+        import datetime
+        cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=hours_back)
+        
+        # 최근 1시간 이내에 실패한 프록시들만 삭제
+        deleted_count = db.query(ProxyStatus).filter(
+            ProxyStatus.last_status == 'fail',
+            ProxyStatus.last_failed_at >= cutoff_time
+        ).delete()
+        
+        db.commit()
+        print(f"[LOG] 최근 {hours_back}시간 이내 실패 프록시 {deleted_count}개 초기화 완료")
+    except Exception as e:
+        print(f"[LOG] 최근 실패 프록시 초기화 실패: {e}")
+        db.rollback()
 
-def test_proxy(proxy_addr, timeout=15):
-    """프록시 연결 테스트 - 실제 파싱과 동일한 조건으로 테스트"""
+
+def test_proxy(proxy_addr, timeout=15, lenient_mode=False):
+    """프록시 연결 테스트 - 실제 파싱과 동일한 조건으로 테스트
+    
+    Args:
+        proxy_addr: 프록시 주소 (IP:PORT)
+        timeout: 타임아웃 (초)
+        lenient_mode: 관대한 모드 (재시작 직후 등에 사용, 간단한 연결 테스트만)
+    """
     import cloudscraper
     import ssl
     import urllib3
@@ -203,6 +232,35 @@ def test_proxy(proxy_addr, timeout=15):
     }
     
     try:
+        if lenient_mode:
+            # 관대한 모드: 간단한 HTTP 연결 테스트만 수행 (재시작 직후용)
+            print(f"[DEBUG] 프록시 {proxy_addr} 간단 연결 테스트 (관대한 모드)")
+            
+            import requests
+            proxy_config = {
+                "http": f"http://{proxy_addr}",
+                "https": f"http://{proxy_addr}"
+            }
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            # 더 간단한 테스트 URL (google.com 대신 httpbin.org 사용)
+            response = requests.get(
+                "http://httpbin.org/ip", 
+                proxies=proxy_config, 
+                headers=headers,
+                timeout=8  # 더 짧은 타임아웃
+            )
+            
+            if response.status_code == 200 and 'origin' in response.text:
+                print(f"[LOG] ✅ 간단 연결 테스트 성공: {proxy_addr}")
+                return True
+            else:
+                print(f"[LOG] ❌ 간단 연결 테스트 실패: {proxy_addr} (상태: {response.status_code})")
+                return False
+        
         print(f"[DEBUG] 프록시 {proxy_addr} HTTPS 터널 테스트")
         
         # 실제 파싱에서 사용하는 것과 동일한 CloudScraper 설정
@@ -295,14 +353,15 @@ def test_proxy(proxy_addr, timeout=15):
         return False
 
 
-def test_proxy_batch(db: Session, batch_proxies, req=None):
+def test_proxy_batch(db: Session, batch_proxies, req=None, lenient_mode=False):
     """주어진 프록시 배치를 병렬 테스트해서 성공한 것들을 반환"""
     
     if not batch_proxies:
         print(f"[LOG] 테스트할 프록시가 없음")
         return [], []
 
-    print(f"[LOG] {len(batch_proxies)}개 프록시 병렬 테스트 시작... (캐시된 목록 사용)")
+    mode_text = " (관대한 모드)" if lenient_mode else ""
+    print(f"[LOG] {len(batch_proxies)}개 프록시 병렬 테스트 시작{mode_text}... (캐시된 목록 사용)")
     
     # 요청이 있는 경우 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
     if req:
@@ -328,7 +387,7 @@ def test_proxy_batch(db: Session, batch_proxies, req=None):
             delay = random.uniform(0.5, 1.5)
             time.sleep(delay)
             
-            if test_proxy(proxy_addr, timeout=10):
+            if test_proxy(proxy_addr, timeout=10, lenient_mode=lenient_mode):
                 return proxy_addr, True
             else:
                 return proxy_addr, False
@@ -393,7 +452,7 @@ def get_working_proxy_batch(db: Session, batch_size=10, req=None):
             delay = random.uniform(0.5, 1.5)
             time.sleep(delay)
             
-            if test_proxy(proxy_addr, timeout=10):
+            if test_proxy(proxy_addr, timeout=10, lenient_mode=lenient_mode):
                 return proxy_addr, True
             else:
                 return proxy_addr, False

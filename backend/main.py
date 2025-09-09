@@ -189,10 +189,22 @@ async def lifespan(app: FastAPI):
         
         print(f"[LOG] 📊 복구 대상 다운로드: {len(downloading_requests)}개")
         
+        # 재시작 시 프록시 상태 부분 초기화 (최근 실패한 것들만)
+        try:
+            from core.proxy_manager import reset_recent_failed_proxies
+            reset_recent_failed_proxies(db)
+            print(f"[LOG] 🔄 재시작 복구를 위한 최근 실패 프록시 상태 초기화 완료")
+        except Exception as e:
+            print(f"[LOG] ⚠️ 프록시 상태 초기화 실패: {e}")
+
         for req in downloading_requests:
-            print(f"[LOG] 🔄 복구 중: ID {req.id} - {req.status} → pending (자동 재시작)")
             req.status = StatusEnum.pending  # 자동 재시작 대기열로
-            req.direct_link = None  # 서버 재시작 시 파싱 상태 초기화
+            # 프록시 다운로드는 재파싱을 위해 direct_link 초기화
+            if req.use_proxy:
+                req.direct_link = None  # 프록시 재파싱 강제
+                print(f"[LOG] 🔄 복구 중: ID {req.id} - {req.status} → pending (프록시 재파싱)")
+            else:
+                print(f"[LOG] 🔄 복구 중: ID {req.id} - {req.status} → pending (자동 재시작)")
             req.error = None  # 이전 에러 정보 초기화
             db.commit()
             
