@@ -629,13 +629,33 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         if should_send_update:
                             try:
                                 from .download_core import send_websocket_message
+                                from .models import DownloadRequest, SessionLocal
                                 
-                                send_websocket_message("wait_countdown", {
-                                    "remaining_time": remaining,
-                                    "total_wait_time": wait_seconds,
-                                    "proxy_addr": proxy_addr,
-                                    "url": url
-                                })
+                                # 파일 크기 정보를 위해 다운로드 요청 조회
+                                temp_db = SessionLocal()
+                                try:
+                                    download_req = temp_db.query(DownloadRequest).filter(
+                                        DownloadRequest.url == url
+                                    ).order_by(DownloadRequest.requested_at.desc()).first()
+                                    
+                                    wait_data = {
+                                        "remaining_time": remaining,
+                                        "total_wait_time": wait_seconds,
+                                        "proxy_addr": proxy_addr,
+                                        "url": url
+                                    }
+                                    
+                                    # 파일 크기 정보 추가
+                                    if download_req:
+                                        if download_req.total_size:
+                                            wait_data["total_size"] = download_req.total_size
+                                        if download_req.file_name:
+                                            wait_data["file_name"] = download_req.file_name
+                                        wait_data["download_id"] = download_req.id
+                                    
+                                    send_websocket_message("wait_countdown", wait_data)
+                                finally:
+                                    temp_db.close()
                             except Exception as e:
                                 print(f"[LOG] 카운트다운 WebSocket 전송 실패: {e}")
                         

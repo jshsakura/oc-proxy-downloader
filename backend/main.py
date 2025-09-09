@@ -524,6 +524,34 @@ async def stream_events(request: Request):
         }
     )
 
+def start_next_pending_download():
+    """다음 대기 중인 다운로드를 시작"""
+    try:
+        db = SessionLocal()
+        # 대기 중인 다운로드 찾기 (가장 오래된 것부터)
+        pending_download = db.query(DownloadRequest).filter(
+            DownloadRequest.status == StatusEnum.pending
+        ).order_by(DownloadRequest.requested_at.asc()).first()
+        
+        if pending_download:
+            print(f"[LOG] 다음 대기 중인 다운로드 시작: {pending_download.id}")
+            # 백그라운드 스레드로 다운로드 시작
+            import threading
+            thread = threading.Thread(
+                target=download_task, 
+                args=(pending_download.id, "ko"),
+                daemon=True
+            )
+            thread.start()
+            # 스레드 관리 목록에 추가
+            download_manager.add_download_thread(pending_download.id, thread)
+        else:
+            print(f"[LOG] 대기 중인 다운로드 없음")
+        
+        db.close()
+    except Exception as e:
+        print(f"[LOG] 다음 다운로드 시작 중 오류: {e}")
+
 def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
     import json
     item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
@@ -540,6 +568,12 @@ def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
         message = json.dumps({"type": "status_update", "data": item_dict}, ensure_ascii=False)
         status_queue.put(message)
         print(f"[LOG] 상태 업데이트 메시지를 큐에 추가함: {download_id} -> {item.status}")
+        
+        # 다운로드가 완료되거나 실패한 경우 다음 다운로드 시작
+        if item.status in [StatusEnum.done, StatusEnum.failed]:
+            print(f"[LOG] 다운로드 {download_id} 완료/실패됨. 다음 다운로드 시작 시도")
+            import threading
+            threading.Thread(target=start_next_pending_download, daemon=True).start()
 
 async def notify_proxy_try(download_id: int, proxy: str):
     import json
@@ -1342,8 +1376,9 @@ def download_1fichier_file_NEW_VERSION(request_id: int, lang: str = "ko", use_pr
 
             setattr(req, "total_size", total_size)
             db.commit()
+            db.refresh(req)  # DB에서 최신 데이터로 새로고침
             notify_status_update(db, int(getattr(req, 'id')), lang) # Call notify_status_update here
-            print(f"[LOG] DB file_name and total_size updated for {req.id}")
+            print(f"[LOG] DB file_name and total_size updated for {req.id}: total_size={req.total_size}")
 
             # Open file in append mode if resuming, else write mode
             mode = "ab" if initial_downloaded_size > 0 and resume_supported else "wb"
