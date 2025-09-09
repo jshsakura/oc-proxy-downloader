@@ -473,7 +473,6 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 # ping 메시지 전송으로 연결 유지 확인
                 await websocket.send_json({"type": "ping", "timestamp": time.time()})
-                print(f"[LOG] 📶 WebSocket ping 전송")
             except Exception as e:
                 print(f"[LOG] ❌ WebSocket ping 실패: {e}")
                 break
@@ -906,7 +905,6 @@ def download_1fichier_file_NEW_VERSION(request_id: int, lang: str = "ko", use_pr
                     return
                 
                 try:
-                    print(f"[LOG] Direct Link 파싱 - 프록시 {i+1}/{len(available_proxies)} 시도: {proxy_addr}")
                     
                     # 프록시 시도 중 상태 WebSocket 전송
                     try:
@@ -1149,7 +1147,6 @@ def download_1fichier_file_NEW_VERSION(request_id: int, lang: str = "ko", use_pr
                     return
                 
                 try:
-                    print(f"[LOG] 다운로드 - 프록시 {i+1}/{len(remaining_proxies)} 시도: {proxy_addr}")
                     
                     # 프록시 시도 중 상태 WebSocket 전송
                     try:

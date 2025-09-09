@@ -413,10 +413,6 @@
 
       // Ping 메시지 처리 (연결 유지용)
       if (message.type === "ping") {
-        console.log(
-          "📶 WebSocket ping 수신:",
-          new Date(message.timestamp * 1000).toLocaleTimeString()
-        );
         return;
       }
 
@@ -466,40 +462,21 @@
           if (downloadWaitInfo[updatedDownload.id]) {
             delete downloadWaitInfo[updatedDownload.id];
             downloadWaitInfo = { ...downloadWaitInfo };
-            console.log(
-              $t("wait_info_removed", {
-                id: updatedDownload.id,
-                status: updatedDownload.status,
-              })
-            );
           }
         }
       } else if (message.type === "proxy_update") {
         fetchProxyStatus();
       } else if (message.type === "proxy_reset") {
-        console.log("Proxy reset:", message.data);
         fetchProxyStatus();
         showToastMsg($t("proxy_reset_success"), "success");
 
         fetchActiveDownloads();
       } else if (message.type === "progress_update") {
         const progressData = message.data;
-        console.log("Progress update received:", progressData);
 
         const index = downloads.findIndex((d) => d.id === progressData.id);
-        console.log(
-          "Found download at index:",
-          index,
-          "for ID:",
-          progressData.id
-        );
 
         if (index !== -1) {
-          console.log("Before update:", {
-            downloaded_size: downloads[index].downloaded_size,
-            total_size: downloads[index].total_size,
-            progress: downloads[index].progress,
-          });
 
           // 불변성을 유지하면서 업데이트
           downloads = downloads.map((d, i) =>
@@ -516,19 +493,9 @@
               : d
           );
 
-          console.log("After update:", {
-            downloaded_size: downloads[index].downloaded_size,
-            total_size: downloads[index].total_size,
-            progress: downloads[index].progress,
-          });
         } else {
-          console.log(
-            "Download not found in list. Current downloads:",
-            downloads.map((d) => ({ id: d.id, url: d.url }))
-          );
         }
       } else if (message.type === "proxy_trying") {
-        console.log("Proxy trying:", message.data);
 
         proxyStats.currentProxy = message.data.proxy;
         proxyStats.currentStep = message.data.step;
@@ -1624,7 +1591,7 @@
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
                         {#if ["proxying", "parsing", "downloading"].includes(download.status.toLowerCase())}
-                          <span class="proxy-indicator"></span>
+                          <span class="proxy-indicator proxy-indicator-{download.status.toLowerCase()}"></span>
                         {/if}
                       {/if}
                     </span>
@@ -2169,11 +2136,20 @@
     width: 10px;
     height: 10px;
     border: 2px solid transparent;
-    border-top: 2px solid currentColor;
-    border-right: 2px solid currentColor;
     border-radius: 50%;
     animation: spin 1s linear infinite;
     vertical-align: middle;
+  }
+  
+  /* 상태별 proxy-indicator 색상 */
+  .proxy-indicator-downloading {
+    border-top: 2px solid #0d6efd;
+    border-right: 2px solid #0d6efd;
+  }
+  .proxy-indicator-parsing,
+  .proxy-indicator-proxying {
+    border-top: 2px solid #ffc107;
+    border-right: 2px solid #ffc107;
   }
 
   @keyframes spin {
@@ -2314,8 +2290,12 @@
     animation: waitPulse 1.5s ease-in-out infinite;
   }
 
-  /* 프록시 상태 배지의 공통 텍스트 스타일 */
-  .status.proxy-status {
+  /* 프록시 상태 배지의 특정 상태에만 흰색 텍스트 적용 */
+  .status-downloading.interactive-status.proxy-status,
+  .status-parsing.interactive-status.proxy-status,
+  .status-proxying.interactive-status.proxy-status,
+  .status-pending.interactive-status.proxy-status,
+  .status-waiting.interactive-status.proxy-status {
     color: white;
   }
 
@@ -2323,10 +2303,6 @@
     color: white;
   }
 
-  .proxy-status .proxy-indicator {
-    border-top-color: white;
-    border-right-color: white;
-  }
 
   .wait-indicator {
     display: inline-block;
@@ -2671,18 +2647,117 @@
 
   /* 상태라벨 기본 스타일 추가 */
   span.status {
-    display: inline-block;
-    padding: 6px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px 6px 10px;
     border-radius: 12px;
     font-size: 12px;
     font-weight: 500;
-    text-align: center;
-    min-width: 60px;
+    text-align: left;
+    min-width: fit-content;
     border: 1px solid var(--card-border);
     background-color: var(--bg-secondary);
     color: var(--text-secondary);
     line-height: 1.2;
     white-space: nowrap;
+  }
+  
+  /* 상태 도트 추가 */
+  span.status::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: currentColor;
+    opacity: 0.7;
+    flex-shrink: 0;
+    margin-left: 2px;
+  }
+  
+  /* 상태별 도트 색상과 라벨 스타일 - 더 높은 우선순위로 */
+  span.status.status-downloading,
+  .status-downloading.interactive-status {
+    background-color: rgba(13, 110, 253, 0.15) !important;
+    border-color: var(--primary-color) !important;
+    color: #0d6efd !important;
+  }
+  .status-downloading::before {
+    background-color: var(--primary-color);
+    animation: pulse-dot 1.5s infinite;
+  }
+  
+  span.status.status-pending,
+  span.status.status-waiting,
+  .status-pending.interactive-status,
+  .status-waiting.interactive-status {
+    background-color: rgba(255, 193, 7, 0.2) !important;
+    border-color: var(--warning-color) !important;
+    color: #8b5a00 !important;
+  }
+  .status-pending::before,
+  .status-waiting::before {
+    background-color: var(--warning-color);
+  }
+  
+  span.status.status-done,
+  .status-done.interactive-status {
+    background-color: rgba(25, 135, 84, 0.15) !important;
+    border-color: var(--success-color) !important;
+    color: #198754 !important;
+  }
+  .status-done::before {
+    background-color: var(--success-color);
+  }
+  
+  span.status.status-failed,
+  .status-failed.interactive-status {
+    background-color: rgba(220, 53, 69, 0.15) !important;
+    border-color: var(--danger-color) !important;
+    color: #dc3545 !important;
+  }
+  .status-failed::before {
+    background-color: var(--danger-color);
+  }
+  
+  span.status.status-stopped,
+  .status-stopped.interactive-status {
+    background-color: rgba(108, 117, 125, 0.15) !important;
+    border-color: var(--text-secondary) !important;
+    color: #6c757d !important;
+  }
+  .status-stopped::before {
+    background-color: var(--text-secondary);
+  }
+  
+  span.status.status-parsing,
+  span.status.status-proxying,
+  .status-parsing.interactive-status,
+  .status-proxying.interactive-status {
+    background-color: rgba(255, 193, 7, 0.2) !important;
+    border-color: var(--warning-color) !important;
+    color: #8b5a00 !important;
+  }
+  .status-parsing::before,
+  .status-proxying::before {
+    background-color: var(--warning-color);
+    animation: pulse-dot 1.5s infinite;
+  }
+  
+  span.status.status-cooldown,
+  .status-cooldown.interactive-status {
+    background-color: rgba(255, 152, 0, 0.1) !important;
+    border-color: #ff9800 !important;
+    color: #ff9800 !important;
+  }
+  .status-cooldown::before {
+    background-color: #ff9800;
+    animation: pulse-dot 1s infinite;
+  }
+  
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
   }
 
   /* Mobile: Compact Layout */
@@ -2827,8 +2902,8 @@
     display: inline-block;
     width: 16px;
     height: 16px;
-    border: 2px solid transparent;
-    border-top: 2px solid currentColor;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top: 2px solid #ffffff;
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin-right: 8px;
@@ -2838,8 +2913,8 @@
     display: inline-block;
     width: 24px;
     height: 24px;
-    border: 3px solid rgba(255, 255, 255, 0.3);
-    border-top: 3px solid var(--primary-color);
+    border: 3px solid rgba(13, 110, 253, 0.3);
+    border-top: 3px solid #0d6efd;
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin-right: 12px;

@@ -33,25 +33,28 @@
   let selectedLocale = settings.language || "ko";
   let selectedLocaleWasSet = false;
   let initialSettingsLoaded = false;
-  
+
   function getGravatarUrl(email, size = 40) {
-    if (!email || !email.includes('@')) return null;
-    
+    if (!email || !email.includes("@")) return null;
+
     const crypto = window.crypto || window.msCrypto;
     if (!crypto || !crypto.subtle) return null;
-    
-    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(email.toLowerCase().trim()))
-      .then(hashBuffer => {
+
+    return crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(email.toLowerCase().trim()))
+      .then((hashBuffer) => {
         const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        const hashHex = hashArray
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
         return `https://www.gravatar.com/avatar/${hashHex}?s=${size}&d=404`;
       })
       .catch(() => null);
   }
-  
+
   let gravatarUrl = null;
   $: if ($authUser?.username) {
-    getGravatarUrl($authUser.username).then(url => {
+    getGravatarUrl($authUser.username).then((url) => {
       gravatarUrl = url;
     });
   }
@@ -77,7 +80,7 @@
       telegram_notify_success: currentSettings.telegram_notify_success || false,
       telegram_notify_failure: currentSettings.telegram_notify_failure || true,
       telegram_notify_wait: currentSettings.telegram_notify_wait !== false, // 기본값 true
-      telegram_notify_start: currentSettings.telegram_notify_start || false
+      telegram_notify_start: currentSettings.telegram_notify_start || false,
     };
     selectedTheme = settings.theme || $theme;
     initialSettingsLoaded = true;
@@ -418,11 +421,24 @@
                 <div class="user-info-compact">
                   <div class="user-avatar">
                     {#if gravatarUrl}
-                      <img src={gravatarUrl} alt="User Avatar" on:error={() => gravatarUrl = null} />
+                      <img
+                        src={gravatarUrl}
+                        alt="User Avatar"
+                        on:error={() => (gravatarUrl = null)}
+                      />
                     {:else}
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                        <circle cx="12" cy="7" r="4"/>
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
                       </svg>
                     {/if}
                   </div>
@@ -581,24 +597,24 @@
           </div>
 
           <div class="form-group proxy-list-section">
-              {#if userProxies.length === 0}
-                <div class="proxy-empty-state">
-                  <p>{$t("proxy_empty_message")}</p>
-                  <small>{$t("proxy_empty_description")}</small>
-                </div>
-              {:else}
-                <div class="proxy-table-container">
-                  <div class="proxy-table-wrapper">
-                    <table class="proxy-table">
-                      <thead>
-                        <tr>
-                          <th class="text-center">{$t("proxy_address")}</th>
-                          <th class="text-center">{$t("proxy_type")}</th>
-                          <th class="text-center">{$t("proxy_status")}</th>
-                          <th class="text-center">{$t("proxy_added_date")}</th>
-                          <th class="text-center">{$t("proxy_actions")}</th>
-                        </tr>
-                      </thead>
+            {#if userProxies.length === 0}
+              <div class="proxy-empty-state">
+                <p>{$t("proxy_empty_message")}</p>
+                <small>{$t("proxy_empty_description")}</small>
+              </div>
+            {:else}
+              <div class="proxy-table-container">
+                <div class="proxy-table-wrapper">
+                  <table class="proxy-table">
+                    <thead>
+                      <tr>
+                        <th class="text-center">{$t("proxy_address")}</th>
+                        <th class="text-center">{$t("proxy_type")}</th>
+                        <th class="text-center">{$t("proxy_status")}</th>
+                        <th class="text-center">{$t("proxy_added_date")}</th>
+                        <th class="text-center">{$t("proxy_actions")}</th>
+                      </tr>
+                    </thead>
                     <tbody>
                       {#each userProxies as proxy (proxy.id)}
                         <tr
@@ -661,12 +677,32 @@
                                 type="button"
                               >
                                 {#if proxy.is_active}
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <rect x="6" y="4" width="4" height="16"></rect>
-                                    <rect x="14" y="4" width="4" height="16"></rect>
+                                  <svg
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                  >
+                                    <rect x="6" y="4" width="4" height="16"
+                                    ></rect>
+                                    <rect x="14" y="4" width="4" height="16"
+                                    ></rect>
                                   </svg>
                                 {:else}
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                  <svg
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                  >
                                     <polygon points="5,3 19,12 5,21"></polygon>
                                   </svg>
                                 {/if}
@@ -678,9 +714,20 @@
                                 aria-label={$t("proxy_delete")}
                                 type="button"
                               >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                >
                                   <polyline points="3,6 5,6 21,6"></polyline>
-                                  <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                                  <path
+                                    d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"
+                                  ></path>
                                   <line x1="10" y1="11" x2="10" y2="17"></line>
                                   <line x1="14" y1="11" x2="14" y2="17"></line>
                                 </svg>
@@ -690,10 +737,10 @@
                         </tr>
                       {/each}
                     </tbody>
-                    </table>
-                  </div>
+                  </table>
                 </div>
-              {/if}
+              </div>
+            {/if}
           </div>
 
           <fieldset class="form-group telegram-notifications">
@@ -708,7 +755,10 @@
               <div class="telegram-info">
                 <p class="telegram-desc">📚 {$t("telegram_setup_guide")}</p>
               </div>
-              <div class="toggle-chevron" class:expanded={telegramGuideExpanded}>
+              <div
+                class="toggle-chevron"
+                class:expanded={telegramGuideExpanded}
+              >
                 <svg
                   width="20"
                   height="20"
@@ -730,36 +780,48 @@
                   <!-- 텔레그램 설정 가이드 -->
                   <div class="telegram-setup-guide">
                     <div class="setup-guide-header">
-                      <h4 class="guide-title">🚀 {$t("telegram_setup_guide")}</h4>
-                      <p class="guide-description">{$t("telegram_description")}</p>
+                      <h4 class="guide-title">
+                        🚀 {$t("telegram_setup_guide")}
+                      </h4>
+                      <p class="guide-description">
+                        {$t("telegram_description")}
+                      </p>
                     </div>
-                    
+
                     <div class="setup-steps">
                       <div class="setup-step">
                         <div class="step-header">
                           <span class="step-icon">🤖</span>
-                          <h5 class="step-title">{$t("telegram_step1_title")}</h5>
+                          <h5 class="step-title">
+                            {$t("telegram_step1_title")}
+                          </h5>
                         </div>
-                        <p class="step-description">{$t("telegram_step1_desc")}</p>
-                        <a 
-                          href="https://t.me/botfather" 
-                          target="_blank" 
+                        <p class="step-description">
+                          {$t("telegram_step1_desc")}
+                        </p>
+                        <a
+                          href="https://t.me/botfather"
+                          target="_blank"
                           rel="noopener noreferrer"
                           class="telegram-link botfather-link"
                         >
                           🔗 {$t("telegram_botfather_link")}
                         </a>
                       </div>
-                      
+
                       <div class="setup-step">
                         <div class="step-header">
                           <span class="step-icon">🆔</span>
-                          <h5 class="step-title">{$t("telegram_step2_title")}</h5>
+                          <h5 class="step-title">
+                            {$t("telegram_step2_title")}
+                          </h5>
                         </div>
-                        <p class="step-description">{$t("telegram_step2_desc")}</p>
-                        <a 
-                          href="https://t.me/userinfobot" 
-                          target="_blank" 
+                        <p class="step-description">
+                          {$t("telegram_step2_desc")}
+                        </p>
+                        <a
+                          href="https://t.me/userinfobot"
+                          target="_blank"
                           rel="noopener noreferrer"
                           class="telegram-link getid-link"
                         >
@@ -767,17 +829,23 @@
                         </a>
                       </div>
                     </div>
-                    
+
                     <div class="detailed-guide">
                       <button
                         type="button"
                         class="guide-header-button"
-                        on:click={() => (detailedGuideExpanded = !detailedGuideExpanded)}
+                        on:click={() =>
+                          (detailedGuideExpanded = !detailedGuideExpanded)}
                       >
                         <div class="guide-info">
-                          <p class="guide-desc">📋 {$t("telegram_guide_detailed")}</p>
+                          <p class="guide-desc">
+                            📋 {$t("telegram_guide_detailed")}
+                          </p>
                         </div>
-                        <div class="toggle-chevron" class:expanded={detailedGuideExpanded}>
+                        <div
+                          class="toggle-chevron"
+                          class:expanded={detailedGuideExpanded}
+                        >
                           <svg
                             width="20"
                             height="20"
@@ -820,12 +888,16 @@
             <button
               type="button"
               class="telegram-header"
-              on:click={() => (telegramSettingsExpanded = !telegramSettingsExpanded)}
+              on:click={() =>
+                (telegramSettingsExpanded = !telegramSettingsExpanded)}
             >
               <div class="telegram-info">
                 <p class="telegram-desc">⚙️ {$t("telegram_settings")}</p>
               </div>
-              <div class="toggle-chevron" class:expanded={telegramSettingsExpanded}>
+              <div
+                class="toggle-chevron"
+                class:expanded={telegramSettingsExpanded}
+              >
                 <svg
                   width="20"
                   height="20"
@@ -959,7 +1031,6 @@
     </div>
   </div>
 {/if}
-
 
 <ConfirmModal
   bind:showModal={showLogoutConfirm}
@@ -1448,7 +1519,7 @@
       max-height: 85vh;
       margin: 0.5rem;
     }
-    
+
     .modern-backdrop {
       padding: 1rem;
       align-items: flex-start;
@@ -1696,7 +1767,11 @@
 
   /* Telegram Setup Guide Styles */
   .telegram-setup-guide {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 197, 253, 0.05) 100%);
+    background: linear-gradient(
+      135deg,
+      rgba(59, 130, 246, 0.05) 0%,
+      rgba(147, 197, 253, 0.05) 100%
+    );
     border: 1px solid rgba(59, 130, 246, 0.15);
     border-radius: 12px;
     padding: 1.5rem;
@@ -1772,7 +1847,11 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 1rem;
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover, #1e40af) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--primary-color) 0%,
+      var(--primary-hover, #1e40af) 100%
+    );
     color: white;
     text-decoration: none;
     border-radius: 6px;
@@ -1903,7 +1982,11 @@
 
   /* Dark theme adjustments */
   :global(body.dark) .telegram-setup-guide {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 197, 253, 0.08) 100%);
+    background: linear-gradient(
+      135deg,
+      rgba(59, 130, 246, 0.08) 0%,
+      rgba(147, 197, 253, 0.08) 100%
+    );
   }
 
   :global(body.dark) .setup-step:hover {
@@ -1916,7 +1999,11 @@
 
   /* Dracula theme adjustments */
   :global(body.dracula) .telegram-setup-guide {
-    background: linear-gradient(135deg, rgba(139, 233, 253, 0.08) 0%, rgba(189, 147, 249, 0.08) 100%);
+    background: linear-gradient(
+      135deg,
+      rgba(139, 233, 253, 0.08) 0%,
+      rgba(189, 147, 249, 0.08) 100%
+    );
     border-color: rgba(139, 233, 253, 0.2);
   }
 
@@ -1991,19 +2078,19 @@
     table-layout: auto;
     display: table !important;
   }
-  
+
   .proxy-table thead {
     display: table-header-group !important;
   }
-  
+
   .proxy-table tbody {
     display: table-row-group !important;
   }
-  
+
   .proxy-table tr {
     display: table-row !important;
   }
-  
+
   .proxy-table th,
   .proxy-table td {
     display: table-cell !important;
@@ -2034,7 +2121,6 @@
   .text-center {
     text-align: center !important;
   }
-
 
   .proxy-table td:nth-child(1) {
     white-space: nowrap;
@@ -2175,7 +2261,7 @@
   .proxy-type-badge,
   .proxy-status-badge {
     display: inline-block;
-    padding: 0.2rem 0.5rem;
+    padding: 0.2rem 0.8rem;
     border-radius: 12px;
     font-size: 0.75rem;
     font-weight: 500;

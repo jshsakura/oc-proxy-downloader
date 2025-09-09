@@ -96,6 +96,7 @@
   "resume_request_sent": "Resume request sent.",
   "stop_request_sent": "Stop request sent.",
   "retry_request_sent": "Retry request sent.",
+  "download_request_sent": "Download request sent.",
   "loading": "Loading...",
   "proxy_mode": "Proxy Mode",
   "local_mode": "Local Mode",

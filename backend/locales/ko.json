@@ -93,6 +93,7 @@
   "resume_request_sent": "이어받기 요청을 보냈습니다.",
   "stop_request_sent": "정지 요청을 보냈습니다.",
   "retry_request_sent": "재시도 요청을 보냈습니다.",
+  "download_request_sent": "다운로드 요청을 보냈습니다.",
   "loading": "로딩 중...",
   "proxy_mode": "프록시 모드",
   "local_mode": "로컬 모드",
