@@ -207,7 +207,7 @@
     gap: 6px;
     background-color: #ffb74d;
     color: white;
-    padding: 4px 10px;
+    padding: 4px 15px;
     border-radius: 16px;
     font-size: 12px;
     font-weight: 500;
@@ -363,7 +363,7 @@
   .gauge-fill.failed {
     background-color: var(--danger-color);
     right: 0;
-    background: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.2);
   }
 
   .warning {

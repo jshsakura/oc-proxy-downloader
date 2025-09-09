@@ -87,7 +87,7 @@
     gap: 6px;
     background-color: #81c784;
     color: white;
-    padding: 4px 10px;
+    padding: 4px 15px;
     border-radius: 16px;
     font-size: 12px;
     font-weight: 500;
@@ -127,7 +127,6 @@
 
   .local-dot.waiting {
     background-color: var(--success-color);
-    animation: blink 1s infinite;
   }
 
   .local-dot.completed {

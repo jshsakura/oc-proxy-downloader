@@ -30,6 +30,7 @@
   import LockIcon from "./icons/LockIcon.svelte";
   import UnlockIcon from "./icons/UnlockIcon.svelte";
   import FolderIcon from "./icons/FolderIcon.svelte";
+  import NetworkIcon from "./icons/NetworkIcon.svelte";
   import InfoIcon from "./icons/InfoIcon.svelte";
   import LinkCopyIcon from "./icons/LinkCopyIcon.svelte";
   import DownloadIcon from "./icons/DownloadIcon.svelte";
@@ -181,12 +182,12 @@
       if (!document.hidden) {
         const now = Date.now();
         const timeSinceLastVisible = now - lastVisibilityTime;
-        
+
         // 5초 이상 백그라운드에 있었다면 동기화
         if (timeSinceLastVisible > 5000) {
           console.log("[SYNC] 앱 포그라운드 복귀, 백그라운드 동기화 실행");
           syncDownloadsSilently();
-          
+
           // WebSocket도 재연결 (연결이 끊어졌을 수 있음)
           if (!ws || ws.readyState !== WebSocket.OPEN) {
             console.log("[SYNC] WebSocket 재연결");
@@ -409,13 +410,16 @@
 
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      
+
       // Ping 메시지 처리 (연결 유지용)
       if (message.type === "ping") {
-        console.log("📶 WebSocket ping 수신:", new Date(message.timestamp * 1000).toLocaleTimeString());
+        console.log(
+          "📶 WebSocket ping 수신:",
+          new Date(message.timestamp * 1000).toLocaleTimeString()
+        );
         return;
       }
-      
+
       if (message.type === "status_update") {
         const updatedDownload = message.data;
         console.log(
@@ -705,11 +709,14 @@
       const response = await fetch(`/api/history/`);
       if (response.ok) {
         const newData = await response.json();
-        
+
         // 기존 데이터와 비교해서 실제 변경사항만 업데이트
-        const hasChanges = JSON.stringify(downloads) !== JSON.stringify(newData);
+        const hasChanges =
+          JSON.stringify(downloads) !== JSON.stringify(newData);
         if (hasChanges) {
-          console.log("[SYNC] 백그라운드에서 데이터 변경 감지, 조용히 업데이트");
+          console.log(
+            "[SYNC] 백그라운드에서 데이터 변경 감지, 조용히 업데이트"
+          );
           downloads = newData;
           // 로딩 상태 변경 없이 부드럽게 업데이트
         }
@@ -723,11 +730,11 @@
     console.log("=== fetchDownloads called ===");
     isDownloadsLoading = true;
     console.log("isDownloadsLoading set to:", isDownloadsLoading);
-    
+
     try {
       const response = await fetch(`/api/history/`, { timeout: 10000 });
       console.log("History API response status:", response.status);
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log("History API response:", data);
@@ -747,9 +754,12 @@
         console.error("History API failed with status:", response.status);
         const errorText = await response.text();
         console.error("Error response:", errorText);
-        
+
         // 재시도 로직
-        if (retryCount < 2 && (response.status >= 500 || response.status === 0)) {
+        if (
+          retryCount < 2 &&
+          (response.status >= 500 || response.status === 0)
+        ) {
           console.log(`재시도 중... (${retryCount + 1}/3)`);
           setTimeout(() => fetchDownloads(page, retryCount + 1), 2000);
           return;
@@ -758,7 +768,7 @@
       }
     } catch (error) {
       console.error("Error fetching downloads:", error);
-      
+
       // 네트워크 오류 시 재시도
       if (retryCount < 2) {
         console.log(`네트워크 오류 재시도 중... (${retryCount + 1}/3)`);
@@ -895,14 +905,24 @@
           // 사용자 피드백을 위한 토스트 메시지 (응답 내용에 따라 구분)
           if (endpoint.includes("/resume/")) {
             // 응답에서 실제로 이어받기인지 새 다운로드인지 구분
-            if (responseData && responseData.message && responseData.message.includes("resume")) {
+            if (
+              responseData &&
+              responseData.message &&
+              responseData.message.includes("resume")
+            ) {
               showToastMsg($t("resume_request_sent"), "info");
             } else {
-              showToastMsg($t("download_request_sent") || "다운로드 요청을 보냈습니다.", "info");
+              showToastMsg(
+                $t("download_request_sent") || "다운로드 요청을 보냈습니다.",
+                "info"
+              );
             }
           } else if (endpoint.includes("/pause/")) {
             // API 응답에서 success 확인 후 토스트 표시
-            if (responseData && (responseData.success || responseData.status === "stopped")) {
+            if (
+              responseData &&
+              (responseData.success || responseData.status === "stopped")
+            ) {
               showToastMsg($t("stop_request_sent"), "success");
             } else {
               showToastMsg($t("stop_request_sent"), "info");
@@ -917,8 +937,10 @@
       } else {
         // HTTP 응답이 실패인 경우
         const errorText = await response.text();
-        console.error(`API 호출 실패: ${endpoint}, 상태: ${response.status}, 응답: ${errorText}`);
-        
+        console.error(
+          `API 호출 실패: ${endpoint}, 상태: ${response.status}, 응답: ${errorText}`
+        );
+
         if (endpoint.includes("/pause/")) {
           showToastMsg("정지 요청이 실패했습니다.", "error");
         } else if (endpoint.includes("/resume/")) {
@@ -1261,9 +1283,14 @@
     ) {
       return false; // working 탭에서 제외
     }
-    return ["pending", "downloading", "proxying", "stopped", "failed", "cooldown"].includes(
-      status
-    );
+    return [
+      "pending",
+      "downloading",
+      "proxying",
+      "stopped",
+      "failed",
+      "cooldown",
+    ].includes(status);
   }).length;
 
   $: completedCount = downloads.filter((d) => {
@@ -1422,6 +1449,12 @@
               on:click={() => {
                 if (proxyAvailable) {
                   useProxy = !useProxy;
+                  showToastMsg(
+                    useProxy
+                      ? $t("mode_switched_to_proxy")
+                      : $t("mode_switched_to_local"),
+                    "success"
+                  );
                 } else {
                   showToastMsg($t("proxy_unavailable_tooltip"), "warning");
                 }
@@ -1563,12 +1596,16 @@
                   </td>
                   <td class="center-align">
                     <span
-                      class="status status-{download.status.toLowerCase()} interactive-status {download.use_proxy ? 'proxy-status' : 'local-status'}"
+                      class="status status-{download.status.toLowerCase()} interactive-status {download.use_proxy
+                        ? 'proxy-status'
+                        : 'local-status'}"
                       title={getStatusTooltip(download)}
                     >
                       {#if download.status.toLowerCase() === "cooldown" && download.cooldown_remaining}
                         <span class="cooldown-countdown">
-                          {$t("download_cooldown")} ({download.cooldown_remaining}{$t("time_seconds")})
+                          {$t("download_cooldown")} ({download.cooldown_remaining}{$t(
+                            "time_seconds"
+                          )})
                           <span class="cooldown-indicator"></span>
                         </span>
                       {:else if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
@@ -1586,7 +1623,7 @@
                         </span>
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
-                        {#if ['proxying', 'parsing', 'downloading'].includes(download.status.toLowerCase())}
+                        {#if ["proxying", "parsing", "downloading"].includes(download.status.toLowerCase())}
                           <span class="proxy-indicator"></span>
                         {/if}
                       {/if}
@@ -1616,11 +1653,19 @@
                   {#if currentTab !== "completed"}
                     <td class="center-align speed-cell">
                       {#if download.download_speed && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying" || download.status.toLowerCase() === "parsing")}
-                        <span class="speed-text {download.use_proxy ? 'proxy-speed' : 'local-speed'}">
+                        <span
+                          class="speed-text {download.use_proxy
+                            ? 'proxy-speed'
+                            : 'local-speed'}"
+                        >
                           {formatSpeed(download.download_speed)}
                         </span>
                       {:else if ["parsing", "downloading", "proxying", "pending", "waiting", "cooldown"].includes(download.status.toLowerCase())}
-                        <span class="speed-text parsing-indicator {download.use_proxy ? 'proxy-loading' : 'local-loading'}">
+                        <span
+                          class="speed-text parsing-indicator {download.use_proxy
+                            ? 'proxy-loading'
+                            : 'local-loading'}"
+                        >
                           <span class="parsing-dots">•••</span>
                         </span>
                       {:else}
@@ -1646,11 +1691,14 @@
                         : $t("local_mode")}
                       on:click={async () => {
                         try {
-                          const response = await fetch(`/api/downloads/${download.id}/proxy-toggle`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' }
-                          });
-                          
+                          const response = await fetch(
+                            `/api/downloads/${download.id}/proxy-toggle`,
+                            {
+                              method: "PUT",
+                              headers: { "Content-Type": "application/json" },
+                            }
+                          );
+
                           if (response.ok) {
                             const result = await response.json();
                             // 프론트엔드 상태 업데이트
@@ -1660,11 +1708,17 @@
                                 : d
                             );
                           } else {
-                            showToastMsg("프록시 모드 변경에 실패했습니다.", "error");
+                            showToastMsg(
+                              "프록시 모드 변경에 실패했습니다.",
+                              "error"
+                            );
                           }
                         } catch (error) {
                           console.error("프록시 토글 오류:", error);
-                          showToastMsg("프록시 모드 변경 중 오류가 발생했습니다.", "error");
+                          showToastMsg(
+                            "프록시 모드 변경 중 오류가 발생했습니다.",
+                            "error"
+                          );
                         }
                       }}
                       aria-label={download.use_proxy
@@ -1727,14 +1781,18 @@
                       {:else if ["stopped"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
-                          title={download.progress > 0 ? $t("action_resume") : $t("action_start")}
+                          title={download.progress > 0
+                            ? $t("action_resume")
+                            : $t("action_start")}
                           on:click={() =>
                             callApi(
                               `/api/resume/${download.id}?use_proxy=${download.use_proxy}`,
                               download.id,
                               null
                             )}
-                          aria-label={download.progress > 0 ? $t("action_resume") : $t("action_start")}
+                          aria-label={download.progress > 0
+                            ? $t("action_resume")
+                            : $t("action_start")}
                         >
                           <ResumeIcon />
                         </button>
@@ -2406,9 +2464,9 @@
   .proxy-toggle-slider {
     position: absolute;
     top: 3px;
-    left: 3px;
-    width: 24px;
-    height: 24px;
+    left: 4px;
+    width: 22px;
+    height: 22px;
     background-color: white;
     border-radius: 50%;
     transition: transform 0.3s ease;
@@ -2417,7 +2475,7 @@
   }
 
   .proxy-toggle-button.proxy .proxy-toggle-slider {
-    transform: translateX(32px);
+    transform: translateX(30px);
   }
 
   .proxy-toggle-icons {
@@ -2429,11 +2487,6 @@
     padding: 0 6px;
     position: relative;
     z-index: 1;
-  }
-
-  .toggle-icon {
-    font-size: 14px;
-    transition: opacity 0.3s ease;
   }
 
   .grid-proxy-toggle {
@@ -2469,7 +2522,7 @@
 
   .grid-toggle-slider {
     position: absolute;
-    top: 2px;
+    top: 1px;
     left: 2px;
     width: 18px;
     height: 18px;
@@ -2481,7 +2534,7 @@
   }
 
   .grid-proxy-toggle.proxy .grid-toggle-slider {
-    transform: translateX(24px);
+    transform: translateX(22px);
   }
 
   .grid-toggle-icons {
@@ -2505,7 +2558,7 @@
     width: calc(100% - 10px);
     min-width: 80px;
     margin: 0 auto;
-    height: 24px;
+    height: 25px;
     background-color: var(--card-border);
     border-radius: 12px;
     overflow: hidden;
@@ -2524,7 +2577,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: bold;
     color: #ffffff;
     text-shadow:
@@ -2737,9 +2790,15 @@
   }
 
   @keyframes parsing-loading {
-    0% { opacity: 0.3; }
-    50% { opacity: 1; }
-    100% { opacity: 0.3; }
+    0% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0.3;
+    }
   }
 
   /* 로딩 스피너 */

@@ -250,5 +250,7 @@
   "proxy_verified_parsing": "Trying verified proxies... (#{current}/{total})",
   "telegram_download_started": "Download Started",
   "telegram_started_time": "Started At",
-  "telegram_download_mode": "Download Mode"
+  "telegram_download_mode": "Download Mode",
+  "mode_switched_to_local": "Switched to Local Mode",
+  "mode_switched_to_proxy": "Switched to Proxy Mode"
 }
