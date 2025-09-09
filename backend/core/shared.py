@@ -332,8 +332,10 @@ class DownloadManager:
             with self._lock:
                 active_ids = list(self.active_downloads.keys())
             
-            # 1. 프록시 다운로드 우선 처리 (제한 없음)
-            if active_downloads_count < self.MAX_TOTAL_DOWNLOADS:
+            started_count = 0
+            
+            # 1. 프록시 다운로드 우선 처리 (제한 없음) - return 제거하여 계속 처리
+            while active_downloads_count + started_count < self.MAX_TOTAL_DOWNLOADS:
                 proxy_request = db.query(DownloadRequest).filter(
                     DownloadRequest.status == StatusEnum.pending,
                     DownloadRequest.use_proxy == True,
@@ -344,10 +346,13 @@ class DownloadManager:
                 if proxy_request:
                     print(f"[LOG] 대기 중인 프록시 다운로드 발견: {proxy_request.id} (실행중 제외: {active_ids})")
                     self._start_waiting_download(proxy_request)
-                    return
+                    active_ids.append(proxy_request.id)  # 시작한 다운로드를 목록에 추가
+                    started_count += 1
+                else:
+                    break  # 더 이상 프록시 다운로드 없음
 
-            # 2. 1fichier가 아닌 로컬 다운로드 찾기
-            if active_downloads_count < self.MAX_TOTAL_DOWNLOADS:
+            # 2. 1fichier가 아닌 로컬 다운로드 찾기 - return 제거하여 계속 처리
+            while active_downloads_count + started_count < self.MAX_TOTAL_DOWNLOADS:
                 non_fichier_request = db.query(DownloadRequest).filter(
                     DownloadRequest.status == StatusEnum.pending,
                     DownloadRequest.use_proxy == False,
@@ -359,16 +364,15 @@ class DownloadManager:
                 if non_fichier_request:
                     print(f"[LOG] 대기 중인 비-1fichier 다운로드 발견: {non_fichier_request.id} (실행중 제외: {active_ids})")
                     self._start_waiting_download(non_fichier_request)
-                    return
+                    active_ids.append(non_fichier_request.id)  # 시작한 다운로드를 목록에 추가
+                    started_count += 1
+                else:
+                    break  # 더 이상 비-1fichier 다운로드 없음
             
             # 3. 1fichier 로컬 다운로드 찾기 (1fichier 개별 제한 + 쿨다운 체크)
-            if (active_downloads_count < self.MAX_TOTAL_DOWNLOADS and 
+            if (active_downloads_count + started_count < self.MAX_TOTAL_DOWNLOADS and 
                 active_1fichier_count < self.MAX_LOCAL_DOWNLOADS and
                 self.can_start_download("https://1fichier.com/dummy")):  # 쿨다운 포함 체크
-                
-                # 현재 실행 중인 다운로드 ID 목록 가져오기
-                with self._lock:
-                    active_ids = list(self.active_downloads.keys())
                 
                 fichier_request = db.query(DownloadRequest).filter(
                     DownloadRequest.status == StatusEnum.pending,
@@ -381,7 +385,11 @@ class DownloadManager:
                 if fichier_request:
                     print(f"[LOG] 대기 중인 1fichier 다운로드 발견: {fichier_request.id} (실행중 제외: {active_ids})")
                     self._start_waiting_download(fichier_request)
-                    return
+                    started_count += 1
+            
+            # 시작된 다운로드 수 로그 출력
+            if started_count > 0:
+                print(f"[LOG] 🚀 총 {started_count}개 다운로드 동시 시작 완료")
                     
         except Exception as e:
             print(f"[LOG] 대기 중인 다운로드 시작 실패: {e}")
