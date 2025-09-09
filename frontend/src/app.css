@@ -23,6 +23,26 @@
   --disabled-button-background: #f1f5f9;
   --disabled-button-text: #94a3b8;
   
+  /* 상태 라벨 전용 색상 - Light Theme */
+  --status-downloading-bg: rgba(13, 110, 253, 0.2);
+  --status-downloading-border: #0d6efd;
+  --status-downloading-text: #0a58ca;
+  --status-pending-bg: rgba(255, 193, 7, 0.2);
+  --status-pending-border: #ffc107;
+  --status-pending-text: #b45309;
+  --status-done-bg: rgba(25, 135, 84, 0.2);
+  --status-done-border: #198754;
+  --status-done-text: #146c43;
+  --status-failed-bg: rgba(220, 53, 69, 0.2);
+  --status-failed-border: #dc3545;
+  --status-failed-text: #b02a37;
+  --status-stopped-bg: rgba(108, 117, 125, 0.2);
+  --status-stopped-border: #6c757d;
+  --status-stopped-text: #495057;
+  --status-cooldown-bg: rgba(255, 152, 0, 0.2);
+  --status-cooldown-border: #ff9800;
+  --status-cooldown-text: #e65100;
+  
   /* Theme selected background for light theme */
   --theme-selected-bg: #d0d0d0;
 
@@ -58,6 +78,26 @@ html.dark {
   --disabled-button-background: #334155;
   --disabled-button-text: #94a3b8;
   
+  /* 상태 라벨 전용 색상 - Dark Theme */
+  --status-downloading-bg: rgba(59, 130, 246, 0.25);
+  --status-downloading-border: #3b82f6;
+  --status-downloading-text: #60a5fa;
+  --status-pending-bg: rgba(245, 158, 11, 0.25);
+  --status-pending-border: #f59e0b;
+  --status-pending-text: #fbbf24;
+  --status-done-bg: rgba(16, 185, 129, 0.25);
+  --status-done-border: #10b981;
+  --status-done-text: #34d399;
+  --status-failed-bg: rgba(239, 68, 68, 0.25);
+  --status-failed-border: #ef4444;
+  --status-failed-text: #f87171;
+  --status-stopped-bg: rgba(156, 163, 175, 0.25);
+  --status-stopped-border: #9ca3af;
+  --status-stopped-text: #d1d5db;
+  --status-cooldown-bg: rgba(251, 146, 60, 0.25);
+  --status-cooldown-border: #fb923c;
+  --status-cooldown-text: #fdba74;
+  
   /* Theme selected background for dark theme */
   --theme-selected-bg: #444444;
 
@@ -92,6 +132,26 @@ html.dracula {
   --primary-color-rgb: 189, 147, 249;
   --disabled-button-background: #6272a4;
   --disabled-button-text: #f8f8f2;
+  
+  /* 상태 라벨 전용 색상 - Dracula Theme */
+  --status-downloading-bg: rgba(189, 147, 249, 0.25);
+  --status-downloading-border: #bd93f9;
+  --status-downloading-text: #bd93f9;
+  --status-pending-bg: rgba(255, 184, 108, 0.25);
+  --status-pending-border: #ffb86c;
+  --status-pending-text: #ffb86c;
+  --status-done-bg: rgba(80, 250, 123, 0.25);
+  --status-done-border: #50fa7b;
+  --status-done-text: #50fa7b;
+  --status-failed-bg: rgba(255, 85, 85, 0.25);
+  --status-failed-border: #ff5555;
+  --status-failed-text: #ff5555;
+  --status-stopped-bg: rgba(98, 114, 164, 0.5);
+  --status-stopped-border: #6272a4;
+  --status-stopped-text: #8be9fd;
+  --status-cooldown-bg: rgba(241, 250, 140, 0.3);
+  --status-cooldown-border: #f1fa8c;
+  --status-cooldown-text: #f1fa8c;
   
   /* Improved button colors for Dracula */
   --button-background: #6272a4;

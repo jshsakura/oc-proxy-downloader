@@ -89,6 +89,7 @@
     totalAttempting: 0,
     status: "",
     lastError: "",
+    activeDownloadCount: 0,
   };
 
   let localStats = {
@@ -347,6 +348,7 @@
       if (response.ok) {
         const data = await response.json();
         proxyStats = {
+          ...proxyStats,
           totalProxies: data.total_proxies,
           availableProxies: data.available_proxies,
           usedProxies: data.used_proxies,
@@ -1303,10 +1305,10 @@
           );
         })
         .sort((a, b) => {
-          // completed_at이 있으면 그것으로, 없으면 updated_at으로 정렬
+          // completed_at이 있으면 그것으로, 없으면 updated_at으로 정렬 (최신순)
           const aTime = new Date(a.completed_at || a.updated_at || 0);
           const bTime = new Date(b.completed_at || b.updated_at || 0);
-          return bTime - aTime; // 역순 정렬 (최신이 먼저)
+          return bTime.getTime() - aTime.getTime(); // 역순 정렬 (최신이 먼저)
         });
     }
   })();
@@ -1374,7 +1376,7 @@
     </div>
 
     <div class="card">
-      <form on:submit|preventDefault={addDownload} class="download-form">
+      <form on:submit|preventDefault={() => addDownload()} class="download-form">
         <div class="input-group main-input-group">
           <input
             class="input url-input"
@@ -1480,10 +1482,6 @@
         <LocalGauge
           localDownloadCount={localStats.localDownloadCount}
           localStatus={localStats.localStatus}
-          localCurrentFile={localStats.localCurrentFile}
-          localProgress={localStats.localProgress}
-          localWaitTime={localStats.localWaitTime}
-          activeLocalDownloads={localStats.activeLocalDownloads}
         />
       </div>
     </div>
@@ -1532,7 +1530,7 @@
           <tbody>
             {#if isDownloadsLoading}
               <tr>
-                <td colspan={currentTab === "completed" ? "7" : "8"}>
+                <td colspan={currentTab === "completed" ? 7 : 8}>
                   <div class="table-loading-container">
                     <div class="modal-spinner"></div>
                     <div class="modal-loading-text">{$t("loading")}</div>
@@ -1542,7 +1540,7 @@
             {:else if filteredDownloads.length === 0}
               <tr class="empty-row">
                 <td
-                  colspan={currentTab === "completed" ? "7" : "8"}
+                  colspan={currentTab === "completed" ? 7 : 8}
                   class="no-downloads-message"
                 >
                   {currentTab === "working"
@@ -2141,15 +2139,15 @@
     vertical-align: middle;
   }
   
-  /* 상태별 proxy-indicator 색상 */
+  /* 상태별 proxy-indicator 색상 (테마별 대응) */
   .proxy-indicator-downloading {
-    border-top: 2px solid #0d6efd;
-    border-right: 2px solid #0d6efd;
+    border-top: 2px solid var(--status-downloading-border);
+    border-right: 2px solid var(--status-downloading-border);
   }
   .proxy-indicator-parsing,
   .proxy-indicator-proxying {
-    border-top: 2px solid #ffc107;
-    border-right: 2px solid #ffc107;
+    border-top: 2px solid var(--status-pending-border);
+    border-right: 2px solid var(--status-pending-border);
   }
 
   @keyframes spin {
@@ -2675,84 +2673,86 @@
     margin-left: 2px;
   }
   
-  /* 상태별 도트 색상과 라벨 스타일 - 더 높은 우선순위로 */
+  /* === 테마별 상태 라벨 색상 팔레트 === */
+  
+  /* 다운로드 중 */
   span.status.status-downloading,
   .status-downloading.interactive-status {
-    background-color: rgba(13, 110, 253, 0.15) !important;
-    border-color: var(--primary-color) !important;
-    color: #0d6efd !important;
+    background-color: var(--status-downloading-bg) !important;
+    border-color: var(--status-downloading-border) !important;
+    color: var(--status-downloading-text) !important;
   }
   .status-downloading::before {
-    background-color: var(--primary-color);
+    background-color: var(--status-downloading-border);
     animation: pulse-dot 1.5s infinite;
   }
-  
+
+  /* 대기/파싱/프록싱 중 */
   span.status.status-pending,
   span.status.status-waiting,
+  span.status.status-parsing,
+  span.status.status-proxying,
   .status-pending.interactive-status,
-  .status-waiting.interactive-status {
-    background-color: rgba(255, 193, 7, 0.2) !important;
-    border-color: var(--warning-color) !important;
-    color: #8b5a00 !important;
+  .status-waiting.interactive-status,
+  .status-parsing.interactive-status,
+  .status-proxying.interactive-status {
+    background-color: var(--status-pending-bg) !important;
+    border-color: var(--status-pending-border) !important;
+    color: var(--status-pending-text) !important;
   }
   .status-pending::before,
   .status-waiting::before {
-    background-color: var(--warning-color);
-  }
-  
-  span.status.status-done,
-  .status-done.interactive-status {
-    background-color: rgba(25, 135, 84, 0.15) !important;
-    border-color: var(--success-color) !important;
-    color: #198754 !important;
-  }
-  .status-done::before {
-    background-color: var(--success-color);
-  }
-  
-  span.status.status-failed,
-  .status-failed.interactive-status {
-    background-color: rgba(220, 53, 69, 0.15) !important;
-    border-color: var(--danger-color) !important;
-    color: #dc3545 !important;
-  }
-  .status-failed::before {
-    background-color: var(--danger-color);
-  }
-  
-  span.status.status-stopped,
-  .status-stopped.interactive-status {
-    background-color: rgba(108, 117, 125, 0.15) !important;
-    border-color: var(--text-secondary) !important;
-    color: #6c757d !important;
-  }
-  .status-stopped::before {
-    background-color: var(--text-secondary);
-  }
-  
-  span.status.status-parsing,
-  span.status.status-proxying,
-  .status-parsing.interactive-status,
-  .status-proxying.interactive-status {
-    background-color: rgba(255, 193, 7, 0.2) !important;
-    border-color: var(--warning-color) !important;
-    color: #8b5a00 !important;
+    background-color: var(--status-pending-border);
   }
   .status-parsing::before,
   .status-proxying::before {
-    background-color: var(--warning-color);
+    background-color: var(--status-pending-border);
     animation: pulse-dot 1.5s infinite;
   }
-  
+
+  /* 완료 */
+  span.status.status-done,
+  .status-done.interactive-status {
+    background-color: var(--status-done-bg) !important;
+    border-color: var(--status-done-border) !important;
+    color: var(--status-done-text) !important;
+  }
+  .status-done::before {
+    background-color: var(--status-done-border);
+  }
+
+  /* 실패 */
+  span.status.status-failed,
+  .status-failed.interactive-status {
+    background-color: var(--status-failed-bg) !important;
+    border-color: var(--status-failed-border) !important;
+    color: var(--status-failed-text) !important;
+  }
+  .status-failed::before {
+    background-color: var(--status-failed-border);
+  }
+
+  /* 정지됨 */
+  span.status.status-stopped,
+  .status-stopped.interactive-status {
+    background-color: var(--status-stopped-bg) !important;
+    border-color: var(--status-stopped-border) !important;
+    color: var(--status-stopped-text) !important;
+  }
+  .status-stopped::before {
+    background-color: var(--status-stopped-border);
+  }
+
+  /* 쿨다운 */
   span.status.status-cooldown,
   .status-cooldown.interactive-status {
-    background-color: rgba(255, 152, 0, 0.1) !important;
-    border-color: #ff9800 !important;
-    color: #ff9800 !important;
+    background-color: var(--status-cooldown-bg) !important;
+    border-color: var(--status-cooldown-border) !important;
+    color: var(--status-cooldown-text) !important;
   }
   .status-cooldown::before {
-    background-color: #ff9800;
-    animation: pulse-dot 1s infinite;
+    background-color: var(--status-cooldown-border);
+    animation: cooldown-blink 1s ease-in-out infinite;
   }
   
   @keyframes pulse-dot {

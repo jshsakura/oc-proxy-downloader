@@ -39,7 +39,7 @@ class DownloadManager:
         
         # 1fichier 다운로드 쿨다운 관리
         self.last_1fichier_completion_time = 0  # 마지막 1fichier 다운로드 완료 시간
-        self.FICHIER_COOLDOWN_SECONDS = 90  # 1fichier 다운로드 간 대기 시간 (초) - 1fichier 서버 부하 방지
+        self.FICHIER_COOLDOWN_SECONDS = 5  # 1fichier 다운로드 간 대기 시간 (초) - 서버 연결 안정성 확보
         
         # 전역 정지 플래그 시스템 (안전한 즉시 정지)
         self.stop_events = {}  # {download_id: threading.Event}
@@ -458,7 +458,7 @@ class DownloadManager:
             # 3. 1fichier 로컬 다운로드 찾기 (1fichier 개별 제한 + 쿨다운 체크)
             if (active_downloads_count + started_count < self.MAX_TOTAL_DOWNLOADS and 
                 active_1fichier_count < self.MAX_LOCAL_DOWNLOADS and
-                self.can_start_download("https://1fichier.com/dummy")):  # 쿨다운 포함 체크
+                self.get_1fichier_cooldown_remaining() <= 0):  # 쿨다운만 직접 체크
                 
                 fichier_request = db.query(DownloadRequest).filter(
                     DownloadRequest.status == StatusEnum.pending,
