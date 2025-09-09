@@ -65,7 +65,7 @@ from core.config import get_config, save_config, get_download_path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, BackgroundTasks, HTTPException, Body, APIRouter
 from contextlib import asynccontextmanager
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
@@ -487,6 +487,42 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
     except Exception as e:
         manager.disconnect(websocket)
+
+@app.get("/api/events")
+async def stream_events(request: Request):
+    """Server-Sent Events 스트림 엔드포인트"""
+    async def event_generator():
+        try:
+            while True:
+                # 클라이언트 연결 해제 확인
+                if await request.is_disconnected():
+                    break
+                
+                try:
+                    # 큐에서 메시지 가져오기
+                    msg = status_queue.get_nowait()
+                    # SSE 형식으로 전송
+                    yield f"data: {msg}\n\n"
+                except queue.Empty:
+                    # 큐가 비어있으면 heartbeat 전송 (30초마다)
+                    import json
+                    yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': time.time()})}\n\n"
+                    await asyncio.sleep(30)
+                    
+        except Exception as e:
+            # 연결 해제 또는 기타 예외
+            pass
+    
+    return StreamingResponse(
+        event_generator(), 
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true"
+        }
+    )
 
 def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
     import json

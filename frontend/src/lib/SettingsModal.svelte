@@ -34,30 +34,6 @@
   let selectedLocaleWasSet = false;
   let initialSettingsLoaded = false;
 
-  function getGravatarUrl(email, size = 40) {
-    if (!email || !email.includes("@")) return null;
-
-    const crypto = window.crypto || window.msCrypto;
-    if (!crypto || !crypto.subtle) return null;
-
-    return crypto.subtle
-      .digest("SHA-256", new TextEncoder().encode(email.toLowerCase().trim()))
-      .then((hashBuffer) => {
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("");
-        return `https://www.gravatar.com/avatar/${hashHex}?s=${size}&d=404`;
-      })
-      .catch(() => null);
-  }
-
-  let gravatarUrl = null;
-  $: if ($authUser?.username) {
-    getGravatarUrl($authUser.username).then((url) => {
-      gravatarUrl = url;
-    });
-  }
 
   let userProxies = [];
   let newProxyAddress = "";
@@ -420,27 +396,19 @@
               <div class="auth-info-card">
                 <div class="user-info-compact">
                   <div class="user-avatar">
-                    {#if gravatarUrl}
-                      <img
-                        src={gravatarUrl}
-                        alt="User Avatar"
-                        on:error={() => (gravatarUrl = null)}
-                      />
-                    {:else}
-                      <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                        <circle cx="12" cy="7" r="4" />
-                      </svg>
-                    {/if}
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
                   </div>
                   <div class="user-details">
                     <span class="user-greeting">{$t("logged_in_as")}</span>
@@ -2337,12 +2305,6 @@
     overflow: hidden;
   }
 
-  .user-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 50%;
-  }
 
   .user-details {
     display: flex;

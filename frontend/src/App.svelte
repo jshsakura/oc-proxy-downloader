@@ -1,3 +1,4 @@
+﻿
 <script>
   import logo from "./assets/images/logo256.png";
   import SettingsModal from "./lib/SettingsModal.svelte";
@@ -39,14 +40,16 @@
   import ConfirmModal from "./lib/ConfirmModal.svelte";
   import ProxyGauge from "./lib/ProxyGauge.svelte";
   import LocalGauge from "./lib/LocalGauge.svelte";
+  import { EventSourceManager } from "./EventSource.js";
 
   console.log(
-    "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
-      "██    ███         ██   ████   ████    ████ ██  ██  ██    ██   ████    ████     ██████   ███    ██    ████   ████   ████     ██   ██ \n" +
-      "██    ████        ██████ ██████ ██    ██ ███    ████     ██   ████    ████  █  ████ ██  ███    ██    ███████████   ███████  ██████  \n" +
-      "██    ███         ██     ██   ████    ████ ██    ██      ██   ████    ████ ███ ████  ██ ███    ██    ████   ████   ████     ██   ██ \n" +
-      " ██████  ██████   ██     ██   ██ ███████    ██   ██      ██████  ██████  ███ ███ ██   ██████████████████     ███████ █████████   ██ \n" +
-      "                                                                                                                                       \n" +
+    "%c ?댿뻽?댿뻽?댿뻽  ?댿뻽?댿뻽?댿뻽   ?댿뻽?댿뻽?댿뻽 ?댿뻽?댿뻽?댿뻽  ?댿뻽?댿뻽?댿뻽??   ?댿뻽?댿뻽    ?댿뻽   ?댿뻽?댿뻽?댿뻽  ?댿뻽?댿뻽?댿뻽 ?댿뻽     ?댿뻽?댿뻽??\\n" +
+      "?댿뻽??    ?댿뻽?댿뻽?댿뻽  ?댿뻽?댿뻽???댿뻽?댿뻽?댿뻽 ?댿뻽?댿뻽?댿뻽?댿뻽?댿뻽?댿뻽?? \\n" +
+      "?댿뻽    ?댿뻽??        ?댿뻽   ?댿뻽?댿뻽   ?댿뻽?댿뻽    ?댿뻽?댿뻽 ?댿뻽  ?댿뻽  ?댿뻽    ?댿뻽   ?댿뻽?댿뻽    ?댿뻽?댿뻽     ?댿뻽?댿뻽?댿뻽   ?댿뻽??   ?댿뻽    ?댿뻽?댿뻽   ?댿뻽?댿뻽   ?댿뻽?댿뻽     ?댿뻽   ?댿뻽 \\n" +
+      "?댿뻽    ?댿뻽?댿뻽        ?댿뻽?댿뻽?댿뻽 ?댿뻽?댿뻽?댿뻽 ?댿뻽    ?댿뻽 ?댿뻽??   ?댿뻽?댿뻽     ?댿뻽   ?댿뻽?댿뻽    ?댿뻽?댿뻽  ?? ?댿뻽?댿뻽 ?댿뻽  ?댿뻽??   ?댿뻽    ?댿뻽?댿뻽?댿뻽?댿뻽?댿뻽??  ?댿뻽?댿뻽?댿뻽?? ?댿뻽?댿뻽?댿뻽  \\n" +
+      "?댿뻽    ?댿뻽??        ?댿뻽     ?댿뻽   ?댿뻽?댿뻽    ?댿뻽?댿뻽 ?댿뻽    ?댿뻽      ?댿뻽   ?댿뻽?댿뻽    ?댿뻽?댿뻽 ?댿뻽???댿뻽?댿뻽  ?댿뻽 ?댿뻽??   ?댿뻽    ?댿뻽?댿뻽   ?댿뻽?댿뻽   ?댿뻽?댿뻽     ?댿뻽   ?댿뻽 \\n" +
+      " ?댿뻽?댿뻽?댿뻽  ?댿뻽?댿뻽?댿뻽   ?댿뻽     ?댿뻽   ?댿뻽 ?댿뻽?댿뻽?댿뻽??   ?댿뻽   ?댿뻽      ?댿뻽?댿뻽?댿뻽  ?댿뻽?댿뻽?댿뻽  ?댿뻽???댿뻽???댿뻽   ?댿뻽?댿뻽?댿뻽?댿뻽?댿뻽?댿뻽?댿뻽?댿뻽     ?댿뻽?댿뻽?댿뻽???댿뻽?댿뻽?댿뻽?댿뻽??  ?댿뻽 \\n" +
+      "                                                                                                                                       \\n" +
       "                                                                                                                                       ",
     "color: #474BDF; font-weight: bold; font-size: 12px;"
   );
@@ -58,7 +61,7 @@
   let downloads = [];
   let url = "";
   let password = "";
-  let ws;
+  let eventSourceManager;
   let currentPage = 1;
   let totalPages = 1;
   const itemsPerPage = 10;
@@ -140,8 +143,8 @@
   const themeIcons = {
     light: "☀️",
     dark: "🌙",
-    dracula: "🧛‍♂️",
-    system: "🖥️",
+    dracula: "🧛‍♀️",
+    system: "💻",
   };
 
   onMount(async () => {
@@ -161,10 +164,10 @@
       }
     }
 
-    // 로그인이 필요하지 않거나 이미 인증된 경우에만 WebSocket 연결
+    // 로그인이 필요하지 않거나 이미 인증된 경우에만 EventSource 연결
     if (!$needsLogin || $isAuthenticated) {
       fetchDownloads(currentPage);
-      connectWebSocket();
+      connectEventSource();
       fetchActiveDownloads();
       fetchProxyStatus();
       checkProxyAvailability();
@@ -177,20 +180,20 @@
     };
     document.addEventListener("proxy-refreshed", handleProxyRefresh);
 
-    // 모바일에서 앱 포그라운드 복귀 시 조용한 동기화
+    // 모바일에서의 페이지 백그라운드 복귀 시 조용한 업데이트 로직
     let lastVisibilityTime = Date.now();
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         const now = Date.now();
         const timeSinceLastVisible = now - lastVisibilityTime;
 
-        // 5초 이상 백그라운드에 있었다면 동기화
+        // 5초 이상 백그라운드에 있었으면 업데이트
         if (timeSinceLastVisible > 5000) {
           syncDownloadsSilently();
 
-          // WebSocket도 재연결 (연결이 끊어졌을 수 있음)
-          if (!ws || ws.readyState !== WebSocket.OPEN) {
-            reconnectWebSocket();
+          // EventSource 재연결 (연결이 끊어졌을 수도 있음)
+          if (!eventSourceManager || !eventSourceManager.isConnected()) {
+            reconnectEventSource();
           }
         }
       } else {
@@ -203,7 +206,7 @@
       document.title = t_func("title");
     });
 
-    // 테이블 컬럼 리사이징 기능 추가
+    // 테이블 컬럼 리사이즈 기능 추가
     const cleanupResize = initTableColumnResize();
 
     // cleanup 함수를 onDestroy에 등록
@@ -220,9 +223,9 @@
     let startX = 0;
     let startWidth = 0;
 
-    // 마우스 다운 이벤트 (리사이징 시작)
+    // 마우스 다운 이벤트 (리사이즈 시작)
     function handleMouseDown(e) {
-      // 테이블 헤더의 :after 가상 요소 영역인지 확인
+      // 테이블 헤더의 :after 가상요소 영역인지 확인
       const th = e.target.closest("th");
       if (!th || !th.closest("table")) return;
 
@@ -242,10 +245,10 @@
       }
     }
 
-    // 마우스 이동 이벤트 (리사이징 중)
+    // 마우스 이동 이벤트 (리사이즈 중)
     function handleMouseMove(e) {
       if (!isResizing || !currentColumn) {
-        // 리사이징 중이 아닐 때 커서 변경
+        // 리사이즈 중이 아닐 때 커서 변경
         const th = e.target.closest("th");
         if (th && th.closest("table")) {
           const rect = th.getBoundingClientRect();
@@ -260,7 +263,7 @@
       const diff = e.clientX - startX;
       const newWidth = Math.max(50, startWidth + diff);
 
-      // 헤더 너비 설정
+      // 헤더 자체 설정
       currentColumn.style.width = newWidth + "px";
       currentColumn.style.minWidth = newWidth + "px";
       currentColumn.style.maxWidth = newWidth + "px";
@@ -283,7 +286,7 @@
       e.preventDefault();
     }
 
-    // 마우스 업 이벤트 (리사이징 종료)
+    // 마우스 업 이벤트 (리사이즈 종료)
     function handleMouseUp() {
       if (isResizing) {
         isResizing = false;
@@ -298,7 +301,7 @@
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
 
-    // cleanup 함수 반환 (컴포넌트 해제 시 사용)
+    // cleanup 함수 반환 (컴포넌트 제거 시 사용)
     return () => {
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("mousemove", handleMouseMove);
@@ -307,22 +310,16 @@
   }
 
   onDestroy(() => {
-    // WebSocket 정리
-    if (wsReconnectTimeout) {
-      clearTimeout(wsReconnectTimeout);
-    }
-    // ping 관련 타이머들 정리
-    stopPingInterval();
-    
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.close(1000, "Page unloading");
+    // EventSource 정리
+    if (eventSourceManager) {
+      eventSourceManager.disconnect();
     }
   });
 
   function handleLoginSuccess() {
-    // 로그인 성공 후 필요한 데이터 로드 및 WebSocket 연결
+    // 로그인 성공 후 필요한 데이터 로드 및 EventSource 연결
     fetchDownloads(currentPage);
-    connectWebSocket();
+    connectEventSource();
     fetchActiveDownloads();
     fetchProxyStatus();
     checkProxyAvailability();
@@ -378,324 +375,78 @@
     }
   }
 
-  // WebSocket 재연결 관리 변수들
-  let wsReconnectAttempts = 0;
-  let wsReconnectTimeout = null;
-  let wsMaxReconnectAttempts = 10;
-  let wsReconnectDelay = 1000; // 시작 1초
-  let wsMaxReconnectDelay = 60000; // 최대 60초
-  
-  // WebSocket ping/pong 관리 변수들
-  let wsPingInterval = null;
-  let wsPingTimeout = null;
-  const PING_INTERVAL = 20000; // 20초마다 ping (Cloudflare Free 플랜 대응)
-  const PONG_TIMEOUT = 8000; // pong 응답을 8초 기다림
-
-  function connectWebSocket() {
-    // 기존 재연결 타이머가 있으면 취소
-    if (wsReconnectTimeout) {
-      clearTimeout(wsReconnectTimeout);
-      wsReconnectTimeout = null;
+  function connectEventSource() {
+    if (!eventSourceManager) {
+      eventSourceManager = new EventSourceManager();
     }
 
-    const isHttps = window.location.protocol === "https:";
-    const wsProtocol = isHttps ? "wss" : "ws";
-    const wsUrl = `${wsProtocol}://${window.location.host}/ws/status`;
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      // 연결 성공 시 재연결 카운터 리셋
-      wsReconnectAttempts = 0;
-      wsReconnectDelay = 1000;
-      
-      // ping 인터벌 시작
-      startPingInterval();
-    };
-
-    ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-
-      // Pong 메시지 처리 (ping 응답)
-      if (message.type === "pong") {
-        // pong 응답을 받았으므로 타임아웃 취소
-        if (wsPingTimeout) {
-          clearTimeout(wsPingTimeout);
-          wsPingTimeout = null;
-        }
-        return;
-      }
-
+    eventSourceManager.connect((message) => {
       if (message.type === "status_update") {
         const updatedDownload = message.data;
         const index = downloads.findIndex((d) => d.id === updatedDownload.id);
         if (index !== -1) {
-          // 기존 항목 업데이트 - 상태 변화 감지를 위해 새 배열 생성
           downloads = downloads.map((d, i) =>
             i === index ? { ...d, ...updatedDownload } : d
           );
         } else {
           downloads = [updatedDownload, ...downloads];
-          console.log("New download added:", updatedDownload.id);
         }
-        // Svelte 반응성 강제 트리거
-        downloads = [...downloads];
-        fetchProxyStatus();
-        updateLocalStats(downloads);
-
-        if (updatedDownload.status === "failed" && updatedDownload.error) {
-          showToastMsg(
-            $t("download_failed_with_error", { error: updatedDownload.error })
-          );
-        }
-
-        if (updatedDownload.status === "done") {
-          showToastMsg(
-            $t("download_complete_with_filename", {
-              filename: updatedDownload.file_name || $t("file"),
-            })
-          );
-          if (currentTab === "working") {
-            setTimeout(() => {
-              currentTab = "completed";
-            }, 1500);
-          }
-        }
-
-        if (["stopped", "done", "failed"].includes(updatedDownload.status)) {
-          if (downloadWaitInfo[updatedDownload.id]) {
-            delete downloadWaitInfo[updatedDownload.id];
-            downloadWaitInfo = { ...downloadWaitInfo };
-          }
-        }
-      } else if (message.type === "proxy_update") {
-        fetchProxyStatus();
-      } else if (message.type === "proxy_reset") {
-        fetchProxyStatus();
-        showToastMsg($t("proxy_reset_success"), "success");
 
         fetchActiveDownloads();
-      } else if (message.type === "progress_update") {
-        const progressData = message.data;
+        updateProxyStats(downloads);
+        updateLocalStats(downloads);
+      }
 
-        const index = downloads.findIndex((d) => d.id === progressData.id);
-
-        if (index !== -1) {
-          // 불변성을 유지하면서 업데이트
-          downloads = downloads.map((d, i) =>
-            i === index
-              ? {
-                  ...d,
-                  downloaded_size: progressData.downloaded_size,
-                  total_size: progressData.total_size,
-                  progress: progressData.progress,
-                  download_speed:
-                    progressData.download_speed ?? d.download_speed,
-                  use_proxy: progressData.use_proxy ?? d.use_proxy,
-                }
-              : d
-          );
-        } else {
-        }
-      } else if (message.type === "proxy_trying") {
-        proxyStats.currentProxy = message.data.proxy;
-        proxyStats.currentStep = message.data.step;
-        proxyStats.currentIndex = message.data.current;
-        proxyStats.totalAttempting = message.data.total;
+      // 프록시 메시지 처리
+      if (message.type === "proxy_trying") {
+        const { proxy, step, current, total } = message.data;
+        proxyStats.currentProxy = proxy;
+        proxyStats.currentStep = step;
+        proxyStats.currentIndex = current;
+        proxyStats.totalAttempting = total;
         proxyStats.status = "trying";
         proxyStats = { ...proxyStats };
+      }
 
-        const matchingDownload = downloads.find(
-          (d) => d.url === message.data.url
-        );
-        if (matchingDownload) {
-          downloadProxyInfo[matchingDownload.id] = {
-            proxy: message.data.proxy,
-            step: message.data.step,
-            current: message.data.current,
-            total: message.data.total,
-            status: "trying",
-            timestamp: Date.now(),
-          };
-          downloadProxyInfo = { ...downloadProxyInfo };
-        }
-      } else if (message.type === "proxy_success") {
-        console.log("Proxy success:", message.data);
-
-        proxyStats.currentProxy = message.data.proxy;
-        proxyStats.currentStep = message.data.step;
+      if (message.type === "proxy_success") {
+        const { proxy, step } = message.data;
+        proxyStats.currentProxy = proxy;
+        proxyStats.currentStep = step;
         proxyStats.status = "success";
+        proxyStats.successCount++;
         proxyStats = { ...proxyStats };
-        fetchProxyStatus();
+      }
 
-        const matchingDownload = downloads.find(
-          (d) => d.url === message.data.url
-        );
-        if (matchingDownload) {
-          downloadProxyInfo[matchingDownload.id] = {
-            ...downloadProxyInfo[matchingDownload.id],
-            proxy: message.data.proxy,
-            step: message.data.step,
-            status: "success",
-            timestamp: Date.now(),
-          };
-          downloadProxyInfo = { ...downloadProxyInfo };
-        }
-      } else if (message.type === "proxy_failed") {
-        console.log("Proxy failed:", message.data);
-
-        proxyStats.currentProxy = message.data.proxy;
-        proxyStats.currentStep = message.data.step;
+      if (message.type === "proxy_failed") {
+        const { proxy, step, error } = message.data;
+        proxyStats.currentProxy = proxy;
+        proxyStats.currentStep = step;
         proxyStats.status = "failed";
-        proxyStats.lastError = message.data.error;
+        proxyStats.lastError = error || "";
+        proxyStats.failCount++;
         proxyStats = { ...proxyStats };
-        fetchProxyStatus();
+      }
 
-        const matchingDownload = downloads.find(
-          (d) => d.url === message.data.url
-        );
-        if (matchingDownload) {
-          downloadProxyInfo[matchingDownload.id] = {
-            ...downloadProxyInfo[matchingDownload.id],
-            proxy: message.data.proxy,
-            step: message.data.step,
-            status: "failed",
-            error: message.data.error,
-            timestamp: Date.now(),
-          };
-          downloadProxyInfo = { ...downloadProxyInfo };
-        }
-      } else if (message.type === "wait_countdown") {
-        const matchingDownload = downloads.find(
-          (d) => d.url === message.data.url
-        );
-        if (matchingDownload) {
-          downloadWaitInfo[matchingDownload.id] = {
-            remaining_time: message.data.remaining_time,
-            total_wait_time: message.data.total_wait_time,
-            proxy_addr: message.data.proxy_addr,
-            timestamp: Date.now(),
-          };
-          downloadWaitInfo = { ...downloadWaitInfo };
-
-          if (message.data.remaining_time <= 0) {
-            setTimeout(() => {
-              delete downloadWaitInfo[matchingDownload.id];
-              downloadWaitInfo = { ...downloadWaitInfo };
-            }, 1000);
+      if (message.type === "force_refresh") {
+        const { id, status: newStatus, action } = message.data;
+        if (action === "pause_confirmed") {
+          const index = downloads.findIndex((d) => d.id === id);
+          if (index !== -1 && downloads[index].status !== newStatus) {
+            downloads = downloads.map((d, i) =>
+              i === index ? { ...d, status: newStatus } : d
+            );
           }
-        }
-      } else if (message.type === "wait_countdown_complete") {
-        console.log("Wait countdown complete:", message.data);
-
-        // 해당 다운로드의 대기 정보 즉시 정리
-        if (downloadWaitInfo[message.data.id]) {
-          delete downloadWaitInfo[message.data.id];
-          downloadWaitInfo = { ...downloadWaitInfo };
-          console.log("Wait info cleared for download:", message.data.id);
-        }
-      } else if (message.type === "filename_update") {
-        console.log(
-          "File info update:",
-          message.data.id,
-          message.data.file_name,
-          message.data.file_size
-        );
-        const index = downloads.findIndex((d) => d.id === message.data.id);
-        if (index !== -1) {
-          // 불변성을 유지하면서 파일명과 파일 크기 업데이트
-          downloads = downloads.map((d, i) =>
-            i === index
-              ? {
-                  ...d,
-                  file_name: message.data.file_name,
-                  file_size: message.data.file_size || d.file_size,
-                }
-              : d
-          );
+          fetchProxyStatus();
+          updateProxyStats(downloads);
           updateLocalStats(downloads);
         }
       }
-    };
-
-    ws.onclose = (event) => {
-      // ping 관련 타이머들 정리
-      stopPingInterval();
-
-      // 최대 재시도 횟수를 초과한 경우
-      if (wsReconnectAttempts >= wsMaxReconnectAttempts) {
-        return;
-      }
-
-      // 의도적인 종료(1000, 1001)가 아닌 경우에만 재연결 시도
-      if (event.code !== 1000 && event.code !== 1001) {
-        wsReconnectAttempts++;
-
-        // exponential backoff with jitter
-        const jitter = Math.random() * 1000; // 0-1초 랜덤 지연
-        const delay = Math.min(wsReconnectDelay, wsMaxReconnectDelay) + jitter;
-
-        wsReconnectTimeout = setTimeout(() => {
-          connectWebSocket();
-        }, delay);
-
-        // 다음 재시도를 위해 지연 시간 증가 (exponential backoff)
-        wsReconnectDelay = Math.min(wsReconnectDelay * 2, wsMaxReconnectDelay);
-      }
-    };
-
-    ws.onerror = (error) => {
-      // WebSocket 에러는 onclose에서 처리됨
-    };
+    });
   }
 
-  function reconnectWebSocket() {
-    // 수동으로 WebSocket 재연결 (예: 설정 변경 후)
-    if (ws) {
-      ws.close(1000, "Manual reconnection");
-    }
-    wsReconnectAttempts = 0;
-    wsReconnectDelay = 1000;
-    connectWebSocket();
-  }
-  
-  // WebSocket ping/pong 함수들
-  function startPingInterval() {
-    // 기존 인터벌이 있으면 정리
-    stopPingInterval();
-    
-    wsPingInterval = setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        // pong 응답 타임아웃 설정
-        wsPingTimeout = setTimeout(() => {
-          if (ws) {
-            ws.close(4000, "Pong timeout");
-          }
-        }, PONG_TIMEOUT);
-        
-        // ping 메시지 전송
-        try {
-          ws.send(JSON.stringify({
-            type: "ping",
-            timestamp: Date.now()
-          }));
-        } catch (error) {
-          if (wsPingTimeout) {
-            clearTimeout(wsPingTimeout);
-            wsPingTimeout = null;
-          }
-        }
-      }
-    }, PING_INTERVAL);
-  }
-  
-  function stopPingInterval() {
-    if (wsPingInterval) {
-      clearInterval(wsPingInterval);
-      wsPingInterval = null;
-    }
-    if (wsPingTimeout) {
-      clearTimeout(wsPingTimeout);
-      wsPingTimeout = null;
+  function reconnectEventSource() {
+    if (eventSourceManager) {
+      eventSourceManager.reconnect();
     }
   }
 
@@ -704,21 +455,11 @@
     try {
       const response = await fetch(`/api/history/`);
       if (response.ok) {
-        const newData = await response.json();
-
-        // 기존 데이터와 비교해서 실제 변경사항만 업데이트
-        const hasChanges =
-          JSON.stringify(downloads) !== JSON.stringify(newData);
-        if (hasChanges) {
-          console.log(
-            "[SYNC] 백그라운드에서 데이터 변경 감지, 조용히 업데이트"
-          );
-          downloads = newData;
-          // 로딩 상태 변경 없이 부드럽게 업데이트
-        }
+        const data = await response.json();
+        downloads = data;
       }
     } catch (error) {
-      console.log("[SYNC] 백그라운드 동기화 실패:", error);
+      console.error("Background sync failed:", error);
     }
   }
 
@@ -756,7 +497,7 @@
           retryCount < 2 &&
           (response.status >= 500 || response.status === 0)
         ) {
-          console.log(`재시도 중... (${retryCount + 1}/3)`);
+          console.log(`재시도 중.. (${retryCount + 1}/3)`);
           setTimeout(() => fetchDownloads(page, retryCount + 1), 2000);
           return;
         }
@@ -767,7 +508,7 @@
 
       // 네트워크 오류 시 재시도
       if (retryCount < 2) {
-        console.log(`네트워크 오류 재시도 중... (${retryCount + 1}/3)`);
+        console.log(`네트워크 오류 재시도 중.. (${retryCount + 1}/3)`);
         setTimeout(() => fetchDownloads(page, retryCount + 1), 2000);
         return;
       }
@@ -780,6 +521,17 @@
         console.log("=== fetchDownloads completed ===");
       }
     }
+  }
+
+  function updateProxyStats(downloadsData) {
+    if (!downloadsData) return;
+    
+    const activeProxyDownloads = downloadsData.filter(
+      (d) => d.use_proxy && ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
+    );
+    
+    proxyStats.activeDownloadCount = activeProxyDownloads.length;
+    proxyStats = { ...proxyStats };
   }
 
   function updateLocalStats(downloadsData) {
@@ -849,7 +601,7 @@
         url = "";
         password = "";
         hasPassword = false;
-        syncDownloadsSilently(); // 새 다운로드 추가 후 조용한 업데이트
+        syncDownloadsSilently(); // 새 다운로드 추가 시 조용한 업데이트
       } else {
         const errorData = await response.json();
         showToastMsg($t("add_download_failed", { detail: errorData.detail }));
@@ -898,9 +650,9 @@
         } else {
           console.log(`API 호출 성공: ${endpoint}`);
 
-          // 사용자 피드백을 위한 토스트 메시지 (응답 내용에 따라 구분)
+          // 사용자 피드백을 위한 토스트 메시지 (응답 내용에 따라 구별)
           if (endpoint.includes("/resume/")) {
-            // 응답에서 실제로 이어받기인지 새 다운로드인지 구분
+            // 응답에서 실제로 재개되기인지 새 다운로드인지 구별
             if (
               responseData &&
               responseData.message &&
@@ -931,20 +683,20 @@
           syncDownloadsSilently();
         }
       } else {
-        // HTTP 응답이 실패인 경우
+        // HTTP 응답이 실패한 경우
         const errorText = await response.text();
         console.error(
           `API 호출 실패: ${endpoint}, 상태: ${response.status}, 응답: ${errorText}`
         );
 
         if (endpoint.includes("/pause/")) {
-          showToastMsg("정지 요청이 실패했습니다.", "error");
+          showToastMsg("정지 요청에 실패했습니다.", "error");
         } else if (endpoint.includes("/resume/")) {
-          showToastMsg("재개 요청이 실패했습니다.", "error");
+          showToastMsg("재개 요청에 실패했습니다.", "error");
         } else if (endpoint.includes("/retry/")) {
-          showToastMsg("재시도 요청이 실패했습니다.", "error");
+          showToastMsg("재시도 요청에 실패했습니다.", "error");
         } else {
-          showToastMsg(`요청이 실패했습니다 (${response.status})`, "error");
+          showToastMsg(`요청에 실패했습니다 (${response.status})`, "error");
         }
       }
       await fetchActiveDownloads();
@@ -1041,12 +793,12 @@
 
     if (proxyInfo) {
       const statusIcon = {
-        trying: "⟳",
-        success: "✓",
-        failed: "✗",
+        trying: "🔄",
+        success: "✅",
+        failed: "❌",
       };
 
-      const icon = statusIcon[proxyInfo.status] || "●";
+      const icon = statusIcon[proxyInfo.status] || "❓";
       let tooltip = `${icon} ${$t("proxy_tooltip_proxy")}: ${proxyInfo.proxy}\n${$t("proxy_tooltip_step")}: ${proxyInfo.step}`;
 
       if (proxyInfo.current && proxyInfo.total) {
@@ -1096,7 +848,7 @@
       );
     }
 
-    // 다른 날이면 간단한 날짜 형식
+    // 어제 이전이면 간단한 날짜 형식
     if (currentLocale === "ko") {
       return `${date.getMonth() + 1}월 ${date.getDate()}일`;
     } else {
@@ -1137,7 +889,7 @@
     return Math.round((downloaded / total) * 100);
   }
 
-  // URL 유효성 검사 함수
+  // URL 유효성 검증 함수
   function isValidUrl(string) {
     try {
       const url = new URL(string);
@@ -1230,7 +982,7 @@
       });
       if (response.ok) {
         showToastMsg($t("redownload_requested"));
-        syncDownloadsSilently(); // 재다운로드 요청 후 조용한 업데이트
+        syncDownloadsSilently(); // 다시 다운로드 요청 시 조용한 업데이트
         currentTab = "working";
       } else {
         const errorData = await response.json();
@@ -1272,7 +1024,7 @@
 
   $: workingCount = downloads.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
-    // stopped는 100% 완료된 경우 completed로 처리
+    // stopped에 100% 완료인 경우 completed로 처리
     if (
       status === "stopped" &&
       (d.progress >= 100 || getDownloadProgress(d) >= 100)
@@ -1291,7 +1043,7 @@
 
   $: completedCount = downloads.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
-    // done 상태 또는 100% 완료된 stopped 상태
+    // done 상태 또는 100% 완료인 stopped 상태
     return (
       status === "done" ||
       (status === "stopped" &&
@@ -1303,7 +1055,7 @@
     if (currentTab === "working") {
       return downloads.filter((d) => {
         const status = d.status?.toLowerCase?.() || "";
-        // stopped는 100% 완료된 경우 working에서 제외
+        // stopped에 100% 완료인 경우 working에서 제외
         if (
           status === "stopped" &&
           (d.progress >= 100 || getDownloadProgress(d) >= 100)
@@ -1321,7 +1073,7 @@
         ].includes(status);
       });
     } else {
-      // 완료 탭: done 상태 또는 100% 완료된 stopped 상태
+      // 완료 탭: done 상태 또는 100% 완료인 stopped 상태
       return downloads
         .filter((d) => {
           const status = d.status?.toLowerCase?.() || "";
@@ -1332,15 +1084,15 @@
           );
         })
         .sort((a, b) => {
-          // completed_at이 있으면 그것으로, 없으면 updated_at으로 정렬 (최신순)
+          // completed_at이 있으면 그걸로, 없으면 updated_at로 정렬 (최신 순)
           const aTime = new Date(a.completed_at || a.updated_at || 0);
           const bTime = new Date(b.completed_at || b.updated_at || 0);
-          return bTime.getTime() - aTime.getTime(); // 역순 정렬 (최신이 먼저)
+          return bTime.getTime() - aTime.getTime(); // 내림차순 정렬 (최신 순 먼저)
         });
     }
   })();
 
-  // 페이징 계산
+  // 페이지 계산
   $: {
     totalPages = Math.ceil(filteredDownloads.length / itemsPerPage);
     if (currentPage > totalPages && totalPages > 0) {
@@ -1348,13 +1100,13 @@
     }
   }
 
-  // 페이징된 다운로드
+  // 페이지별 다운로드
   $: paginatedDownloads = filteredDownloads.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
 
-  // 페이징 함수
+  // 페이지 함수
   function goToPage(page) {
     if (page >= 1 && page <= totalPages) {
       currentPage = page;
@@ -1665,7 +1417,7 @@
                             ? 'proxy-loading'
                             : 'local-loading'}"
                         >
-                          <span class="parsing-dots">•••</span>
+                          <span class="parsing-dots">⠋⠙⠹</span>
                         </span>
                       {:else}
                         <span class="speed-text-empty">-</span>
@@ -1700,7 +1452,7 @@
 
                           if (response.ok) {
                             const result = await response.json();
-                            // 프론트엔드 상태 업데이트
+                            // 프론트엔드의 상태 업데이트
                             downloads = downloads.map((d) =>
                               d.id === download.id
                                 ? { ...d, use_proxy: result.use_proxy }
@@ -1871,7 +1623,7 @@
             on:click={() => goToPage(currentPage - 1)}
             disabled={currentPage <= 1}
           >
-            ‹
+            ←
           </button>
 
           <!-- 페이지 번호 버튼들 -->
@@ -1893,7 +1645,7 @@
             on:click={() => goToPage(currentPage + 1)}
             disabled={currentPage >= totalPages}
           >
-            ›
+            →
           </button>
         </div>
       {/if}
