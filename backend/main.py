@@ -190,9 +190,10 @@ async def lifespan(app: FastAPI):
         print(f"[LOG] 📊 복구 대상 다운로드: {len(downloading_requests)}개")
         
         for req in downloading_requests:
-            print(f"[LOG] 🔄 복구 중: ID {req.id} - {req.status} → stopped")
-            req.status = StatusEnum.stopped
+            print(f"[LOG] 🔄 복구 중: ID {req.id} - {req.status} → pending (자동 재시작)")
+            req.status = StatusEnum.pending  # 자동 재시작 대기열로
             req.direct_link = None  # 서버 재시작 시 파싱 상태 초기화
+            req.error = None  # 이전 에러 정보 초기화
             db.commit()
             
             # 각 다운로드의 상태 변경을 WebSocket으로 알림
@@ -202,7 +203,7 @@ async def lifespan(app: FastAPI):
                     "type": "status_update",
                     "data": {
                         "id": req.id,
-                        "status": "stopped",
+                        "status": "pending",
                         "url": req.url,
                         "file_name": req.file_name,
                         "total_size": req.total_size,
@@ -210,7 +211,7 @@ async def lifespan(app: FastAPI):
                         "requested_at": req.requested_at.isoformat() if req.requested_at else None,
                         "direct_link": req.direct_link,
                         "use_proxy": req.use_proxy,
-                        "error": "서버 재시작으로 인한 정지"
+                        "error": None
                     }
                 }
                 status_queue.put(json.dumps(status_data))
@@ -218,7 +219,7 @@ async def lifespan(app: FastAPI):
                 print(f"[LOG] 서버 시작 시 WebSocket 알림 실패: {e}")
         
         if len(downloading_requests) > 0:
-            print(f"[LOG] ✅ 복구 완료: {len(downloading_requests)}개 다운로드를 stopped로 변경")
+            print(f"[LOG] ✅ 복구 완료: {len(downloading_requests)}개 다운로드를 자동 재시작 대기열로 추가")
         else:
             print("[LOG] ✅ 복구 완료: 중단된 다운로드 없음")
         
@@ -227,8 +228,14 @@ async def lifespan(app: FastAPI):
             DownloadRequest.status == StatusEnum.pending
         ).all()
         
-        if len(pending_requests) > 0:
-            print(f"[LOG] 서버 시작 시 {len(pending_requests)}개의 대기 중인 다운로드 발견")
+        total_pending = len(pending_requests)
+        recovered_count = len(downloading_requests)
+        
+        if total_pending > 0:
+            if recovered_count > 0:
+                print(f"[LOG] 📋 자동 시작 대상: {total_pending}개 (복구: {recovered_count}개 + 기존 대기: {total_pending - recovered_count}개)")
+            else:
+                print(f"[LOG] 📋 자동 시작 대상: {total_pending}개 대기 중인 다운로드 발견")
             db.close()
             
             # 잠시 대기 후 대기 중인 다운로드들 시작 (서버 완전 초기화 대기)
@@ -238,7 +245,7 @@ async def lifespan(app: FastAPI):
                 try:
                     from core.shared import download_manager
                     download_manager.check_and_start_waiting_downloads()
-                    print(f"[LOG] 서버 시작 시 대기 중인 다운로드 시작 완료")
+                    print(f"[LOG] 🚀 자동 시작 완료: 복구된 다운로드 포함하여 대기 중인 다운로드 시작")
                 except Exception as e:
                     print(f"[LOG] 서버 시작 시 대기 다운로드 시작 실패: {e}")
             
