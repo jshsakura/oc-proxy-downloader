@@ -404,6 +404,26 @@ def test_proxy_batch(db: Session, batch_proxies, req=None, lenient_mode=False):
         future_to_proxy = {executor.submit(test_single_proxy, proxy): proxy for proxy in batch_proxies}
         
         for future in as_completed(future_to_proxy):
+            # 각 결과 처리 전에 정지 상태 재확인
+            if req:
+                from .shared import download_manager
+                if download_manager.is_download_stopped(req.id):
+                    print(f"[LOG] 프록시 테스트 결과 처리 중 즉시 정지 플래그 감지: {req.id}")
+                    # 나머지 테스트들도 취소
+                    for remaining_future in future_to_proxy:
+                        if not remaining_future.done():
+                            remaining_future.cancel()
+                    return [], []
+                
+                db.refresh(req)
+                if req.status == StatusEnum.stopped:
+                    print(f"[LOG] 프록시 테스트 결과 처리 중 정지됨: {req.id}")
+                    # 나머지 테스트들도 취소
+                    for remaining_future in future_to_proxy:
+                        if not remaining_future.done():
+                            remaining_future.cancel()
+                    return [], []
+            
             proxy_addr, is_working = future.result()
             
             if is_working:
@@ -469,6 +489,26 @@ def get_working_proxy_batch(db: Session, batch_size=10, req=None):
         future_to_proxy = {executor.submit(test_single_proxy, proxy): proxy for proxy in batch_proxies}
         
         for future in as_completed(future_to_proxy):
+            # 각 결과 처리 전에 정지 상태 재확인
+            if req:
+                from .shared import download_manager
+                if download_manager.is_download_stopped(req.id):
+                    print(f"[LOG] 프록시 테스트 결과 처리 중 즉시 정지 플래그 감지: {req.id}")
+                    # 나머지 테스트들도 취소
+                    for remaining_future in future_to_proxy:
+                        if not remaining_future.done():
+                            remaining_future.cancel()
+                    return []
+                
+                db.refresh(req)
+                if req.status == StatusEnum.stopped:
+                    print(f"[LOG] 프록시 테스트 결과 처리 중 정지됨: {req.id}")
+                    # 나머지 테스트들도 취소
+                    for remaining_future in future_to_proxy:
+                        if not remaining_future.done():
+                            remaining_future.cancel()
+                    return []
+            
             proxy_addr, is_working = future.result()
             
             if is_working:

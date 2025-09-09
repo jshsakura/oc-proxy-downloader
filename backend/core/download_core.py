@@ -1392,6 +1392,12 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
         from .proxy_manager import test_proxy_batch, mark_proxy_used
         working_proxies, failed_proxies = test_proxy_batch(db, batch_proxies, req=req, lenient_mode=use_lenient_mode)
         
+        # 프록시 테스트 결과 처리 후 즉시 정지 상태 확인
+        db.refresh(req)
+        if req.status == StatusEnum.stopped:
+            print(f"[LOG] 프록시 테스트 결과 처리 중 정지됨: {req.id}")
+            return None, None
+        
         if working_proxies:
             print(f"[LOG] 배치 {batch_num}에서 {len(working_proxies)}개 프록시 확보")
             # 실패한 프록시들을 사용됨으로 표시

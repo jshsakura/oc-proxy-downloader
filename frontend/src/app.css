@@ -2407,19 +2407,9 @@ table th:first-child {
   font-size: 13px;
   font-weight: bold;
   color: #ffffff;
-  text-shadow:
-    0 0 2px rgba(0, 0, 0, 0.3),
-    1px 1px 1px rgba(0, 0, 0, 0.2);
+  text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.2);
   z-index: 50;
   pointer-events: none;
-}
-
-/* 라이트 테마에서 진행률 텍스트를 프라이머리 컬러로 변경 */
-:global(html:not(.dark):not(.dracula)) .progress-text {
-  color: var(--primary-color);
-  text-shadow:
-    0 0 2px rgba(255, 255, 255, 0.1),
-    1px 1px 1px rgba(255, 255, 255, 0.3);
 }
 
 .gauge-container {
