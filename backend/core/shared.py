@@ -10,8 +10,24 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
 
-# WebSocket 메시지 큐
-status_queue = queue.Queue()
+# WebSocket 메시지 큐 (메모리 누수 방지를 위한 크기 제한)
+status_queue = queue.Queue(maxsize=1000)
+
+def safe_status_queue_put(message):
+    """안전한 status_queue put - 큐가 가득 찬 경우 오래된 메시지 제거"""
+    try:
+        status_queue.put_nowait(message)
+    except queue.Full:
+        # 큐가 가득 찬 경우 오래된 메시지 제거 후 새 메시지 추가
+        try:
+            status_queue.get_nowait()  # 가장 오래된 메시지 제거
+            status_queue.put_nowait(message)  # 새 메시지 추가
+            print("[LOG] status_queue 가득참 - 오래된 메시지 제거 후 추가")
+        except queue.Empty:
+            # 이론적으로 불가능하지만 안전장치
+            pass
+        except Exception as e:
+            print(f"[LOG] status_queue 안전 처리 실패: {e}")
 
 class DownloadManager:
     def __init__(self):
@@ -34,6 +50,9 @@ class DownloadManager:
         # DB 쿼리 캐시 (부하 감소)
         self._last_check_time = 0
         self._check_interval = 2.0  # 2초 간격으로만 DB 체크
+        
+        # 쿨다운 타이머 중복 생성 방지
+        self._cooldown_timer_running = False
 
     def can_start_download(self, url=None):
         """다운로드를 시작할 수 있는지 확인 (전체 제한 + 1fichier 개별 제한 + 쿨다운)"""
@@ -120,7 +139,7 @@ class DownloadManager:
                     db.commit()
                 
                 # 다음에 실행될 1fichier 다운로드에만 쿨다운 상태 전송
-                status_queue.put(json.dumps({
+                safe_status_queue_put(json.dumps({
                     "type": "status_update",
                     "data": {
                         "id": next_fichier_download.id,
@@ -136,6 +155,13 @@ class DownloadManager:
     
     def _start_cooldown_timer(self):
         """1fichier 쿨다운 타이머 시작 - 주기적으로 대기중인 다운로드들에 상태 업데이트"""
+        # 이미 실행 중인 타이머가 있으면 중복 생성 방지
+        with self._lock:
+            if self._cooldown_timer_running:
+                print("[LOG] 쿨다운 타이머 이미 실행 중 - 중복 생성 방지")
+                return
+            self._cooldown_timer_running = True
+        
         def cooldown_timer():
             try:
                 cooldown_duration = self.FICHIER_COOLDOWN_SECONDS
@@ -173,6 +199,11 @@ class DownloadManager:
                 
             except Exception as e:
                 print(f"[LOG] 쿨다운 타이머 중 오류: {e}")
+            finally:
+                # 타이머 종료 시 플래그 초기화 (메모리 누수 방지)
+                with self._lock:
+                    self._cooldown_timer_running = False
+                print("[LOG] 쿨다운 타이머 종료 - 플래그 초기화")
         
         # 백그라운드에서 쿨다운 타이머 실행
         threading.Thread(target=cooldown_timer, daemon=True).start()
@@ -461,7 +492,7 @@ class DownloadManager:
                 
                 # WebSocket 상태 업데이트 브로드캐스트
                 import json
-                status_queue.put(json.dumps({
+                safe_status_queue_put(json.dumps({
                     "type": "status_update",
                     "data": {
                         "id": download_id,
@@ -508,7 +539,7 @@ class DownloadManager:
                         print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경 (이어받기 지원)")
                         
                         # WebSocket 상태 업데이트 브로드캐스트
-                        status_queue.put(json.dumps({
+                        safe_status_queue_put(json.dumps({
                             "type": "status_update",
                             "data": {
                                 "id": download_id,
