@@ -156,6 +156,54 @@ class DownloadManager:
         except Exception as e:
             print(f"[LOG] 쿨다운 상태 전송 실패: {e}")
     
+    def check_immediate_cooldown(self, download_id):
+        """새 다운로드 추가 시 즉시 쿨다운 상태 확인 및 설정"""
+        try:
+            cooldown_remaining = self.get_1fichier_cooldown_remaining()
+            if cooldown_remaining <= 0:
+                return False  # 쿨다운 없음
+            
+            db = next(get_db())
+            
+            # 해당 다운로드가 1fichier 로컬 다운로드인지 확인
+            download_req = db.query(DownloadRequest).filter(
+                DownloadRequest.id == download_id,
+                DownloadRequest.use_proxy == False,
+                DownloadRequest.url.contains('1fichier.com')
+            ).first()
+            
+            if download_req and download_req.status == StatusEnum.pending:
+                # 즉시 쿨다운 상태로 변경
+                download_req.status = StatusEnum.cooldown
+                db.commit()
+                
+                import json
+                cooldown_message = f"1fichier 쿨다운 대기 중: {int(cooldown_remaining)}초 남음"
+                safe_status_queue_put(json.dumps({
+                    "type": "status_update",
+                    "data": {
+                        "id": download_id,
+                        "status": "cooldown",
+                        "message": cooldown_message,
+                        "cooldown_remaining": int(cooldown_remaining)
+                    }
+                }))
+                
+                print(f"[LOG] 즉시 쿨다운 설정: ID {download_id}, {int(cooldown_remaining)}초 남음")
+                
+                # 쿨다운 타이머가 실행 중이 아니면 시작
+                if not hasattr(self, '_cooldown_timer_running') or not self._cooldown_timer_running:
+                    self._start_cooldown_timer()
+                
+                return True
+            
+            db.close()
+            return False
+            
+        except Exception as e:
+            print(f"[LOG] 즉시 쿨다운 확인 실패: {e}")
+            return False
+    
     def _start_cooldown_timer(self):
         """1fichier 쿨다운 타이머 시작 - 주기적으로 대기중인 다운로드들에 상태 업데이트"""
         # 이미 실행 중인 타이머가 있으면 중복 생성 방지
@@ -311,11 +359,11 @@ class DownloadManager:
                 return is_stopped
             return False
     
-    def check_and_start_waiting_downloads(self):
+    def check_and_start_waiting_downloads(self, force_check=False):
         """대기 중인 다운로드를 확인하고 시작 (전체 제한 + 1fichier 개별 제한 고려)"""
-        # 부하 감소를 위한 중복 호출 방지
+        # 부하 감소를 위한 중복 호출 방지 (force_check가 True면 무시)
         current_time = time.time()
-        if current_time - self._last_check_time < self._check_interval:
+        if not force_check and current_time - self._last_check_time < self._check_interval:
             print(f"[LOG] 대기 중인 다운로드 체크 스킵 (최근 체크: {current_time - self._last_check_time:.1f}초 전)")
             return
         

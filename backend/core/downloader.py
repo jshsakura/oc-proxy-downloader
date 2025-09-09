@@ -414,6 +414,13 @@ def create_download_task(
     
     # 제한 확인 후 즉시 응답 (비동기 처리)
     if not request.use_proxy:
+        # 1fichier 다운로드인 경우 즉시 쿨다운 확인
+        if "1fichier.com" in str(request.url).lower():
+            cooldown_applied = download_manager.check_immediate_cooldown(db_req.id)
+            if cooldown_applied:
+                cooldown_remaining = download_manager.get_1fichier_cooldown_remaining()
+                return {"id": db_req.id, "status": "cooldown", "message_key": "fichier_cooldown_active", "message_args": {"seconds": max(1, int(cooldown_remaining))}}
+        
         if not download_manager.can_start_download(str(request.url)):
             print(f"[LOG] 다운로드 제한으로 대기 상태 예상: {db_req.id}")
             # 어떤 제한인지 확인하여 적절한 메시지 반환
@@ -695,7 +702,7 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"[LOG] WebSocket 알림 전송 실패: {e}")
     
-    return {"id": item.id, "status": item.status}
+    return {"id": item.id, "status": item.status, "message": "Download stopped successfully", "success": True}
 
 @router.post("/retry/{download_id}")
 def retry_download(download_id: int, db: Session = Depends(get_db)):

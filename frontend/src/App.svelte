@@ -888,13 +888,18 @@
           // 사용자 피드백을 위한 토스트 메시지 (응답 내용에 따라 구분)
           if (endpoint.includes("/resume/")) {
             // 응답에서 실제로 이어받기인지 새 다운로드인지 구분
-            if (data && data.message && data.message.includes("resume")) {
+            if (responseData && responseData.message && responseData.message.includes("resume")) {
               showToastMsg($t("resume_request_sent"), "info");
             } else {
               showToastMsg($t("download_request_sent") || "다운로드 요청을 보냈습니다.", "info");
             }
           } else if (endpoint.includes("/pause/")) {
-            showToastMsg($t("stop_request_sent"), "info");
+            // API 응답에서 success 확인 후 토스트 표시
+            if (responseData && (responseData.success || responseData.status === "stopped")) {
+              showToastMsg($t("stop_request_sent"), "success");
+            } else {
+              showToastMsg($t("stop_request_sent"), "info");
+            }
           } else if (endpoint.includes("/retry/")) {
             showToastMsg($t("retry_request_sent"), "info");
           }
@@ -902,10 +907,34 @@
           // 즉시 상태 새로고침 (깜빡거림 없이)
           syncDownloadsSilently();
         }
+      } else {
+        // HTTP 응답이 실패인 경우
+        const errorText = await response.text();
+        console.error(`API 호출 실패: ${endpoint}, 상태: ${response.status}, 응답: ${errorText}`);
+        
+        if (endpoint.includes("/pause/")) {
+          showToastMsg("정지 요청이 실패했습니다.", "error");
+        } else if (endpoint.includes("/resume/")) {
+          showToastMsg("재개 요청이 실패했습니다.", "error");
+        } else if (endpoint.includes("/retry/")) {
+          showToastMsg("재시도 요청이 실패했습니다.", "error");
+        } else {
+          showToastMsg(`요청이 실패했습니다 (${response.status})`, "error");
+        }
       }
       await fetchActiveDownloads();
     } catch (error) {
       console.error(`Error calling ${endpoint}:`, error);
+      // API 호출 실패 시 사용자에게 피드백 제공
+      if (endpoint.includes("/pause/")) {
+        showToastMsg("정지 요청 처리 중 오류가 발생했습니다.", "error");
+      } else if (endpoint.includes("/resume/")) {
+        showToastMsg("재개 요청 처리 중 오류가 발생했습니다.", "error");
+      } else if (endpoint.includes("/retry/")) {
+        showToastMsg("재시도 요청 처리 중 오류가 발생했습니다.", "error");
+      } else {
+        showToastMsg("요청 처리 중 오류가 발생했습니다.", "error");
+      }
     }
   }
 
