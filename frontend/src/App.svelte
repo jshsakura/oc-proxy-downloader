@@ -1,5 +1,4 @@
-﻿
-<script>
+﻿<script>
   import logo from "./assets/images/logo256.png";
   import SettingsModal from "./lib/SettingsModal.svelte";
   import PasswordModal from "./lib/PasswordModal.svelte";
@@ -525,11 +524,13 @@
 
   function updateProxyStats(downloadsData) {
     if (!downloadsData) return;
-    
+
     const activeProxyDownloads = downloadsData.filter(
-      (d) => d.use_proxy && ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
+      (d) =>
+        d.use_proxy &&
+        ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
     );
-    
+
     proxyStats.activeDownloadCount = activeProxyDownloads.length;
     proxyStats = { ...proxyStats };
   }
@@ -1417,7 +1418,7 @@
                             ? 'proxy-loading'
                             : 'local-loading'}"
                         >
-                          <span class="parsing-dots">⠋⠙⠹</span>
+                          <span class="parsing-dots">•••</span>
                         </span>
                       {:else}
                         <span class="speed-text-empty">-</span>
