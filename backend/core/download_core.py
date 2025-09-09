@@ -41,19 +41,19 @@ def format_file_size(bytes_size):
         return f"{size:.2f} {units[unit_index]}".rstrip('0').rstrip('.')
 
 
-def send_websocket_message(message_type: str, data: dict):
-    """WebSocket 메시지를 전송하는 함수"""
+def send_sse_message(message_type: str, data: dict):
+    """SSE 메시지를 전송하는 함수"""
     try:
         # main.py의 status_queue에 메시지 전송
-        from core.shared import status_queue
+        from core.shared import safe_status_queue_put
         message = json.dumps({
             "type": message_type,
             "data": data
         }, ensure_ascii=False)
-        status_queue.put(message)
-        # print(f"[LOG] WebSocket 메시지 전송: {message_type}")
+        safe_status_queue_put(message)
+        # print(f"[LOG] SSE 메시지 전송: {message_type}")
     except Exception as e:
-        print(f"[LOG] WebSocket 메시지 전송 실패: {e}")
+        print(f"[LOG] SSE 메시지 전송 실패: {e}")
 
 def get_unique_filepath(path: Path) -> Path:
     """
@@ -577,8 +577,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     print(f"[LOG] 다운로드가 정지 상태이므로 제한 확인 생략: ID {request_id}")
                     return
                 
-                    # WebSocket으로 대기 상태 알림
-                    send_websocket_message("status_update", {
+                    # SSE로 대기 상태 알림
+                    send_sse_message("status_update", {
                         "id": req.id,
                         "url": req.url,
                         "file_name": req.file_name,
@@ -675,8 +675,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 req.finished_at = datetime.datetime.utcnow()
                 db.commit()
                 
-                # WebSocket으로 완료 알림
-                send_websocket_message("status_update", {
+                # SSE로 완료 알림
+                send_sse_message("status_update", {
                     "id": req.id,
                     "status": "done",
                     "progress": 100.0,
@@ -715,8 +715,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 print(f"[LOG] WebSocket 메시지 전송 전 즉시 정지 플래그 감지: ID {request_id}")
                 return
             
-            # WebSocket으로 상태 업데이트 알림
-            send_websocket_message("status_update", {
+            # SSE로 상태 업데이트 알림
+            send_sse_message("status_update", {
                 "id": req.id,
                 "url": req.url,
                 "file_name": req.file_name,
@@ -731,8 +731,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             req.status = StatusEnum.downloading
             db.commit()
             
-            # WebSocket으로 상태 업데이트 알림 
-            send_websocket_message("status_update", {
+            # SSE로 상태 업데이트 알림 
+            send_sse_message("status_update", {
                 "id": req.id,
                 "url": req.url,
                 "file_name": req.file_name,
@@ -763,8 +763,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 print(f"[LOG] Direct Link 실패. 기존 파싱 로직으로 재시도 (파일명 보존)")
                 direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=force_reparse)
                 
-                # WebSocket으로 파일명 업데이트 전송
-                send_websocket_message("filename_update", {
+                # SSE로 파일명 업데이트 전송
+                send_sse_message("filename_update", {
                     "id": req.id,
                     "file_name": req.file_name,
                     "url": req.url,
@@ -869,8 +869,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             
             # 텔레그램 알림은 아래에서 재시도 여부 확인 후 전송
             
-            # WebSocket으로 실패 상태 전송
-            send_websocket_message("status_update", {
+            # SSE로 실패 상태 전송
+            send_sse_message("status_update", {
                 "id": req.id,
                 "url": req.url,
                 "file_name": req.file_name,
@@ -938,7 +938,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 print(f"[LOG] 텔레그램 시작 알림 전송 실패: {e}")
             
             # 다운로드 시작 시 즉시 WebSocket 상태 업데이트 (프로그레스바 즉시 시작)
-            send_websocket_message("status_update", {
+            send_sse_message("status_update", {
                 "id": req.id,
                 "url": req.url,
                 "file_name": req.file_name,
@@ -1065,8 +1065,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             requested_time=requested_time_str
         )
         
-        # WebSocket으로 완료 상태 전송
-        send_websocket_message("status_update", {
+        # SSE로 완료 상태 전송
+        send_sse_message("status_update", {
             "id": req.id,
             "url": req.url,
             "file_name": req.file_name,
@@ -1118,8 +1118,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     
                     db.commit()
                     
-                    # WebSocket으로 재시도 상태 전송
-                    send_websocket_message("status_update", {
+                    # SSE로 재시도 상태 전송
+                    send_sse_message("status_update", {
                         "id": req.id,
                         "url": req.url,
                         "file_name": req.file_name,
@@ -1164,8 +1164,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         
                         db.commit()
                         
-                        # WebSocket으로 재시도 대기 상태 전송
-                        send_websocket_message("status_update", {
+                        # SSE로 재시도 대기 상태 전송
+                        send_sse_message("status_update", {
                             "id": req.id,
                             "url": req.url,
                             "file_name": req.file_name,
@@ -1215,8 +1215,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                             file_size=file_size_str
                         )
                         
-                        # WebSocket으로 실패 상태 전송
-                        send_websocket_message("status_update", {
+                        # SSE로 실패 상태 전송
+                        send_sse_message("status_update", {
                             "id": req.id,
                             "url": req.url,
                             "file_name": req.file_name,
@@ -1328,7 +1328,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
     #     req.status = StatusEnum.parsing
     #     db.commit()
         
-    #     send_websocket_message("status_update", {
+    #     send_sse_message("status_update", {
     #         "id": req.id,
     #         "status": "parsing",
     #         "message": get_message("proxy_parsing_started"),
@@ -1360,7 +1360,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             if req.total_size > 0 and req.downloaded_size > 0:
                 current_progress = min(95, (req.downloaded_size / req.total_size) * 100)
             
-            send_websocket_message("status_update", {
+            send_sse_message("status_update", {
                 "id": req.id,
                 "status": "parsing",
                 "message": get_message("proxy_batch_testing").format(batch=batch_num),
@@ -1434,8 +1434,8 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             return None, None
         
         try:
-            # WebSocket으로 프록시 시도 중 알림 (상세)
-            send_websocket_message("proxy_trying", {
+            # SSE로 프록시 시도 중 알림 (상세)
+            send_sse_message("proxy_trying", {
                 "proxy": working_proxy,
                 "step": "파싱 중 (검증됨)",
                 "current": i + 1,
@@ -1445,7 +1445,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             
             # 상태 업데이트도 함께 (활성 다운로드 중이 아닐 때만)
             if not download_manager.is_download_active(req.id):
-                send_websocket_message("status_update", {
+                send_sse_message("status_update", {
                     "id": req.id,
                     "status": "parsing",
                     "message": get_message("proxy_verified_parsing").format(current=i + 1, total=len(working_proxies)),
@@ -1470,8 +1470,8 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                     print(f"[LOG] 프록시 모드에서 파일명 추출: {file_info['name']}")
                     db.commit()
                     
-                    # WebSocket으로 파일명 업데이트 전송
-                    send_websocket_message("filename_update", {
+                    # SSE로 파일명 업데이트 전송
+                    send_sse_message("filename_update", {
                         "id": req.id,
                         "file_name": req.file_name,
                         "url": req.url,
@@ -1518,7 +1518,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                     # 새 다운로드인 경우 낮은 진행률 유지
                     parsing_complete_progress = 15
                 
-                send_websocket_message("status_update", {
+                send_sse_message("status_update", {
                     "id": req.id,
                     "status": "proxying",
                     "message": get_message("download_proxying") + f" ({working_proxy})",
@@ -1556,8 +1556,8 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
         try:
             # print(f"[LOG] 파싱 시도 {i+1}/{len(unused_proxies)}: {proxy_addr}")
             
-            # WebSocket으로 프록시 시도 중 알림
-            send_websocket_message("proxy_trying", {
+            # SSE로 프록시 시도 중 알림
+            send_sse_message("proxy_trying", {
                 "proxy": proxy_addr,
                 "step": "파싱 중",
                 "current": i + 1,
@@ -1581,8 +1581,8 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                     print(f"[LOG] 프록시 모드에서 파일명 추출: {file_info['name']}")
                     db.commit()
                     
-                    # WebSocket으로 파일명 업데이트 전송
-                    send_websocket_message("filename_update", {
+                    # SSE로 파일명 업데이트 전송
+                    send_sse_message("filename_update", {
                         "id": req.id,
                         "file_name": req.file_name,
                         "url": req.url,
@@ -1609,8 +1609,8 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                 print(f"[LOG] 파싱 성공 - 프록시: {proxy_addr}")
                 mark_proxy_used(db, proxy_addr, success=True)
                 
-                # WebSocket으로 프록시 성공 알림
-                send_websocket_message("proxy_success", {
+                # SSE로 프록시 성공 알림
+                send_sse_message("proxy_success", {
                     "proxy": proxy_addr,
                     "step": "파싱 완료",
                     "url": req.url
@@ -1626,8 +1626,8 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             print(f"[LOG] 파싱 실패 - 프록시 {proxy_addr}: {e}")
             mark_proxy_used(db, proxy_addr, success=False)
             
-            # WebSocket으로 프록시 실패 알림
-            send_websocket_message("proxy_failed", {
+            # SSE로 프록시 실패 알림
+            send_sse_message("proxy_failed", {
                 "proxy": proxy_addr,
                 "step": "파싱 실패",
                 "error": str(e),
@@ -1640,8 +1640,8 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             print(f"[LOG] 파싱 오류 - 프록시 {proxy_addr}: {e}")
             mark_proxy_used(db, proxy_addr, success=False)
             
-            # WebSocket으로 프록시 실패 알림
-            send_websocket_message("proxy_failed", {
+            # SSE로 프록시 실패 알림
+            send_sse_message("proxy_failed", {
                 "proxy": proxy_addr,
                 "step": "파싱 오류",
                 "error": str(e),
@@ -1723,8 +1723,8 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
             print(f"[LOG] Download ID: {req.id}, 프록시: {proxy_addr}")
             print(f"[LOG] 현재 상태 - downloaded_size: {req.downloaded_size}, total_size: {req.total_size}")
             
-            # WebSocket으로 프록시 시도 중 알림
-            send_websocket_message("proxy_trying", {
+            # SSE로 프록시 시도 중 알림
+            send_sse_message("proxy_trying", {
                 "proxy": proxy_addr,
                 "step": "다운로드 중",
                 "current": i + 1,
@@ -1771,8 +1771,8 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
             # 프록시 실패 마킹
             mark_proxy_used(db, proxy_addr, success=False)
             
-            # WebSocket으로 프록시 실패 알림
-            send_websocket_message("proxy_failed", {
+            # SSE로 프록시 실패 알림
+            send_sse_message("proxy_failed", {
                 "proxy": proxy_addr,
                 "error": error_str,
                 "current": i + 1,
@@ -1824,8 +1824,8 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             print(f"[LOG] 다운로드 시작 전 정지됨: {req.id}")
             return
         
-        # WebSocket으로 다운로드 시작 알림
-        send_websocket_message("proxy_trying", {
+        # SSE로 다운로드 시작 알림
+        send_sse_message("proxy_trying", {
             "proxy": proxy_addr,
             "step": "다운로드 중",
             "current": 1,
@@ -1864,8 +1864,8 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                         req.file_name = extracted_filename
                         db.commit()
                         
-                        # WebSocket으로 파일명 업데이트 전송
-                        send_websocket_message("filename_update", {
+                        # SSE로 파일명 업데이트 전송
+                        send_sse_message("filename_update", {
                             "id": req.id,
                             "file_name": req.file_name,
                             "url": req.url,
@@ -2029,7 +2029,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                         if not hasattr(req, '_download_start_time'):
                                             req._download_start_time = current_time
                                     
-                                    send_websocket_message("progress_update", {
+                                    send_sse_message("progress_update", {
                                         "id": req.id,
                                         "downloaded_size": downloaded,
                                         "total_size": total_size,
@@ -2070,8 +2070,8 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
         print(f"[LOG] 프록시 {proxy_addr} 다운로드 성공 완료 - Download ID: {req.id}, 최종 크기: {downloaded} bytes")
         mark_proxy_used(db, proxy_addr, success=True)
         
-        # WebSocket으로 다운로드 성공 알림
-        send_websocket_message("proxy_success", {
+        # SSE로 다운로드 성공 알림
+        send_sse_message("proxy_success", {
             "proxy": proxy_addr,
             "step": "다운로드 완료",
             "url": req.url
@@ -2143,8 +2143,8 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                 except Exception as local_error:
                     print(f"[LOG] 로컬 연결 재파싱도 실패: {local_error}")
         
-        # WebSocket으로 다운로드 실패 알림
-        send_websocket_message("proxy_failed", {
+        # SSE로 다운로드 실패 알림
+        send_sse_message("proxy_failed", {
             "proxy": proxy_addr,
             "step": "다운로드 실패",
             "error": str(e),
@@ -2207,8 +2207,8 @@ def download_local(direct_link, file_path, initial_size, req, db):
                         req.file_name = extracted_filename
                         db.commit()
                         
-                        # WebSocket으로 파일명 업데이트 전송
-                        send_websocket_message("filename_update", {
+                        # SSE로 파일명 업데이트 전송
+                        send_sse_message("filename_update", {
                             "id": req.id,
                             "file_name": req.file_name,
                             "url": req.url,
@@ -2372,7 +2372,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                         if not hasattr(req, '_local_download_start_time'):
                                             req._local_download_start_time = current_time
                                     
-                                    send_websocket_message("progress_update", {
+                                    send_sse_message("progress_update", {
                                         "id": req.id,
                                         "downloaded_size": downloaded,
                                         "total_size": total_size,
@@ -2464,8 +2464,8 @@ def download_local(direct_link, file_path, initial_size, req, db):
             except Exception as reparse_error:
                 print(f"[LOG] DNS 오류 후 재파싱 중 예외: {reparse_error}")
         
-        # WebSocket으로 로컬 다운로드 실패 상태 전송
-        send_websocket_message("status_update", {
+        # SSE로 로컬 다운로드 실패 상태 전송
+        send_sse_message("status_update", {
             "id": req.id,
             "url": req.url,
             "file_name": req.file_name,
@@ -2681,8 +2681,8 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         except Exception as e:
             print(f"[LOG] 텔레그램 시작 알림 전송 실패 (일반): {e}")
         
-        # WebSocket으로 상태 업데이트 알림
-        send_websocket_message("status_update", {
+        # SSE로 상태 업데이트 알림
+        send_sse_message("status_update", {
             "id": req.id,
             "url": req.url,
             "file_name": req.file_name,
@@ -2744,8 +2744,8 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             req.finished_at = datetime.datetime.utcnow()
             db.commit()
             
-            # WebSocket으로 완료 알림
-            send_websocket_message("status_update", {
+            # SSE로 완료 알림
+            send_sse_message("status_update", {
                 "id": req.id,
                 "status": "done", 
                 "progress": 100.0,
@@ -2812,8 +2812,8 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             save_path=save_path_str
         )
         
-        # WebSocket으로 완료 상태 전송
-        send_websocket_message("status_update", {
+        # SSE로 완료 상태 전송
+        send_sse_message("status_update", {
             "id": req.id,
             "url": req.url,
             "file_name": req.file_name,

@@ -347,7 +347,7 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                             if updated:
                                 temp_db.commit()
                                 
-                                # WebSocket으로 파일명과 크기 업데이트 전송
+                                # SSE로 파일명과 크기 업데이트 전송
                                 try:
                                     from core.shared import status_queue
                                     import json
@@ -520,7 +520,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 
                 # 대기 시작할 때 상태를 downloading으로 업데이트
                 try:
-                    from .download_core import send_websocket_message
+                    from .download_core import send_sse_message
                     from .db import SessionLocal
                     from .models import DownloadRequest
                     
@@ -536,8 +536,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                             download_req.status = "downloading"
                             temp_db.commit()
                             
-                            # WebSocket으로 상태 업데이트 전송
-                            send_websocket_message("status_update", {
+                            # SSE로 상태 업데이트 전송
+                            send_sse_message("status_update", {
                                 "id": download_req.id,
                                 "status": "downloading"
                             })
@@ -619,7 +619,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         remaining_minutes = remaining // 60
                         remaining_seconds = remaining % 60
                         
-                        # WebSocket으로 카운트다운 전송 (스마트 업데이트)
+                        # SSE로 카운트다운 전송 (스마트 업데이트)
                         should_send_update = (
                             remaining <= 10 or  # 마지막 10초는 매초
                             remaining % 60 == 0 or  # 매 분마다
@@ -628,7 +628,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         
                         if should_send_update:
                             try:
-                                from .download_core import send_websocket_message
+                                from .download_core import send_sse_message
                                 from .models import DownloadRequest, SessionLocal
                                 
                                 # 파일 크기 정보를 위해 다운로드 요청 조회
@@ -653,11 +653,11 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                             wait_data["file_name"] = download_req.file_name
                                         wait_data["download_id"] = download_req.id
                                     
-                                    send_websocket_message("wait_countdown", wait_data)
+                                    send_sse_message("wait_countdown", wait_data)
                                 finally:
                                     temp_db.close()
                             except Exception as e:
-                                print(f"[LOG] 카운트다운 WebSocket 전송 실패: {e}")
+                                print(f"[LOG] 카운트다운 SSE 전송 실패: {e}")
                         
                         # 로그 출력 (분 단위 중심, 10초 전부터 상세히)
                         if remaining > 10:
@@ -671,9 +671,9 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                 
                 print(f"[LOG] ✅ 대기 완료! POST 요청 시작")
                 
-                # WebSocket으로 대기 완료 알림 (카운트다운 정리)
+                # SSE로 대기 완료 알림 (카운트다운 정리)
                 try:
-                    from .download_core import send_websocket_message
+                    from .download_core import send_sse_message
                     from .db import SessionLocal
                     from .models import DownloadRequest
                     
@@ -685,7 +685,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         
                         if download_req:
                             # 대기 완료 - wait_info 정리 메시지
-                            send_websocket_message("wait_countdown_complete", {
+                            send_sse_message("wait_countdown_complete", {
                                 "id": download_req.id,
                                 "url": url
                             })

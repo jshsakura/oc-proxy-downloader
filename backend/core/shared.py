@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
 
-# WebSocket 메시지 큐 (메모리 누수 방지를 위한 크기 제한)
+# SSE 메시지 큐 (메모리 누수 방지를 위한 크기 제한)
 status_queue = queue.Queue(maxsize=1000)
 
 def safe_status_queue_put(message):
@@ -52,7 +52,7 @@ class DownloadManager:
         
         # DB 쿼리 캐시 (부하 감소)
         self._last_check_time = 0
-        self._check_interval = 2.0  # 2초 간격으로만 DB 체크
+        self._check_interval = 5.0  # 5초 간격으로 DB 체크 (적절한 반응성과 성능 균형)
         
         # 쿨다운 타이머 중복 생성 방지
         self._cooldown_timer_running = False
@@ -220,25 +220,24 @@ class DownloadManager:
         def cooldown_timer():
             try:
                 cooldown_duration = self.FICHIER_COOLDOWN_SECONDS
-                update_interval = 10  # 10초마다 업데이트 (부하 감소)
+                update_interval = 2  # 2초마다 업데이트 (실시간성 향상)
                 
                 for elapsed in range(0, cooldown_duration, update_interval):
                     remaining = cooldown_duration - elapsed
                     
-                    # 대기 중인 1fichier 다운로드들에 쿨다운 상태 전송 (DB 접근 최소화)
-                    if remaining > update_interval:  # 마지막 업데이트가 아닐 때만
-                        db = None
-                        try:
-                            db = next(get_db())
-                            self._send_cooldown_updates(db)
-                        except Exception as e:
-                            print(f"[LOG] 쿨다운 타이머 업데이트 실패: {e}")
-                        finally:
-                            if db:
-                                try:
-                                    db.close()
-                                except:
-                                    pass
+                    # 대기 중인 1fichier 다운로드들에 쿨다운 상태 전송 (매번 업데이트)
+                    db = None
+                    try:
+                        db = next(get_db())
+                        self._send_cooldown_updates(db)
+                    except Exception as e:
+                        print(f"[LOG] 쿨다운 타이머 업데이트 실패: {e}")
+                    finally:
+                        if db:
+                            try:
+                                db.close()
+                            except:
+                                pass
                     
                     # 쿨다운이 끝나기 전까지 대기
                     time.sleep(min(update_interval, remaining))
@@ -328,15 +327,13 @@ class DownloadManager:
                 print(f"[LOG] 다운로드 해제: {download_id} (전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
         
         # 락 외부에서 대기 중인 다운로드 체크 (데드락 방지)
-        # 1fichier가 아니거나 완료되지 않은 경우 즉시 체크
-        if not (was_fichier and is_completed):
-            # 즉시 대기 중인 다운로드 체크 (auto_start_next가 True인 경우만)
-            print(f"[LOG] 다운로드 해제 후 자동 시작 체크: auto_start_next={auto_start_next}")
-            if auto_start_next:
-                print(f"[LOG] 대기 중인 다운로드 자동 시작 체크 호출")
-                self.check_and_start_waiting_downloads()
-            else:
-                print(f"[LOG] auto_start_next=False이므로 자동 시작 건너뜀")
+        # 다운로드 해제 시 즉시 다음 다운로드 시작 (반응성 향상)
+        if auto_start_next:
+            print(f"[LOG] 다운로드 해제 후 즉시 자동 시작 체크")
+            # 백그라운드에서 즉시 체크 (블로킹 방지)
+            threading.Thread(target=lambda: self.check_and_start_waiting_downloads(force_check=True), daemon=True).start()
+        else:
+            print(f"[LOG] auto_start_next=False이므로 자동 시작 건너뜀")
     
     def unregister_local_download(self, download_id):
         """로컬 다운로드 해제 - 하위 호환성"""
@@ -418,6 +415,15 @@ class DownloadManager:
             with self._lock:
                 active_ids = list(self.active_downloads.keys())
             
+            # DB에서도 실제 활성 다운로드 ID 목록 가져오기 (정확성 향상)
+            db_active_ids = [r.id for r in db.query(DownloadRequest).filter(
+                DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing])
+            ).all()]
+            
+            # 두 목록을 합쳐서 중복 시작 완전 방지
+            all_active_ids = list(set(active_ids + db_active_ids))
+            print(f"[LOG] 활성 다운로드 ID: 메모리={active_ids}, DB={db_active_ids}, 전체={all_active_ids}")
+            
             started_count = 0
             
             # 1. 프록시 다운로드 우선 처리 (제한 없음) - return 제거하여 계속 처리
@@ -426,13 +432,13 @@ class DownloadManager:
                     DownloadRequest.status == StatusEnum.pending,
                     DownloadRequest.use_proxy == True,
                     # 이미 실행 중인 다운로드는 제외
-                    ~DownloadRequest.id.in_(active_ids) if active_ids else True
+                    ~DownloadRequest.id.in_(all_active_ids) if all_active_ids else True
                 ).order_by(DownloadRequest.requested_at.asc()).first()  # 먼저 요청된 순서대로 (FIFO)
                 
                 if proxy_request:
-                    print(f"[LOG] 대기 중인 프록시 다운로드 발견: {proxy_request.id} (실행중 제외: {active_ids})")
+                    print(f"[LOG] 대기 중인 프록시 다운로드 발견: {proxy_request.id} (실행중 제외: {all_active_ids})")
                     self._start_waiting_download(proxy_request)
-                    active_ids.append(proxy_request.id)  # 시작한 다운로드를 목록에 추가
+                    all_active_ids.append(proxy_request.id)  # 시작한 다운로드를 목록에 추가
                     started_count += 1
                 else:
                     break  # 더 이상 프록시 다운로드 없음
@@ -444,13 +450,13 @@ class DownloadManager:
                     DownloadRequest.use_proxy == False,
                     ~DownloadRequest.url.contains('1fichier.com'),
                     # 이미 실행 중인 다운로드는 제외
-                    ~DownloadRequest.id.in_(active_ids) if active_ids else True
+                    ~DownloadRequest.id.in_(all_active_ids) if all_active_ids else True
                 ).order_by(DownloadRequest.requested_at.asc()).first()  # 먼저 요청된 순서대로 (FIFO)
                 
                 if non_fichier_request:
-                    print(f"[LOG] 대기 중인 비-1fichier 다운로드 발견: {non_fichier_request.id} (실행중 제외: {active_ids})")
+                    print(f"[LOG] 대기 중인 비-1fichier 다운로드 발견: {non_fichier_request.id} (실행중 제외: {all_active_ids})")
                     self._start_waiting_download(non_fichier_request)
-                    active_ids.append(non_fichier_request.id)  # 시작한 다운로드를 목록에 추가
+                    all_active_ids.append(non_fichier_request.id)  # 시작한 다운로드를 목록에 추가
                     started_count += 1
                 else:
                     break  # 더 이상 비-1fichier 다운로드 없음
@@ -465,11 +471,11 @@ class DownloadManager:
                     DownloadRequest.use_proxy == False,
                     DownloadRequest.url.contains('1fichier.com'),
                     # 이미 실행 중인 다운로드는 제외
-                    ~DownloadRequest.id.in_(active_ids) if active_ids else True
+                    ~DownloadRequest.id.in_(all_active_ids) if all_active_ids else True
                 ).order_by(DownloadRequest.requested_at.asc()).first()  # 먼저 요청된 순서대로 (FIFO)
                 
                 if fichier_request:
-                    print(f"[LOG] 대기 중인 1fichier 다운로드 발견: {fichier_request.id} (실행중 제외: {active_ids})")
+                    print(f"[LOG] 대기 중인 1fichier 다운로드 발견: {fichier_request.id} (실행중 제외: {all_active_ids})")
                     self._start_waiting_download(fichier_request)
                     started_count += 1
             
@@ -545,7 +551,7 @@ class DownloadManager:
                 db.commit()
                 print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경 (이어받기 지원)")
                 
-                # WebSocket 상태 업데이트 브로드캐스트
+                # SSE 상태 업데이트 브로드캐스트
                 import json
                 safe_status_queue_put(json.dumps({
                     "type": "status_update",
@@ -593,7 +599,7 @@ class DownloadManager:
                         req.status = StatusEnum.stopped
                         print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경 (이어받기 지원)")
                         
-                        # WebSocket 상태 업데이트 브로드캐스트
+                        # SSE 상태 업데이트 브로드캐스트
                         safe_status_queue_put(json.dumps({
                             "type": "status_update",
                             "data": {

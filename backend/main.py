@@ -228,7 +228,7 @@ async def lifespan(app: FastAPI):
                 }
                 status_queue.put(json.dumps(status_data))
             except Exception as e:
-                print(f"[LOG] 서버 시작 시 WebSocket 알림 실패: {e}")
+                print(f"[LOG] 서버 시작 시 SSE 알림 실패: {e}")
         
         if len(downloading_requests) > 0:
             print(f"[LOG] ✅ 복구 완료: {len(downloading_requests)}개 다운로드를 자동 재시작 대기열로 추가")
@@ -359,7 +359,7 @@ class ConnectionManager:
                 disconnected.append(connection)
             except Exception as e:
                 # 기타 예외
-                print(f"[LOG] WebSocket broadcast error: {e}")
+                print(f"[LOG] SSE broadcast error: {e}")
                 disconnected.append(connection)
         
         # 끊어진 연결 제거
@@ -504,10 +504,10 @@ async def stream_events(request: Request):
                     # SSE 형식으로 전송
                     yield f"data: {msg}\n\n"
                 except queue.Empty:
-                    # 큐가 비어있으면 heartbeat 전송 (30초마다)
+                    # 큐가 비어있으면 heartbeat 전송 (60초마다)
                     import json
                     yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': time.time()})}\n\n"
-                    await asyncio.sleep(30)
+                    await asyncio.sleep(60)
                     
         except Exception as e:
             # 연결 해제 또는 기타 예외
@@ -561,7 +561,7 @@ def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
         # Safely handle encoding for log messages
         try:
             print(f"[LOG] Notifying status update for {download_id}: {item_dict}")
-            print(f"[LOG] WebSocket 연결 수: {len(manager.active_connections)}")
+            print(f"[LOG] SSE 활성 연결 수: {len(manager.active_connections)}")
         except UnicodeEncodeError:
             print(f"[LOG] Notifying status update for {download_id}: (encoding error)")
         
@@ -569,11 +569,11 @@ def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
         status_queue.put(message)
         print(f"[LOG] 상태 업데이트 메시지를 큐에 추가함: {download_id} -> {item.status}")
         
-        # 다운로드가 완료되거나 실패한 경우 다음 다운로드 시작
-        if item.status in [StatusEnum.done, StatusEnum.failed]:
-            print(f"[LOG] 다운로드 {download_id} 완료/실패됨. 다음 다운로드 시작 시도")
-            import threading
-            threading.Thread(target=start_next_pending_download, daemon=True).start()
+        # 다운로드가 완료되거나 실패한 경우 다음 다운로드 시작 (더 효율적으로)
+        if item.status in [StatusEnum.done, StatusEnum.failed, StatusEnum.stopped]:
+            print(f"[LOG] 다운로드 {download_id} 완료/실패/정지됨. 다음 다운로드 시작 시도")
+            # download_manager의 자동 시작 기능을 활용 (더 효율적)
+            download_manager.check_and_start_waiting_downloads(force_check=True)
 
 async def notify_proxy_try(download_id: int, proxy: str):
     import json
