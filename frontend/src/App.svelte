@@ -186,12 +186,10 @@
 
         // 5초 이상 백그라운드에 있었다면 동기화
         if (timeSinceLastVisible > 5000) {
-          console.log("[SYNC] 앱 포그라운드 복귀, 백그라운드 동기화 실행");
           syncDownloadsSilently();
 
           // WebSocket도 재연결 (연결이 끊어졌을 수 있음)
           if (!ws || ws.readyState !== WebSocket.OPEN) {
-            console.log("[SYNC] WebSocket 재연결");
             reconnectWebSocket();
           }
         }
@@ -313,6 +311,9 @@
     if (wsReconnectTimeout) {
       clearTimeout(wsReconnectTimeout);
     }
+    // ping 관련 타이머들 정리
+    stopPingInterval();
+    
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.close(1000, "Page unloading");
     }
@@ -383,6 +384,12 @@
   let wsMaxReconnectAttempts = 10;
   let wsReconnectDelay = 1000; // 시작 1초
   let wsMaxReconnectDelay = 60000; // 최대 60초
+  
+  // WebSocket ping/pong 관리 변수들
+  let wsPingInterval = null;
+  let wsPingTimeout = null;
+  const PING_INTERVAL = 20000; // 20초마다 ping (Cloudflare Free 플랜 대응)
+  const PONG_TIMEOUT = 8000; // pong 응답을 8초 기다림
 
   function connectWebSocket() {
     // 기존 재연결 타이머가 있으면 취소
@@ -391,41 +398,35 @@
       wsReconnectTimeout = null;
     }
 
-    console.log(
-      `Attempting to connect WebSocket (attempt ${wsReconnectAttempts + 1})...`
-    );
     const isHttps = window.location.protocol === "https:";
     const wsProtocol = isHttps ? "wss" : "ws";
     const wsUrl = `${wsProtocol}://${window.location.host}/ws/status`;
-    console.log(
-      `Protocol: ${window.location.protocol}, Using WebSocket protocol: ${wsProtocol}`
-    );
-    console.log("Connecting to WebSocket at:", wsUrl);
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      console.log("WebSocket connected!");
       // 연결 성공 시 재연결 카운터 리셋
       wsReconnectAttempts = 0;
       wsReconnectDelay = 1000;
+      
+      // ping 인터벌 시작
+      startPingInterval();
     };
 
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
 
-      // Ping 메시지 처리 (연결 유지용)
-      if (message.type === "ping") {
+      // Pong 메시지 처리 (ping 응답)
+      if (message.type === "pong") {
+        // pong 응답을 받았으므로 타임아웃 취소
+        if (wsPingTimeout) {
+          clearTimeout(wsPingTimeout);
+          wsPingTimeout = null;
+        }
         return;
       }
 
       if (message.type === "status_update") {
         const updatedDownload = message.data;
-        console.log(
-          "Status update:",
-          updatedDownload.id,
-          "->",
-          updatedDownload.status
-        );
         const index = downloads.findIndex((d) => d.id === updatedDownload.id);
         if (index !== -1) {
           // 기존 항목 업데이트 - 상태 변화 감지를 위해 새 배열 생성
@@ -617,15 +618,11 @@
     };
 
     ws.onclose = (event) => {
-      console.log(
-        `WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`
-      );
+      // ping 관련 타이머들 정리
+      stopPingInterval();
 
       // 최대 재시도 횟수를 초과한 경우
       if (wsReconnectAttempts >= wsMaxReconnectAttempts) {
-        console.log(
-          `WebSocket 최대 재연결 시도 횟수(${wsMaxReconnectAttempts})에 도달했습니다. 재연결을 중단합니다.`
-        );
         return;
       }
 
@@ -637,25 +634,17 @@
         const jitter = Math.random() * 1000; // 0-1초 랜덤 지연
         const delay = Math.min(wsReconnectDelay, wsMaxReconnectDelay) + jitter;
 
-        console.log(
-          `WebSocket 재연결 시도 ${wsReconnectAttempts}/${wsMaxReconnectAttempts} (${Math.round(delay / 1000)}초 후)`
-        );
-
         wsReconnectTimeout = setTimeout(() => {
           connectWebSocket();
         }, delay);
 
         // 다음 재시도를 위해 지연 시간 증가 (exponential backoff)
         wsReconnectDelay = Math.min(wsReconnectDelay * 2, wsMaxReconnectDelay);
-      } else {
-        console.log(
-          "WebSocket이 정상적으로 종료되었습니다. 재연결하지 않습니다."
-        );
       }
     };
 
     ws.onerror = (error) => {
-      console.log("WebSocket error occurred:", error);
+      // WebSocket 에러는 onclose에서 처리됨
     };
   }
 
@@ -667,6 +656,47 @@
     wsReconnectAttempts = 0;
     wsReconnectDelay = 1000;
     connectWebSocket();
+  }
+  
+  // WebSocket ping/pong 함수들
+  function startPingInterval() {
+    // 기존 인터벌이 있으면 정리
+    stopPingInterval();
+    
+    wsPingInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        // pong 응답 타임아웃 설정
+        wsPingTimeout = setTimeout(() => {
+          if (ws) {
+            ws.close(4000, "Pong timeout");
+          }
+        }, PONG_TIMEOUT);
+        
+        // ping 메시지 전송
+        try {
+          ws.send(JSON.stringify({
+            type: "ping",
+            timestamp: Date.now()
+          }));
+        } catch (error) {
+          if (wsPingTimeout) {
+            clearTimeout(wsPingTimeout);
+            wsPingTimeout = null;
+          }
+        }
+      }
+    }, PING_INTERVAL);
+  }
+  
+  function stopPingInterval() {
+    if (wsPingInterval) {
+      clearInterval(wsPingInterval);
+      wsPingInterval = null;
+    }
+    if (wsPingTimeout) {
+      clearTimeout(wsPingTimeout);
+      wsPingTimeout = null;
+    }
   }
 
   // 조용한 백그라운드 동기화 (깜빡거림 없음)

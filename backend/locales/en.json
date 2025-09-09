@@ -24,6 +24,7 @@
   "table_header_actions": "Actions",
   "file_name_na": "N/A",
   "action_pause": "Pause",
+  "action_start": "Start",
   "action_resume": "Resume",
   "action_retry": "Retry",
   "action_delete": "Delete",

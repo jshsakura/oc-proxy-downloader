@@ -319,8 +319,7 @@ class ConnectionManager:
         for connection in dead_connections:
             self.disconnect(connection)
         
-        if dead_connections:
-            print(f"[LOG] {len(dead_connections)}개의 죽은 WebSocket 연결 정리됨")
+        # 죽은 연결들 정리됨
 
     async def connect(self, websocket: WebSocket):
         # 먼저 죽은 연결들 정리
@@ -335,14 +334,11 @@ class ConnectionManager:
         await websocket.accept()
         self.active_connections.append(websocket)
         self.connection_count += 1
-        
-        print(f"[LOG] WebSocket 연결됨: {len(self.active_connections)}개")
         return True
 
     def disconnect(self, websocket: WebSocket):
         try:
             self.active_connections.remove(websocket)
-            print(f"[LOG] WebSocket 연결 해제됨: {len(self.active_connections)}개 남음")
         except ValueError:
             # 이미 제거된 경우 무시
             pass
@@ -386,14 +382,10 @@ async def status_broadcaster():
             try:
                 msg = status_queue.get_nowait()
                 if len(manager.active_connections) > 0:
-                    print(f"[LOG] 📡 WebSocket 메시지 전송 중: 연결 수 {len(manager.active_connections)}")
                     await manager.broadcast(msg)
-                    print(f"[LOG] ✅ WebSocket 메시지 전송 완료")
-                else:
-                    print(f"[LOG] ⚠️ WebSocket 연결 없음 - 메시지 스킵")
             except queue.Empty:
                 # 큐가 비어있으면 좀 더 오래 대기 (CPU 사용량 최적화)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             # 서버 종료 시 정상적으로 종료
             print("[LOG] status_broadcaster 종료됨")
@@ -466,30 +458,34 @@ async def websocket_endpoint(websocket: WebSocket):
         return  # 연결 제한으로 인해 연결 실패
     
     try:
-        # 주기적으로 ping을 보내서 연결 유지
-        ping_interval = 20  # 20초마다 ping
+        # 클라이언트로부터 메시지를 받는 무한 루프
         while True:
-            await asyncio.sleep(ping_interval)
             try:
-                # ping 메시지 전송으로 연결 유지 확인
-                await websocket.send_json({"type": "ping", "timestamp": time.time()})
+                # 클라이언트로부터 메시지 대기 (ping 포함)
+                data = await websocket.receive_json()
+                
+                # ping 메시지에 대해 pong으로 응답
+                if data.get("type") == "ping":
+                    await websocket.send_json({
+                        "type": "pong", 
+                        "timestamp": time.time()
+                    })
+                
+            except asyncio.TimeoutError:
+                # 클라이언트가 메시지를 보내지 않는 경우
+                continue
             except Exception as e:
-                print(f"[LOG] ❌ WebSocket ping 실패: {e}")
                 break
+                
     except WebSocketDisconnect:
-        print("[LOG] WebSocket 정상 연결 해제")
         manager.disconnect(websocket)
     except ConnectionClosedError:
-        print("[LOG] WebSocket 연결이 비정상적으로 종료됨")
         manager.disconnect(websocket)
     except ConnectionClosedOK:
-        print("[LOG] WebSocket 연결이 정상적으로 종료됨")
         manager.disconnect(websocket)
     except asyncio.CancelledError:
-        print("[LOG] WebSocket 태스크가 취소됨")
         manager.disconnect(websocket)
     except Exception as e:
-        print(f"[ERROR] WebSocket 예외: {e}")
         manager.disconnect(websocket)
 
 def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
