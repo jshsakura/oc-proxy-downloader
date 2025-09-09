@@ -176,6 +176,83 @@ def utc_to_kst(utc_time_str: str) -> str:
     except:
         return utc_time_str or "알 수 없음"
 
+def send_telegram_start_notification(file_name: str, download_mode: str, lang: str = "ko", file_size: str = None):
+    """텔레그램 다운로드 시작 알림 전송"""
+    try:
+        config = get_config()
+        
+        bot_token = config.get("telegram_bot_token", "").strip()
+        chat_id = config.get("telegram_chat_id", "").strip()
+        notify_start = config.get("telegram_notify_start", False)  # 시작 알림 설정
+        
+        # 설정이 없거나 시작 알림이 비활성화된 경우
+        if not bot_token or not chat_id or not notify_start:
+            return
+        
+        # 번역 데이터 가져오기
+        translations = get_translations(lang)
+        
+        # HTML 형식으로 예쁜 메시지 작성
+        import datetime
+        if lang == "ko":
+            # 한국어일 때만 KST로 표시
+            current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            # 영어 등 다른 언어는 UTC로 표시
+            current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        start_text = translations.get("telegram_download_started", "Download Started")
+        filename_text = translations.get("telegram_filename", "Filename")
+        started_time_text = translations.get("telegram_started_time", "Started At")
+        filesize_text = translations.get("telegram_filesize", "File Size")
+        mode_text = translations.get("telegram_download_mode", "Download Mode")
+        
+        # 다운로드 모드 번역
+        if download_mode == "proxy":
+            mode_display = "🔄 프록시 모드" if lang == "ko" else "🔄 Proxy Mode"
+        else:
+            mode_display = "🌐 로컬 모드" if lang == "ko" else "🌐 Local Mode"
+        
+        message = f"""🚀 <b>OC-Proxy: {start_text}</b> ⬇️
+
+📁 <b>{filename_text}</b>
+<code>{file_name}</code>
+
+📊 <b>{filesize_text}</b>
+<code>{file_size or ('알 수 없음' if lang == 'ko' else 'Unknown')}</code>
+
+⚙️ <b>{mode_text}</b>
+<code>{mode_display}</code>
+
+🕐 <b>{started_time_text}</b>
+<code>{current_time}</code>"""
+        
+        # 텔레그램 API 호출 (비동기)
+        import requests
+        import threading
+        
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML"
+        }
+        
+        def send_async():
+            try:
+                response = requests.post(url, json=payload, timeout=10)
+                if response.status_code == 200:
+                    print(f"[LOG] 텔레그램 다운로드 시작 알림 전송 성공: {file_name}")
+                else:
+                    print(f"[WARN] 텔레그램 다운로드 시작 알림 전송 실패: {response.status_code}")
+            except Exception as e:
+                print(f"[WARN] 텔레그램 다운로드 시작 알림 전송 오류: {e}")
+        
+        threading.Thread(target=send_async, daemon=True).start()
+        
+    except Exception as e:
+        print(f"[WARN] 텔레그램 다운로드 시작 알림 설정 오류: {e}")
+
 def send_telegram_notification(file_name: str, status: str, error: str = None, lang: str = "ko", file_size: str = None, download_time: str = None, save_path: str = None, requested_time: str = None):
     """텔레그램 알림 전송"""
     try:
@@ -843,6 +920,22 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             req.direct_link = direct_link
             req.status = StatusEnum.downloading
             db.commit()
+            
+            # 텔레그램 다운로드 시작 알림 전송
+            try:
+                download_mode = "proxy" if use_proxy else "local"
+                file_size_str = None
+                if req.total_size and req.total_size > 0:
+                    file_size_str = format_file_size(req.total_size)
+                
+                send_telegram_start_notification(
+                    file_name=req.file_name or "Unknown File",
+                    download_mode=download_mode,
+                    lang=lang,
+                    file_size=file_size_str
+                )
+            except Exception as e:
+                print(f"[LOG] 텔레그램 시작 알림 전송 실패: {e}")
             
             # 다운로드 시작 시 즉시 WebSocket 상태 업데이트 (프로그레스바 즉시 시작)
             send_websocket_message("status_update", {
@@ -2567,6 +2660,20 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         # 상태를 다운로드 중으로 변경
         req.status = StatusEnum.downloading
         db.commit()
+        
+        # 텔레그램 다운로드 시작 알림 전송 (일반 다운로드)
+        try:
+            download_mode = "proxy" if use_proxy else "local"
+            file_size_str = req.file_size  # 이미 포맷된 크기 문자열
+            
+            send_telegram_start_notification(
+                file_name=req.file_name or "Unknown File",
+                download_mode=download_mode,
+                lang=lang,
+                file_size=file_size_str
+            )
+        except Exception as e:
+            print(f"[LOG] 텔레그램 시작 알림 전송 실패 (일반): {e}")
         
         # WebSocket으로 상태 업데이트 알림
         send_websocket_message("status_update", {

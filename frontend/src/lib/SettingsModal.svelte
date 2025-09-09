@@ -77,6 +77,7 @@
       telegram_notify_success: currentSettings.telegram_notify_success || false,
       telegram_notify_failure: currentSettings.telegram_notify_failure || true,
       telegram_notify_wait: currentSettings.telegram_notify_wait !== false, // 기본값 true
+      telegram_notify_start: currentSettings.telegram_notify_start || false
     };
     selectedTheme = settings.theme || $theme;
     initialSettingsLoaded = true;
@@ -910,6 +911,19 @@
                       </label>
                       <div class="telegram-option-description">
                         {$t("telegram_notify_wait_description")}
+                      </div>
+
+                      <label class="telegram-checkbox-label">
+                        <input
+                          type="checkbox"
+                          bind:checked={settings.telegram_notify_start}
+                        />
+                        <span class="telegram-checkbox-text"
+                          >🚀 {$t("telegram_notify_start")}</span
+                        >
+                      </label>
+                      <div class="telegram-option-description">
+                        {$t("telegram_notify_start_description")}
                       </div>
                     </div>
                   </div>

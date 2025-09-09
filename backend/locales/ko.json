@@ -220,8 +220,10 @@
   "telegram_chat_id": "채팅 ID",
   "telegram_chat_id_hint": "사용자, 그룹 또는 채널의 숫자 ID를 입력하세요.",
   "telegram_notify_success": "성공 알림",
-  "telegram_notify_failure": "실패 알림",
+  "telegram_notify_failure": "실패 알림", 
   "telegram_notify_wait": "대기 알림",
+  "telegram_notify_start": "시작 알림",
+  "telegram_notify_start_description": "다운로드가 시작될 때 알림을 보냅니다.",
   "telegram_notify_wait_description": "5분 이상 대기 시간이 감지되면 알림을 보냅니다.",
   "telegram_test_notification": "테스트 알림 보내기",
   "telegram_setup_guide": "텔레그램 설정 가이드",
@@ -245,5 +247,8 @@
   "total_download_limit_reached": "전체 다운로드 제한에 도달했습니다 (최대 {limit}개)",
   "proxy_parsing_started": "프록시로 파싱 중...",
   "proxy_batch_testing": "프록시 배치 {batch} 테스트 중...",
-  "proxy_verified_parsing": "검증된 프록시 시도 중... (#{current}/{total})"
+  "proxy_verified_parsing": "검증된 프록시 시도 중... (#{current}/{total})",
+  "telegram_download_started": "다운로드 시작",
+  "telegram_started_time": "시작시간",
+  "telegram_download_mode": "다운로드 모드"
 }
