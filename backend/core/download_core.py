@@ -213,7 +213,7 @@ def send_telegram_start_notification(file_name: str, download_mode: str, lang: s
         else:
             mode_display = "🌐 로컬 모드" if lang == "ko" else "🌐 Local Mode"
         
-        message = f"""🚀 <b>OC-Proxy: {start_text}</b> ⬇️
+        message = f"""📥 <b>OC-Proxy: {start_text}</b> ⬇️
 
 📁 <b>{filename_text}</b>
 <code>{file_name}</code>

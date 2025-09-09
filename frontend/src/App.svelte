@@ -2669,6 +2669,22 @@
     }
   }
 
+  /* 상태라벨 기본 스타일 추가 */
+  span.status {
+    display: inline-block;
+    padding: 6px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    min-width: 60px;
+    border: 1px solid var(--card-border);
+    background-color: var(--bg-secondary);
+    color: var(--text-secondary);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
   /* Mobile: Compact Layout */
   /* Mobile only: 세로 배치 - 모바일에서만 위아래로 */
   @media (max-width: 640px) {
@@ -2685,6 +2701,11 @@
 
     .proxy-and-download-container {
       gap: 0.75rem;
+    }
+    
+    /* 모바일에서 페이징 영역 하단에 여백 추가 */
+    .pagination-footer {
+      margin-bottom: 2rem;
     }
 
     /* 모바일에서는 기본 설정 사용 (세로 배치) */
