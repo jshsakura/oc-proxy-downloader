@@ -409,6 +409,13 @@
 
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
+      
+      // Ping 메시지 처리 (연결 유지용)
+      if (message.type === "ping") {
+        console.log("📶 WebSocket ping 수신:", new Date(message.timestamp * 1000).toLocaleTimeString());
+        return;
+      }
+      
       if (message.type === "status_update") {
         const updatedDownload = message.data;
         console.log(

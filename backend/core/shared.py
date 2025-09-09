@@ -142,7 +142,7 @@ class DownloadManager:
                     db.commit()
                 
                 # 다음에 실행될 1fichier 다운로드에만 쿨다운 상태 전송
-                safe_status_queue_put(json.dumps({
+                cooldown_data = {
                     "type": "status_update",
                     "data": {
                         "id": next_fichier_download.id,
@@ -150,7 +150,9 @@ class DownloadManager:
                         "message": cooldown_message,
                         "cooldown_remaining": int(cooldown_remaining)
                     }
-                }))
+                }
+                print(f"[LOG] 🕐 쿨다운 메시지 생성: ID={next_fichier_download.id}, 남은시간={int(cooldown_remaining)}초")
+                safe_status_queue_put(json.dumps(cooldown_data))
                 
                 print(f"[LOG] 다음 1fichier 다운로드 ID {next_fichier_download.id}에 쿨다운 상태 전송: {int(cooldown_remaining)}초 남음")
         except Exception as e:
@@ -179,7 +181,7 @@ class DownloadManager:
                 
                 import json
                 cooldown_message = f"1fichier 쿨다운 대기 중: {int(cooldown_remaining)}초 남음"
-                safe_status_queue_put(json.dumps({
+                cooldown_data = {
                     "type": "status_update",
                     "data": {
                         "id": download_id,
@@ -187,7 +189,9 @@ class DownloadManager:
                         "message": cooldown_message,
                         "cooldown_remaining": int(cooldown_remaining)
                     }
-                }))
+                }
+                print(f"[LOG] 🕐 즉시 쿨다운 메시지 생성: ID={download_id}, 남은시간={int(cooldown_remaining)}초")
+                safe_status_queue_put(json.dumps(cooldown_data))
                 
                 print(f"[LOG] 즉시 쿨다운 설정: ID {download_id}, {int(cooldown_remaining)}초 남음")
                 

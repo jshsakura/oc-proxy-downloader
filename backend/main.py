@@ -385,9 +385,12 @@ async def status_broadcaster():
             # non-blocking으로 큐에서 메시지 확인
             try:
                 msg = status_queue.get_nowait()
-                # print(f"[LOG] status_broadcaster: 메시지 처리 중, 연결 수: {len(manager.active_connections)}")  # 너무 많은 로그
-                await manager.broadcast(msg)
-                # print(f"[LOG] status_broadcaster: 메시지 브로드캐스트 완료")  # 너무 많은 로그
+                if len(manager.active_connections) > 0:
+                    print(f"[LOG] 📡 WebSocket 메시지 전송 중: 연결 수 {len(manager.active_connections)}")
+                    await manager.broadcast(msg)
+                    print(f"[LOG] ✅ WebSocket 메시지 전송 완료")
+                else:
+                    print(f"[LOG] ⚠️ WebSocket 연결 없음 - 메시지 스킵")
             except queue.Empty:
                 # 큐가 비어있으면 좀 더 오래 대기 (CPU 사용량 최적화)
                 await asyncio.sleep(0.5)
@@ -463,8 +466,17 @@ async def websocket_endpoint(websocket: WebSocket):
         return  # 연결 제한으로 인해 연결 실패
     
     try:
+        # 주기적으로 ping을 보내서 연결 유지
+        ping_interval = 20  # 20초마다 ping
         while True:
-            await asyncio.sleep(30)  # keep alive - 30초로 증가
+            await asyncio.sleep(ping_interval)
+            try:
+                # ping 메시지 전송으로 연결 유지 확인
+                await websocket.send_json({"type": "ping", "timestamp": time.time()})
+                print(f"[LOG] 📶 WebSocket ping 전송")
+            except Exception as e:
+                print(f"[LOG] ❌ WebSocket ping 실패: {e}")
+                break
     except WebSocketDisconnect:
         print("[LOG] WebSocket 정상 연결 해제")
         manager.disconnect(websocket)
