@@ -178,7 +178,8 @@ async def lifespan(app: FastAPI):
         # WebSocket broadcaster 시작
         asyncio.create_task(status_broadcaster())
         
-        # 서버 재시작 시 진행 중이던 다운로드를 모두 paused로 변경
+        # 서버 재시작 시 진행 중이던 다운로드를 모두 stopped로 변경 (복구)
+        print("[LOG] 🚀 서버 시작 - 중단된 다운로드 복구 시작")
         db = next(get_db())
         
         # 진행 중이던 다운로드들을 가져와서 개별적으로 처리
@@ -186,7 +187,10 @@ async def lifespan(app: FastAPI):
             DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing])
         ).all()
         
+        print(f"[LOG] 📊 복구 대상 다운로드: {len(downloading_requests)}개")
+        
         for req in downloading_requests:
+            print(f"[LOG] 🔄 복구 중: ID {req.id} - {req.status} → stopped")
             req.status = StatusEnum.stopped
             req.direct_link = None  # 서버 재시작 시 파싱 상태 초기화
             db.commit()
@@ -214,7 +218,9 @@ async def lifespan(app: FastAPI):
                 print(f"[LOG] 서버 시작 시 WebSocket 알림 실패: {e}")
         
         if len(downloading_requests) > 0:
-            print(f"[LOG] 서버 재시작: {len(downloading_requests)}개의 진행 중 다운로드를 stopped로 변경")
+            print(f"[LOG] ✅ 복구 완료: {len(downloading_requests)}개 다운로드를 stopped로 변경")
+        else:
+            print("[LOG] ✅ 복구 완료: 중단된 다운로드 없음")
         
         # 서버 시작 시 pending 상태인 다운로드들을 자동으로 시작
         pending_requests = db.query(DownloadRequest).filter(
