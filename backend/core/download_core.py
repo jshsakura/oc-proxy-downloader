@@ -2005,39 +2005,36 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                         req._speed_start_time = current_time
                                         req._speed_start_bytes = downloaded
                                 
-                                # 0.5% 단위로 WebSocket 업데이트 (화면 업데이트)
-                                if current_percent_for_ui != getattr(req, '_last_ui_percent', 0):
-                                    req._last_ui_percent = current_percent_for_ui
-                                    
-                                    # 속도는 3-4초 간격으로 계산 (일반 다운로드 매니저 방식)
-                                    speed_time_elapsed = current_time - getattr(req, '_ui_speed_time', current_time - 4)
-                                    download_start_time = getattr(req, '_download_start_time', current_time)
-                                    is_initial_phase = (current_time - download_start_time) < 60  # 첫 1분
-                                    
-                                    min_interval = 2.0 if is_initial_phase else 4.0
-                                    download_speed = getattr(req, '_last_download_speed', 0)
-                                    
-                                    if speed_time_elapsed >= min_interval or not hasattr(req, '_ui_speed_time'):
-                                        speed_bytes_diff = downloaded - getattr(req, '_ui_speed_bytes', downloaded)
-                                        if speed_time_elapsed > 0 and speed_bytes_diff > 0:
-                                            download_speed = speed_bytes_diff / speed_time_elapsed
-                                        elif not hasattr(req, '_ui_speed_time'):
-                                            download_speed = 0
+                                # 3초 간격으로 SSE 업데이트
+                                last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
+                                current_time = time.time()
+                                if current_time - last_sse_send_time > 3:
+                                    req._last_sse_send_time = current_time
+
+                                    # 속도 계산
+                                    speed_time_elapsed = current_time - getattr(req, '_ui_speed_time', req._speed_start_time)
+                                    if speed_time_elapsed > 0.5: # 0.5초 이상 간격으로만
+                                        speed_bytes_diff = downloaded - getattr(req, '_ui_speed_bytes', req._speed_start_bytes)
+                                        download_speed = speed_bytes_diff / speed_time_elapsed
+                                        
                                         req._ui_speed_time = current_time
                                         req._ui_speed_bytes = downloaded
-                                        req._last_download_speed = download_speed
-                                        if not hasattr(req, '_download_start_time'):
-                                            req._download_start_time = current_time
+                                    else:
+                                        # 마지막 계산된 속도 재사용
+                                        download_speed = getattr(req, '_last_download_speed', 0)
                                     
-                                    print(f"[LOG] 📊 진행률 업데이트 전송: ID={req.id}, 진행률={progress:.1f}%")
-                                    send_sse_message("progress_update", {
+                                    req._last_download_speed = download_speed
+
+                                    send_sse_message("status_update", {
                                         "id": req.id,
                                         "downloaded_size": downloaded,
                                         "total_size": total_size,
                                         "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
                                         "download_speed": round(download_speed, 0),
                                         "status": "downloading",
-                                        "use_proxy": req.use_proxy
+                                        "use_proxy": req.use_proxy,
+                                        "file_name": req.file_name,
+                                        "url": req.url
                                     })
                     
                     req.downloaded_size = downloaded
@@ -2349,39 +2346,35 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                         req._local_speed_start_time = current_time
                                         req._local_speed_start_bytes = downloaded
                                 
-                                # 0.5% 단위로 WebSocket 업데이트 (화면 업데이트)
-                                if current_percent_for_ui != getattr(req, '_last_ui_percent', 0):
-                                    req._last_ui_percent = current_percent_for_ui
-                                    
-                                    # 속도는 3-4초 간격으로 계산 (일반 다운로드 매니저 방식)
-                                    speed_time_elapsed = current_time - getattr(req, '_local_ui_speed_time', current_time - 4)
-                                    download_start_time = getattr(req, '_local_download_start_time', current_time)
-                                    is_initial_phase = (current_time - download_start_time) < 60  # 첫 1분
-                                    
-                                    min_interval = 2.0 if is_initial_phase else 4.0
-                                    download_speed = getattr(req, '_last_local_download_speed', 0)
-                                    
-                                    if speed_time_elapsed >= min_interval or not hasattr(req, '_local_ui_speed_time'):
-                                        speed_bytes_diff = downloaded - getattr(req, '_local_ui_speed_bytes', downloaded)
-                                        if speed_time_elapsed > 0 and speed_bytes_diff > 0:
-                                            download_speed = speed_bytes_diff / speed_time_elapsed
-                                        elif not hasattr(req, '_local_ui_speed_time'):
-                                            download_speed = 0
+                                # 3초 간격으로 SSE 업데이트
+                                last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
+                                if current_time - last_sse_send_time > 3:
+                                    req._last_sse_send_time = current_time
+
+                                    # 속도 계산
+                                    speed_time_elapsed = current_time - getattr(req, '_local_ui_speed_time', req._local_speed_start_time)
+                                    if speed_time_elapsed > 0.5: # 0.5초 이상 간격으로만
+                                        speed_bytes_diff = downloaded - getattr(req, '_local_ui_speed_bytes', req._local_speed_start_bytes)
+                                        download_speed = speed_bytes_diff / speed_time_elapsed
+                                        
                                         req._local_ui_speed_time = current_time
                                         req._local_ui_speed_bytes = downloaded
-                                        req._last_local_download_speed = download_speed
-                                        if not hasattr(req, '_local_download_start_time'):
-                                            req._local_download_start_time = current_time
+                                    else:
+                                        # 마지막 계산된 속도 재사용
+                                        download_speed = getattr(req, '_last_local_download_speed', 0)
                                     
-                                    print(f"[LOG] 📊 진행률 업데이트 전송: ID={req.id}, 진행률={progress:.1f}%")
-                                    send_sse_message("progress_update", {
+                                    req._last_local_download_speed = download_speed
+
+                                    send_sse_message("status_update", {
                                         "id": req.id,
                                         "downloaded_size": downloaded,
                                         "total_size": total_size,
                                         "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
                                         "download_speed": round(download_speed, 0),
                                         "status": "downloading",
-                                        "use_proxy": req.use_proxy
+                                        "use_proxy": req.use_proxy,
+                                        "file_name": req.file_name,
+                                        "url": req.url
                                     })
                     
                     req.downloaded_size = downloaded
