@@ -2029,6 +2029,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                         if not hasattr(req, '_download_start_time'):
                                             req._download_start_time = current_time
                                     
+                                    print(f"[LOG] 📊 진행률 업데이트 전송: ID={req.id}, 진행률={progress:.1f}%")
                                     send_sse_message("progress_update", {
                                         "id": req.id,
                                         "downloaded_size": downloaded,
@@ -2372,6 +2373,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                         if not hasattr(req, '_local_download_start_time'):
                                             req._local_download_start_time = current_time
                                     
+                                    print(f"[LOG] 📊 진행률 업데이트 전송: ID={req.id}, 진행률={progress:.1f}%")
                                     send_sse_message("progress_update", {
                                         "id": req.id,
                                         "downloaded_size": downloaded,

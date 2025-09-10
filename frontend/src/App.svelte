@@ -380,6 +380,8 @@
     }
 
     eventSourceManager.connect((message) => {
+      console.log("📡 SSE 메시지 수신:", message.type, message.data);
+      
       if (message.type === "status_update") {
         const updatedDownload = message.data;
         const index = downloads.findIndex((d) => d.id === updatedDownload.id);
@@ -424,6 +426,40 @@
         proxyStats.lastError = error || "";
         proxyStats.failCount++;
         proxyStats = { ...proxyStats };
+      }
+
+      // 대기시간 카운트다운 처리
+      if (message.type === "wait_countdown") {
+        console.log("🕐 wait_countdown 메시지 수신:", message.data);
+        const { download_id, remaining_time, wait_message } = message.data;
+        downloadWaitInfo[download_id] = {
+          remaining_time: remaining_time,
+          message: wait_message,
+          timestamp: Date.now()
+        };
+        
+        // 다운로드 상태를 대기 상태로 업데이트
+        const index = downloads.findIndex((d) => d.id === download_id);
+        if (index !== -1) {
+          downloads = downloads.map((d, i) =>
+            i === index ? { ...d, status: "waiting" } : d
+          );
+        }
+        downloadWaitInfo = { ...downloadWaitInfo };
+        console.log("📊 downloadWaitInfo 업데이트됨:", downloadWaitInfo);
+      }
+
+      // 대기 완료 처리
+      if (message.type === "wait_countdown_complete") {
+        const { id } = message.data;
+        delete downloadWaitInfo[id];
+        downloadWaitInfo = { ...downloadWaitInfo };
+      }
+
+      // SSE 테스트 메시지 처리
+      if (message.type === "test_message") {
+        console.log("🧪 SSE 테스트 메시지 수신:", message.data);
+        alert("SSE 연결 정상: " + message.data.message);
       }
 
       if (message.type === "force_refresh") {
@@ -1039,6 +1075,7 @@
       "stopped",
       "failed",
       "cooldown",
+      "waiting",
     ].includes(status);
   }).length;
 
@@ -1071,6 +1108,7 @@
           "stopped",
           "failed",
           "cooldown",
+          "waiting",
         ].includes(status);
       });
     } else {
@@ -1516,7 +1554,7 @@
                         <DeleteIcon />
                       </button>
                     {:else}
-                      {#if ["downloading", "proxying", "pending", "parsing", "cooldown"].includes(download.status?.toLowerCase())}
+                      {#if ["downloading", "proxying", "pending", "parsing", "cooldown", "waiting"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
                           title={$t("action_pause")}

@@ -163,7 +163,9 @@
       "Bash(npm run check:*)",
       "Bash(..venvScriptspip.exe install PyJWT)",
       "Bash(..venvScriptspip.exe install -r requirements.txt)",
-      "Bash(./.venv/Scripts/pip.exe install:*)"
+      "Bash(./.venv/Scripts/pip.exe install:*)",
+      "Bash(../.venv/Scripts/python.exe:*)",
+      "Bash(..venvScriptspython.exe main.py)"
     ],
     "deny": [],
     "ask": [],

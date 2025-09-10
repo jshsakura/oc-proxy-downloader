@@ -152,6 +152,7 @@ class DownloadManager:
                     }
                 }
                 print(f"[LOG] 🕐 쿨다운 메시지 생성: ID={next_fichier_download.id}, 남은시간={int(cooldown_remaining)}초")
+                print(f"[LOG] 🔄 쿨다운 메시지 내용: {json.dumps(cooldown_data)}")
                 safe_status_queue_put(json.dumps(cooldown_data))
                 
                 print(f"[LOG] 다음 1fichier 다운로드 ID {next_fichier_download.id}에 쿨다운 상태 전송: {int(cooldown_remaining)}초 남음")

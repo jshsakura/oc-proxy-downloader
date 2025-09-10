@@ -638,8 +638,13 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                         DownloadRequest.url == url
                                     ).order_by(DownloadRequest.requested_at.desc()).first()
                                     
+                                    wait_minutes = remaining // 60
+                                    wait_message = f"대기 중 ({wait_minutes}분 {remaining % 60}초)" if wait_minutes > 0 else f"대기 중 ({remaining}초)"
+                                    
                                     wait_data = {
+                                        "download_id": download_req.id if download_req else None,
                                         "remaining_time": remaining,
+                                        "wait_message": wait_message,
                                         "total_wait_time": wait_seconds,
                                         "proxy_addr": proxy_addr,
                                         "url": url
@@ -651,8 +656,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                             wait_data["total_size"] = download_req.total_size
                                         if download_req.file_name:
                                             wait_data["file_name"] = download_req.file_name
-                                        wait_data["download_id"] = download_req.id
                                     
+                                    print(f"[LOG] 🕐 wait_countdown 메시지 전송: ID={download_req.id}, remaining={remaining}초")
                                     send_sse_message("wait_countdown", wait_data)
                                 finally:
                                     temp_db.close()

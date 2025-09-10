@@ -490,37 +490,73 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/api/events")
 async def stream_events(request: Request):
-    """Server-Sent Events 스트림 엔드포인트"""
+    """Server-Sent Events 스트림 엔드포인트 - 클라우드플레어 호환"""
     async def event_generator():
+        import json
         try:
+            # 연결 시작 즉시 메시지 전송 (클라우드플레어 연결 확인용)
+            yield f"data: {json.dumps({'type': 'connection', 'status': 'connected', 'timestamp': time.time()})}\n\n"
+            
+            heartbeat_counter = 0
+            message_sent = False
+            
             while True:
                 # 클라이언트 연결 해제 확인
                 if await request.is_disconnected():
+                    print("[LOG] 🔌 클라이언트 연결 해제 감지")
                     break
                 
-                try:
-                    # 큐에서 메시지 가져오기
-                    msg = status_queue.get_nowait()
-                    # SSE 형식으로 전송
-                    yield f"data: {msg}\n\n"
-                except queue.Empty:
-                    # 큐가 비어있으면 heartbeat 전송 (60초마다)
-                    import json
-                    yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': time.time()})}\n\n"
-                    await asyncio.sleep(60)
+                message_sent = False
+                
+                # 큐에서 최대 10개 메시지를 한번에 처리 (성능 향상)
+                for _ in range(10):
+                    try:
+                        # 큐에서 메시지 가져오기 (논블로킹)
+                        msg = status_queue.get_nowait()
+                        print(f"[LOG] 📡 SSE 메시지 전송: {msg[:100]}...")
+                        yield f"data: {msg}\n\n"
+                        message_sent = True
+                        status_queue.task_done()
+                    except queue.Empty:
+                        break
+                
+                # 메시지가 없으면 짧은 대기 후 heartbeat 체크
+                if not message_sent:
+                    await asyncio.sleep(2)  # 2초 대기
+                    heartbeat_counter += 1
+                    
+                    # 10초마다 heartbeat 전송 (클라우드플레어 호환: 30초 타임아웃 방지)
+                    if heartbeat_counter >= 5:  # 2초 * 5 = 10초
+                        queue_size = status_queue.qsize()
+                        print(f"[LOG] 💓 SSE heartbeat 전송 (큐 크기: {queue_size})")
+                        yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': time.time(), 'queue_size': queue_size})}\n\n"
+                        heartbeat_counter = 0
                     
         except Exception as e:
-            # 연결 해제 또는 기타 예외
-            pass
+            print(f"[ERROR] SSE event_generator 오류: {e}")
+            # 연결 종료 메시지
+            try:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e), 'timestamp': time.time()})}\n\n"
+            except:
+                pass
     
     return StreamingResponse(
         event_generator(), 
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            # 클라우드플레어 호환 헤더
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Credentials": "true"
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Headers": "Cache-Control",
+            "X-Accel-Buffering": "no",  # Nginx 버퍼링 비활성화
+            "Content-Encoding": "identity",  # 압축 비활성화
+            # 클라우드플레어 전용 헤더
+            "CF-Cache-Status": "BYPASS",
+            "X-CF-Cache-Status": "BYPASS"
         }
     )
 
@@ -554,10 +590,13 @@ def start_next_pending_download():
 
 def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
     import json
+    print(f"[LOG] 🔔 notify_status_update 호출됨: download_id={download_id}")
     item = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
     if item:
         item_dict = item.as_dict()
         item_dict["status"] = item.status # Send raw status to frontend
+        print(f"[LOG] 📋 상태 업데이트 준비: ID={download_id}, 상태={item.status}")
+        
         # Safely handle encoding for log messages
         try:
             print(f"[LOG] Notifying status update for {download_id}: {item_dict}")
@@ -566,14 +605,17 @@ def notify_status_update(db: Session, download_id: int, lang: str = "ko"):
             print(f"[LOG] Notifying status update for {download_id}: (encoding error)")
         
         message = json.dumps({"type": "status_update", "data": item_dict}, ensure_ascii=False)
+        print(f"[LOG] 📤 SSE 메시지 큐에 추가 시도: {message[:100]}...")
         status_queue.put(message)
-        print(f"[LOG] 상태 업데이트 메시지를 큐에 추가함: {download_id} -> {item.status}")
+        print(f"[LOG] ✅ 상태 업데이트 메시지를 큐에 추가함: {download_id} -> {item.status}")
         
         # 다운로드가 완료되거나 실패한 경우 다음 다운로드 시작 (더 효율적으로)
         if item.status in [StatusEnum.done, StatusEnum.failed, StatusEnum.stopped]:
             print(f"[LOG] 다운로드 {download_id} 완료/실패/정지됨. 다음 다운로드 시작 시도")
             # download_manager의 자동 시작 기능을 활용 (더 효율적)
             download_manager.check_and_start_waiting_downloads(force_check=True)
+    else:
+        print(f"[LOG] ❌ 다운로드 항목을 찾을 수 없음: ID={download_id}")
 
 async def notify_proxy_try(download_id: int, proxy: str):
     import json
@@ -1656,6 +1698,29 @@ def get_active_downloads(req: Request):
     """활성 다운로드 목록 반환"""
     active_downloads = list(download_manager.active_downloads.keys())
     return {"active_downloads": active_downloads, "count": len(active_downloads)}
+
+@api_router.post("/test-sse")
+def test_sse():
+    """SSE 테스트용 엔드포인트"""
+    import json
+    import time
+    from core.shared import safe_status_queue_put
+    
+    test_message = json.dumps({
+        "type": "test_message", 
+        "data": {
+            "message": "SSE 테스트 메시지",
+            "timestamp": time.time()
+        }
+    })
+    print(f"[LOG] 🧪 SSE 테스트 메시지 전송: {test_message}")
+    print(f"[LOG] 🔍 큐 전송 전 크기: {status_queue.qsize()}")
+    
+    # 안전한 논블로킹 방식으로 큐에 추가
+    safe_status_queue_put(test_message)
+    
+    print(f"[LOG] 🔍 큐 전송 후 크기: {status_queue.qsize()}")
+    return {"message": "테스트 메시지 전송됨"}
 
 @api_router.post("/downloads/cancel/{download_id}")
 def cancel_download(download_id: int, req: Request, db: Session = Depends(get_db)):
