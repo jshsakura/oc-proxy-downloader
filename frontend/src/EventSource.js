@@ -2,6 +2,9 @@
 export class EventSourceManager {
   constructor() {
     this.eventSource = null;
+    this.updateQueue = new Map();
+    this.debounceTimer = null;
+    this.debounceDelay = 100; // 100ms 디바운싱
   }
 
   connect(onMessage) {
@@ -35,9 +38,24 @@ export class EventSourceManager {
           return;
         }
 
-        // 실제 데이터 메시지 처리
+        // 중요한 메시지는 즉시 처리
+        if (message.type === "force_refresh" || message.type === "test_message") {
+          if (onMessage) {
+            console.log("📨 Priority SSE message:", message.type);
+            onMessage(message);
+          }
+          return;
+        }
+
+        // status_update 메시지는 디바운싱 처리
+        if (message.type === "status_update") {
+          this.queueUpdate(message, onMessage);
+          return;
+        }
+
+        // 나머지 메시지는 즉시 처리
         if (onMessage) {
-          console.log("📨 SSE message received:", message.type, message);
+          console.log("📨 SSE message received:", message.type);
           onMessage(message);
         }
       } catch (error) {
@@ -64,13 +82,6 @@ export class EventSourceManager {
     };
   }
 
-  disconnect() {
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
-    }
-  }
-
   reconnect() {
     // 기존 연결이 있으면 닫기
     if (this.eventSource) {
@@ -83,7 +94,58 @@ export class EventSourceManager {
     }, 1000);
   }
 
+  queueUpdate(message, onMessage) {
+    const downloadId = message.data.id;
+    
+    // 같은 다운로드 ID의 업데이트는 마지막 것만 유지
+    this.updateQueue.set(downloadId, { message, onMessage });
+    
+    // 기존 타이머 취소
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+    
+    // 새 타이머 설정
+    this.debounceTimer = setTimeout(() => {
+      this.flushUpdates();
+    }, this.debounceDelay);
+  }
+
+  flushUpdates() {
+    if (this.updateQueue.size === 0) return;
+    
+    console.log(`📦 Flushing ${this.updateQueue.size} queued updates`);
+    
+    // 큐에 있는 모든 업데이트를 일괄 처리
+    const updates = Array.from(this.updateQueue.values());
+    this.updateQueue.clear();
+    
+    // 합쳐진 업데이트로 한 번에 처리
+    if (updates.length > 0) {
+      const batchMessage = {
+        type: "batch_status_update",
+        data: updates.map(u => u.message.data)
+      };
+      
+      updates[0].onMessage(batchMessage);
+    }
+  }
+
   isConnected() {
     return this.eventSource && this.eventSource.readyState === EventSource.OPEN;
+  }
+
+  disconnect() {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+    
+    // 타이머와 큐 정리
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.updateQueue.clear();
   }
 }

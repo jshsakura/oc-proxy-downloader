@@ -84,11 +84,11 @@
   .local-label {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    background-color: #81c784;
+    gap: 5px;
+    background-color: var(--success-color);
     color: white;
     padding: 4px 15px;
-    border-radius: 16px;
+    border-radius: 15px;
     font-size: 12px;
     font-weight: 500;
     min-height: 26px;

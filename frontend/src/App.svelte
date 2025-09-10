@@ -105,6 +105,9 @@
   let downloadProxyInfo = {};
   let downloadWaitInfo = {};
 
+  // 디바운싱을 위한 타이머
+  let activeDownloadsTimer = null;
+
   let showConfirm = false;
   let confirmMessage = "";
   let confirmAction = null;
@@ -312,6 +315,11 @@
     if (eventSourceManager) {
       eventSourceManager.disconnect();
     }
+    
+    // 타이머 정리
+    if (activeDownloadsTimer) {
+      clearTimeout(activeDownloadsTimer);
+    }
   });
 
   function handleLoginSuccess() {
@@ -393,9 +401,32 @@
           downloads = [updatedDownload, ...downloads];
         }
 
-        fetchActiveDownloads();
-        updateProxyStats(downloads);
-        updateLocalStats(downloads);
+        updateStats(downloads);
+      }
+
+      // 배치 업데이트 처리
+      if (message.type === "batch_status_update") {
+        console.log(`📦 Processing batch update with ${message.data.length} items`);
+        
+        let hasChanges = false;
+        const newDownloads = [...downloads];
+        
+        message.data.forEach(updatedDownload => {
+          const index = newDownloads.findIndex((d) => d.id === updatedDownload.id);
+          if (index !== -1) {
+            newDownloads[index] = { ...newDownloads[index], ...updatedDownload };
+            hasChanges = true;
+          } else {
+            newDownloads.unshift(updatedDownload);
+            hasChanges = true;
+          }
+        });
+        
+        if (hasChanges) {
+          downloads = newDownloads;
+          // 통계만 업데이트 (fetchActiveDownloads는 디바운싱으로 별도 처리)
+          updateStats(downloads);
+        }
       }
 
       // 프록시 메시지 처리
@@ -496,8 +527,7 @@
             );
           }
           fetchProxyStatus();
-          updateProxyStats(downloads);
-          updateLocalStats(downloads);
+          updateStats(downloads);
         }
       }
     });
@@ -545,7 +575,7 @@
         currentPage = 1;
         totalPages = 1;
 
-        updateLocalStats(data);
+        updateStats(data);
       } else {
         console.error("History API failed with status:", response.status);
         const errorText = await response.text();
@@ -593,6 +623,20 @@
 
     proxyStats.activeDownloadCount = activeProxyDownloads.length;
     proxyStats = { ...proxyStats };
+  }
+
+  // 통합된 통계 업데이트 함수
+  function updateStats(downloadsData) {
+    updateProxyStats(downloadsData);
+    updateLocalStats(downloadsData);
+    
+    // fetchActiveDownloads 디바운싱
+    if (activeDownloadsTimer) {
+      clearTimeout(activeDownloadsTimer);
+    }
+    activeDownloadsTimer = setTimeout(() => {
+      fetchActiveDownloads();
+    }, 200);
   }
 
   function updateLocalStats(downloadsData) {
@@ -694,93 +738,47 @@
     }
   }
 
-  async function callApi(
-    endpoint,
-    downloadId = null,
-    expectedNewStatus = null
-  ) {
+  async function callApi(endpoint, downloadId = null) {
     try {
       const response = await fetch(endpoint, { method: "POST" });
+      
       if (response.ok) {
         const responseData = await response.json();
 
-        // 응답에서 대기 상태 메시지 확인
+        // 대기 상태 메시지 처리
         if (responseData.status === "waiting" && responseData.message_key) {
           showToastMsg($t(responseData.message_key, responseData.message_args));
-          // 대기 상태로 UI 업데이트
-          if (downloadId !== null) {
-            const index = downloads.findIndex((d) => d.id === downloadId);
-            if (index !== -1) {
-              downloads[index].status = "pending";
-              downloads = [...downloads];
-            }
-          }
-        } else {
-          console.log(`API 호출 성공: ${endpoint}`);
-
-          // 사용자 피드백을 위한 토스트 메시지 (응답 내용에 따라 구별)
-          if (endpoint.includes("/resume/")) {
-            // 응답에서 실제로 재개되기인지 새 다운로드인지 구별
-            if (
-              responseData &&
-              responseData.message &&
-              responseData.message.includes("resume")
-            ) {
-              showToastMsg($t("resume_request_sent"), "info");
-            } else {
-              showToastMsg(
-                $t("download_request_sent") || "다운로드 요청을 보냈습니다.",
-                "info"
-              );
-            }
-          } else if (endpoint.includes("/pause/")) {
-            // API 응답에서 success 확인 후 토스트 표시
-            if (
-              responseData &&
-              (responseData.success || responseData.status === "stopped")
-            ) {
-              showToastMsg($t("stop_request_sent"), "success");
-            } else {
-              showToastMsg($t("stop_request_sent"), "info");
-            }
-          } else if (endpoint.includes("/retry/")) {
-            showToastMsg($t("retry_request_sent"), "info");
-          }
-
-          // 즉시 상태 새로고침 (깜빡거림 없이)
-          syncDownloadsSilently();
+          return;
         }
+
+        // 성공 메시지 표시
+        const action = endpoint.includes("/pause/") ? "pause" : 
+                     endpoint.includes("/resume/") ? "resume" : 
+                     endpoint.includes("/retry/") ? "retry" : "action";
+        
+        const messageKey = `${action}_request_sent`;
+        showToastMsg($t(messageKey), "success");
+        
+        console.log(`API 호출 성공: ${endpoint}`);
       } else {
-        // HTTP 응답이 실패한 경우
-        const errorText = await response.text();
-        console.error(
-          `API 호출 실패: ${endpoint}, 상태: ${response.status}, 응답: ${errorText}`
-        );
-
-        if (endpoint.includes("/pause/")) {
-          showToastMsg("정지 요청에 실패했습니다.", "error");
-        } else if (endpoint.includes("/resume/")) {
-          showToastMsg("재개 요청에 실패했습니다.", "error");
-        } else if (endpoint.includes("/retry/")) {
-          showToastMsg("재시도 요청에 실패했습니다.", "error");
-        } else {
-          showToastMsg(`요청에 실패했습니다 (${response.status})`, "error");
-        }
+        // 에러 메시지 표시
+        const action = endpoint.includes("/pause/") ? "정지" : 
+                     endpoint.includes("/resume/") ? "재개" : 
+                     endpoint.includes("/retry/") ? "재시도" : "작업";
+        
+        showToastMsg(`${action} 요청에 실패했습니다.`, "error");
+        console.error(`API 호출 실패: ${endpoint}, 상태: ${response.status}`);
       }
-      await fetchActiveDownloads();
     } catch (error) {
+      const action = endpoint.includes("/pause/") ? "정지" : 
+                   endpoint.includes("/resume/") ? "재개" : 
+                   endpoint.includes("/retry/") ? "재시도" : "작업";
+      
+      showToastMsg(`${action} 요청 처리 중 오류가 발생했습니다.`, "error");
       console.error(`Error calling ${endpoint}:`, error);
-      // API 호출 실패 시 사용자에게 피드백 제공
-      if (endpoint.includes("/pause/")) {
-        showToastMsg("정지 요청 처리 중 오류가 발생했습니다.", "error");
-      } else if (endpoint.includes("/resume/")) {
-        showToastMsg("재개 요청 처리 중 오류가 발생했습니다.", "error");
-      } else if (endpoint.includes("/retry/")) {
-        showToastMsg("재시도 요청 처리 중 오류가 발생했습니다.", "error");
-      } else {
-        showToastMsg("요청 처리 중 오류가 발생했습니다.", "error");
-      }
     }
+    
+    // SSE가 자동으로 상태를 업데이트하므로 추가 fetch는 불필요
   }
 
   async function deleteDownload(id) {
@@ -1102,7 +1100,7 @@
 
   $: completedCount = downloads.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
-    // done 상태 또는 100% 완료인 stopped 상태
+    // done 상태 또는 100% 완료인 stopped 상태만
     return (
       status === "done" ||
       (status === "stopped" &&
@@ -1122,7 +1120,7 @@
         );
       });
     } else {
-      // 완료 탭: done 상태 또는 100% 완료인 stopped 상태
+      // 완료 탭: done 상태 또는 100% 완료인 stopped 상태만 (completedCount와 동일한 로직)
       return downloads
         .filter((d) => {
           const status = d.status?.toLowerCase?.() || "";
@@ -1573,12 +1571,7 @@
                         <button
                           class="button-icon"
                           title={$t("action_pause")}
-                          on:click={() =>
-                            callApi(
-                              `/api/pause/${download.id}`,
-                              download.id,
-                              null
-                            )}
+                          on:click={() => callApi(`/api/pause/${download.id}`)}
                           aria-label={$t("action_pause")}
                         >
                           <StopIcon />
@@ -1589,12 +1582,7 @@
                           title={download.progress > 0
                             ? $t("action_resume")
                             : $t("action_start")}
-                          on:click={() =>
-                            callApi(
-                              `/api/resume/${download.id}?use_proxy=${download.use_proxy}`,
-                              download.id,
-                              null
-                            )}
+                          on:click={() => callApi(`/api/resume/${download.id}?use_proxy=${download.use_proxy}`)}
                           aria-label={download.progress > 0
                             ? $t("action_resume")
                             : $t("action_start")}
@@ -1606,12 +1594,7 @@
                         <button
                           class="button-icon"
                           title={$t("action_retry")}
-                          on:click={() =>
-                            callApi(
-                              `/api/retry/${download.id}`,
-                              download.id,
-                              null
-                            )}
+                          on:click={() => callApi(`/api/retry/${download.id}`)}
                           aria-label={$t("action_retry")}
                         >
                           <RetryIcon />

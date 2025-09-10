@@ -254,5 +254,6 @@
   "telegram_download_mode": "Download Mode",
   "mode_switched_to_local": "Switched to Local Mode",
   "mode_switched_to_proxy": "Switched to Proxy Mode",
-  "download_waiting_time": "Waiting"
+  "download_waiting_time": "Waiting",
+  "pause_request_sent": "Pause request has been sent"
 }

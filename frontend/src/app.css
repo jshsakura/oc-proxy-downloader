@@ -11,7 +11,7 @@
   --primary-hover: #334155;
   --danger-color: #dc2626;
   --danger-hover: #b91c1c;
-  --success-color: #059669;
+  --success-color: #81c784;
   --warning-color: #d97706;
   --input-bg: #f8fafc;
   --input-border: #d1d5db;
@@ -37,8 +37,8 @@
   --status-failed-border: #dc3545;
   --status-failed-text: #b02a37;
   --status-stopped-bg: rgba(108, 117, 125, 0.2);
-  --status-stopped-border: #6c757d;
-  --status-stopped-text: #495057;
+  --status-stopped-border: rgba(108, 117, 125, 0.2);
+  --status-stopped-text:  rgba(108, 117, 125, 0.8);
   --status-cooldown-bg: rgba(255, 152, 0, 0.2);
   --status-cooldown-border: #ff9800;
   --status-cooldown-text: #e65100;
@@ -283,7 +283,7 @@ body {
 }
 
 #app {
-  max-width: min(1200px, 100vw - 2rem);
+  max-width: min(1200px, 100vw - 1rem);
   margin: 0 auto;
   padding: 1rem;
   position: relative;
@@ -701,7 +701,6 @@ tbody tr:hover {
 }
 
 .filename-text {
-  display: inline-block;
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -726,31 +725,6 @@ tbody tr:hover {
 @keyframes pendingPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
-}
-.progress-container {
-  width: 100%;
-  background-color: var(--card-border);
-  border-radius: 10px;
-  overflow: hidden;
-  height: 1.5rem;
-  display: flex;
-  align-items: center;
-  position: relative;
-}
-.progress-bar {
-  height: 100%;
-  background-color: var(--success-color);
-  transition: width 0.5s ease-in-out;
-  border-radius: 10px;
-}
-.progress-text {
-  position: absolute;
-  width: 100%;
-  text-align: center;
-  color: var(--text-primary);
-  font-weight: 600;
-  font-size: 0.8rem;
-  z-index: 2;
 }
 
 .speed-cell {
@@ -1336,17 +1310,6 @@ html.dracula .system-theme-card {
 
 /* Mobile Responsiveness for Modals */
 @media (max-width: 768px) {
-  .modal {
-    padding: 1rem;
-  }
-
-  .modal-header {
-    padding-bottom: 0.75rem;
-  }
-
-  .modal-header h2 {
-    font-size: 1.25rem;
-  }
 
   .modal-body th,
   .modal-body td {
@@ -2332,7 +2295,7 @@ table th:first-child {
   height: 100%;
   background-color: var(--success-color);
   border-radius: 10px;
-  transition: width 0.3s ease-out;
+  transition: width 0.5s ease-out;
   min-width: 0;
   opacity: 0.9;
 }
@@ -2342,7 +2305,7 @@ table th:first-child {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 13px;
+  font-size: 0.75rem;
   font-weight: bold;
   color: #ffffff;
   text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.2);

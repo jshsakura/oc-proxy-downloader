@@ -41,4 +41,11 @@ def get_translations(lang="ko"):
 def get_message(key, lang="ko"):
     """특정 키의 번역 메시지를 반환"""
     translations = get_translations(lang)
-    return translations.get(key, key) 
+    return translations.get(key, key)
+
+def reload_translations():
+    """번역 캐시를 다시 로드"""
+    global _translations_cache
+    print("[i18n] Reloading translations...")
+    load_all_translations()
+    return True 

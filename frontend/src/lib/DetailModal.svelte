@@ -553,10 +553,15 @@
     background-color: #f97316; /* 주황색 도트 */
     animation: pendingPulse 2s infinite; /* 반짝 효과 */
   }
-  
+
   @keyframes pendingPulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
   }
 
   .status-downloading {
@@ -1039,7 +1044,6 @@
 
     .close-button {
       position: absolute;
-      top: 20px;
       right: 16px;
       width: 32px;
       height: 32px;

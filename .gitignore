@@ -134,3 +134,5 @@ docker-compose.override.yml
 *.mp3
 *.wav
 *.flac
+
+.venv

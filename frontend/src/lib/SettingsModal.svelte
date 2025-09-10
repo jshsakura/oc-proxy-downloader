@@ -34,7 +34,6 @@
   let selectedLocaleWasSet = false;
   let initialSettingsLoaded = false;
 
-
   let userProxies = [];
   let newProxyAddress = "";
   let newProxyDescription = "";
@@ -79,12 +78,14 @@
 
   async function loadUserProxies() {
     try {
-      const response = await fetch("/api/proxies");
+      const response = await fetch("/api/proxies/");
       if (response.ok) {
-        userProxies = await response.json();
+        const data = await response.json();
+        userProxies = data.proxies || [];
       }
     } catch (error) {
       console.error("Proxy list load failed:", error);
+      userProxies = []; // 오류 시 빈 배열로 설정
     }
   }
 
@@ -910,7 +911,7 @@
                         type="text"
                         class="input telegram-chat-input"
                         bind:value={settings.telegram_chat_id}
-                        placeholder="-1001234567890"
+                        placeholder="123456789"
                       />
                       <small class="input-hint"
                         >{$t("telegram_chat_id_hint")}</small
@@ -2304,7 +2305,6 @@
     color: white;
     overflow: hidden;
   }
-
 
   .user-details {
     display: flex;
