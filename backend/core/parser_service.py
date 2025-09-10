@@ -629,7 +629,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         if should_send_update:
                             try:
                                 from .download_core import send_sse_message
-                                from .models import DownloadRequest, SessionLocal
+                                from .db import SessionLocal
+                                from .models import DownloadRequest
                                 
                                 # 파일 크기 정보를 위해 다운로드 요청 조회
                                 temp_db = SessionLocal()

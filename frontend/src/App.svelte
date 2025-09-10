@@ -1061,23 +1061,11 @@
 
   $: workingCount = downloads.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
-    // stopped에 100% 완료인 경우 completed로 처리
-    if (
-      status === "stopped" &&
-      (d.progress >= 100 || getDownloadProgress(d) >= 100)
-    ) {
-      return false; // working 탭에서 제외
-    }
-    return [
-      "pending",
-      "downloading",
-      "parsing",
-      "proxying",
-      "stopped",
-      "failed",
-      "cooldown",
-      "waiting",
-    ].includes(status);
+    // 완료된 것만 제외하고 나머지는 모두 진행중으로 처리
+    return !(
+      status === "done" ||
+      (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100))
+    );
   }).length;
 
   $: completedCount = downloads.filter((d) => {
@@ -1094,23 +1082,11 @@
     if (currentTab === "working") {
       return downloads.filter((d) => {
         const status = d.status?.toLowerCase?.() || "";
-        // stopped에 100% 완료인 경우 working에서 제외
-        if (
-          status === "stopped" &&
-          (d.progress >= 100 || getDownloadProgress(d) >= 100)
-        ) {
-          return false;
-        }
-        return [
-          "pending",
-          "downloading",
-          "parsing",
-          "proxying",
-          "stopped",
-          "failed",
-          "cooldown",
-          "waiting",
-        ].includes(status);
+        // 완료된 것만 제외하고 나머지는 모두 진행중으로 처리 (workingCount와 동일한 로직)
+        return !(
+          status === "done" ||
+          (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100))
+        );
       });
     } else {
       // 완료 탭: done 상태 또는 100% 완료인 stopped 상태
