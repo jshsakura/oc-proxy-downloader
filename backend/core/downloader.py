@@ -13,7 +13,7 @@ if sys.platform.startswith('win'):
         pass
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, HttpUrl
 from core.models import DownloadRequest, Base, StatusEnum
@@ -40,6 +40,72 @@ except Exception as e:
     print(f"[LOG] 상태 마이그레이션 실패: {e}")
 
 router = APIRouter()
+
+def background_parse_and_start_download(download_id: int, url: str, password: str, use_proxy: bool):
+    """백그라운드에서 사전 파싱 후 다운로드 시작"""
+    try:
+        from core.db import SessionLocal
+        db = SessionLocal()
+        
+        try:
+            # DB에서 다운로드 요청 가져오기
+            db_req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+            if not db_req:
+                print(f"[ERROR] Download request not found: {download_id}")
+                return
+            
+            # 파일명이 없고 1fichier 링크인 경우만 사전 파싱 실행
+            if (not db_req.file_name or db_req.file_name.strip() == '') and '1fichier.com' in url.lower():
+                print(f"[LOG] 백그라운드 1fichier 사전 파싱 시작: {download_id}")
+                try:
+                    import asyncio
+                    from .parser_service import parse_file_info_only_async
+                    
+                    # 백그라운드 스레드에서 비동기 함수 실행
+                    file_info = asyncio.run(parse_file_info_only_async(url, password, use_proxy))
+                    if file_info and file_info.get('name'):
+                        # DB 업데이트
+                        db_req.file_name = file_info['name']
+                        db_req.file_size = file_info.get('size')
+                        db.commit()
+                        db.refresh(db_req)
+                        print(f"[LOG] 📁 백그라운드 비동기 파일 정보 파싱 완료: {file_info['name']}")
+                        
+                        # SSE로 UI 업데이트
+                        from main import notify_status_update
+                        notify_status_update(db, db_req.id)
+                    else:
+                        print(f"[LOG] ⚠️ 백그라운드 비동기 파일 정보 파싱 실패")
+                except Exception as e:
+                    print(f"[LOG] ❌ 백그라운드 비동기 파일 정보 파싱 실패: {e}")
+            
+            # 다운로드 스레드 시작
+            from .download_core import download_1fichier_file_new, download_general_file
+            from .shared import download_manager
+            import threading
+            
+            # URL 타입에 따라 적절한 다운로드 함수 선택
+            if re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', url.lower()):
+                target_function = download_1fichier_file_new
+                print(f"[LOG] 백그라운드 1fichier 다운로드 함수 선택: {download_id}")
+            else:
+                target_function = download_general_file
+                print(f"[LOG] 백그라운드 일반 다운로드 함수 선택: {download_id}")
+            
+            thread = threading.Thread(
+                target=target_function,
+                args=(download_id, "ko", use_proxy),
+                daemon=True
+            )
+            thread.start()
+            download_manager.add_download_thread(download_id, thread)
+            print(f"[LOG] 백그라운드 다운로드 스레드 시작: {download_id}")
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        print(f"[ERROR] 백그라운드 파싱/다운로드 시작 실패: {e}")
 
 class DownloadRequestCreate(BaseModel):
     url: HttpUrl
@@ -269,8 +335,9 @@ def parse_file_info_only(request: DownloadRequestCreate, db: Session = Depends(g
         }
 
 @router.post("/download/")
-def create_download_task(
+async def create_download_task(
     request: DownloadRequestCreate, 
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: Dict[str, Any] = Depends(get_current_user_optional)
 ):
@@ -314,63 +381,18 @@ def create_download_task(
     db.commit()
     db.refresh(db_req)
     
-    # 파일 정보 미리 파싱 (동기적으로) - 파일명이 없을 때만 실행
-    if not db_req.file_name or db_req.file_name.strip() == '':
-        # 1fichier 링크에 대해서만 사전 파싱 실행
-        if '1fichier.com' in url_str.lower():
-            print(f"[LOG] 파일명이 없어서 1fichier 사전 파싱 시작...")
-            try:
-                from .parser_service import parse_file_info_only
-                file_info = parse_file_info_only(str(request.url), request.password, request.use_proxy)
-                if file_info and file_info.get('name'):
-                    # 현재 DB 세션에서 바로 업데이트
-                    db_req.file_name = file_info['name']
-                    db_req.file_size = file_info.get('size')
-                    db.commit()
-                    db.refresh(db_req)
-                    print(f"[LOG] 📁 파일 정보 사전 파싱 완료: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
-                    
-                    # SSE로 UI 업데이트
-                    from main import notify_status_update
-                    notify_status_update(db, db_req.id)
-                else:
-                    print(f"[LOG] ⚠️ 파일 정보 파싱 실패 - 파일명을 가져올 수 없음")
-            except Exception as e:
-                print(f"[LOG] ❌ 파일 정보 사전 파싱 실패: {e}")
-        else:
-            print(f"[LOG] 일반 URL은 사전 파싱을 건너뜁니다.")
-    else:
-        print(f"[LOG] 파일명이 이미 존재하여 사전 파싱 스킵: {db_req.file_name}")
-    
-    # 새로운 다운로드 시스템 사용
+    # 백그라운드 작업으로 사전 파싱 및 다운로드 시작 (비블로킹)
     print(f"[LOG] 데이터베이스에 저장된 요청 ID: {db_req.id}")
-    print(f"[LOG] 다운로드 스레드 시작 준비")
+    print(f"[LOG] 백그라운드 작업으로 파싱/다운로드 시작 예약")
     
-    from .download_core import download_1fichier_file_new
-    from .shared import download_manager
-    import threading
-    
-    # URL 타입에 따라 적절한 다운로드 함수 선택
-    if re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', db_req.url.lower()):
-        # 1fichier 다운로드
-        from .download_core import download_1fichier_file_new
-        target_function = download_1fichier_file_new
-        print(f"[LOG] 1fichier 다운로드 함수 선택: {db_req.url}")
-    else:
-        # 일반 다운로드
-        from .download_core import download_general_file
-        target_function = download_general_file
-        print(f"[LOG] 일반 다운로드 함수 선택: {db_req.url}")
-    
-    # 모든 다운로드는 스레드를 시작함 (제한 체크는 각 함수 내부에서)
-    thread = threading.Thread(
-        target=target_function,
-        args=(db_req.id, "ko", request.use_proxy),
-        daemon=True
+    # 백그라운드 작업으로 사전 파싱과 다운로드 시작 처리
+    background_tasks.add_task(
+        background_parse_and_start_download,
+        db_req.id, 
+        str(request.url), 
+        request.password, 
+        request.use_proxy
     )
-    print(f"[LOG] 스레드 시작 중...")
-    thread.start()
-    print(f"[LOG] 스레드 시작 완료: {thread.is_alive()}")
     
     # 제한 확인 후 즉시 응답 (비동기 처리)
     if not request.use_proxy:

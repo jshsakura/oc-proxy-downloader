@@ -943,13 +943,30 @@ html[data-theme="dark"] {
   transition:
     background-color 0.2s ease,
     color 0.2s ease;
+  /* 모바일 터치 개선 */
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
-.button-icon:hover {
+/* 마우스가 있는 장치에서만 hover 효과 적용 (모바일 터치 문제 해결) */
+@media (hover: hover) and (pointer: fine) {
+  .button-icon:hover {
+    background-color: var(--card-border);
+    color: var(--text-primary);
+  }
+}
+
+/* 터치 장치에서는 active 상태로 피드백 제공 */
+.button-icon:active {
   background-color: var(--card-border);
   color: var(--text-primary);
+  transform: scale(0.95);
 }
-.button-icon.danger:hover {
-  color: var(--danger-color);
+@media (hover: hover) and (pointer: fine) {
+  .button-icon.danger:hover {
+    color: var(--danger-color);
+  }
 }
 .pagination {
   display: flex;

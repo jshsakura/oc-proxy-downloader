@@ -62,6 +62,7 @@ class DownloadManager:
         with self._lock:
             # 전체 다운로드 수 체크
             print(f"[LOG] can_start_download 체크 - 전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS}, 로컬: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS}")
+            print(f"[DEBUG] 현재 메모리 등록된 다운로드 ID들: 전체={list(self.all_downloads)}, 로컬={list(self.local_downloads)}")
             if len(self.all_downloads) >= self.MAX_TOTAL_DOWNLOADS:
                 print(f"[LOG] 전체 다운로드 제한으로 시작 불가 ({self.MAX_TOTAL_DOWNLOADS}개)")
                 return False
@@ -304,19 +305,31 @@ class DownloadManager:
     def unregister_download(self, download_id, is_completed=False, auto_start_next=True):
         """다운로드 해제 (전체 + 1fichier 개별)"""
         was_fichier = False
+        
+        print(f"[DEBUG] ★★★ unregister_download 호출됨: ID={download_id}, is_completed={is_completed}, auto_start_next={auto_start_next}")
+        print(f"[DEBUG] 해제 전 상태: 전체={list(self.all_downloads)}, 로컬={list(self.local_downloads)}")
+        
         with self._lock:
             # 전체 다운로드에서 해제
+            was_in_all = download_id in self.all_downloads
             self.all_downloads.discard(download_id)
             
             # 정지 플래그 정리
             if download_id in self.stop_events:
                 del self.stop_events[download_id]
             
+            # ★★★ 중요: active_downloads에서도 제거 (완료된 스레드 정리) ★★★
+            removed_thread = self.active_downloads.pop(download_id, None)
+            if removed_thread:
+                print(f"[LOG] ★★★ active_downloads에서 완료된 스레드 제거: {download_id} (스레드 활성: {removed_thread.is_alive()}) ★★★")
+            else:
+                print(f"[LOG] ⚠️ active_downloads에서 찾을 수 없음: {download_id}")
+            
             # 1fichier 다운로드에서 해제
             was_fichier = download_id in self.local_downloads
             if was_fichier:
                 self.local_downloads.discard(download_id)
-                print(f"[LOG] 1fichier 다운로드 해제: {download_id} (1fichier: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS}, 전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+                print(f"[LOG] ★★★ 1fichier 다운로드 해제 완료: {download_id} (1fichier: {len(self.local_downloads)}/{self.MAX_LOCAL_DOWNLOADS}, 전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
                 
                 # 1fichier 다운로드가 성공적으로 완료된 경우 쿨다운 시작
                 if is_completed:
@@ -325,14 +338,27 @@ class DownloadManager:
                     # 쿨다운 타이머 시작
                     self._start_cooldown_timer()
             else:
-                print(f"[LOG] 다운로드 해제: {download_id} (전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+                print(f"[LOG] ★★★ 일반 다운로드 해제 완료: {download_id} (전체: {len(self.all_downloads)}/{self.MAX_TOTAL_DOWNLOADS})")
+                
+            print(f"[DEBUG] 해제 후 상태: 전체={list(self.all_downloads)}, 로컬={list(self.local_downloads)}")
+            
+            # 해제가 제대로 되었는지 검증
+            if was_in_all and download_id in self.all_downloads:
+                print(f"[ERROR] ❌ 전체 다운로드에서 해제 실패: {download_id}")
+            if was_fichier and download_id in self.local_downloads:
+                print(f"[ERROR] ❌ 로컬 다운로드에서 해제 실패: {download_id}")
         
         # 락 외부에서 대기 중인 다운로드 체크 (데드락 방지)
         # 다운로드 해제 시 즉시 다음 다운로드 시작 (반응성 향상)
         if auto_start_next:
-            print(f"[LOG] 다운로드 해제 후 즉시 자동 시작 체크")
+            print(f"[LOG] ★★★ 다운로드 해제 후 즉시 자동 시작 체크 - ID={download_id} ★★★")
             # 백그라운드에서 즉시 체크 (블로킹 방지)
-            threading.Thread(target=lambda: self.check_and_start_waiting_downloads(force_check=True), daemon=True).start()
+            def start_check():
+                print(f"[LOG] ★★★ 백그라운드 스레드에서 자동 시작 체크 시작 - ID={download_id} ★★★")
+                self.check_and_start_waiting_downloads(force_check=True)
+                print(f"[LOG] ★★★ 백그라운드 스레드에서 자동 시작 체크 완료 - ID={download_id} ★★★")
+            
+            threading.Thread(target=start_check, daemon=True).start()
         else:
             print(f"[LOG] auto_start_next=False이므로 자동 시작 건너뜀")
     
@@ -363,6 +389,8 @@ class DownloadManager:
     
     def check_and_start_waiting_downloads(self, force_check=False):
         """대기 중인 다운로드를 확인하고 시작 (전체 제한 + 1fichier 개별 제한 고려)"""
+        print(f"[LOG] ★★★ check_and_start_waiting_downloads 시작 (force_check={force_check}) ★★★")
+        
         # 부하 감소를 위한 중복 호출 방지 (force_check가 True면 무시)
         current_time = time.time()
         if not force_check and current_time - self._last_check_time < self._check_interval:
@@ -387,7 +415,26 @@ class DownloadManager:
                 DownloadRequest.url.contains('1fichier.com')
             ).count()
             
-            print(f"[LOG] 대기 중인 다운로드 체크 시작 (실제 활성: {active_downloads_count}/{self.MAX_TOTAL_DOWNLOADS}, 1fichier: {active_1fichier_count}/{self.MAX_LOCAL_DOWNLOADS})")
+            # 메모리의 active_downloads도 확인
+            with self._lock:
+                memory_active_count = len(self.active_downloads)
+                memory_active_ids = list(self.active_downloads.keys())
+            
+            # 대기 중인 다운로드 수도 확인
+            pending_downloads_count = db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.pending
+            ).count()
+            
+            pending_1fichier_count = db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.pending,
+                DownloadRequest.use_proxy == False,
+                DownloadRequest.url.contains('1fichier.com')
+            ).count()
+            
+            print(f"[LOG] 대기 중인 다운로드 체크 시작")
+            print(f"[LOG] - DB 활성: {active_downloads_count}/{self.MAX_TOTAL_DOWNLOADS} (1fichier: {active_1fichier_count}/{self.MAX_LOCAL_DOWNLOADS})")
+            print(f"[LOG] - 메모리 활성: {memory_active_count} (IDs: {memory_active_ids})")
+            print(f"[LOG] - 대기 중: {pending_downloads_count} (1fichier: {pending_1fichier_count})")
             
             # 쿨다운이 끝났으면 cooldown 상태인 다운로드를 pending으로 되돌리기
             if self.get_1fichier_cooldown_remaining() <= 0:
@@ -482,16 +529,19 @@ class DownloadManager:
             
             # 시작된 다운로드 수 로그 출력
             if started_count > 0:
-                print(f"[LOG] 총 {started_count}개 다운로드 동시 시작 완료")
+                print(f"[LOG] ★★★ 총 {started_count}개 다운로드 동시 시작 완료 ★★★")
+            else:
+                print(f"[LOG] ★★★ 시작할 수 있는 대기 중인 다운로드 없음 ★★★")
                     
         except Exception as e:
-            print(f"[LOG] 대기 중인 다운로드 시작 실패: {e}")
+            print(f"[LOG] ❌ 대기 중인 다운로드 시작 실패: {e}")
         finally:
             if db:
                 try:
                     db.close()
                 except:
                     pass
+            print(f"[LOG] ★★★ check_and_start_waiting_downloads 완료 ★★★")
     
     def _start_waiting_download(self, waiting_request):
         """대기 중인 다운로드 시작 - 1fichier와 일반 다운로드 분기"""
@@ -536,7 +586,7 @@ class DownloadManager:
         with self._lock:
             self.active_downloads[waiting_request.id] = thread
             
-        print(f"[LOG] 대기 중인 다운로드 시작: {waiting_request.id} (프록시: {use_proxy})")
+        print(f"[LOG] ★★★ 대기 중인 다운로드 시작 완료: ID={waiting_request.id}, 프록시={use_proxy}, 스레드_활성={thread.is_alive()} ★★★")
 
     def cancel_download(self, download_id):
         # 다운로드 상태를 stopped로 변경하여 자연스럽게 종료되도록 함

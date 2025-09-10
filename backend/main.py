@@ -628,12 +628,12 @@ async def stream_events(request: Request):
                     await asyncio.sleep(2)  # 2초 대기
                     heartbeat_counter += 1
                     
-                    # 30초마다 heartbeat 전송 (클라우드플레어 호환)
-                    if heartbeat_counter >= 15:  # 2초 * 15 = 30초
+                    # 10초마다 heartbeat 전송 (연결 유지 강화)
+                    if heartbeat_counter >= 5:  # 2초 * 5 = 10초
                         queue_size = status_queue.qsize()
                         heartbeat_log_counter += 1
                         
-                        # 5분마다만 heartbeat 로그 출력 (10번마다 = 30초 * 10 = 5분)
+                        # 1.7분마다 heartbeat 로그 출력 (10번마다 = 10초 * 10 = 100초)
                         if heartbeat_log_counter % 10 == 0:
                             print(f"[LOG] 💓 SSE heartbeat (큐: {queue_size}) - {heartbeat_log_counter}번째")
                         
@@ -2371,15 +2371,16 @@ async def get_file_info(data: dict = Body(...)):
         if not re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', url.lower()):
             raise HTTPException(status_code=400, detail="1fichier URL만 지원됩니다")
         
-        # URL에서 HTML 가져오기
-        import requests
-        response = requests.get(url, timeout=10)
-        if response.status_code != 200:
-            raise HTTPException(status_code=404, detail="파일 페이지에 접근할 수 없습니다")
+        # URL에서 HTML 가져오기 (비동기)
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(url)
+            if response.status_code != 200:
+                raise HTTPException(status_code=404, detail="파일 페이지에 접근할 수 없습니다")
         
-        # 파일 정보 추출
-        from core.parser import fichier_parser
-        file_info = fichier_parser.extract_file_info(response.text)
+            # 파일 정보 추출
+            from core.parser import fichier_parser
+            file_info = fichier_parser.extract_file_info(response.text)
         
         if not file_info or not file_info.get('name'):
             raise HTTPException(status_code=404, detail="파일 정보를 가져올 수 없습니다")

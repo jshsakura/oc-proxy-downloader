@@ -674,66 +674,46 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                     return None
                             else:
                                 time.sleep(1)  # Event가 없으면 일반 대기
-                        
-                        remaining_minutes = remaining // 60
-                        remaining_seconds = remaining % 60
-                        
-                        # SSE로 카운트다운 전송 (스마트 업데이트)
-                        should_send_update = (
-                            remaining <= 10 or  # 마지막 10초는 매초
-                            remaining % 15 == 0 or  # 15초마다
-                            remaining % 60 == 0 or  # 매 분마다
-                            (remaining > 300 and remaining % 300 == 0)  # 5분 이상이면 5분마다
-                        )
-                        
-                        if should_send_update:
-                            try:
-                                from .download_core import send_sse_message
-                                from .db import SessionLocal
-                                from .models import DownloadRequest
                                 
-                                # 파일 크기 정보를 위해 다운로드 요청 조회
-                                temp_db = SessionLocal()
+                            # SSE 카운트다운 업데이트 (스마트 업데이트)
+                            should_send_update = (
+                                remaining <= 10 or  # 마지막 10초는 매초
+                                remaining % 15 == 0 or  # 15초마다
+                                remaining % 60 == 0 or  # 매 분마다
+                                (remaining > 300 and remaining % 300 == 0)  # 5분 이상이면 5분마다
+                            )
+                            
+                            if should_send_update:
                                 try:
-                                    download_req = temp_db.query(DownloadRequest).filter(
-                                        DownloadRequest.url == url
-                                    ).order_by(DownloadRequest.requested_at.desc()).first()
+                                    from .download_core import send_sse_message
                                     
                                     wait_minutes = remaining // 60
                                     wait_message = f"대기 중 ({wait_minutes}분 {remaining % 60}초)" if wait_minutes > 0 else f"대기 중 ({remaining}초)"
                                     
                                     wait_data = {
-                                        "download_id": download_req.id if download_req else None,
+                                        "download_id": download_req.id,
                                         "remaining_time": remaining,
                                         "wait_message": wait_message,
                                         "total_wait_time": wait_seconds,
-                                        "proxy_addr": proxy_addr,
-                                        "url": url
+                                        "proxy_addr": None,
+                                        "url": url,
+                                        "file_name": download_req.file_name if download_req else "Unknown File"
                                     }
-                                    
-                                    # 파일 크기 정보 추가
-                                    if download_req:
-                                        if download_req.total_size:
-                                            wait_data["total_size"] = download_req.total_size
-                                        if download_req.file_name:
-                                            wait_data["file_name"] = download_req.file_name
                                     
                                     print(f"[LOG] wait_countdown 메시지 전송: ID={download_req.id}, remaining={remaining}초")
                                     send_sse_message("wait_countdown", wait_data)
-                                finally:
-                                    temp_db.close()
-                            except Exception as e:
-                                print(f"[LOG] 카운트다운 SSE 전송 실패: {e}")
+                                except Exception as e:
+                                    print(f"[LOG] 카운트다운 SSE 전송 실패: {e}")
+                            
+                            # 로그 출력 (분 단위 중심, 10초 전부터 상세히)
+                            remaining_minutes = remaining // 60
+                            if remaining > 10:
+                                if remaining % 60 == 0 and remaining_minutes > 0:
+                                    print(f"[LOG] {remaining_minutes}분 대기중")
+                            else:
+                                # 마지막 10초는 매초 표시
+                                print(f"[LOG] 남은 시간: {remaining}초")
                         
-                        # 로그 출력 (분 단위 중심, 10초 전부터 상세히)
-                        if remaining > 10:
-                            if remaining % 60 == 0 and remaining_minutes > 0:
-                                print(f"[LOG] {remaining_minutes}분 대기중")
-                        else:
-                            # 마지막 10초는 매초 표시
-                            print(f"[LOG] 남은 시간: {remaining}초")
-                        
-                        time.sleep(1)
                 
                 print(f"[LOG] ✅ 대기 완료! POST 요청 시작")
                 
@@ -921,11 +901,11 @@ def _extract_download_link_smart(html_content, original_url):
         return None
 
 
-def parse_file_info_only(url, password=None, use_proxy=True):
-    """파일명과 크기만 빠르게 파싱 (다운로드 링크는 제외)"""
+async def parse_file_info_only_async(url, password=None, use_proxy=True):
+    """파일명과 크기만 빠르게 파싱 (비동기 버전)"""
     try:
-        import cloudscraper
-        scraper = cloudscraper.create_scraper()
+        import httpx
+        import asyncio
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -933,24 +913,37 @@ def parse_file_info_only(url, password=None, use_proxy=True):
             'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
         }
         
-        # 1단계: 페이지 로드하여 파일 정보만 추출
-        response = scraper.get(url, headers=headers, timeout=20)
-        if response.status_code != 200:
-            return None
+        # httpx를 사용한 비동기 요청
+        timeout = httpx.Timeout(20.0)
+        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code != 200:
+                print(f"[LOG] HTTP {response.status_code} 응답으로 파일 정보 파싱 실패")
+                return None
+                
+            # 파일 정보 추출
+            parser = FichierParser()
+            file_info = parser.extract_file_info(response.text)
             
-        # 파일 정보 추출
-        parser = FichierParser()
-        file_info = parser.extract_file_info(response.text)
-        
-        if file_info and file_info.get('name'):
-            print(f"[LOG] 파일 정보 추출 성공: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
-            return file_info
-        else:
-            print(f"[LOG] 파일 정보 추출 실패")
-            return None
-            
+            if file_info and file_info.get('name'):
+                print(f"[LOG] 📁 비동기 파일 정보 추출 성공: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
+                return file_info
+            else:
+                print(f"[LOG] ⚠️ 비동기 파일 정보 추출 실패")
+                return None
+                
     except Exception as e:
-        print(f"[LOG] 파일 정보 파싱 오류: {e}")
+        print(f"[LOG] ❌ 비동기 파일 정보 파싱 오류: {e}")
+        return None
+
+def parse_file_info_only(url, password=None, use_proxy=True):
+    """파일명과 크기만 빠르게 파싱 (동기 버전 - 하위 호환성)"""
+    try:
+        import asyncio
+        # 비동기 함수를 동기적으로 실행
+        return asyncio.run(parse_file_info_only_async(url, password, use_proxy))
+    except Exception as e:
+        print(f"[LOG] 동기 파싱 래퍼 오류: {e}")
         return None
 
 

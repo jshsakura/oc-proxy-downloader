@@ -2060,9 +2060,9 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                         req._speed_start_time = current_time
                                         req._speed_start_bytes = downloaded
                                 
-                            # SSE 업데이트: 2초 간격
+                            # SSE 업데이트: 1초 간격 (모바일 반응성 개선)
                             last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
-                            if current_time - last_sse_send_time >= 2:
+                            if current_time - last_sse_send_time >= 1:
                                 req._last_sse_send_time = current_time
 
                                 # 속도 계산
@@ -2410,9 +2410,9 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                         req._local_speed_start_time = current_time
                                         req._local_speed_start_bytes = downloaded
                                 
-                            # SSE 업데이트: 2초 간격
+                            # SSE 업데이트: 1초 간격 (모바일 반응성 개선)
                             last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
-                            if current_time - last_sse_send_time >= 2:
+                            if current_time - last_sse_send_time >= 1:
                                 req._last_sse_send_time = current_time
 
                                 # 속도 계산

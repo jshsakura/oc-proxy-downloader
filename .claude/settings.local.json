@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./.venv/Scripts/python.exe:*)"
+      "Bash(./.venv/Scripts/python.exe:*)",
+      "Bash(find:*)",
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/python.exe:*)"
     ],
     "deny": [],
     "ask": [],
