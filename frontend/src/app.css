@@ -2063,7 +2063,7 @@ table th:first-child {
 }
 
 .wait-countdown {
-  color: var(--warning-color);
+  color: var(--info-color);
   font-weight: bold;
   animation: waitPulse 1.5s ease-in-out infinite;
 }

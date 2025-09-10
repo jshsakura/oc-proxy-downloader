@@ -482,7 +482,7 @@ class DownloadManager:
             
             # 시작된 다운로드 수 로그 출력
             if started_count > 0:
-                print(f"[LOG] 🚀 총 {started_count}개 다운로드 동시 시작 완료")
+                print(f"[LOG] 총 {started_count}개 다운로드 동시 시작 완료")
                     
         except Exception as e:
             print(f"[LOG] 대기 중인 다운로드 시작 실패: {e}")

@@ -123,15 +123,15 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
         wait_time_text = translations.get("telegram_wait_time", "Wait Time")
         filesize_text = translations.get("telegram_filesize", "File Size")
         
-        message = f"""🔔 <b>OC-Proxy: {wait_text}</b> ⏳
+        message = f"""[NOTIFY] <b>OC-Proxy: {wait_text}</b> [WAIT]
 
-📁 <b>{filename_text}</b>
+[FILE] <b>{filename_text}</b>
 <code>{file_name}</code>
 
-📊 <b>{filesize_text}</b>
+[SIZE] <b>{filesize_text}</b>
 <code>{filesize_text or '알 수 없음'}</code>
 
-⏰ <b>{wait_time_text}</b>
+[TIME] <b>{wait_time_text}</b>
 <code>{wait_minutes}분</code>"""
         
         # 텔레그램 API 호출 (비동기)
@@ -209,25 +209,25 @@ def send_telegram_start_notification(file_name: str, download_mode: str, lang: s
         
         # 다운로드 모드 번역
         if download_mode == "proxy":
-            mode_display = "🔄 프록시 모드" if lang == "ko" else "🔄 Proxy Mode"
+            mode_display = "[PROXY] 프록시 모드" if lang == "ko" else "[PROXY] Proxy Mode"
         else:
             mode_display = "🌐 로컬 모드" if lang == "ko" else "🌐 Local Mode"
         
         # 디버그 로그 추가
         print(f"[DEBUG] 텔레그램 메시지 생성 - file_size 파라미터: {file_size}, lang: {lang}")
         
-        message = f"""📥 <b>OC-Proxy: {start_text}</b> ⬇️
+        message = f"""[START] <b>OC-Proxy: {start_text}</b> [DOWN]
 
-📁 <b>{filename_text}</b>
+[FILE] <b>{filename_text}</b>
 <code>{file_name}</code>
 
-📊 <b>{filesize_text}</b>
+[SIZE] <b>{filesize_text}</b>
 <code>{file_size or ('알 수 없음' if lang == 'ko' else 'Unknown')}</code>
 
-⚙️ <b>{mode_text}</b>
+[MODE] <b>{mode_text}</b>
 <code>{mode_display}</code>
 
-🕐 <b>{started_time_text}</b>
+[BEGIN] <b>{started_time_text}</b>
 <code>{current_time}</code>"""
         
         # 텔레그램 API 호출 (비동기)
@@ -300,21 +300,21 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
             completed_time_text = translations.get("telegram_completed_time", "완료시간")
             save_path_text = translations.get("telegram_save_path", "저장경로")
 
-            message = f"""🔔 <b>OC-Proxy: {success_text}</b> 🎉
+            message = f"""[SUCCESS] <b>OC-Proxy: {success_text}</b> [DONE]
 
-📁 <b>{filename_text}</b>
+[FILE] <b>{filename_text}</b>
 <code>{file_name}</code>
 
-📊 <b>{filesize_text}</b>
+[SIZE] <b>{filesize_text}</b>
 <code>{file_size or '알 수 없음'}</code>
 
-📥 <b>{requested_time_text}</b>
+[REQUESTED] <b>{requested_time_text}</b>
 <code>{requested_time or '알 수 없음'}</code>
 
-✅ <b>{completed_time_text}</b>
+[COMPLETED] <b>{completed_time_text}</b>
 <code>{download_time or current_time}</code>
 
-💾 <b>{save_path_text}</b>
+[PATH] <b>{save_path_text}</b>
 <code>{save_path or '기본경로'}</code>"""
 
         elif status == "failed":
@@ -1330,16 +1330,16 @@ def parse_filename_with_proxy_cycling(req, db: Session):
                 print(f"[LOG] 프록시 {proxy_addr}로 파일명 파싱 시도")
                 result = parse_filename_only_with_proxy(req.url, req.password, proxy_addr)
                 if result and result.get('filename'):
-                    print(f"[LOG] ✅ 파일명 파싱 성공: {result['filename']} (프록시: {proxy_addr})")
+                    print(f"[LOG] [OK] 파일명 파싱 성공: {result['filename']} (프록시: {proxy_addr})")
                     return result
                     
             except Exception as e:
-                print(f"[LOG] ❌ 파일명 파싱 실패 (프록시: {proxy_addr}): {e}")
+                print(f"[LOG] [FAIL] 파일명 파싱 실패 (프록시: {proxy_addr}): {e}")
                 continue
                 
         proxy_index = batch_end
         
-    print(f"[LOG] ❌ 모든 프록시로 파일명 파싱 실패")
+    print(f"[LOG] [ERROR] 모든 프록시로 파일명 파싱 실패")
     return None
 
 def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
@@ -1698,7 +1698,7 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
         
         # initial_size가 0인데 실제 파일이 있으면 이어받기로 변경
         if initial_size == 0 and actual_file_size > 0:
-            print(f"[LOG] ⚠️ initial_size: 0인데 기존 파일 존재 - 이어받기로 변경: {actual_file_size}")
+            print(f"[LOG] [WARN] initial_size: 0인데 기존 파일 존재 - 이어받기로 변경: {actual_file_size}")
             initial_size = actual_file_size
             # DB의 downloaded_size도 동기화
             if req.downloaded_size != actual_file_size:
@@ -1790,11 +1790,11 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
             downloaded_this_proxy = current_downloaded - initial_size if current_downloaded > initial_size else 0
             
             print(f"[LOG] 프록시 {proxy_addr} 다운로드 실패: {error_str}")
-            print(f"[LOG] 🔄 이 프록시 다운로드량: {downloaded_this_proxy} bytes")
-            print(f"[LOG] 🔄 시작: {initial_size} → 실패 시: {current_downloaded}")
+            print(f"[LOG] [INFO] 이 프록시 다운로드량: {downloaded_this_proxy} bytes")
+            print(f"[LOG] [INFO] 시작: {initial_size} → 실패 시: {current_downloaded}")
             if downloaded_this_proxy > 0:
                 percentage = (downloaded_this_proxy / req.total_size * 100) if req.total_size > 0 else 0
-                print(f"[LOG] 🔄 이 프록시 기여도: +{percentage:.2f}%")
+                print(f"[LOG] [INFO] 이 프록시 기여도: +{percentage:.2f}%")
             
             # 프록시 실패 마킹
             mark_proxy_used(db, proxy_addr, success=False)
@@ -1815,7 +1815,7 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
                 print(f"[LOG] 다음 프록시로 이동: {i+2}/{len(unused_proxies)}")
                 # 다음 프록시는 현재까지 다운로드된 부분부터 시작
                 initial_size = current_downloaded
-                print(f"[LOG] 🔄 다음 프록시 시작점 업데이트: {initial_size} bytes")
+                print(f"[LOG] [INFO] 다음 프록시 시작점 업데이트: {initial_size} bytes")
                 continue
     
     # 모든 프록시에서 실패
@@ -2123,11 +2123,11 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
         downloaded_this_proxy = current_downloaded - initial_size if current_downloaded > initial_size else 0
         
         print(f"[LOG] 프록시 {proxy_addr} 다운로드 실패 - Download ID: {req.id}")
-        print(f"[LOG] ⚠️ 이 프록시로 다운로드한 양: {downloaded_this_proxy} bytes")
-        print(f"[LOG] ⚠️ 시작 시: {initial_size} bytes → 실패 시: {current_downloaded} bytes")
+        print(f"[LOG] [WARN] 이 프록시로 다운로드한 양: {downloaded_this_proxy} bytes")
+        print(f"[LOG] [WARN] 시작 시: {initial_size} bytes → 실패 시: {current_downloaded} bytes")
         if downloaded_this_proxy > 0:
             percentage = (downloaded_this_proxy / req.total_size * 100) if req.total_size > 0 else 0
-            print(f"[LOG] ⚠️ 이 프록시 진행률: +{percentage:.2f}%")
+            print(f"[LOG] [WARN] 이 프록시 진행률: +{percentage:.2f}%")
         print(f"[LOG] 에러: {e}")
         print(f"[LOG] 프록시 {proxy_addr} 점유 종료 (실패) - Download ID: {req.id}")
         mark_proxy_used(db, proxy_addr, success=False)

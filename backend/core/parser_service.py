@@ -577,7 +577,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                             if download_req.file_name:
                                 wait_data["file_name"] = download_req.file_name
                             
-                            print(f"[LOG] 🕐 대기 시작 wait_countdown 메시지 전송: ID={download_req.id}, remaining={wait_seconds}초")
+                            print(f"[LOG] 대기 시작 wait_countdown 메시지 전솥: ID={download_req.id}, remaining={wait_seconds}초")
                             print(f"[DEBUG] wait_countdown 데이터: {wait_data}")
                             send_sse_message("wait_countdown", wait_data)
                     finally:
@@ -697,7 +697,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                         if download_req.file_name:
                                             wait_data["file_name"] = download_req.file_name
                                     
-                                    print(f"[LOG] 🕐 wait_countdown 메시지 전송: ID={download_req.id}, remaining={remaining}초")
+                                    print(f"[LOG] wait_countdown 메시지 전송: ID={download_req.id}, remaining={remaining}초")
                                     send_sse_message("wait_countdown", wait_data)
                                 finally:
                                     temp_db.close()
@@ -819,7 +819,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
             time.sleep(2)
             continue
             
-    print(f"[LOG] ❌ {max_attempts}회 시도 후 실패")
+    print(f"[LOG] {max_attempts}회 시도 후 실패")
     return None, None
 def _extract_download_link_smart(html_content, original_url):
     """간단하고 확실한 다운로드 링크 추출 - 실제 다운로드 서버만"""
