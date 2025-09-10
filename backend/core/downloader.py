@@ -354,16 +354,9 @@ def create_download_task(
                         temp_db.commit()
                         print(f"[LOG] 파일 정보 미리 파싱 완료: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
                         
-                        # WebSocket으로 UI 업데이트
-                        from .download_core import send_websocket_message
-                        send_websocket_message("status_update", {
-                            "id": fresh_req.id,
-                            "url": fresh_req.url,
-                            "file_name": fresh_req.file_name,
-                            "file_size": fresh_req.file_size,
-                            "status": fresh_req.status.value,
-                            "requested_at": fresh_req.requested_at.isoformat() if fresh_req.requested_at else None
-                        })
+                        # SSE로 UI 업데이트
+                        from main import notify_status_update
+                        notify_status_update(db, fresh_req.id)
                     else:
                         print(f"[LOG] 파일명이 이미 존재하여 미리 파싱 스킵")
             except Exception as e:
@@ -530,16 +523,13 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
                 setattr(item, "status", StatusEnum.pending)
                 db.commit()
                 
-                # WebSocket으로 상태 업데이트 알림 (대기 상태)
+                # SSE로 상태 업데이트 알림 (대기 상태)
                 try:
-                    from core.download_core import send_websocket_message
-                    send_websocket_message("status_update", {
-                        "id": download_id,
-                        "status": "pending",
-                        "message": "대기 상태로 전환되었습니다"
-                    })
+                    from main import notify_status_update
+                    notify_status_update(db, download_id)
+                    print(f"[LOG] ★ 대기 상태 SSE 알림 전송 완료: ID={download_id}")
                 except Exception as e:
-                    print(f"[LOG] WebSocket 알림 전송 실패: {e}")
+                    print(f"[LOG] SSE 알림 전송 실패: {e}")
                 
                 # 어떤 제한인지 확인하고 DB 상태를 pending으로 설정
                 if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
@@ -568,15 +558,11 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
         
         # WebSocket으로 상태 업데이트 알림 (다운로드 시작)
         try:
-            from core.download_core import send_websocket_message
-            send_websocket_message("status_update", {
-                "id": download_id,
-                "status": item.status.value if hasattr(item.status, 'value') else str(item.status),
-                "message": "다운로드가 재개되었습니다"
-            })
-            print(f"[LOG] ★ 재개 WebSocket 알림 전송 완료: ID={download_id}")
+            from main import notify_status_update
+            notify_status_update(db, download_id)
+            print(f"[LOG] ★ 재개 SSE 알림 전송 완료: ID={download_id}")
         except Exception as e:
-            print(f"[LOG] WebSocket 알림 전송 실패: {e}")
+            print(f"[LOG] SSE 알림 전송 실패: {e}")
         
         # URL 타입에 따라 적절한 다운로드 함수 선택 (재시작)
         if "1fichier.com" in item.url.lower():
@@ -680,27 +666,14 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     # 정지 후 다운로드 매니저에서 해제 (정지 시에는 자동 시작 안 함)
     download_manager.unregister_download(download_id, auto_start_next=False)
     
-    # WebSocket으로 상태 업데이트 알림 (강제 새로고침)
+    # SSE로 상태 업데이트 알림 (강제 새로고침)
     try:
-        from core.download_core import send_websocket_message
-        send_websocket_message("status_update", {
-            "id": download_id,
-            "status": item.status.value if hasattr(item.status, 'value') else str(item.status),
-            "message": "다운로드가 정지되었습니다",
-            "force_update": True,  # 강제 UI 업데이트
-            "timestamp": time.time()  # 최신 상태임을 보장
-        })
-        print(f"[LOG] ★ 정지 WebSocket 알림 전송 완료: ID={download_id}")
-        
-        # 즉시 한번 더 전송하여 UI 동기화 확실히 함
-        send_websocket_message("force_refresh", {
-            "id": download_id,
-            "status": "stopped",
-            "action": "pause_confirmed"
-        })
+        from main import notify_status_update
+        notify_status_update(db, download_id)
+        print(f"[LOG] ★ 정지 SSE 알림 전송 완료: ID={download_id}")
         
     except Exception as e:
-        print(f"[LOG] WebSocket 알림 전송 실패: {e}")
+        print(f"[LOG] SSE 알림 전송 실패: {e}")
     
     return {"id": item.id, "status": item.status, "message": "Download stopped successfully", "success": True}
 

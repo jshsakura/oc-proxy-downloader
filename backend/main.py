@@ -2046,13 +2046,21 @@ def simple_connection_test():
 @api_router.post("/resume/{download_id}")
 async def resume_download(download_id: int, use_proxy: bool = True, db: Session = Depends(get_db)):
     """다운로드 재시작"""
+    print(f"[LOG] 🔄 resume_download 함수 시작: ID={download_id}, use_proxy={use_proxy}")
+    
     try:
         req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
         if not req:
+            print(f"[ERROR] 다운로드 요청을 찾을 수 없음: ID={download_id}")
             raise HTTPException(status_code=404, detail="다운로드를 찾을 수 없습니다")
         
+        print(f"[LOG] 다운로드 재개 요청: ID {download_id}, 현재 상태: {req.status}")
+        
         if req.status not in [StatusEnum.stopped, StatusEnum.failed]:
+            print(f"[ERROR] 잘못된 상태: {req.status}, 재시작 불가")
             raise HTTPException(status_code=400, detail="정지 또는 실패 상태의 다운로드만 재시작할 수 있습니다")
+        
+        print(f"[LOG] 프록시 설정 - 요청된 use_proxy: {use_proxy}, DB 저장된 use_proxy: {req.use_proxy}")
         
         # 프록시 설정 업데이트 
         req.use_proxy = use_proxy
@@ -2060,6 +2068,7 @@ async def resume_download(download_id: int, use_proxy: bool = True, db: Session 
         req.error = None
         db.commit()
         
+        print(f"[LOG] 새 프록시 설정으로 재개: use_proxy={use_proxy}, ID {download_id}")
         print(f"[LOG] 다운로드 재시작 요청: ID={download_id}, use_proxy={use_proxy}")
         
         # 다운로드 스레드 시작
@@ -2079,10 +2088,17 @@ async def resume_download(download_id: int, use_proxy: bool = True, db: Session 
         import asyncio
         asyncio.create_task(delayed_status_update(db, download_id))
         
-        return {"message": "다운로드가 재시작되었습니다", "download_id": download_id}
+        result = {"message": "다운로드가 재시작되었습니다", "download_id": download_id}
+        print(f"[LOG] ✅ resume_download 성공 응답: {result}")
+        return result
         
+    except HTTPException as e:
+        print(f"[ERROR] HTTPException 발생: status={e.status_code}, detail={e.detail}")
+        raise
     except Exception as e:
-        print(f"[ERROR] 다운로드 재시작 실패: {e}")
+        print(f"[ERROR] resume_download 예외 발생: {type(e).__name__}: {e}")
+        import traceback
+        print(f"[ERROR] 스택 트레이스: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"다운로드 재시작 실패: {str(e)}")
 
 async def delayed_status_update(db: Session, download_id: int):
