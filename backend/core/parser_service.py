@@ -611,10 +611,11 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                     # 10초 이하 짧은 대기시간 - 1초씩 나누어 정지 상태 체크
                     print(f"[LOG] 짧은 대기시간 ({wait_seconds}초) - 정지 상태 체크하며 대기")
                     for i in range(wait_seconds):
-                        # 정지 상태 체크
+                        # 정지 상태 체크 (정지 플래그 + DB 상태)
                         try:
                             from .db import SessionLocal
                             from .models import DownloadRequest, StatusEnum
+                            from .shared import download_manager
                             
                             temp_db = SessionLocal()
                             try:
@@ -622,10 +623,18 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                     DownloadRequest.url == url
                                 ).order_by(DownloadRequest.requested_at.desc()).first()
                                 
-                                if download_req and download_req.status == StatusEnum.stopped:
-                                    print(f"[LOG] 짧은 대기 중 정지 감지: ID {download_req.id}")
-                                    temp_db.close()
-                                    return None  # 정지된 경우 파싱 중단
+                                if download_req:
+                                    # 정지 플래그 체크 (우선순위)
+                                    if download_manager.is_download_stopped(download_req.id):
+                                        print(f"[LOG] 짧은 대기 중 정지 플래그 감지: ID {download_req.id}")
+                                        temp_db.close()
+                                        return None  # 정지된 경우 파싱 중단
+                                    
+                                    # DB 상태 체크
+                                    if download_req.status == StatusEnum.stopped:
+                                        print(f"[LOG] 짧은 대기 중 정지 감지: ID {download_req.id}")
+                                        temp_db.close()
+                                        return None  # 정지된 경우 파싱 중단
                             finally:
                                 temp_db.close()
                         except Exception as e:
@@ -633,27 +642,38 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         
                         time.sleep(1)
                 else:
-                    # 긴 대기시간 - 분 단위 카운트다운 (정지 상태 체크 포함)
-                    for remaining in range(wait_seconds, 0, -1):
-                        # 매초마다 정지 상태 체크
+                    # 긴 대기시간 - Event.wait()를 사용한 효율적인 대기 (즉시 정지 반응)
+                    from .shared import download_manager
+                    from .db import SessionLocal
+                    from .models import DownloadRequest, StatusEnum
+                    
+                    # 다운로드 ID 먼저 찾기
+                    download_req = None
+                    try:
+                        temp_db = SessionLocal()
                         try:
-                            from .db import SessionLocal
-                            from .models import DownloadRequest, StatusEnum
-                            
-                            temp_db = SessionLocal()
-                            try:
-                                download_req = temp_db.query(DownloadRequest).filter(
-                                    DownloadRequest.url == url
-                                ).order_by(DownloadRequest.requested_at.desc()).first()
-                                
-                                if download_req and download_req.status == StatusEnum.stopped:
-                                    print(f"[LOG] 카운트다운 중 정지 감지: ID {download_req.id}")
-                                    temp_db.close()
-                                    return None  # 정지된 경우 파싱 중단
-                            finally:
-                                temp_db.close()
-                        except Exception as e:
-                            print(f"[LOG] 카운트다운 중 상태 체크 실패: {e}")
+                            download_req = temp_db.query(DownloadRequest).filter(
+                                DownloadRequest.url == url
+                            ).order_by(DownloadRequest.requested_at.desc()).first()
+                        finally:
+                            temp_db.close()
+                    except Exception as e:
+                        print(f"[LOG] 다운로드 ID 조회 실패: {e}")
+                    
+                    if not download_req:
+                        print(f"[LOG] 다운로드 요청을 찾을 수 없음, 기본 대기로 진행")
+                        time.sleep(wait_seconds)
+                    else:
+                        # Event.wait()를 사용한 효율적 대기 - 1초씩 대기하며 즉시 정지 감지
+                        for remaining in range(wait_seconds, 0, -1):
+                            # 정지 플래그가 설정되면 즉시 깨어남
+                            if download_req.id in download_manager.stop_events:
+                                stop_event = download_manager.stop_events[download_req.id]
+                                if stop_event.wait(timeout=1.0):  # 1초 대기, 정지 신호 있으면 즉시 깨어남
+                                    print(f"[LOG] 카운트다운 중 정지 플래그 감지 (Event): ID {download_req.id}")
+                                    return None
+                            else:
+                                time.sleep(1)  # Event가 없으면 일반 대기
                         
                         remaining_minutes = remaining // 60
                         remaining_seconds = remaining % 60

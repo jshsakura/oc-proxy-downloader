@@ -786,6 +786,11 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             
             # 파일 정보 파싱 실패 시 기존 파싱 로직 사용 (단, 파일명은 보존)
             if not direct_link:
+                # 재시도 전에 정지 플래그 체크
+                if download_manager.is_download_stopped(request_id):
+                    print(f"[LOG] 기존 파싱 로직 재시도 전 정지 플래그 감지: ID {request_id}")
+                    return
+                
                 print(f"[LOG] Direct Link 실패. 기존 파싱 로직으로 재시도 (파일명 보존)")
                 direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=force_reparse)
                 
@@ -797,6 +802,11 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
                 })
             
+        
+        # 파싱 완료 후 정지 플래그 체크 (다운로드 진행 전)
+        if download_manager.is_download_stopped(request_id):
+            print(f"[LOG] 파싱 완료 후 정지 플래그 감지: ID {request_id}")
+            return
         
         # 파싱 완료 후 파일명 확인 (프록시/로컬 공통)
         print(f"[LOG] 파싱 완료 후 파일명 체크: req.file_name='{req.file_name}', type={type(req.file_name)}, len={len(req.file_name) if req.file_name else 'None'}")
@@ -851,7 +861,11 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             db.commit()
             print(f"[LOG] 저장 경로 업데이트 완료: {final_path}")
 
-        # 정지 상태 체크 (파싱 후)
+        # 정지 상태 체크 (파싱 후) - 정지 플래그 우선 확인
+        if download_manager.is_download_stopped(request_id):
+            print(f"[LOG] 다운로드 정지 플래그 감지됨 (파싱 후): ID {request_id}")
+            return
+            
         db.refresh(req)
         if req.status == StatusEnum.stopped:
             print(f"[LOG] 다운로드 정지됨 (파싱 후): ID {request_id}")
