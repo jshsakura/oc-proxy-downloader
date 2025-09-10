@@ -11,7 +11,6 @@
   "download_done": "완료",
   "download_stopped": "정지됨",
   "download_failed": "실패",
-  "download_waiting": "대기",
   "download_parsing": "프록시 시도",
   "download_cooldown": "쿨다운 대기중",
   "table_header_file_name": "파일명",

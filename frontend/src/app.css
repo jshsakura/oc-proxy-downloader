@@ -2068,19 +2068,6 @@ table th:first-child {
   animation: waitPulse 1.5s ease-in-out infinite;
 }
 
-/* 프록시 상태 배지의 특정 상태에만 흰색 텍스트 적용 */
-.status-downloading.interactive-status.proxy-status,
-.status-parsing.interactive-status.proxy-status,
-.status-proxying.interactive-status.proxy-status,
-.status-pending.interactive-status.proxy-status,
-.status-waiting.interactive-status.proxy-status {
-  color: white;
-}
-
-.proxy-status .wait-countdown {
-  color: white;
-}
-
 .wait-indicator {
   display: inline-block;
   margin-left: 6px;

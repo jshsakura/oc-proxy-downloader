@@ -11,7 +11,6 @@
   "download_done": "Done",
   "download_stopped": "Stopped",
   "download_failed": "Failed",
-  "download_waiting": "Waiting",
   "download_parsing": "Parsing",
   "download_cooldown": "Cooldown Wait",
   "table_header_file_name": "File Name",
