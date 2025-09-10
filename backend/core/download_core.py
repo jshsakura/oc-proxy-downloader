@@ -213,6 +213,9 @@ def send_telegram_start_notification(file_name: str, download_mode: str, lang: s
         else:
             mode_display = "🌐 로컬 모드" if lang == "ko" else "🌐 Local Mode"
         
+        # 디버그 로그 추가
+        print(f"[DEBUG] 텔레그램 메시지 생성 - file_size 파라미터: {file_size}, lang: {lang}")
+        
         message = f"""📥 <b>OC-Proxy: {start_text}</b> ⬇️
 
 📁 <b>{filename_text}</b>
@@ -573,16 +576,39 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     print(f"[LOG] 다운로드 제한에 걸림. 대기 상태로 설정: ID {request_id}")
                     req.status = StatusEnum.pending
                     db.commit()
-                else:
-                    print(f"[LOG] 다운로드가 정지 상태이므로 제한 확인 생략: ID {request_id}")
-                    return
-                
+                    
+                    # 대기 이유와 예상 시간 계산
+                    wait_message = "다운로드 제한 대기 중..."
+                    estimated_wait_time = 30  # 기본 30초
+                    
+                    # 제한 종류별 대기 시간 추정
+                    if len(download_manager.all_downloads) >= download_manager.MAX_TOTAL_DOWNLOADS:
+                        wait_message = f"전체 다운로드 제한 ({download_manager.MAX_TOTAL_DOWNLOADS}개) 대기 중..."
+                        estimated_wait_time = 60  # 1분
+                    elif '1fichier.com' in req.url and len(download_manager.local_downloads) >= download_manager.MAX_LOCAL_DOWNLOADS:
+                        cooldown_remaining = download_manager.get_1fichier_cooldown_remaining()
+                        if cooldown_remaining > 0:
+                            wait_message = f"1fichier 쿨다운 대기 중..."
+                            estimated_wait_time = int(cooldown_remaining)
+                        else:
+                            wait_message = f"1fichier 다운로드 제한 ({download_manager.MAX_LOCAL_DOWNLOADS}개) 대기 중..."
+                            estimated_wait_time = 120  # 2분
+                    
+                    # wait_countdown 메시지 전송
+                    send_sse_message("wait_countdown", {
+                        "download_id": req.id,
+                        "remaining_time": estimated_wait_time,
+                        "wait_message": wait_message,
+                        "url": req.url,
+                        "file_name": req.file_name
+                    })
+                    
                     # SSE로 대기 상태 알림
                     send_sse_message("status_update", {
                         "id": req.id,
                         "url": req.url,
                         "file_name": req.file_name,
-                        "status": "pending", 
+                        "status": "waiting", 
                         "message": "다운로드 대기 중",
                         "requested_at": req.requested_at.isoformat() if req.requested_at else None
                     })
@@ -927,6 +953,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 file_size_str = None
                 if req.total_size and req.total_size > 0:
                     file_size_str = format_file_size(req.total_size)
+                
+                print(f"[DEBUG] 1fichier 텔레그램 알림 - total_size: {req.total_size}, file_size_str: {file_size_str}")
                 
                 send_telegram_start_notification(
                     file_name=req.file_name or "Unknown File",
@@ -2675,6 +2703,7 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             # 1fichier처럼 포맷팅된 크기를 문자열로 저장
             formatted_size = format_file_size(bytes_size)
             req.file_size = formatted_size
+            req.total_size = bytes_size  # total_size도 설정
             print(f"[LOG] ★ 파일크기 최초 설정: '{formatted_size}' ({content_length} bytes)")
         
         # 상태를 다운로드 중으로 변경
@@ -2687,6 +2716,8 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             file_size_str = None
             if req.total_size and req.total_size > 0:
                 file_size_str = format_file_size(req.total_size)
+            
+            print(f"[DEBUG] 일반 다운로드 텔레그램 알림 - total_size: {req.total_size}, file_size_str: {file_size_str}")
             
             send_telegram_start_notification(
                 file_name=req.file_name or "Unknown File",
