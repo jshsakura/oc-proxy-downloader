@@ -382,7 +382,7 @@
     console.log("🔌 SSE 연결 시도 중...");
     eventSourceManager.connect((message) => {
       console.log("📡 SSE 메시지 수신:", message.type, message.data);
-      
+
       if (message.type === "status_update") {
         const updatedDownload = message.data;
         const index = downloads.findIndex((d) => d.id === updatedDownload.id);
@@ -436,9 +436,9 @@
         downloadWaitInfo[download_id] = {
           remaining_time: remaining_time,
           message: wait_message,
-          timestamp: Date.now()
+          timestamp: Date.now(),
         };
-        
+
         // 다운로드 상태는 서버에서 설정한 상태를 유지 (강제 변경하지 않음)
         downloadWaitInfo = { ...downloadWaitInfo };
         console.log("📊 downloadWaitInfo 업데이트됨:", downloadWaitInfo);
@@ -446,7 +446,9 @@
           download_id,
           hasWaitInfo: !!downloadWaitInfo[download_id],
           remaining_time: downloadWaitInfo[download_id]?.remaining_time,
-          condition: downloadWaitInfo[download_id] && downloadWaitInfo[download_id].remaining_time > 0
+          condition:
+            downloadWaitInfo[download_id] &&
+            downloadWaitInfo[download_id].remaining_time > 0,
         });
       }
 
@@ -465,11 +467,13 @@
         if (index !== -1) {
           downloads = downloads.map((d, i) => {
             if (i === index) {
-              console.log(`📁 파일명 업데이트: ID=${id}, ${d.file_name} → ${file_name}`);
-              return { 
-                ...d, 
+              console.log(
+                `📁 파일명 업데이트: ID=${id}, ${d.file_name} → ${file_name}`
+              );
+              return {
+                ...d,
                 file_name: file_name || d.file_name,
-                file_size: file_size || d.file_size
+                file_size: file_size || d.file_size,
               };
             }
             return d;
@@ -601,7 +605,8 @@
       const status = d.status?.toLowerCase?.() || "";
       return !(
         status === "done" ||
-        (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100))
+        (status === "stopped" &&
+          (d.progress >= 100 || getDownloadProgress(d) >= 100))
       );
     });
 
@@ -1091,7 +1096,8 @@
     // 완료된 것만 제외하고 나머지는 모두 진행중으로 처리
     return !(
       status === "done" ||
-      (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100))
+      (status === "stopped" &&
+        (d.progress >= 100 || getDownloadProgress(d) >= 100))
     );
   }).length;
 
@@ -1112,7 +1118,8 @@
         // 완료된 것만 제외하고 나머지는 모두 진행중으로 처리 (workingCount와 동일한 로직)
         return !(
           status === "done" ||
-          (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100))
+          (status === "stopped" &&
+            (d.progress >= 100 || getDownloadProgress(d) >= 100))
         );
       });
     } else {
@@ -1403,7 +1410,8 @@
                           {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time}
                             {#if downloadWaitInfo[download.id].remaining_time >= 60}
                               {$t("download_waiting")} ({Math.floor(
-                                downloadWaitInfo[download.id].remaining_time / 60
+                                downloadWaitInfo[download.id].remaining_time /
+                                  60
                               )}{$t("time_minutes")})
                             {:else}
                               {$t("download_waiting")} ({downloadWaitInfo[
@@ -1411,7 +1419,7 @@
                               ].remaining_time}{$t("time_seconds")})
                             {/if}
                           {:else}
-                            {$t("download_waiting")} (파싱 중...)
+                            {$t("download_waiting")}
                           {/if}
                           <span
                             class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
