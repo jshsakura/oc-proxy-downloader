@@ -1071,6 +1071,7 @@
     return [
       "pending",
       "downloading",
+      "parsing",
       "proxying",
       "stopped",
       "failed",
