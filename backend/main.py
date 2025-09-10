@@ -1464,9 +1464,22 @@ def download_1fichier_file_NEW_VERSION(request_id: int, lang: str = "ko", use_pr
                     f.write(chunk)
                     downloaded_size += len(chunk)
                     setattr(req, "downloaded_size", downloaded_size)
-                    db.commit()
-                    # Update status every 1MB or 10% of total size, whichever is smaller
-                    if total_size > 0 and (downloaded_size % (1024 * 1024) == 0 or downloaded_size * 10 // total_size != (downloaded_size - len(chunk)) * 10 // total_size):
+                    
+                    # DB 및 SSE 업데이트 최적화: 5MB마다 또는 10초마다
+                    current_time = time.time()
+                    last_update_time = getattr(req, '_last_main_update_time', 0)
+                    last_update_size = getattr(req, '_last_main_update_size', 0)
+                    
+                    update_needed = (
+                        (downloaded_size - last_update_size) >= 5 * 1024 * 1024 or  # 5MB 차이
+                        (current_time - last_update_time) >= 10 or  # 10초 간격
+                        total_size > 0 and downloaded_size * 10 // total_size != (downloaded_size - len(chunk)) * 10 // total_size  # 10% 진행률 변경
+                    )
+                    
+                    if update_needed:
+                        db.commit()
+                        req._last_main_update_time = current_time
+                        req._last_main_update_size = downloaded_size
                         notify_status_update(db, int(getattr(req, 'id')), lang)
                 print(f"[LOG] Finished writing all chunks for {req.id}")
 

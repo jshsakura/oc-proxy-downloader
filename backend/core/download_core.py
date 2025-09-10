@@ -1988,10 +1988,20 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                 req._speed_start_time = current_time
                                 req._speed_start_bytes = downloaded
                             
-                            if chunk_count % 128 == 0:  # 1MB마다 업데이트
+                            # DB 업데이트: 5MB마다 또는 10초마다
+                            last_db_update_time = getattr(req, '_last_db_update_time', 0)
+                            last_db_update_size = getattr(req, '_last_db_update_size', 0)
+                            db_update_needed = (
+                                chunk_count % 640 == 0 or  # 5MB마다 (640 * 8KB)
+                                (current_time - last_db_update_time) >= 10 or  # 10초마다
+                                (downloaded - last_db_update_size) >= 5 * 1024 * 1024  # 5MB 차이
+                            )
+                            
+                            if db_update_needed:
                                 req.downloaded_size = downloaded
                                 db.commit()
-                                last_update_size = downloaded
+                                req._last_db_update_time = current_time
+                                req._last_db_update_size = downloaded
                                 
                                 if int(progress) != getattr(req, '_last_logged_percent', 0) and int(progress) % 5 == 0 and int(progress) > 0:
                                     req._last_logged_percent = int(progress)
@@ -2005,11 +2015,10 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                         req._speed_start_time = current_time
                                         req._speed_start_bytes = downloaded
                                 
-                                # 3초 간격으로 SSE 업데이트
-                                last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
-                                current_time = time.time()
-                                if current_time - last_sse_send_time > 3:
-                                    req._last_sse_send_time = current_time
+                            # SSE 업데이트: 2초 간격
+                            last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
+                            if current_time - last_sse_send_time >= 2:
+                                req._last_sse_send_time = current_time
 
                                     # 속도 계산
                                     speed_time_elapsed = current_time - getattr(req, '_ui_speed_time', req._speed_start_time)
@@ -2329,10 +2338,20 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                 req._local_speed_start_time = current_time
                                 req._local_speed_start_bytes = downloaded
                             
-                            if chunk_count % 128 == 0:  # 1MB마다 업데이트
+                            # DB 업데이트: 5MB마다 또는 10초마다
+                            last_db_update_time = getattr(req, '_last_local_db_update_time', 0)
+                            last_db_update_size = getattr(req, '_last_local_db_update_size', 0)
+                            db_update_needed = (
+                                chunk_count % 640 == 0 or  # 5MB마다 (640 * 8KB)
+                                (current_time - last_db_update_time) >= 10 or  # 10초마다
+                                (downloaded - last_db_update_size) >= 5 * 1024 * 1024  # 5MB 차이
+                            )
+                            
+                            if db_update_needed:
                                 req.downloaded_size = downloaded
                                 db.commit()
-                                last_update_size = downloaded
+                                req._last_local_db_update_time = current_time
+                                req._last_local_db_update_size = downloaded
                                 
                                 if int(progress) != getattr(req, '_last_logged_percent', 0) and int(progress) % 5 == 0 and int(progress) > 0:
                                     req._last_logged_percent = int(progress)
@@ -2346,10 +2365,10 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                         req._local_speed_start_time = current_time
                                         req._local_speed_start_bytes = downloaded
                                 
-                                # 3초 간격으로 SSE 업데이트
-                                last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
-                                if current_time - last_sse_send_time > 3:
-                                    req._last_sse_send_time = current_time
+                            # SSE 업데이트: 2초 간격
+                            last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
+                            if current_time - last_sse_send_time >= 2:
+                                req._last_sse_send_time = current_time
 
                                     # 속도 계산
                                     speed_time_elapsed = current_time - getattr(req, '_local_ui_speed_time', req._local_speed_start_time)
