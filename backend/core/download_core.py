@@ -93,7 +93,7 @@ def get_translations(lang: str = "ko") -> dict:
         return {}
 
 
-def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str = "ko"):
+def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str = "ko", file_size: str = None):
     """대기시간 텔레그램 알림 전송 (5분 이상 대기시간)"""
     try:
         config = get_config()
@@ -123,15 +123,15 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
         wait_time_text = translations.get("telegram_wait_time", "Wait Time")
         filesize_text = translations.get("telegram_filesize", "File Size")
         
-        message = f"""[NOTIFY] <b>OC-Proxy: {wait_text}</b> [WAIT]
+        message = f"""⏱️ <b>OC-Proxy: {wait_text}</b> ⏳
 
-[FILE] <b>{filename_text}</b>
+📁 <b>{filename_text}</b>
 <code>{file_name}</code>
 
-[SIZE] <b>{filesize_text}</b>
-<code>{filesize_text or '알 수 없음'}</code>
+📊 <b>{filesize_text}</b>
+<code>{file_size or ('알 수 없음' if lang == 'ko' else 'Unknown')}</code>
 
-[TIME] <b>{wait_time_text}</b>
+⏰ <b>{wait_time_text}</b>
 <code>{wait_minutes}분</code>"""
         
         # 텔레그램 API 호출 (비동기)
@@ -209,25 +209,25 @@ def send_telegram_start_notification(file_name: str, download_mode: str, lang: s
         
         # 다운로드 모드 번역
         if download_mode == "proxy":
-            mode_display = "[PROXY] 프록시 모드" if lang == "ko" else "[PROXY] Proxy Mode"
+            mode_display = "🌐 프록시 모드" if lang == "ko" else "🌐 Proxy Mode"
         else:
-            mode_display = "🌐 로컬 모드" if lang == "ko" else "🌐 Local Mode"
+            mode_display = "💻 로컬 모드" if lang == "ko" else "💻 Local Mode"
         
         # 디버그 로그 추가
         print(f"[DEBUG] 텔레그램 메시지 생성 - file_size 파라미터: {file_size}, lang: {lang}")
         
-        message = f"""[START] <b>OC-Proxy: {start_text}</b> [DOWN]
+        message = f"""🚀 <b>OC-Proxy: {start_text}</b> ⬇️
 
-[FILE] <b>{filename_text}</b>
+📁 <b>{filename_text}</b>
 <code>{file_name}</code>
 
-[SIZE] <b>{filesize_text}</b>
+📊 <b>{filesize_text}</b>
 <code>{file_size or ('알 수 없음' if lang == 'ko' else 'Unknown')}</code>
 
-[MODE] <b>{mode_text}</b>
+⚙️ <b>{mode_text}</b>
 <code>{mode_display}</code>
 
-[BEGIN] <b>{started_time_text}</b>
+🕐 <b>{started_time_text}</b>
 <code>{current_time}</code>"""
         
         # 텔레그램 API 호출 (비동기)
@@ -300,21 +300,21 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
             completed_time_text = translations.get("telegram_completed_time", "완료시간")
             save_path_text = translations.get("telegram_save_path", "저장경로")
 
-            message = f"""[SUCCESS] <b>OC-Proxy: {success_text}</b> [DONE]
+            message = f"""✅ <b>OC-Proxy: {success_text}</b> 🎉
 
-[FILE] <b>{filename_text}</b>
+📁 <b>{filename_text}</b>
 <code>{file_name}</code>
 
-[SIZE] <b>{filesize_text}</b>
+📊 <b>{filesize_text}</b>
 <code>{file_size or '알 수 없음'}</code>
 
-[REQUESTED] <b>{requested_time_text}</b>
+🕐 <b>{requested_time_text}</b>
 <code>{requested_time or '알 수 없음'}</code>
 
-[COMPLETED] <b>{completed_time_text}</b>
+✅ <b>{completed_time_text}</b>
 <code>{download_time or current_time}</code>
 
-[PATH] <b>{save_path_text}</b>
+💾 <b>{save_path_text}</b>
 <code>{save_path or '기본경로'}</code>"""
 
         elif status == "failed":
@@ -950,8 +950,11 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             # 텔레그램 다운로드 시작 알림 전송
             try:
                 download_mode = "proxy" if use_proxy else "local"
+                # 파일크기 - DB의 file_size 우선, 없으면 total_size 사용
                 file_size_str = None
-                if req.total_size and req.total_size > 0:
+                if req.file_size and req.file_size.strip():
+                    file_size_str = req.file_size  # DB에서 파싱된 파일크기 우선 사용
+                elif req.total_size and req.total_size > 0:
                     file_size_str = format_file_size(req.total_size)
                 
                 print(f"[DEBUG] 1fichier 텔레그램 알림 - total_size: {req.total_size}, file_size_str: {file_size_str}")
@@ -2713,8 +2716,11 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         # 텔레그램 다운로드 시작 알림 전송 (일반 다운로드)
         try:
             download_mode = "proxy" if use_proxy else "local"
+            # 파일크기 - DB의 file_size 우선, 없으면 total_size 사용
             file_size_str = None
-            if req.total_size and req.total_size > 0:
+            if req.file_size and req.file_size.strip():
+                file_size_str = req.file_size  # DB에서 파싱된 파일크기 우선 사용
+            elif req.total_size and req.total_size > 0:
                 file_size_str = format_file_size(req.total_size)
             
             print(f"[DEBUG] 일반 다운로드 텔레그램 알림 - total_size: {req.total_size}, file_size_str: {file_size_str}")

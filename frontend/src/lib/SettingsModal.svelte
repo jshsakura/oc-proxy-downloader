@@ -749,7 +749,7 @@
                   <div class="telegram-setup-guide">
                     <div class="setup-guide-header">
                       <h4 class="guide-title">
-                        🚀 {$t("telegram_setup_guide")}
+                        📱 {$t("telegram_setup_guide")}
                       </h4>
                       <p class="guide-description">
                         {$t("telegram_description")}
@@ -959,7 +959,7 @@
                           bind:checked={settings.telegram_notify_start}
                         />
                         <span class="telegram-checkbox-text"
-                          >🚀 {$t("telegram_notify_start")}</span
+                          >⬇️ {$t("telegram_notify_start")}</span
                         >
                       </label>
                       <div class="telegram-option-description">
@@ -975,7 +975,7 @@
                       disabled={!settings.telegram_bot_token ||
                         !settings.telegram_chat_id}
                     >
-                      🚀 {$t("telegram_test_notification")}
+                      📨 {$t("telegram_test_notification")}
                     </button>
                   </div>
                 </div>

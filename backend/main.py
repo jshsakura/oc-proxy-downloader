@@ -427,20 +427,122 @@ def cleanup_and_exit():
     # 강제로 모든 백그라운드 태스크 종료
     try:
         import threading
+        import os
+        import concurrent.futures
+        import asyncio
+        import time
+        
+        print(f"[LOG] 종료 전 총 {threading.active_count()}개의 스레드 활성화")
+        
+        # 모든 활성 스레드 상세 분석
+        non_daemon_threads = []
         for thread in threading.enumerate():
             if thread != threading.current_thread():
-                print(f"[LOG] 활성 스레드 발견: {thread.name}")
-        print(f"[LOG] 총 {threading.active_count()}개의 스레드 활성화")
+                thread_info = f"{thread.name} (daemon: {thread.daemon}, alive: {thread.is_alive()})"
+                if hasattr(thread, '_target') and thread._target:
+                    thread_info += f", target: {thread._target.__name__ if hasattr(thread._target, '__name__') else str(thread._target)}"
+                print(f"[LOG] 활성 스레드: {thread_info}")
+                
+                if not thread.daemon and thread.is_alive():
+                    non_daemon_threads.append(thread)
+        
+        # 1. WebSocket 연결들 강제 종료
+        try:
+            print(f"[LOG] WebSocket 연결 {len(manager.active_connections)}개 강제 종료 중...")
+            for websocket in manager.active_connections.copy():  # copy()로 안전하게 반복
+                try:
+                    asyncio.create_task(websocket.close())
+                except Exception as ws_e:
+                    print(f"[LOG] WebSocket 연결 종료 실패: {ws_e}")
+            manager.active_connections.clear()
+            print(f"[LOG] WebSocket 연결 모두 종료됨")
+        except Exception as e:
+            print(f"[LOG] WebSocket 종료 실패: {e}")
+        
+        # 2. AsyncIO 이벤트 루프 강제 종료
+        try:
+            loop = asyncio.get_running_loop()
+            print(f"[LOG] AsyncIO 루프 발견, 강제 종료 중...")
+            # 모든 태스크 취소 (status_broadcaster 포함)
+            tasks = asyncio.all_tasks(loop)
+            cancelled_count = 0
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+                    cancelled_count += 1
+                    # 태스크명이 있으면 출력
+                    task_name = getattr(task, '_name', 'unnamed')
+                    print(f"[LOG] AsyncIO 태스크 취소: {task_name}")
+            print(f"[LOG] {cancelled_count}/{len(tasks)}개의 AsyncIO 태스크 취소됨")
+            
+            # 잠시 대기해서 태스크들이 정리되도록 함
+            time.sleep(0.1)
+            
+        except RuntimeError:
+            print(f"[LOG] AsyncIO 루프 없음")
+        except Exception as e:
+            print(f"[LOG] AsyncIO 루프 종료 실패: {e}")
+        
+        # 3. ThreadPoolExecutor 강제 종료
+        try:
+            import gc
+            executor_count = 0
+            for obj in gc.get_objects():
+                if isinstance(obj, concurrent.futures.ThreadPoolExecutor):
+                    executor_count += 1
+                    print(f"[LOG] ThreadPoolExecutor #{executor_count} 발견, 강제 종료 중...")
+                    try:
+                        obj.shutdown(wait=False)
+                        print(f"[LOG] ThreadPoolExecutor #{executor_count} 종료 완료")
+                    except Exception as e:
+                        print(f"[LOG] ThreadPoolExecutor #{executor_count} 종료 실패: {e}")
+            if executor_count == 0:
+                print(f"[LOG] ThreadPoolExecutor 없음")
+        except Exception as e:
+            print(f"[LOG] ThreadPoolExecutor 검색 실패: {e}")
+        
+        # 4. 데몬이 아닌 스레드들 강제 종료 시도
+        if non_daemon_threads:
+            print(f"[LOG] {len(non_daemon_threads)}개의 non-daemon 스레드 발견")
+            for thread in non_daemon_threads:
+                print(f"[LOG] Non-daemon 스레드 강제 종료 시도: {thread.name}")
+                # Python에서는 스레드를 직접 kill할 수 없으므로 주의
+        
+        # 5. 더 강력한 대기 및 진단
+        max_wait_time = 2  # 2초로 단축
+        wait_time = 0
+        while threading.active_count() > 1 and wait_time < max_wait_time:
+            time.sleep(0.2)
+            wait_time += 0.2
+            remaining_threads = [t.name for t in threading.enumerate() if t != threading.current_thread()]
+            print(f"[LOG] 스레드 종료 대기 중... ({threading.active_count()-1}개 남음: {remaining_threads})")
+        
+        if threading.active_count() > 1:
+            print(f"[LOG] ⚠️  경고: {threading.active_count()-1}개의 스레드가 여전히 활성 상태")
+            for thread in threading.enumerate():
+                if thread != threading.current_thread():
+                    print(f"[LOG] 🔴 남은 스레드: {thread.name} (daemon: {thread.daemon})")
+            print(f"[LOG] 🚨 강제 프로세스 종료 실행...")
+            
     except Exception as e:
         print(f"[LOG] 스레드 정보 확인 실패: {e}")
+        print(f"[LOG] 🚨 예외 발생으로 인한 강제 종료...")
     
     print("[LOG] 서버 종료 완료")
 
 def signal_handler(signum, frame):
     """신호 처리기"""
     print(f"\n[LOG] 신호 {signum} 받음. 서버를 종료합니다...")
-    cleanup_and_exit()
-    sys.exit(0)
+    try:
+        cleanup_and_exit()
+    except Exception as e:
+        print(f"[LOG] cleanup_and_exit 실행 중 오류: {e}")
+    finally:
+        # 강제 종료
+        print(f"[LOG] 강제 프로세스 종료 (PID: {os.getpid()})")
+        import time
+        time.sleep(0.5)  # 마지막 로그 출력 대기
+        os._exit(0)  # 더 강력한 종료
 
 # 신호 처리기 등록 (중복 방지)
 if not hasattr(cleanup_and_exit, '_handlers_registered'):
@@ -1504,10 +1606,14 @@ def download_1fichier_file_NEW_VERSION(request_id: int, lang: str = "ko", use_pr
         try:
             unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
             
-            # 파일 크기 포맷팅
+            # 파일 크기 포맷팅 - DB의 file_size 우선 사용
             file_size_str = "알 수 없음" if lang == "ko" else "Unknown"
-            if total_size:
+            if req.file_size and req.file_size.strip():
+                file_size_str = req.file_size  # DB에서 파싱된 파일 크기 우선 사용
+                print(f"[LOG] DB 파일크기 사용: {file_size_str}")
+            elif total_size:
                 file_size_str = format_file_size(total_size)
+                print(f"[LOG] 다운로드 total_size에서 파일크기 계산: {file_size_str}")
             
             # 다운로드 완료 시간 포맷팅
             download_time_str = None

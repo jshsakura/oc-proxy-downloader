@@ -253,5 +253,6 @@
   "telegram_started_time": "시작시간",
   "telegram_download_mode": "다운로드 모드",
   "mode_switched_to_local": "로컬 모드가 적용되었습니다",
-  "mode_switched_to_proxy": "프록시 모드가 적용되었습니다"
+  "mode_switched_to_proxy": "프록시 모드가 적용되었습니다",
+  "download_waiting_time": "대기중"
 }

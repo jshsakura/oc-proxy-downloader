@@ -253,5 +253,6 @@
   "telegram_started_time": "Started At",
   "telegram_download_mode": "Download Mode",
   "mode_switched_to_local": "Switched to Local Mode",
-  "mode_switched_to_proxy": "Switched to Proxy Mode"
+  "mode_switched_to_proxy": "Switched to Proxy Mode",
+  "download_waiting_time": "Waiting"
 }

@@ -1408,12 +1408,12 @@
                         <span class="wait-countdown">
                           {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time}
                             {#if downloadWaitInfo[download.id].remaining_time >= 60}
-                              {$t("download_downloading")} ({Math.floor(
+                              {$t("download_waiting_time")} ({Math.floor(
                                 downloadWaitInfo[download.id].remaining_time /
                                   60
                               )}{$t("time_minutes")})
                             {:else}
-                              {$t("download_downloading")} ({downloadWaitInfo[
+                              {$t("download_waiting_time")} ({downloadWaitInfo[
                                 download.id
                               ].remaining_time}{$t("time_seconds")})
                             {/if}

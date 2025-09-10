@@ -600,8 +600,9 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         with SessionLocal() as db:
                             req = db.query(DownloadRequest).filter(DownloadRequest.url == url).first()
                             file_name = req.file_name if req and req.file_name else "1fichier File"
+                            file_size = req.file_size if req and req.file_size else None
                         wait_minutes = wait_seconds // 60
-                        send_telegram_wait_notification(file_name, wait_minutes, "ko")
+                        send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size)
                     except Exception as e:
                         print(f"[WARN] 텔레그램 대기시간 알림 실패: {e}")
                 
