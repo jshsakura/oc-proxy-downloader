@@ -2894,13 +2894,15 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             db.commit()
         raise e
     finally:
-        # 일반 다운로드 종료 시 매니저에서 해제 (실패한 경우도 다음 큐 시작)
+        # 다운로드 종료 시 항상 매니저에서 해제하여 다음 큐가 진행되도록 보장
         try:
-            if req and req.status != StatusEnum.done:  # 완료가 아닌 경우 (실패/정지)
-                download_manager.unregister_download(request_id, is_completed=False, auto_start_next=True)
-                print(f"[LOG] 일반 다운로드 실패/정지 - 매니저에서 해제하여 다음 큐 자동 시작: ID {request_id}")
-        except:
-            pass
+            if req:
+                db.refresh(req) # 최신 상태 확인
+                is_completed = (req.status == StatusEnum.done)
+                download_manager.unregister_download(request_id, is_completed=is_completed, auto_start_next=True)
+                print(f"[LOG] 일반 다운로드 스레드 종료 - 매니저에서 해제: ID {request_id}, 완료: {is_completed}")
+        except Exception as final_e:
+            print(f"[ERROR] 다운로드 해제 최종 단계에서 오류 발생: {final_e}")
         
         db.close()
 

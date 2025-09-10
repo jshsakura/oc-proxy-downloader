@@ -665,7 +665,7 @@
         url = "";
         password = "";
         hasPassword = false;
-        syncDownloadsSilently(); // 새 다운로드 추가 시 조용한 업데이트
+        fetchDownloads(); // 목록 즉시 새로고침
       } else {
         const errorData = await response.json();
         showToastMsg($t("add_download_failed", { detail: errorData.detail }));

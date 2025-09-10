@@ -294,37 +294,15 @@ def create_download_task(
     sys.stdout.flush()  # 즉시 출력 강제
     
     # URL 타입별 사전 검증
-    url_str = str(request.url)
-    
-    # 1fichier가 아닌 일반 URL인 경우 Content-Type 미리 체크
-    if not re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', url_str.lower()):
-        print(f"[LOG] 일반 URL 감지, Content-Type 사전 체크: {url_str}")
-        
-        try:
-            import requests
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            
-            head_response = requests.head(url_str, headers=headers, timeout=30, allow_redirects=True)
-            if head_response.status_code == 200:
-                content_type = head_response.headers.get('Content-Type', '').lower()
-                
-                # 웹페이지는 바로 거부
-                if any(web_type in content_type for web_type in ['text/html', 'text/xml', 'application/json', 'text/plain']):
-                    print(f"[LOG] 웹페이지 Content-Type 감지: {content_type} - 다운로드 요청 거부")
-                    raise HTTPException(status_code=400, detail=f"웹페이지는 다운로드할 수 없습니다. (Content-Type: {content_type})")
-                
-                print(f"[LOG] 다운로드 가능한 Content-Type 확인: {content_type}")
-            else:
-                print(f"[LOG] HEAD 요청 실패: {head_response.status_code}")
-                raise HTTPException(status_code=400, detail=f"URL에 접근할 수 없습니다. (응답 코드: {head_response.status_code})")
-                
-        except requests.exceptions.RequestException as e:
-            print(f"[LOG] URL 접근 실패: {e}")
-            raise HTTPException(status_code=400, detail=f"URL에 접근할 수 없습니다: {str(e)}")
-    else:
+    # 잘못된 퍼센트 인코딩(%%) 수정
+    url_str = re.sub(r'%+', '%', str(request.url))
+
+    # 사전 체크 로직 제거 - API 응답성 향상 및 행업 방지
+    # Content-Type 등의 체크는 백그라운드 스레드에서 처리
+    if '1fichier.com' in url_str.lower():
         print(f"[LOG] 1fichier URL 감지: {url_str}")
+    else:
+        print(f"[LOG] 일반 URL 감지: {url_str}")
     
     db_req = DownloadRequest(
         url=str(request.url),
@@ -338,25 +316,29 @@ def create_download_task(
     
     # 파일 정보 미리 파싱 (동기적으로) - 파일명이 없을 때만 실행
     if not db_req.file_name or db_req.file_name.strip() == '':
-        print(f"[LOG] 파일명이 없어서 사전 파싱 시작...")
-        try:
-            from .parser_service import parse_file_info_only
-            file_info = parse_file_info_only(str(request.url), request.password, request.use_proxy)
-            if file_info and file_info.get('name'):
-                # 현재 DB 세션에서 바로 업데이트
-                db_req.file_name = file_info['name']
-                db_req.file_size = file_info.get('size')
-                db.commit()
-                db.refresh(db_req)
-                print(f"[LOG] 📁 파일 정보 사전 파싱 완료: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
-                
-                # SSE로 UI 업데이트
-                from main import notify_status_update
-                notify_status_update(db, db_req.id)
-            else:
-                print(f"[LOG] ⚠️ 파일 정보 파싱 실패 - 파일명을 가져올 수 없음")
-        except Exception as e:
-            print(f"[LOG] ❌ 파일 정보 사전 파싱 실패: {e}")
+        # 1fichier 링크에 대해서만 사전 파싱 실행
+        if '1fichier.com' in url_str.lower():
+            print(f"[LOG] 파일명이 없어서 1fichier 사전 파싱 시작...")
+            try:
+                from .parser_service import parse_file_info_only
+                file_info = parse_file_info_only(str(request.url), request.password, request.use_proxy)
+                if file_info and file_info.get('name'):
+                    # 현재 DB 세션에서 바로 업데이트
+                    db_req.file_name = file_info['name']
+                    db_req.file_size = file_info.get('size')
+                    db.commit()
+                    db.refresh(db_req)
+                    print(f"[LOG] 📁 파일 정보 사전 파싱 완료: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
+                    
+                    # SSE로 UI 업데이트
+                    from main import notify_status_update
+                    notify_status_update(db, db_req.id)
+                else:
+                    print(f"[LOG] ⚠️ 파일 정보 파싱 실패 - 파일명을 가져올 수 없음")
+            except Exception as e:
+                print(f"[LOG] ❌ 파일 정보 사전 파싱 실패: {e}")
+        else:
+            print(f"[LOG] 일반 URL은 사전 파싱을 건너뜁니다.")
     else:
         print(f"[LOG] 파일명이 이미 존재하여 사전 파싱 스킵: {db_req.file_name}")
     
