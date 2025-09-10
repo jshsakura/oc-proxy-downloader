@@ -1485,6 +1485,8 @@ def download_1fichier_file_NEW_VERSION(request_id: int, lang: str = "ko", use_pr
 
         setattr(req, "status", StatusEnum.done)
         setattr(req, "downloaded_size", total_size) # Ensure downloaded_size is total_size on completion
+        import datetime
+        setattr(req, "finished_at", datetime.datetime.utcnow())
         db.commit()
         notify_status_update(db, int(getattr(req, 'id')), lang)
         
@@ -1495,6 +1497,55 @@ def download_1fichier_file_NEW_VERSION(request_id: int, lang: str = "ko", use_pr
         if used_proxy_addr:
             mark_proxy_used(db, used_proxy_addr, True)
             print(f"[LOG] 프록시 {used_proxy_addr} 다운로드 성공 기록됨")
+        
+        # 텔레그램 완료 알림 전송
+        from .core.download_core import send_telegram_notification, format_file_size
+        from .core.common import get_translations
+        try:
+            unknown_file = get_translations(lang).get("telegram_unknown_file", "알 수 없는 파일")
+            
+            # 파일 크기 포맷팅
+            file_size_str = "알 수 없음" if lang == "ko" else "Unknown"
+            if total_size:
+                file_size_str = format_file_size(total_size)
+            
+            # 다운로드 완료 시간 포맷팅
+            download_time_str = None
+            if hasattr(req, 'finished_at') and req.finished_at:
+                if lang == "ko":
+                    kst_finished = req.finished_at + datetime.timedelta(hours=9)
+                    download_time_str = kst_finished.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    download_time_str = req.finished_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            
+            # 요청 시간 포맷팅
+            requested_time_str = None
+            if req.requested_at:
+                if lang == "ko":
+                    kst_requested = req.requested_at + datetime.timedelta(hours=9)
+                    requested_time_str = kst_requested.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    requested_time_str = req.requested_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            
+            # 저장 경로
+            save_path_str = req.save_path or ("기본경로" if lang == "ko" else "Default path")
+            
+            send_telegram_notification(
+                req.file_name or unknown_file, 
+                "done", 
+                None, 
+                lang,
+                file_size=file_size_str,
+                download_time=download_time_str,
+                save_path=save_path_str,
+                requested_time=requested_time_str
+            )
+        except Exception as e:
+            print(f"[LOG] 텔레그램 완료 알림 전송 실패 (main): {e}")
+        
+        # 다운로드 완료 - 매니저에서 해제하여 다음 큐 자동 시작
+        download_manager.unregister_download(request_id, is_completed=True, auto_start_next=True)
+        print(f"[LOG] 다운로드 완료 - 매니저에서 해제하여 다음 큐 자동 시작: ID {request_id}")
         
         try:
             print(f"[LOG] Download completed: {req.url}")

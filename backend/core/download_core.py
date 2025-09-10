@@ -2020,31 +2020,31 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                             if current_time - last_sse_send_time >= 2:
                                 req._last_sse_send_time = current_time
 
-                                    # 속도 계산
-                                    speed_time_elapsed = current_time - getattr(req, '_ui_speed_time', req._speed_start_time)
-                                    if speed_time_elapsed > 0.5: # 0.5초 이상 간격으로만
-                                        speed_bytes_diff = downloaded - getattr(req, '_ui_speed_bytes', req._speed_start_bytes)
-                                        download_speed = speed_bytes_diff / speed_time_elapsed
-                                        
-                                        req._ui_speed_time = current_time
-                                        req._ui_speed_bytes = downloaded
-                                    else:
-                                        # 마지막 계산된 속도 재사용
-                                        download_speed = getattr(req, '_last_download_speed', 0)
+                                # 속도 계산
+                                speed_time_elapsed = current_time - getattr(req, '_ui_speed_time', req._speed_start_time)
+                                if speed_time_elapsed > 0.5: # 0.5초 이상 간격으로만
+                                    speed_bytes_diff = downloaded - getattr(req, '_ui_speed_bytes', req._speed_start_bytes)
+                                    download_speed = speed_bytes_diff / speed_time_elapsed
                                     
-                                    req._last_download_speed = download_speed
+                                    req._ui_speed_time = current_time
+                                    req._ui_speed_bytes = downloaded
+                                else:
+                                    # 마지막 계산된 속도 재사용
+                                    download_speed = getattr(req, '_last_download_speed', 0)
+                                
+                                req._last_download_speed = download_speed
 
-                                    send_sse_message("status_update", {
-                                        "id": req.id,
-                                        "downloaded_size": downloaded,
-                                        "total_size": total_size,
-                                        "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
-                                        "download_speed": round(download_speed, 0),
-                                        "status": "downloading",
-                                        "use_proxy": req.use_proxy,
-                                        "file_name": req.file_name,
-                                        "url": req.url
-                                    })
+                                send_sse_message("status_update", {
+                                    "id": req.id,
+                                    "downloaded_size": downloaded,
+                                    "total_size": total_size,
+                                    "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
+                                    "download_speed": round(download_speed, 0),
+                                    "status": "downloading",
+                                    "use_proxy": req.use_proxy,
+                                    "file_name": req.file_name,
+                                    "url": req.url
+                                })
                     
                     req.downloaded_size = downloaded
                     db.commit()
@@ -2370,21 +2370,21 @@ def download_local(direct_link, file_path, initial_size, req, db):
                             if current_time - last_sse_send_time >= 2:
                                 req._last_sse_send_time = current_time
 
-                                    # 속도 계산
-                                    speed_time_elapsed = current_time - getattr(req, '_local_ui_speed_time', req._local_speed_start_time)
-                                    if speed_time_elapsed > 0.5: # 0.5초 이상 간격으로만
-                                        speed_bytes_diff = downloaded - getattr(req, '_local_ui_speed_bytes', req._local_speed_start_bytes)
-                                        download_speed = speed_bytes_diff / speed_time_elapsed
-                                        
-                                        req._local_ui_speed_time = current_time
-                                        req._local_ui_speed_bytes = downloaded
-                                    else:
-                                        # 마지막 계산된 속도 재사용
-                                        download_speed = getattr(req, '_last_local_download_speed', 0)
+                                # 속도 계산
+                                speed_time_elapsed = current_time - getattr(req, '_local_ui_speed_time', req._local_speed_start_time)
+                                if speed_time_elapsed > 0.5: # 0.5초 이상 간격으로만
+                                    speed_bytes_diff = downloaded - getattr(req, '_local_ui_speed_bytes', req._local_speed_start_bytes)
+                                    download_speed = speed_bytes_diff / speed_time_elapsed
                                     
-                                    req._last_local_download_speed = download_speed
+                                    req._local_ui_speed_time = current_time
+                                    req._local_ui_speed_bytes = downloaded
+                                else:
+                                    # 마지막 계산된 속도 재사용
+                                    download_speed = getattr(req, '_last_local_download_speed', 0)
+                                
+                                req._last_local_download_speed = download_speed
 
-                                    send_sse_message("status_update", {
+                                send_sse_message("status_update", {
                                         "id": req.id,
                                         "downloaded_size": downloaded,
                                         "total_size": total_size,
@@ -2800,7 +2800,12 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         # 텔레그램 알림 전송 (완료)
         unknown_file = get_translations(language).get("telegram_unknown_file", "알 수 없는 파일")
         
-        file_size_str = req.file_size or "알 수 없음"
+        # 파일 크기 포맷팅 (1fichier와 동일한 방식)
+        file_size_str = "알 수 없음"
+        if req.total_size:
+            file_size_str = format_file_size(req.total_size)
+        elif req.file_size:
+            file_size_str = req.file_size
         
         download_time_str = None
         if req.finished_at:
