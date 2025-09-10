@@ -379,6 +379,7 @@
       eventSourceManager = new EventSourceManager();
     }
 
+    console.log("🔌 SSE 연결 시도 중...");
     eventSourceManager.connect((message) => {
       console.log("📡 SSE 메시지 수신:", message.type, message.data);
       
@@ -438,15 +439,15 @@
           timestamp: Date.now()
         };
         
-        // 다운로드 상태를 대기 상태로 업데이트
-        const index = downloads.findIndex((d) => d.id === download_id);
-        if (index !== -1) {
-          downloads = downloads.map((d, i) =>
-            i === index ? { ...d, status: "waiting" } : d
-          );
-        }
+        // 다운로드 상태는 서버에서 설정한 상태를 유지 (강제 변경하지 않음)
         downloadWaitInfo = { ...downloadWaitInfo };
         console.log("📊 downloadWaitInfo 업데이트됨:", downloadWaitInfo);
+        console.log("🔍 wait_countdown 조건 체크:", {
+          download_id,
+          hasWaitInfo: !!downloadWaitInfo[download_id],
+          remaining_time: downloadWaitInfo[download_id]?.remaining_time,
+          condition: downloadWaitInfo[download_id] && downloadWaitInfo[download_id].remaining_time > 0
+        });
       }
 
       // 대기 완료 처리
@@ -454,6 +455,26 @@
         const { id } = message.data;
         delete downloadWaitInfo[id];
         downloadWaitInfo = { ...downloadWaitInfo };
+      }
+
+      // 파일명 업데이트 처리
+      if (message.type === "filename_update") {
+        console.log("📁 filename_update 메시지 수신:", message.data);
+        const { id, file_name, file_size } = message.data;
+        const index = downloads.findIndex((d) => d.id === id);
+        if (index !== -1) {
+          downloads = downloads.map((d, i) => {
+            if (i === index) {
+              console.log(`📁 파일명 업데이트: ID=${id}, ${d.file_name} → ${file_name}`);
+              return { 
+                ...d, 
+                file_name: file_name || d.file_name,
+                file_size: file_size || d.file_size
+              };
+            }
+            return d;
+          });
+        }
       }
 
       // SSE 테스트 메시지 처리
@@ -576,7 +597,13 @@
 
     const localDownloads = downloadsData.filter((d) => !d.use_proxy);
 
-    const activeLocalDownloads = localDownloads;
+    const activeLocalDownloads = localDownloads.filter((d) => {
+      const status = d.status?.toLowerCase?.() || "";
+      return !(
+        status === "done" ||
+        (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100))
+      );
+    });
 
     const currentDownloading = activeLocalDownloads.find(
       (d) => d.status?.toLowerCase() === "downloading"
@@ -1371,16 +1398,20 @@
                           )})
                           <span class="cooldown-indicator"></span>
                         </span>
-                      {:else if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
+                      {:else if (downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0) || (download.status.toLowerCase() === "downloading" && !download.progress)}
                         <span class="wait-countdown">
-                          {#if downloadWaitInfo[download.id].remaining_time >= 60}
-                            {$t("download_waiting")} ({Math.floor(
-                              downloadWaitInfo[download.id].remaining_time / 60
-                            )}{$t("time_minutes")})
+                          {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time}
+                            {#if downloadWaitInfo[download.id].remaining_time >= 60}
+                              {$t("download_waiting")} ({Math.floor(
+                                downloadWaitInfo[download.id].remaining_time / 60
+                              )}{$t("time_minutes")})
+                            {:else}
+                              {$t("download_waiting")} ({downloadWaitInfo[
+                                download.id
+                              ].remaining_time}{$t("time_seconds")})
+                            {/if}
                           {:else}
-                            {$t("download_waiting")} ({downloadWaitInfo[
-                              download.id
-                            ].remaining_time}{$t("time_seconds")})
+                            {$t("download_waiting")} (파싱 중...)
                           {/if}
                           <span
                             class="wait-indicator wait-indicator-{download.status.toLowerCase()}"

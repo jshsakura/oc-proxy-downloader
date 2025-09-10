@@ -179,7 +179,10 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     if use_proxy and proxies:
         # print(f"[LOG] 지정된 프록시로 파싱 시도: {proxies}")
         try:
-            direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=90, proxy_addr=proxy_addr)
+            parse_result = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=90, proxy_addr=proxy_addr)
+            if parse_result is None:
+                return None  # 정지된 경우
+            direct_link, html_content = parse_result
             return direct_link  # 기존 호환성 유지
         except (requests.exceptions.ConnectTimeout, 
                 requests.exceptions.ReadTimeout, 
@@ -204,7 +207,10 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     else:
         print(f"[LOG] 로컬 연결로 파싱 시도")
         try:
-            direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=90)
+            parse_result = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=90)
+            if parse_result is None:
+                return None  # 정지된 경우
+            direct_link, html_content = parse_result
             return direct_link  # 기존 호환성 유지
         except requests.exceptions.SSLError as e:
             print(f"[LOG] SSL 에러 발생, 인증서 검증 비활성화하여 재시도: {e}")
@@ -213,7 +219,10 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
             import urllib3
             urllib3.disable_warnings()
             try:
-                direct_link, html_content = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=90)
+                parse_result = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=90)
+                if parse_result is None:
+                    return None  # 정지된 경우
+                direct_link, html_content = parse_result
                 return direct_link
             except Exception as retry_e:
                 print(f"[LOG] SSL 비활성화 후에도 실패: {retry_e}")
@@ -343,6 +352,8 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                                     print(f"[LOG] ★ 파일크기 최초 설정: '{early_file_info['size']}'")
                             elif has_filename or has_filesize:
                                 print(f"[LOG] ★ 파일 정보 이미 존재 - 덮어쓰기 방지 (이름: {has_filename}, 크기: {has_filesize})")
+                                # 덮어쓰기 방지여도 프론트엔드에는 정확한 정보 전송 필요
+                                updated = True
                             
                             if updated:
                                 temp_db.commit()
@@ -392,7 +403,11 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         # STEP 2: 이제 정상적인 다운로드 링크 파싱 진행
         print(f"[LOG] 2단계: 다운로드 링크 파싱 진행")
         wait_time_limit = 86400 if use_proxy else 86400  # 24시간 (최대 대기시간)
-        direct_link, html_content = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit, proxy_addr=proxy_addr)
+        parse_result = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit, proxy_addr=proxy_addr)
+        if parse_result is None:
+            # 정지된 경우
+            return None, None
+        direct_link, html_content = parse_result
         
         if direct_link and html_content:
             # 방금 파싱한 새로운 링크는 만료 검사 불필요
@@ -542,6 +557,29 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                 "status": "downloading"
                             })
                             print(f"[LOG] 다운로드 상태를 'downloading'으로 업데이트: ID {download_req.id}")
+                            
+                            # 대기 시작 시 즉시 wait_countdown 메시지 전송
+                            wait_minutes = wait_seconds // 60
+                            wait_message = f"대기 중 ({wait_minutes}분 {wait_seconds % 60}초)" if wait_minutes > 0 else f"대기 중 ({wait_seconds}초)"
+                            
+                            wait_data = {
+                                "download_id": download_req.id,
+                                "remaining_time": wait_seconds,
+                                "wait_message": wait_message,
+                                "total_wait_time": wait_seconds,
+                                "proxy_addr": proxy_addr,
+                                "url": url
+                            }
+                            
+                            # 파일 크기 정보 추가
+                            if download_req.total_size:
+                                wait_data["total_size"] = download_req.total_size
+                            if download_req.file_name:
+                                wait_data["file_name"] = download_req.file_name
+                            
+                            print(f"[LOG] 🕐 대기 시작 wait_countdown 메시지 전송: ID={download_req.id}, remaining={wait_seconds}초")
+                            print(f"[DEBUG] wait_countdown 데이터: {wait_data}")
+                            send_sse_message("wait_countdown", wait_data)
                     finally:
                         temp_db.close()
                 except Exception as e:
@@ -622,6 +660,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         # SSE로 카운트다운 전송 (스마트 업데이트)
                         should_send_update = (
                             remaining <= 10 or  # 마지막 10초는 매초
+                            remaining % 15 == 0 or  # 15초마다
                             remaining % 60 == 0 or  # 매 분마다
                             (remaining > 300 and remaining % 300 == 0)  # 5분 이상이면 5분마다
                         )

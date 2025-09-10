@@ -336,44 +336,29 @@ def create_download_task(
     db.commit()
     db.refresh(db_req)
     
-    # 파일 정보 미리 파싱 (백그라운드에서) - 파일명이 없을 때만 실행
+    # 파일 정보 미리 파싱 (동기적으로) - 파일명이 없을 때만 실행
     if not db_req.file_name or db_req.file_name.strip() == '':
-        def parse_file_info_async():
-            temp_db = None
-            try:
-                from .parser_service import parse_file_info_only
-                file_info = parse_file_info_only(str(request.url), request.password, request.use_proxy)
-                if file_info and file_info.get('name'):
-                    # 새 DB 세션으로 업데이트
-                    from .db import SessionLocal
-                    temp_db = SessionLocal()
-                    fresh_req = temp_db.query(DownloadRequest).filter(DownloadRequest.id == db_req.id).first()
-                    if fresh_req and (not fresh_req.file_name or fresh_req.file_name.strip() == ''):
-                        fresh_req.file_name = file_info['name']
-                        fresh_req.file_size = file_info.get('size')
-                        temp_db.commit()
-                        print(f"[LOG] 파일 정보 미리 파싱 완료: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
-                        
-                        # SSE로 UI 업데이트
-                        from main import notify_status_update
-                        notify_status_update(db, fresh_req.id)
-                    else:
-                        print(f"[LOG] 파일명이 이미 존재하여 미리 파싱 스킵")
-            except Exception as e:
-                print(f"[LOG] 파일 정보 미리 파싱 실패: {e}")
-            finally:
-                if temp_db:
-                    try:
-                        temp_db.close()
-                    except:
-                        pass
-        
-        # 백그라운드에서 파싱 실행
-        import threading
-        parse_thread = threading.Thread(target=parse_file_info_async, daemon=True)
-        parse_thread.start()
+        print(f"[LOG] 파일명이 없어서 사전 파싱 시작...")
+        try:
+            from .parser_service import parse_file_info_only
+            file_info = parse_file_info_only(str(request.url), request.password, request.use_proxy)
+            if file_info and file_info.get('name'):
+                # 현재 DB 세션에서 바로 업데이트
+                db_req.file_name = file_info['name']
+                db_req.file_size = file_info.get('size')
+                db.commit()
+                db.refresh(db_req)
+                print(f"[LOG] 📁 파일 정보 사전 파싱 완료: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
+                
+                # SSE로 UI 업데이트
+                from main import notify_status_update
+                notify_status_update(db, db_req.id)
+            else:
+                print(f"[LOG] ⚠️ 파일 정보 파싱 실패 - 파일명을 가져올 수 없음")
+        except Exception as e:
+            print(f"[LOG] ❌ 파일 정보 사전 파싱 실패: {e}")
     else:
-        print(f"[LOG] 파일명이 이미 존재하여 미리 파싱 스킵: {db_req.file_name}")
+        print(f"[LOG] 파일명이 이미 존재하여 사전 파싱 스킵: {db_req.file_name}")
     
     # 새로운 다운로드 시스템 사용
     print(f"[LOG] 데이터베이스에 저장된 요청 ID: {db_req.id}")
