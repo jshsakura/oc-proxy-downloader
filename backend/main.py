@@ -499,6 +499,7 @@ async def stream_events(request: Request):
             
             heartbeat_counter = 0
             message_sent = False
+            heartbeat_log_counter = 0  # heartbeat 로깅 제한용
             
             while True:
                 # 클라이언트 연결 해제 확인
@@ -525,10 +526,15 @@ async def stream_events(request: Request):
                     await asyncio.sleep(2)  # 2초 대기
                     heartbeat_counter += 1
                     
-                    # 10초마다 heartbeat 전송 (클라우드플레어 호환: 30초 타임아웃 방지)
-                    if heartbeat_counter >= 5:  # 2초 * 5 = 10초
+                    # 30초마다 heartbeat 전송 (클라우드플레어 호환)
+                    if heartbeat_counter >= 15:  # 2초 * 15 = 30초
                         queue_size = status_queue.qsize()
-                        print(f"[LOG] 💓 SSE heartbeat 전송 (큐 크기: {queue_size})")
+                        heartbeat_log_counter += 1
+                        
+                        # 5분마다만 heartbeat 로그 출력 (10번마다 = 30초 * 10 = 5분)
+                        if heartbeat_log_counter % 10 == 0:
+                            print(f"[LOG] 💓 SSE heartbeat (큐: {queue_size}) - {heartbeat_log_counter}번째")
+                        
                         yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': time.time(), 'queue_size': queue_size})}\n\n"
                         heartbeat_counter = 0
                     
@@ -1713,13 +1719,10 @@ def test_sse():
             "timestamp": time.time()
         }
     })
-    print(f"[LOG] 🧪 SSE 테스트 메시지 전송: {test_message}")
-    print(f"[LOG] 🔍 큐 전송 전 크기: {status_queue.qsize()}")
+    print(f"[LOG] 🧪 SSE 테스트 메시지 전송")
     
     # 안전한 논블로킹 방식으로 큐에 추가
     safe_status_queue_put(test_message)
-    
-    print(f"[LOG] 🔍 큐 전송 후 크기: {status_queue.qsize()}")
     return {"message": "테스트 메시지 전송됨"}
 
 @api_router.post("/downloads/cancel/{download_id}")

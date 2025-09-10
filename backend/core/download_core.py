@@ -2672,7 +2672,9 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         # 텔레그램 다운로드 시작 알림 전송 (일반 다운로드)
         try:
             download_mode = "proxy" if use_proxy else "local"
-            file_size_str = req.file_size  # 이미 포맷된 크기 문자열
+            file_size_str = None
+            if req.total_size and req.total_size > 0:
+                file_size_str = format_file_size(req.total_size)
             
             send_telegram_start_notification(
                 file_name=req.file_name or "Unknown File",
