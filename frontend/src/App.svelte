@@ -1371,7 +1371,7 @@
                           )})
                           <span class="cooldown-indicator"></span>
                         </span>
-                      {:else if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && !["stopped", "done", "failed"].includes(download.status.toLowerCase())}
+                      {:else if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
                         <span class="wait-countdown">
                           {#if downloadWaitInfo[download.id].remaining_time >= 60}
                             {$t("download_waiting")} ({Math.floor(
