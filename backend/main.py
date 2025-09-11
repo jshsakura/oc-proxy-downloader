@@ -400,149 +400,124 @@ async def status_broadcaster():
 _cleanup_executed = False
 
 def cleanup_and_exit():
-    """서버 종료 시 정리 작업"""
+    """서버 종료 시 정리 작업 - 빠른 종료를 위한 최적화"""
     global _cleanup_executed
     
     if _cleanup_executed:
         return
     
     _cleanup_executed = True
-    print("[LOG] 서버 종료 중...")
-    print("[LOG] FastAPI 서버 종료: 모든 백그라운드 다운로드 스레드 관리 목록 비움")
-    download_manager.terminate_all_downloads()
+    print("[LOG] ⚡ 빠른 서버 종료 시작...")
     
-    # 진행 중인 다운로드들을 정지 상태로 변경
-    db = next(get_db())
+    # 1. 다운로드 매니저 즉시 정리
     try:
-        affected = db.query(DownloadRequest).filter(
-            DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing])
-        ).update({"status": "stopped"})
-        db.commit()
-        print(f"[LOG] 서버 종료 시 {affected}개의 진행 중 다운로드를 stopped로 변경")
+        print("[LOG] 📥 다운로드 매니저 정리 중...")
+        download_manager.terminate_all_downloads()
+        print("[LOG] ✅ 다운로드 매니저 정리 완료")
     except Exception as e:
-        print(f"[LOG] 서버 종료 시 다운로드 상태 변경 실패: {e}")
-    finally:
-        db.close()
+        print(f"[LOG] ❌ 다운로드 매니저 정리 실패: {e}")
     
-    # 강제로 모든 백그라운드 태스크 종료
+    # 2. DB 상태 업데이트 (타임아웃 적용)
+    try:
+        print("[LOG] 💾 DB 상태 업데이트 중...")
+        from sqlalchemy.pool import NullPool
+        from sqlalchemy import create_engine, text
+        
+        # 빠른 DB 연결을 위한 엔진 생성 (풀링 없음)
+        quick_engine = create_engine(
+            "sqlite:///downloads.db",
+            poolclass=NullPool,
+            connect_args={"timeout": 1}  # 1초 타임아웃
+        )
+        
+        with quick_engine.connect() as conn:
+            # 간단한 SQL로 빠르게 업데이트
+            result = conn.execute(text(
+                "UPDATE download_requests SET status = 'stopped' "
+                "WHERE status IN ('downloading', 'proxying', 'parsing')"
+            ))
+            conn.commit()
+            print(f"[LOG] ✅ {result.rowcount}개 다운로드 상태 stopped로 변경")
+            
+    except Exception as e:
+        print(f"[LOG] ⚠️ DB 상태 업데이트 실패 (무시): {e}")
+    
+    # 3. WebSocket 연결 즉시 정리
+    try:
+        print(f"[LOG] 🔌 WebSocket 연결 {len(manager.active_connections)}개 정리 중...")
+        # WebSocket 연결을 동기적으로 정리 (블로킹 방지)
+        for websocket in manager.active_connections.copy():
+            try:
+                # 동기적으로 즉시 연결 상태 변경
+                websocket.client_state = 3  # DISCONNECTED
+            except:
+                pass
+        manager.active_connections.clear()
+        print("[LOG] ✅ WebSocket 연결 정리 완료")
+    except Exception as e:
+        print(f"[LOG] ⚠️ WebSocket 정리 실패 (무시): {e}")
+    
+    # 4. 스레드 정리 (간소화)
     try:
         import threading
-        import os
-        import concurrent.futures
-        import asyncio
         import time
         
-        print(f"[LOG] 종료 전 총 {threading.active_count()}개의 스레드 활성화")
+        initial_thread_count = threading.active_count()
+        print(f"[LOG] 🧵 종료 전 {initial_thread_count}개 스레드 활성화")
         
-        # 모든 활성 스레드 상세 분석
-        non_daemon_threads = []
-        for thread in threading.enumerate():
-            if thread != threading.current_thread():
-                thread_info = f"{thread.name} (daemon: {thread.daemon}, alive: {thread.is_alive()})"
-                if hasattr(thread, '_target') and thread._target:
-                    thread_info += f", target: {thread._target.__name__ if hasattr(thread._target, '__name__') else str(thread._target)}"
-                print(f"[LOG] 활성 스레드: {thread_info}")
-                
-                if not thread.daemon and thread.is_alive():
-                    non_daemon_threads.append(thread)
-        
-        # 1. WebSocket 연결들 강제 종료
-        try:
-            print(f"[LOG] WebSocket 연결 {len(manager.active_connections)}개 강제 종료 중...")
-            for websocket in manager.active_connections.copy():  # copy()로 안전하게 반복
-                try:
-                    asyncio.create_task(websocket.close())
-                except Exception as ws_e:
-                    print(f"[LOG] WebSocket 연결 종료 실패: {ws_e}")
-            manager.active_connections.clear()
-            print(f"[LOG] WebSocket 연결 모두 종료됨")
-        except Exception as e:
-            print(f"[LOG] WebSocket 종료 실패: {e}")
-        
-        # 2. AsyncIO 이벤트 루프 강제 종료
-        try:
-            loop = asyncio.get_running_loop()
-            print(f"[LOG] AsyncIO 루프 발견, 강제 종료 중...")
-            # 모든 태스크 취소 (status_broadcaster 포함)
-            tasks = asyncio.all_tasks(loop)
-            cancelled_count = 0
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-                    cancelled_count += 1
-                    # 태스크명이 있으면 출력
-                    task_name = getattr(task, '_name', 'unnamed')
-                    print(f"[LOG] AsyncIO 태스크 취소: {task_name}")
-            print(f"[LOG] {cancelled_count}/{len(tasks)}개의 AsyncIO 태스크 취소됨")
-            
-            # 잠시 대기해서 태스크들이 정리되도록 함
-            time.sleep(0.1)
-            
-        except RuntimeError:
-            print(f"[LOG] AsyncIO 루프 없음")
-        except Exception as e:
-            print(f"[LOG] AsyncIO 루프 종료 실패: {e}")
-        
-        # 3. ThreadPoolExecutor 강제 종료
-        try:
-            import gc
-            executor_count = 0
-            for obj in gc.get_objects():
-                if isinstance(obj, concurrent.futures.ThreadPoolExecutor):
-                    executor_count += 1
-                    print(f"[LOG] ThreadPoolExecutor #{executor_count} 발견, 강제 종료 중...")
-                    try:
-                        obj.shutdown(wait=False)
-                        print(f"[LOG] ThreadPoolExecutor #{executor_count} 종료 완료")
-                    except Exception as e:
-                        print(f"[LOG] ThreadPoolExecutor #{executor_count} 종료 실패: {e}")
-            if executor_count == 0:
-                print(f"[LOG] ThreadPoolExecutor 없음")
-        except Exception as e:
-            print(f"[LOG] ThreadPoolExecutor 검색 실패: {e}")
-        
-        # 4. 데몬이 아닌 스레드들 강제 종료 시도
-        if non_daemon_threads:
-            print(f"[LOG] {len(non_daemon_threads)}개의 non-daemon 스레드 발견")
-            for thread in non_daemon_threads:
-                print(f"[LOG] Non-daemon 스레드 강제 종료 시도: {thread.name}")
-                # Python에서는 스레드를 직접 kill할 수 없으므로 주의
-        
-        # 5. 더 강력한 대기 및 진단
-        max_wait_time = 2  # 2초로 단축
+        # 간단한 스레드 대기 (타임아웃 적용)
+        max_wait_time = 1.0  # 1초로 단축
         wait_time = 0
-        while threading.active_count() > 1 and wait_time < max_wait_time:
-            time.sleep(0.2)
-            wait_time += 0.2
-            remaining_threads = [t.name for t in threading.enumerate() if t != threading.current_thread()]
-            print(f"[LOG] 스레드 종료 대기 중... ({threading.active_count()-1}개 남음: {remaining_threads})")
+        check_interval = 0.1
         
-        if threading.active_count() > 1:
-            print(f"[LOG] ⚠️  경고: {threading.active_count()-1}개의 스레드가 여전히 활성 상태")
-            for thread in threading.enumerate():
-                if thread != threading.current_thread():
-                    print(f"[LOG] 🔴 남은 스레드: {thread.name} (daemon: {thread.daemon})")
-            print(f"[LOG] 🚨 강제 프로세스 종료 실행...")
+        while threading.active_count() > 1 and wait_time < max_wait_time:
+            time.sleep(check_interval)
+            wait_time += check_interval
+        
+        final_thread_count = threading.active_count()
+        if final_thread_count > 1:
+            print(f"[LOG] ⚠️ {final_thread_count-1}개 스레드 남음 (강제 종료 진행)")
+            # 남은 스레드 이름만 간단히 출력
+            remaining = [t.name for t in threading.enumerate() if t != threading.current_thread()][:5]  # 최대 5개만
+            print(f"[LOG] 남은 스레드: {remaining}")
+        else:
+            print(f"[LOG] ✅ 모든 스레드 정리 완료")
             
     except Exception as e:
-        print(f"[LOG] 스레드 정보 확인 실패: {e}")
-        print(f"[LOG] 🚨 예외 발생으로 인한 강제 종료...")
+        print(f"[LOG] ⚠️ 스레드 정리 중 오류 (무시): {e}")
     
-    print("[LOG] 서버 종료 완료")
+    print("[LOG] ✅ 서버 종료 완료")
 
 def signal_handler(signum, frame):
-    """신호 처리기"""
-    print(f"\n[LOG] 신호 {signum} 받음. 서버를 종료합니다...")
+    """신호 처리기 - 빠른 종료 (Windows 호환)"""
+    print(f"\n[LOG] ⚡ 신호 {signum} 받음. 빠른 서버 종료...")
+    
+    # 타임아웃을 적용한 정리 작업 (Windows 호환)
     try:
-        cleanup_and_exit()
-    except Exception as e:
-        print(f"[LOG] cleanup_and_exit 실행 중 오류: {e}")
-    finally:
-        # 강제 종료
-        print(f"[LOG] 강제 프로세스 종료 (PID: {os.getpid()})")
+        import threading
         import time
-        time.sleep(0.5)  # 마지막 로그 출력 대기
-        os._exit(0)  # 더 강력한 종료
+        
+        # 강제 종료를 위한 타이머 스레드
+        def force_exit():
+            time.sleep(3)  # 3초 후 강제 종료
+            print(f"[LOG] 🚨 종료 타임아웃! 즉시 프로세스 종료 (PID: {os.getpid()})")
+            os._exit(1)
+        
+        # 백그라운드에서 강제 종료 타이머 시작
+        timeout_thread = threading.Thread(target=force_exit, daemon=True)
+        timeout_thread.start()
+        
+        # 정리 작업 실행
+        cleanup_and_exit()
+        
+    except Exception as e:
+        print(f"[LOG] ❌ 정리 작업 중 오류: {e}")
+    
+    # 최종 강제 종료
+    print(f"[LOG] 🔚 프로세스 종료 (PID: {os.getpid()})")
+    import time
+    time.sleep(0.1)  # 짧은 로그 출력 대기
+    os._exit(0)
 
 # 신호 처리기 등록 (중복 방지)
 if not hasattr(cleanup_and_exit, '_handlers_registered'):
@@ -550,6 +525,7 @@ if not hasattr(cleanup_and_exit, '_handlers_registered'):
     signal.signal(signal.SIGTERM, signal_handler)  # 종료 신호
     atexit.register(cleanup_and_exit)  # 프로그램 종료 시
     cleanup_and_exit._handlers_registered = True
+    print("[LOG] 🔧 빠른 종료 핸들러 등록 완료")
 
 
 
@@ -2494,10 +2470,28 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     import uvicorn
     
-    # 포트 설정 (환경변수로 오버라이드 가능)
-    port = int(os.getenv('UVICORN_PORT', '8000'))
-    host = os.getenv('UVICORN_HOST', '0.0.0.0')
-    
-    print(f"Server started on http://{host}:{port}")
-    
-    uvicorn.run("main:app", host=host, port=port, reload=False)
+    try:
+        # 포트 설정 (환경변수로 오버라이드 가능)
+        port = int(os.getenv('UVICORN_PORT', '8000'))
+        host = os.getenv('UVICORN_HOST', '0.0.0.0')
+        
+        print(f"[LOG] 🚀 서버 시작: http://{host}:{port}")
+        print(f"[LOG] 💡 종료하려면 Ctrl+C를 누르세요")
+        
+        # 빠른 종료를 위한 uvicorn 설정
+        uvicorn.run(
+            "main:app", 
+            host=host, 
+            port=port, 
+            reload=False,
+            log_config=None  # 로그 설정 간소화
+        )
+        
+    except KeyboardInterrupt:
+        print(f"\n[LOG] ⚡ Ctrl+C로 서버 종료 요청됨")
+        cleanup_and_exit()
+    except Exception as e:
+        print(f"[LOG] ❌ 서버 시작 실패: {e}")
+        cleanup_and_exit()
+    finally:
+        print(f"[LOG] 🔚 메인 프로세스 종료")
