@@ -23,23 +23,28 @@ def force_print(*args, **kwargs):
 
 
 def smart_print(*args, **kwargs):
-    """로그 레벨에 따른 메시지 필터링"""
-    message = ' '.join(str(arg) for arg in args)
+    """로그 레벨에 따른 메시지 필터링 - reentrant call 방지"""
+    try:
+        message = ' '.join(str(arg) for arg in args)
 
-    # 런타임에 LOG_LEVEL 확인 (환경변수가 변경될 수 있으므로)
-    log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
+        # 런타임에 LOG_LEVEL 확인 (환경변수가 변경될 수 있으므로)
+        log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
 
-    # LOG_LEVEL에 따른 필터링
-    if log_level == 'ERROR' and not any(tag in message for tag in ['[ERROR]']):
-        return
-    elif log_level == 'WARNING' and not any(tag in message for tag in ['[ERROR]', '[WARNING]']):
-        return
-    elif log_level == 'INFO' and not any(tag in message for tag in ['[ERROR]', '[WARNING]', '[LOG]']):
-        return
-    # DEBUG 레벨이면 모든 메시지 출력
+        # LOG_LEVEL에 따른 필터링
+        if log_level == 'ERROR' and not any(tag in message for tag in ['[ERROR]']):
+            return
+        elif log_level == 'WARNING' and not any(tag in message for tag in ['[ERROR]', '[WARNING]']):
+            return
+        elif log_level == 'INFO' and not any(tag in message for tag in ['[ERROR]', '[WARNING]', '[LOG]']):
+            return
+        # DEBUG 레벨이면 모든 메시지 출력
 
-    sys.stdout.write(f"{message}\n")
-    sys.stdout.flush()
+        # reentrant call 방지를 위해 try-except로 보호
+        sys.stdout.write(f"{message}\n")
+        sys.stdout.flush()
+    except (RuntimeError, OSError):
+        # reentrant call이나 stdout 문제 시 무시
+        pass
 
 
 def replace_print():

@@ -15,6 +15,7 @@
   export let currentIndex = 0;
   export let totalAttempting = 0;
   export let activeDownloadCount = 0;
+  export let statusMessage = ""; // 백엔드에서 제공하는 상태 메시지
 
   $: usagePercentage =
     totalProxies > 0
@@ -167,7 +168,9 @@
     {:else}
       <span class="status-icon idle-icon"></span>
       <span class="status-text">
-        {#if activeDownloadCount === 0}
+        {#if statusMessage}
+          {statusMessage}
+        {:else if activeDownloadCount === 0}
           {$t("proxy_idle")}
         {:else}
           {$t("proxy_downloading")}

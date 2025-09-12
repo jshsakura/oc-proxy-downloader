@@ -41,33 +41,37 @@ app = create_app()
 
 
 def force_cleanup_threads():
-    """AnyIO worker thread 강제 정리"""
-    import threading
-    import time
+    """AnyIO worker thread 강제 정리 - reentrant call 방지"""
+    try:
+        import threading
+        import time
 
-    print("[LOG] Starting thread cleanup...")
+        print("[LOG] Starting thread cleanup...")
 
-    # 1초 대기로 정상 종료 기회 제공
-    time.sleep(1)
+        # 1초 대기로 정상 종료 기회 제공
+        time.sleep(1)
 
-    # 현재 스레드 확인
-    active_threads = threading.enumerate()
-    anyio_threads = [
-        t for t in active_threads if 'AnyIO worker thread' in t.name and not t.daemon]
+        # 현재 스레드 확인
+        active_threads = threading.enumerate()
+        anyio_threads = [
+            t for t in active_threads if 'AnyIO worker thread' in t.name and not t.daemon]
 
-    if anyio_threads:
-        print(
-            f"[LOG] Found {len(anyio_threads)} AnyIO worker threads to cleanup")
+        if anyio_threads:
+            print(
+                f"[LOG] Found {len(anyio_threads)} AnyIO worker threads to cleanup")
 
-        # 강제 종료 시도 (daemon으로 변경)
-        for thread in anyio_threads:
-            try:
-                thread.daemon = True
-                print(f"[LOG] Set daemon=True for {thread.name}")
-            except:
-                pass
+            # 강제 종료 시도 (daemon으로 변경)
+            for thread in anyio_threads:
+                try:
+                    thread.daemon = True
+                    print(f"[LOG] Set daemon=True for {thread.name}")
+                except:
+                    pass
 
-    print("[LOG] Thread cleanup completed")
+        print("[LOG] Thread cleanup completed")
+    except:
+        # 예외 발생 시 조용히 무시 (reentrant call 방지)
+        pass
 
 
 if __name__ == "__main__":
@@ -83,16 +87,26 @@ if __name__ == "__main__":
     # 종료 시 스레드 정리 등록
     atexit.register(force_cleanup_threads)
 
-    # 시그널 핸들러
+    # 시그널 핸들러 - 강력한 즉시 종료
     def signal_handler(signum, frame):
-        print(f"[LOG] Received signal {signum}, starting cleanup...")
-        force_cleanup_threads()
-        # exit(0) 대신 KeyboardInterrupt 발생시켜 uvicorn이 graceful shutdown 하도록 함
+        print(f"[LOG] ⚠️  Received signal {signum}, IMMEDIATE EXIT!")
+        print("[LOG] 강제 종료 - 모든 프로세스 종료 중...")
+        
+        # 모든 스레드 강제 종료
+        try:
+            import threading
+            for thread in threading.enumerate():
+                if thread != threading.main_thread():
+                    print(f"[LOG] 강제 종료 스레드: {thread.name}")
+        except:
+            pass
+        
+        # 즉시 강제 종료 (정리 작업 없음)
         import os
         os._exit(0)
 
     signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C 처리
 
     try:
         # 개발 서버 실행

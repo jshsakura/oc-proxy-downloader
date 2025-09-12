@@ -126,8 +126,6 @@ def parse_file_info_only(request: DownloadRequestCreate, db: Session = Depends(g
             # 일반 URL - Content-Type 체크 후 파일 정보 추출
             try:
                 print(f"[LOG] 일반 URL 파일 정보 체크 시작...")
-                import requests
-                from urllib.parse import urlparse, unquote
                 
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -234,10 +232,7 @@ def parse_file_info_only(request: DownloadRequestCreate, db: Session = Depends(g
                 except Exception as e:
                     print(f"[LOG] 파일 크기 파싱 실패: {e}")
             
-            # direct_link도 저장 (나중에 다운로드할 때 사용)
-            if direct_link:
-                db_req.direct_link = direct_link
-                print(f"[LOG] Direct link 저장됨")
+            # direct_link 저장은 더 이상 사용하지 않음 (제거됨)
             
             db.commit()
             
@@ -593,7 +588,6 @@ def delete_download(download_id: int, db: Session = Depends(get_db)):
         db.commit()
         
         # 잠시 대기 (다운로드 함수가 정지를 감지할 시간)
-        import time
         time.sleep(1)
     
     # 삭제 전에 다운로드 매니저에서 해제 (대기 중인 다운로드 시작을 위해)
@@ -664,7 +658,7 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
     # 재시도 시에는 항상 대기 상태로 추가 (큐에서 순서 대기)
     setattr(item, "status", StatusEnum.pending)
     setattr(item, "error", None)
-    setattr(item, "direct_link", None)  # 재시도 시 새로운 링크 파싱 강제
+    # direct_link 필드는 제거됨
     db.commit()
     
     print(f"[LOG] 재시도 요청이 대기 큐에 추가됨: ID {download_id}")

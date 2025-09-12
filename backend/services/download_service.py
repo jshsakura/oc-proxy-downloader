@@ -5,9 +5,12 @@ import time
 import threading
 import requests
 import cloudscraper
+import re
+import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
+from urllib.parse import urlparse, unquote
 
 from core.models import DownloadRequest, StatusEnum
 from core.config import get_download_path
@@ -26,6 +29,9 @@ class AsyncDownloadService:
         """서비스 시작"""
         # ThreadPoolExecutor는 필요시 생성
         print("[LOG] AsyncDownloadService started")
+        
+        # 자동 재개 활성화 - 기존 다운로드를 pending으로 변경하고 대기중인 다운로드 시작
+        await self._resume_interrupted_downloads()
 
     async def stop(self):
         """서비스 정지 및 정리"""
@@ -112,6 +118,95 @@ class AsyncDownloadService:
         if request_id in self.download_tasks:
             del self.download_tasks[request_id]
 
+    async def _resume_interrupted_downloads(self):
+        """서버 재시작 시 진행중인 다운로드를 자동 재개하고 대기중인 다운로드를 시작"""
+        try:
+            db = next(get_db())
+            
+            # 1. 진행중인 다운로드들을 모두 대기 상태로 변경
+            interrupted_downloads = db.query(DownloadRequest).filter(
+                DownloadRequest.status.in_([
+                    StatusEnum.downloading, 
+                    StatusEnum.proxying, 
+                    StatusEnum.parsing
+                ])
+            ).all()
+            
+            if interrupted_downloads:
+                print(f"[LOG] {len(interrupted_downloads)}개의 중단된 다운로드를 대기 상태로 변경")
+                
+                for req in interrupted_downloads:
+                    req.status = StatusEnum.pending
+                    print(f"[LOG] 다운로드 {req.id} ({req.file_name}) -> pending 상태로 변경")
+                
+                db.commit()
+            
+            # 2. 대기중인 다운로드만 조회 (stopped 상태는 제외)
+            all_pending_downloads = db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.pending
+            ).order_by(DownloadRequest.requested_at.asc()).all()
+            
+            # IMPORTANT: stopped 상태인 다운로드는 절대 시작하지 않음
+            print(f"[LOG] stopped 상태인 다운로드는 자동 시작에서 제외됨")
+            
+            if all_pending_downloads:
+                print(f"[LOG] 총 {len(all_pending_downloads)}개의 대기중인 다운로드 발견")
+                
+                # 1fichier와 일반 다운로드 분류
+                fichier_downloads = [req for req in all_pending_downloads if "1fichier.com" in req.url.lower()]
+                general_downloads = [req for req in all_pending_downloads if "1fichier.com" not in req.url.lower()]
+                
+                print(f"[LOG] - 1fichier 다운로드: {len(fichier_downloads)}개")
+                print(f"[LOG] - 일반/프록시 다운로드: {len(general_downloads)}개")
+                
+                started_count = 0
+                
+                # ENV에서 최대 동시 다운로드 수 설정 읽기
+                from services.download_manager import download_manager
+                max_total = download_manager.max_concurrent
+                
+                # 1fichier 다운로드 최대 1개 시작 (프록시/로컬 구분 없이)
+                if fichier_downloads and started_count < max_total:
+                    req = fichier_downloads[0]  # 가장 오래된 것 하나만
+                    print(f"[LOG] 1fichier 다운로드 시작: ID {req.id} ({req.file_name}), use_proxy={req.use_proxy}")
+                    
+                    success = await self.start_download(req.id, "ko", req.use_proxy)
+                    if success:
+                        started_count += 1
+                        print(f"[LOG] 1fichier 다운로드 {req.id} 시작 성공")
+                    else:
+                        print(f"[LOG] 1fichier 다운로드 {req.id} 시작 실패")
+                    
+                    # 다음 다운로드와 간격
+                    await asyncio.sleep(2)
+                
+                # 일반/프록시 다운로드 시작  
+                for req in general_downloads:
+                    if started_count >= max_total:  # 전체 최대값까지만
+                        break
+                        
+                    print(f"[LOG] 일반/프록시 다운로드 시작: ID {req.id} ({req.file_name}), use_proxy={req.use_proxy}")
+                    
+                    success = await self.start_download(req.id, "ko", req.use_proxy)
+                    if success:
+                        started_count += 1
+                        print(f"[LOG] 일반/프록시 다운로드 {req.id} 시작 성공")
+                    else:
+                        print(f"[LOG] 일반/프록시 다운로드 {req.id} 시작 실패")
+                    
+                    # 다운로드 시작 간격 (서버 부하 방지)
+                    if started_count < max_total:
+                        await asyncio.sleep(2)
+                
+                print(f"[LOG] 총 {started_count}개의 다운로드를 자동 시작했습니다")
+            else:
+                print(f"[LOG] 대기중인 다운로드가 없습니다")
+                        
+            db.close()
+            
+        except Exception as e:
+            print(f"[LOG] 자동 재개 실패: {e}")
+
     async def _download_file_async(self, request_id: int, lang: str, use_proxy: bool):
         """비동기 다운로드 메인 함수"""
         try:
@@ -135,22 +230,23 @@ class AsyncDownloadService:
         except asyncio.CancelledError:
             print(f"[LOG] Download {request_id} was cancelled")
             await self._update_download_status(request_id, StatusEnum.stopped)
+            
+            # 취소시에도 매니저에서 정리
+            from services.download_manager import download_manager as simple_manager
+            simple_manager.finish(request_id, "", success=False)
+            print(f"[LOG] Download manager cleaned up for cancelled download {request_id}")
 
         except Exception as e:
             print(f"[ERROR] Download {request_id} failed: {e}")
             await self._update_download_status(request_id, StatusEnum.failed, str(e))
             
             # 실패시에도 매니저에서 정리
-            db = next(get_db())
-            try:
-                req = db.query(DownloadRequest).filter(DownloadRequest.id == request_id).first()
-                if req:
-                    download_manager.finish(request_id, req.url, success=False)
-            finally:
-                db.close()
+            from services.download_manager import download_manager as simple_manager
+            simple_manager.finish(request_id, "", success=False)
+            print(f"[LOG] Download manager cleaned up for failed download {request_id}")
 
     def _download_file_blocking(self, request_id: int, lang: str, use_proxy: bool):
-        """블로킹 다운로드 로직 (기존 download_1fichier_file_NEW_VERSION 로직)"""
+        """블로킹 다운로드 로직 - URL 타입에 따라 적절한 다운로더 선택"""
         # 부모 감시 스레드 시작 (자식 프로세스에서만 동작)
         if os.getppid() != os.getpid():
             threading.Thread(target=self._exit_if_parent_dead,
@@ -166,7 +262,25 @@ class AsyncDownloadService:
             if req is None:
                 print(f"[ERROR] DownloadRequest not found: {request_id}")
                 return
-
+            
+            # URL 타입에 따라 적절한 다운로더 선택
+            # 주의: DB에 저장된 use_proxy 값을 사용 (파라미터는 무시)
+            actual_use_proxy = req.use_proxy
+            print(f"[LOG] DB use_proxy 값: {actual_use_proxy} (파라미터: {use_proxy})")
+            
+            if "1fichier.com" in req.url.lower():
+                print(f"[LOG] 1fichier URL 감지: {req.url}")
+                self._download_1fichier_file(request_id, lang, actual_use_proxy, req, db)
+            else:
+                print(f"[LOG] 일반 URL 감지: {req.url}")
+                self._download_general_file(request_id, lang, actual_use_proxy, req, db)
+                
+        finally:
+            db.close()
+    
+    def _download_1fichier_file(self, request_id: int, lang: str, use_proxy: bool, req, db):
+        """1fichier 전용 다운로드 로직"""
+        try:
             download_path = get_download_path()
             print(f"[LOG] Download path: {download_path}")
 
@@ -199,18 +313,28 @@ class AsyncDownloadService:
                 req, file_path, initial_downloaded_size, use_proxy, db)
 
         except Exception as e:
-            print(f"[ERROR] Download error: {e}")
+            print(f"[ERROR] 1fichier download error: {e}")
             # 동기적으로 상태 업데이트 (ThreadPoolExecutor에서 실행 중)
             self._update_download_status_sync(
                 request_id, StatusEnum.failed, str(e))
-        finally:
-            db.close()
+    
+    def _download_general_file(self, request_id: int, lang: str, use_proxy: bool, req, db):
+        """일반 파일 다운로드 로직"""
+        try:
+            print(f"[LOG] 일반 다운로드 시작: {req.url}")
+            
+            # 일반 다운로드 함수 호출 (기존 구현 활용)
+            from core.download_core import download_general_file
+            download_general_file(request_id, language=lang, use_proxy=use_proxy)
+            
+        except Exception as e:
+            print(f"[ERROR] General download error: {e}")
+            # 동기적으로 상태 업데이트 (ThreadPoolExecutor에서 실행 중)
+            self._update_download_status_sync(
+                request_id, StatusEnum.failed, str(e))
 
     def _perform_download(self, req, file_path, initial_downloaded_size, use_proxy, db):
         """실제 다운로드 수행"""
-        import time
-        import re
-        from urllib.parse import urlparse, unquote
         
         print(f"[LOG] Performing download for {req.id}")
         
@@ -218,19 +342,23 @@ class AsyncDownloadService:
         start_time = time.time()
         max_duration = 300  # 5분
         
-        # 상태를 proxying으로 설정
-        req.status = StatusEnum.proxying
-        db.commit()
-        self._notify_status_update_sync(db, req.id)
-        
         # 프록시 설정
         available_proxies = []
         if use_proxy:
+            # 프록시 다운로드인 경우에만 상태를 proxying으로 설정
+            req.status = StatusEnum.proxying
+            db.commit()
+            self._notify_status_update_sync(db, req.id)
             available_proxies = get_unused_proxies(db)
             print(f"[LOG] 사용 가능한 프록시: {len(available_proxies)}개")
+        else:
+            # 로컬 다운로드인 경우 바로 parsing 상태로 설정
+            req.status = StatusEnum.parsing
+            db.commit()
+            self._notify_status_update_sync(db, req.id)
         
         # 이어받기인 경우 direct_link 재파싱
-        force_reparse = initial_size > 0
+        force_reparse = initial_downloaded_size > 0
         if force_reparse:
             print(f"[LOG] 이어받기 감지. direct_link 재파싱 수행")
         
@@ -241,7 +369,6 @@ class AsyncDownloadService:
         
         # URL 유효성 검증 (파일 존재 확인)
         try:
-            import requests
             print(f"[LOG] URL 유효성 검증: {req.url}")
             test_response = requests.get(req.url, timeout=10)
             if test_response.status_code == 200:
@@ -275,6 +402,16 @@ class AsyncDownloadService:
                     print(f"[LOG] 프록시 파싱 중 정지 요청 감지. 중단합니다.")
                     return
                 
+                # SSE로 프록시 시도 상태 전송
+                from core.download_core import send_sse_message
+                send_sse_message("proxy_trying", {
+                    "id": req.id,
+                    "proxy": proxy_addr,
+                    "step": "parsing",
+                    "current": i + 1,
+                    "total": len(available_proxies)
+                })
+                
                 try:
                     from core.parser_service import get_or_parse_direct_link
                     direct_link = get_or_parse_direct_link(req, use_proxy=True, force_reparse=force_reparse, proxy_addr=proxy_addr)
@@ -286,13 +423,34 @@ class AsyncDownloadService:
                             'https': f'http://{proxy_addr}'
                         }
                         print(f"[LOG] Direct Link 파싱 성공 - 프록시: {proxy_addr}")
+                        
+                        # SSE로 프록시 성공 상태 전송
+                        send_sse_message("proxy_success", {
+                            "id": req.id,
+                            "proxy": proxy_addr,
+                            "step": "parsing"
+                        })
                         break
                 except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, 
                         requests.exceptions.Timeout, requests.exceptions.ProxyError) as e:
                     print(f"[LOG] Direct Link 파싱 실패 - 프록시 {proxy_addr}: {e}")
+                    # SSE로 프록시 실패 상태 전송
+                    send_sse_message("proxy_failed", {
+                        "id": req.id,
+                        "proxy": proxy_addr,
+                        "step": "parsing",
+                        "error": str(e)
+                    })
                     continue
                 except Exception as e:
                     print(f"[LOG] Direct Link 파싱 오류 - 프록시 {proxy_addr}: {e}")
+                    # SSE로 프록시 실패 상태 전송
+                    send_sse_message("proxy_failed", {
+                        "id": req.id,
+                        "proxy": proxy_addr,
+                        "step": "parsing",
+                        "error": str(e)
+                    })
                     continue
         else:
             # 프록시 없이 시도
@@ -302,9 +460,7 @@ class AsyncDownloadService:
         if not direct_link:
             raise Exception("Cannot find download link from 1fichier. Site structure may have changed or proxy issue.")
         
-        # 다운로드 링크를 데이터베이스에 저장
-        req.direct_link = direct_link
-        db.commit()
+        # direct_link 필드 제거됨 - 파싱된 링크는 저장하지 않음
 
         # 상태를 downloading으로 변경
         req.status = StatusEnum.downloading
@@ -322,7 +478,7 @@ class AsyncDownloadService:
                     print(f"[LOG] 다운로드 시도 {attempt + 1}/{max_retries} (프록시: {proxies})")
                     current_headers = headers.copy()
                     
-                    response = requests.get(url, stream=True, allow_redirects=True, headers=current_headers, proxies=proxies, timeout=(1, 5))
+                    response = requests.get(url, stream=True, allow_redirects=True, headers=current_headers, proxies=proxies, timeout=(30, 300))
                     print(f"[LOG] 응답 상태 코드: {response.status_code}")
                     
                     # 409 에러 처리 (Range 헤더 제거)
@@ -330,7 +486,7 @@ class AsyncDownloadService:
                         print(f"[LOG] 409 에러 - Range 헤더 제거 후 재시도")
                         current_headers.pop("Range", None)
                         range_removed = True
-                        response = requests.get(url, stream=True, allow_redirects=True, headers=current_headers, proxies=proxies, timeout=(1, 5))
+                        response = requests.get(url, stream=True, allow_redirects=True, headers=current_headers, proxies=proxies, timeout=(30, 300))
                     
                     response.raise_for_status()
                     return response, range_removed
@@ -363,7 +519,7 @@ class AsyncDownloadService:
         resume_supported = False
         server_file_size = None
         
-        if initial_size > 0:
+        if initial_downloaded_size > 0:
             try:
                 print(f"[LOG] HEAD 요청으로 서버 파일 정보 확인...")
                 head_response = requests.head(str(direct_link), allow_redirects=True, proxies=download_proxies, timeout=(2, 5))
@@ -373,12 +529,12 @@ class AsyncDownloadService:
                 
                 if accept_ranges == 'bytes' and server_file_size:
                     server_file_size = int(server_file_size)
-                    print(f"[LOG] 서버 파일 크기: {server_file_size}, 현재 다운로드된 크기: {initial_size}")
+                    print(f"[LOG] 서버 파일 크기: {server_file_size}, 현재 다운로드된 크기: {initial_downloaded_size}")
                     
-                    if initial_size < server_file_size:
+                    if initial_downloaded_size < server_file_size:
                         resume_supported = True
                         print(f"[LOG] 이어받기 지원됨")
-                    elif initial_size >= server_file_size:
+                    elif initial_downloaded_size >= server_file_size:
                         print(f"[LOG] 파일이 이미 완전히 다운로드됨")
                         req.status = StatusEnum.done
                         req.downloaded_size = server_file_size
@@ -395,13 +551,13 @@ class AsyncDownloadService:
 
         # Range 헤더 설정
         headers = {}
-        if resume_supported and initial_size > 0:
-            headers["Range"] = f"bytes={initial_size}-"
+        if resume_supported and initial_downloaded_size > 0:
+            headers["Range"] = f"bytes={initial_downloaded_size}-"
             print(f"[LOG] 이어받기 요청 헤더: {headers}")
         else:
-            if initial_size > 0:
+            if initial_downloaded_size > 0:
                 print(f"[LOG] 이어받기 실패. 처음부터 다시 다운로드")
-                initial_size = 0
+                initial_downloaded_size = 0
         
         # 다운로드 헤더
         download_headers = {
@@ -416,8 +572,8 @@ class AsyncDownloadService:
         }
         
         # Range 헤더 추가 (이어받기용)
-        if resume_supported and initial_size > 0:
-            download_headers["Range"] = f"bytes={initial_size}-"
+        if resume_supported and initial_downloaded_size > 0:
+            download_headers["Range"] = f"bytes={initial_downloaded_size}-"
 
         # 실제 다운로드 요청
         r = None
@@ -432,7 +588,7 @@ class AsyncDownloadService:
         # 409 에러로 인해 Range 헤더가 제거되었는지 확인
         if range_was_removed:
             print(f"[LOG] 409 에러로 인해 Range 헤더가 제거됨. 전체 다운로드로 변경")
-            initial_size = 0
+            initial_downloaded_size = 0
             resume_supported = False
             # 기존 .part 파일이 있으면 삭제 (처음부터 다시 시작)
             if file_path.exists():
@@ -471,22 +627,22 @@ class AsyncDownloadService:
                     total_size = int(match.group(1))
             elif "Content-Length" in r.headers:
                 content_length = int(r.headers["Content-Length"])
-                if initial_size > 0:
-                    total_size = initial_size + content_length
+                if initial_downloaded_size > 0:
+                    total_size = initial_downloaded_size + content_length
                 else:
                     total_size = content_length
             
             if server_file_size and server_file_size > total_size:
                 total_size = server_file_size
 
-            downloaded_size = initial_size
+            downloaded_size = initial_downloaded_size
             req.total_size = total_size
             db.commit()
             db.refresh(req)
             self._notify_status_update_sync(db, req.id)
 
             # 파일 쓰기
-            mode = "ab" if initial_size > 0 and resume_supported else "wb"
+            mode = "ab" if initial_downloaded_size > 0 and resume_supported else "wb"
             print(f"[LOG] Opening file in mode: {mode}")
             
             if mode == "wb" and file_path.exists():
@@ -498,9 +654,10 @@ class AsyncDownloadService:
                 last_status_check = time.time()
                 status_check_interval = 2.0
                 
-                for chunk in r.iter_content(chunk_size=8192):
-                    chunk_count += 1
-                    current_time = time.time()
+                try:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        chunk_count += 1
+                        current_time = time.time()
                     
                     # 타임아웃 체크
                     if current_time - start_time > max_duration:
@@ -525,11 +682,17 @@ class AsyncDownloadService:
                         req._last_main_update_time = current_time
                         req._last_main_update_size = downloaded_size
                         self._notify_status_update_sync(db, req.id)
+                
+                except KeyboardInterrupt:
+                    print(f"[LOG] 다운로드 중 키보드 인터럽트: {req.id}")
+                    raise
+                except Exception as e:
+                    print(f"[LOG] 다운로드 루프 중 오류: {e}")
+                    raise
 
         # 다운로드 완료
         req.status = StatusEnum.done
         req.downloaded_size = total_size
-        import datetime
         req.finished_at = datetime.datetime.utcnow()
         db.commit()
         self._notify_status_update_sync(db, req.id)
@@ -543,21 +706,36 @@ class AsyncDownloadService:
             print(f"[LOG] 프록시 {used_proxy_addr} 다운로드 성공 기록됨")
             
         # 다운로드 매니저에서 완료 처리
-        download_manager.finish(req.id, req.url, success=True)
+        from services.download_manager import download_manager as simple_manager
+        simple_manager.finish(req.id, req.url, success=True)
 
     def _notify_status_update_sync(self, db, download_id):
         """동기적 상태 업데이트"""
         try:
-            import asyncio
-            import json
-            # SSE 메시지 전송 (동기적으로 처리)
-            from services.sse_manager import sse_manager
+            from core.download_core import send_sse_message
             
             req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
             if req:
-                # 동기적으로 SSE 메시지 큐에 추가하는 방법
-                # asyncio.create_task를 사용할 수 없으므로 간단한 방법 사용
-                print(f"[LOG] Status updated to {req.status.value} for request {req.id}")
+                # 진행률 계산
+                progress = 0.0
+                if req.total_size and req.total_size > 0 and req.downloaded_size:
+                    progress = min(100.0, (req.downloaded_size / req.total_size) * 100)
+                
+                # 통합된 SSE 전송 방식 사용
+                from core.download_core import send_sse_message
+                send_sse_message("status_update", {
+                    "id": req.id,
+                    "url": req.url,
+                    "file_name": req.file_name,
+                    "status": req.status.value,
+                    "error": req.error,
+                    "progress": progress,
+                    "downloaded_size": req.downloaded_size or 0,
+                    "total_size": req.total_size or 0,
+                    "save_path": req.save_path,
+                    "use_proxy": req.use_proxy
+                })
+                print(f"[LOG] AsyncService SSE 전송: {req.status.value} for request {req.id}")
         except Exception as e:
             print(f"[LOG] SSE 상태 업데이트 실패: {e}")
 
@@ -582,14 +760,15 @@ class AsyncDownloadService:
             print(f"[LOG] 파일 정리 실패: {e}")
 
     def _exit_if_parent_dead(self):
-        """부모 프로세스 감시 (기존 로직)"""
-        import psutil
-
+        """부모 프로세스 감시 (psutil 없이)"""
         parent_pid = os.getppid()
         while True:
             try:
                 time.sleep(5)
-                if not psutil.pid_exists(parent_pid):
+                # psutil 대신 간단한 방법으로 체크
+                try:
+                    os.kill(parent_pid, 0)  # 시그널 0으로 프로세스 존재 확인
+                except (OSError, ProcessLookupError):
                     print("[LOG] Parent process died, exiting...")
                     os._exit(0)
             except:
@@ -607,10 +786,22 @@ class AsyncDownloadService:
                     req.error = error
                 db.commit()
 
-                # SSE로 상태 브로드캐스트
+                # 진행률 계산
+                progress = 0.0
+                if req.total_size and req.total_size > 0 and req.downloaded_size:
+                    progress = min(100.0, (req.downloaded_size / req.total_size) * 100)
+
+                # SSE로 상태 브로드캐스트 (완전한 정보 포함)
                 await sse_manager.broadcast_message("status_update", {
                     "id": req.id,
+                    "url": req.url,
+                    "file_name": req.file_name,
                     "status": status.value,
+                    "progress": progress,
+                    "downloaded_size": req.downloaded_size or 0,
+                    "total_size": req.total_size or 0,
+                    "save_path": req.save_path,
+                    "use_proxy": req.use_proxy,
                     "error": error
                 })
         finally:
@@ -628,6 +819,9 @@ class AsyncDownloadService:
                     req.error = error
                 db.commit()
                 print(f"[LOG] Updated request {request_id} status to {status.value}")
+                
+                # SSE 메시지 전송 (통일된 방식)
+                self._notify_status_update_sync(db, request_id)
         finally:
             db.close()
 

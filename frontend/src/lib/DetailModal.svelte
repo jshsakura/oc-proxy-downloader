@@ -118,27 +118,6 @@
               </td>
             </tr>
             <tr>
-              <th>{$t("detail_actual_file_url")}</th>
-              <td>
-                {#if download.direct_link}
-                  <div class="url-container">
-                    <span class="url-text" title={download.direct_link}
-                      >{download.direct_link}</span
-                    >
-                    <button
-                      class="copy-button"
-                      on:click={() => copyToClipboard(download.direct_link)}
-                      title={$t("copy_url")}
-                    >
-                      <CopyIcon />
-                    </button>
-                  </div>
-                {:else}
-                  {$t("detail_not_available")}
-                {/if}
-              </td>
-            </tr>
-            <tr>
               <th>{$t("detail_download_path")}</th>
               <td>
                 {#if download.save_path}

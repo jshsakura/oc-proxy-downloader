@@ -358,6 +358,7 @@
           usedProxies: data.used_proxies,
           successCount: data.success_count,
           failCount: data.fail_count,
+          status_message: data.status_message,
         };
       }
     } catch (error) {
@@ -392,13 +393,26 @@
 
       if (message.type === "status_update") {
         const updatedDownload = message.data;
-        const index = downloads.findIndex((d) => d.id === updatedDownload.id);
+        // ID 타입 통일 (숫자로 변환)
+        const downloadId = parseInt(updatedDownload.id);
+        const index = downloads.findIndex((d) => parseInt(d.id) === downloadId);
+        
         if (index !== -1) {
           downloads = downloads.map((d, i) =>
             i === index ? { ...d, ...updatedDownload } : d
           );
+          // save_path 업데이트 로그
+          if (updatedDownload.save_path) {
+            console.log("📁 다운로드 경로 업데이트:", updatedDownload.id, updatedDownload.save_path);
+          }
         } else {
-          downloads = [updatedDownload, ...downloads];
+          // 중복 추가 방지: 유효한 ID와 URL이 있을 때만 추가
+          if (downloadId && !isNaN(downloadId) && updatedDownload.url) {
+            console.log("⚠️ 새 다운로드 추가:", downloadId, updatedDownload.url);
+            downloads = [updatedDownload, ...downloads];
+          } else {
+            console.warn("❌ 잘못된 다운로드 데이터 무시:", updatedDownload);
+          }
         }
 
         updateStats(downloads);
@@ -414,8 +428,22 @@
         message.data.forEach(updatedDownload => {
           const index = newDownloads.findIndex((d) => d.id === updatedDownload.id);
           if (index !== -1) {
+            const oldDownload = newDownloads[index];
             newDownloads[index] = { ...newDownloads[index], ...updatedDownload };
             hasChanges = true;
+            
+            // 프록시 다운로드의 상태가 stopped, failed, done으로 변경되면 프록시 상태 초기화
+            if (oldDownload.use_proxy && 
+                oldDownload.status !== updatedDownload.status &&
+                ['stopped', 'failed', 'done'].includes(updatedDownload.status?.toLowerCase())) {
+              console.log(`[LOG] 프록시 다운로드 ${updatedDownload.id} 상태 변경: ${oldDownload.status} -> ${updatedDownload.status}`);
+              proxyStats.status = "";
+              proxyStats.currentProxy = "";
+              proxyStats.currentStep = "";
+              proxyStats.currentIndex = 0;
+              proxyStats.totalAttempting = 0;
+              proxyStats = { ...proxyStats };
+            }
           } else {
             newDownloads.unshift(updatedDownload);
             hasChanges = true;
@@ -431,13 +459,22 @@
 
       // 프록시 메시지 처리
       if (message.type === "proxy_trying") {
-        const { proxy, step, current, total } = message.data;
+        const { id, proxy, step, current, total } = message.data;
         proxyStats.currentProxy = proxy;
         proxyStats.currentStep = step;
         proxyStats.currentIndex = current;
         proxyStats.totalAttempting = total;
         proxyStats.status = "trying";
         proxyStats = { ...proxyStats };
+        
+        // 메인 그리드에서 해당 다운로드 상태도 업데이트 (빠지지 않도록)
+        if (id) {
+          const download = downloads.find(d => d.id === id);
+          if (download) {
+            download.proxy_message = `${step} - ${proxy} (${current}/${total})`;
+            downloads = [...downloads];
+          }
+        }
       }
 
       if (message.type === "proxy_success") {
@@ -694,8 +731,38 @@
     localStats = { ...localStats };
   }
 
-  async function addDownload(isAutoDownload = false) {
+  async function addDownload(isAutoDownload = false, skipValidation = false) {
     if (!url) return;
+    
+    // 자동 다운로드가 아닌 경우 URL 검증 수행
+    if (!isAutoDownload && !skipValidation) {
+      // 1fichier URL이 아닌 경우에만 검증
+      if (!/1fichier\.com/i.test(url)) {
+        try {
+          const response = await fetch("/api/validate-url/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: url }),
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            
+            if (!result.valid) {
+              // 유효하지 않은 링크인 경우 사용자에게 확인
+              const proceed = confirm(`${result.message}\n\n그래도 다운로드를 시도하시겠습니까?`);
+              if (!proceed) {
+                return;
+              }
+            }
+          }
+        } catch (validationError) {
+          console.error("URL validation error:", validationError);
+          // 검증 실패 시 계속 진행
+        }
+      }
+    }
+    
     isAddingDownload = true;
     try {
       const response = await fetch("/api/download/", {
@@ -782,6 +849,13 @@
   }
 
   async function deleteDownload(id) {
+    // ID 유효성 검사
+    if (!id || isNaN(parseInt(id))) {
+      console.error("❌ 잘못된 다운로드 ID:", id);
+      showToastMsg("잘못된 다운로드 ID입니다", "error");
+      return;
+    }
+    
     openConfirm({
       message: $t("delete_confirm"),
       onConfirm: async () => {
@@ -976,11 +1050,40 @@
       const trimmedText = text.trim();
       url = trimmedText;
 
-      // URL이 유효하면 자동으로 다운로드 추가
-      if (isValidUrl(trimmedText)) {
-        showToastMsg($t("clipboard_url_auto_download"));
-        await addDownload(true);
-      } else {
+      // URL 형식이 유효한지 먼저 검사
+      if (!isValidUrl(trimmedText)) {
+        showToastMsg($t("clipboard_pasted"));
+        return;
+      }
+
+      // 서버에서 URL 검증
+      showToastMsg("URL을 검증하는 중...", "info");
+      
+      try {
+        const response = await fetch("/api/validate-url/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: trimmedText }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          
+          if (result.valid) {
+            // 유효한 다운로드 링크인 경우 자동으로 다운로드 추가
+            showToastMsg($t("clipboard_url_auto_download"));
+            await addDownload(true);
+          } else {
+            // 유효하지 않은 링크인 경우 경고 메시지 표시
+            showToastMsg(result.message || "다운로드할 수 없는 URL입니다.", "warning");
+          }
+        } else {
+          // 검증 API 호출 실패 시 기본 동작
+          showToastMsg($t("clipboard_pasted"));
+        }
+      } catch (validationError) {
+        console.error("URL validation error:", validationError);
+        // 검증 실패 시 기본 동작 (URL은 붙여넣어짐)
         showToastMsg($t("clipboard_pasted"));
       }
     } catch (err) {
@@ -1304,6 +1407,7 @@
           totalAttempting={proxyStats.totalAttempting || 0}
           lastError={proxyStats.lastError || ""}
           activeDownloadCount={activeProxyDownloadCount}
+          statusMessage={proxyStats.status_message || ""}
         />
       </div>
 
@@ -1488,7 +1592,7 @@
                       class="grid-proxy-toggle {download.use_proxy
                         ? 'proxy'
                         : 'local'}"
-                      disabled={download.status.toLowerCase() !== "stopped"}
+                      disabled={!["stopped", "failed"].includes(download.status.toLowerCase())}
                       title={download.use_proxy
                         ? $t("proxy_mode")
                         : $t("local_mode")}
@@ -1571,7 +1675,13 @@
                         <button
                           class="button-icon"
                           title={$t("action_pause")}
-                          on:click={() => callApi(`/api/pause/${download.id}`)}
+                          on:click={() => {
+                            if (download.id && !isNaN(parseInt(download.id))) {
+                              callApi(`/api/pause/${download.id}`)
+                            } else {
+                              console.error("❌ 잘못된 다운로드 ID:", download.id, download)
+                            }
+                          }}
                           aria-label={$t("action_pause")}
                         >
                           <StopIcon />
@@ -1663,7 +1773,7 @@
             ←
           </button>
 
-          <!-- 페이지 번호 버튼들 -->
+          <!-- 페이지 번호 버튼들 - 최대 5개 표시 -->
           {#each Array(Math.min(totalPages, 5)) as _, i}
             {@const pageNum = Math.max(1, currentPage - 2) + i}
             {#if pageNum <= totalPages}
@@ -1690,7 +1800,7 @@
   {/if}
 
   <SettingsModal
-    bind:showModal={showSettingsModal}
+    showModal={showSettingsModal}
     {currentSettings}
     on:settingsChanged={handleSettingsChanged}
     on:proxyChanged={checkProxyAvailability}

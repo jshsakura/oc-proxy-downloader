@@ -4,7 +4,7 @@ export class EventSourceManager {
     this.eventSource = null;
     this.updateQueue = new Map();
     this.debounceTimer = null;
-    this.debounceDelay = 100; // 100ms 디바운싱
+    this.debounceDelay = 50; // 50ms 디바운싱으로 더 빠르게
   }
 
   connect(onMessage) {
@@ -47,8 +47,22 @@ export class EventSourceManager {
           return;
         }
 
-        // status_update 메시지는 디바운싱 처리
+        // status_update 메시지는 디바운싱 처리 (하지만 중요한 상태는 즉시 처리)
         if (message.type === "status_update") {
+          console.log("📨 Status update received:", message.data.id, "진행률:" + message.data.progress + "%", "상태:" + message.data.status);
+          
+          // 중요한 상태 변경은 즉시 처리 (정지, 완료, 실패, 다운로드 중)
+          if (message.data.status === "stopped" || 
+              message.data.status === "done" || 
+              message.data.status === "failed" ||
+              (message.data.status === "downloading" && message.data.progress > 0)) {
+            console.log("📨 즉시 처리:", message.data.id, message.data.status);
+            if (onMessage) {
+              onMessage(message);
+            }
+            return;
+          }
+          
           this.queueUpdate(message, onMessage);
           return;
         }

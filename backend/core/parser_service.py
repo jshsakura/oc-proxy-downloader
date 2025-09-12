@@ -9,12 +9,21 @@ import os
 import requests
 import cloudscraper
 import time
+import re
+import ssl
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
 from .parser import FichierParser
+from utils.wait_store import wait_store
+from services.sse_manager import sse_manager
+from urllib3.util.ssl_ import create_urllib3_context
+from requests.adapters import HTTPAdapter
 
 
 def parse_filename_only_with_proxy(url, password, proxy_addr):
     """프록시를 사용해서 파일명만 빠르게 파싱"""
-    import re
     
     proxies = {
         'http': f'http://{proxy_addr}',
@@ -32,7 +41,7 @@ def parse_filename_only_with_proxy(url, password, proxy_addr):
     
     try:
         scraper = cloudscraper.create_scraper()
-        response = scraper.get(url, headers=headers, proxies=proxies, timeout=(5, 10))
+        response = scraper.get(url, headers=headers, proxies=proxies, timeout=(10, 30))
         
         if response.status_code != 200:
             return None
@@ -82,37 +91,30 @@ def parse_filename_only_with_proxy(url, password, proxy_addr):
         return None
 
 def get_or_parse_direct_link(req, proxies=None, use_proxy=False, force_reparse=False, proxy_addr=None):
-    """다운로드 요청에서 직접 링크를 가져오거나 파싱하는 함수"""
+    """1fichier에서 직접 링크를 파싱하는 함수 (매번 새로 파싱)"""
     
-    # proxy_addr이 있으면 proxies 생성 (CONNECT 터널링 사용)
+    # req 객체의 정보를 미리 저장 (스코프 문제 방지)  
+    req_id = req.id
+    req_url = req.url
+    
+    # 1fichier URL이 아니면 원본 URL 그대로 반환
+    if not re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', req.url.lower()):
+        print(f"[LOG] 1fichier URL이 아님, 원본 URL 사용: {req.url}")
+        return req.url
+    
+    # proxy_addr이 있으면 proxies 생성
     if proxy_addr and use_proxy:
         proxies = {
             'http': f'http://{proxy_addr}',
             'https': f'http://{proxy_addr}'
         }
-        # print(f"[LOG] 프록시 설정: {proxy_addr}")
     
-    # 강제 재파싱이 요청되었거나 기존 링크가 없는 경우
-    if force_reparse or not req.direct_link:
-        print(f"[LOG] direct_link 새로 파싱 (force_reparse: {force_reparse}, proxy: {proxy_addr})")
-        return parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy, proxy_addr=proxy_addr)
-    
-    # 기존 링크가 있는 경우 만료 여부 확인
-    if is_direct_link_expired(req.direct_link, use_proxy=use_proxy, proxy_addr=proxy_addr):
-        print(f"[LOG] 기존 direct_link가 만료됨. DB 초기화 후 재파싱: {req.direct_link} (proxy: {proxy_addr})")
-        # 기존 링크 초기화
-        req.direct_link = None
-        from .db import get_db
-        db = next(get_db())
-        db.commit()
-        db.close()
-        return parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy, proxy_addr=proxy_addr)
-    
-    print(f"[LOG] 기존 direct_link 재사용: {req.direct_link}")
-    return req.direct_link
+    # 1fichier URL이므로 매번 새로 파싱
+    print(f"[LOG] 1fichier direct_link 새로 파싱 (proxy: {proxy_addr})")
+    return parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy, proxy_addr=proxy_addr, req=req)
 
 
-def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, proxy_addr=None):
+def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, proxy_addr=None, req=None):
     """단순화된 1fichier Direct Link 파싱"""
     # print(f"[LOG] Direct Link 파싱 시작: {url}")
     
@@ -133,8 +135,6 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     # requests 세션의 SSL 설정 변경
-    from requests.adapters import HTTPAdapter
-    from urllib3.util.ssl_ import create_urllib3_context
     
     class NoSSLVerifyHTTPAdapter(HTTPAdapter):
         def init_poolmanager(self, *args, **kwargs):
@@ -179,7 +179,7 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     if use_proxy and proxies:
         # print(f"[LOG] 지정된 프록시로 파싱 시도: {proxies}")
         try:
-            parse_result = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=90, proxy_addr=proxy_addr)
+            parse_result = _parse_with_connection(scraper, url, password, headers, proxies, req, wait_time_limit=90, proxy_addr=proxy_addr)
             if parse_result is None:
                 return None  # 정지된 경우
             direct_link, html_content = parse_result
@@ -207,7 +207,7 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     else:
         print(f"[LOG] 로컬 연결로 파싱 시도")
         try:
-            parse_result = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=90)
+            parse_result = _parse_with_connection(scraper, url, password, headers, None, req, wait_time_limit=90)
             if parse_result is None:
                 return None  # 정지된 경우
             direct_link, html_content = parse_result
@@ -219,7 +219,7 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
             import urllib3
             urllib3.disable_warnings()
             try:
-                parse_result = _parse_with_connection(scraper, url, password, headers, None, wait_time_limit=90)
+                parse_result = _parse_with_connection(scraper, url, password, headers, None, req, wait_time_limit=90)
                 if parse_result is None:
                     return None  # 정지된 경우
                 direct_link, html_content = parse_result
@@ -235,7 +235,7 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
             raise e
 
 
-def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_addr=None):
+def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_addr=None, req=None):
     """파일 정보와 함께 Direct Link 파싱 - 파일명을 최대한 빨리 추출하여 보존"""
     
     print(f"[LOG] 파일 정보 우선 파싱 시작: {url}")
@@ -257,8 +257,6 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     # requests 세션의 SSL 설정 변경
-    from requests.adapters import HTTPAdapter
-    from urllib3.util.ssl_ import create_urllib3_context
     
     class NoSSLVerifyHTTPAdapter(HTTPAdapter):
         def init_poolmanager(self, *args, **kwargs):
@@ -328,10 +326,10 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                         from .models import DownloadRequest
                         temp_db = SessionLocal()
                         
-                        # URL로 다운로드 요청 찾기 (최신 순)
+                        # ID로 정확한 다운로드 요청 찾기
                         download_req = temp_db.query(DownloadRequest).filter(
-                            DownloadRequest.url == url
-                        ).order_by(DownloadRequest.requested_at.desc()).first()
+                            DownloadRequest.id == req.id
+                        ).first()
                         
                         if download_req:
                             updated = False
@@ -365,7 +363,7 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                                     message = json.dumps({
                                         "type": "filename_update",
                                         "data": {
-                                            "id": download_req.id,
+                                            "id": req.id,
                                             "file_name": download_req.file_name,
                                             "file_size": download_req.file_size,
                                             "url": download_req.url,
@@ -403,7 +401,7 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         # STEP 2: 이제 정상적인 다운로드 링크 파싱 진행
         print(f"[LOG] 2단계: 다운로드 링크 파싱 진행")
         wait_time_limit = 86400 if use_proxy else 86400  # 24시간 (최대 대기시간)
-        parse_result = _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit, proxy_addr=proxy_addr)
+        parse_result = _parse_with_connection(scraper, url, password, headers, proxies, req, wait_time_limit, proxy_addr=proxy_addr)
         if parse_result is None:
             # 정지된 경우
             return None, None
@@ -436,11 +434,13 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         raise e
 
 
-def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_limit=10, proxy_addr=None, retry_count=5):
+def _parse_with_connection(scraper, url, password, headers, proxies, req=None, wait_time_limit=10, proxy_addr=None, retry_count=5):
     """1fichier 세션 기반 순차적 파싱 - 최대 5회 시도"""
-    import re
-    from bs4 import BeautifulSoup
-    import time
+    
+    # 시작 시점에 정지 상태 체크
+    if req and _is_download_stopped(req):
+        print(f"[LOG] ★★★ 파싱 시작 시점에 정지 감지: ID {req.id} ★★★")
+        return None, None
     
     max_attempts = 1  # 1회만 시도
     attempt = 0
@@ -452,6 +452,11 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
         print(f"[LOG] === 시도 {attempt}/{max_attempts} ===")
         
         try:
+            # 각 시도 시작 시점에도 정지 상태 체크
+            if req and _is_download_stopped(req):
+                print(f"[LOG] ★★★ 파싱 시도 {attempt} 시작 시점에 정지 감지: ID {req.id} ★★★")
+                return None, None
+                
             # 1단계: 페이지 로드
             print(f"[LOG] 1fichier 페이지 로드")
             response = scraper.get(url, headers=headers, proxies=proxies, timeout=(10, 30))
@@ -531,39 +536,65 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         
             # 4단계: 대기시간이 있으면 기다리고 POST 요청
             if wait_seconds:
+                # 대기 시작 전 정지 상태 체크
+                if req and _is_download_stopped(req):
+                    print(f"[LOG] ★★★ 대기 시작 전 정지 감지: ID {req.id} ★★★")
+                    return None, None
+                    
                 print(f"[LOG] 🕐 {wait_seconds}초 대기 중... (시도 {attempt}/{max_attempts})")
                 
-                # 대기 시작할 때 상태를 downloading으로 업데이트
+                # 대기시간 처리 (req가 있는 경우에만)
+                if req:
+                    wait_result = _handle_wait_time(req, wait_seconds, proxy_addr, url)
+                    if wait_result is None:
+                        return None, None  # 정지된 경우 파싱 중단
+                else:
+                    # req가 없으면 기본 대기만 수행
+                    time.sleep(wait_seconds)
+                
+                # 대기 완료 처리 (req가 있는 경우에만)
+                if req:
+                    try:
+                        from .download_core import send_sse_message
+                        from utils.wait_store import wait_store
+                        
+                        # 진행 중인 대기 작업에서 제거
+                        wait_store.finish_wait(req.id)
+                        
+                        # 대기 완료 메시지 전송
+                        send_sse_message("wait_countdown_complete", {
+                            "id": req.id,
+                            "url": url
+                        })
+                        print(f"[LOG] 대기 완료 WebSocket 메시지 전송: ID {req.id}")
+                    except Exception as e:
+                        print(f"[LOG] 대기 완료 WebSocket 전송 실패: {e}")
+                
                 try:
                     from .download_core import send_sse_message
                     from .db import SessionLocal
                     from .models import DownloadRequest
                     
-                    # DB에서 다운로드 ID 찾기
+                    # DB에서 다운로드 ID 찾기 -> 전달받은 req 객체를 직접 사용
                     temp_db = SessionLocal()
                     try:
+                        # ID로 정확한 요청을 찾기 (URL로 조회하면 다른 ID가 될 수 있음)
                         download_req = temp_db.query(DownloadRequest).filter(
-                            DownloadRequest.url == url
-                        ).order_by(DownloadRequest.requested_at.desc()).first()
+                            DownloadRequest.id == req.id
+                        ).first()
                         
                         if download_req:
                             # 상태를 downloading으로 업데이트
                             download_req.status = "downloading"
                             temp_db.commit()
-                            
-                            # SSE로 상태 업데이트 전송
-                            send_sse_message("status_update", {
-                                "id": download_req.id,
-                                "status": "downloading"
-                            })
-                            print(f"[LOG] 다운로드 상태를 'downloading'으로 업데이트: ID {download_req.id}")
+                            print(f"[LOG] 다운로드 상태를 'downloading'으로 업데이트: ID {req.id}")
                             
                             # 대기 시작 시 즉시 wait_countdown 메시지 전송
                             wait_minutes = wait_seconds // 60
                             wait_message = f"대기 중 ({wait_minutes}분 {wait_seconds % 60}초)" if wait_minutes > 0 else f"대기 중 ({wait_seconds}초)"
                             
                             wait_data = {
-                                "download_id": download_req.id,
+                                "id": req.id,
                                 "remaining_time": wait_seconds,
                                 "wait_message": wait_message,
                                 "total_wait_time": wait_seconds,
@@ -577,8 +608,17 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                             if download_req.file_name:
                                 wait_data["file_name"] = download_req.file_name
                             
-                            print(f"[LOG] 대기 시작 wait_countdown 메시지 전솥: ID={download_req.id}, remaining={wait_seconds}초")
+                            print(f"[LOG] 대기 시작 wait_countdown 메시지 전솥: ID={req.id}, remaining={wait_seconds}초")
                             print(f"[DEBUG] wait_countdown 데이터: {wait_data}")
+                            
+                            # 진행 중인 대기 작업으로 등록 (스레드 안전)
+                            wait_store.start_wait(req.id, wait_seconds, url)
+                            
+                            # 상태 업데이트와 wait_countdown 메시지를 연속으로 전송 (순서 보장)
+                            send_sse_message("status_update", {
+                                "id": req.id,
+                                "status": "downloading"
+                            })
                             send_sse_message("wait_countdown", wait_data)
                     finally:
                         temp_db.close()
@@ -598,9 +638,9 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         from .models import DownloadRequest
                         
                         with SessionLocal() as db:
-                            req = db.query(DownloadRequest).filter(DownloadRequest.url == url).first()
-                            file_name = req.file_name if req and req.file_name else "1fichier File"
-                            file_size = req.file_size if req and req.file_size else None
+                            download_req = db.query(DownloadRequest).filter(DownloadRequest.id == req.id).first()
+                            file_name = download_req.file_name if download_req and download_req.file_name else "1fichier File"
+                            file_size = download_req.file_size if download_req and download_req.file_size else None
                         wait_minutes = wait_seconds // 60
                         send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size)
                     except Exception as e:
@@ -620,19 +660,19 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                             temp_db = SessionLocal()
                             try:
                                 download_req = temp_db.query(DownloadRequest).filter(
-                                    DownloadRequest.url == url
-                                ).order_by(DownloadRequest.requested_at.desc()).first()
+                                    DownloadRequest.id == req.id
+                                ).first()
                                 
                                 if download_req:
                                     # 정지 플래그 체크 (우선순위)
-                                    if download_manager.is_download_stopped(download_req.id):
-                                        print(f"[LOG] 짧은 대기 중 정지 플래그 감지: ID {download_req.id}")
+                                    if download_manager.is_download_stopped(req.id):
+                                        print(f"[LOG] 짧은 대기 중 정지 플래그 감지: ID {req.id}")
                                         temp_db.close()
                                         return None  # 정지된 경우 파싱 중단
                                     
                                     # DB 상태 체크
                                     if download_req.status == StatusEnum.stopped:
-                                        print(f"[LOG] 짧은 대기 중 정지 감지: ID {download_req.id}")
+                                        print(f"[LOG] 짧은 대기 중 정지 감지: ID {req.id}")
                                         temp_db.close()
                                         return None  # 정지된 경우 파싱 중단
                             finally:
@@ -653,8 +693,8 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         temp_db = SessionLocal()
                         try:
                             download_req = temp_db.query(DownloadRequest).filter(
-                                DownloadRequest.url == url
-                            ).order_by(DownloadRequest.requested_at.desc()).first()
+                                DownloadRequest.id == req.id
+                            ).first()
                         finally:
                             temp_db.close()
                     except Exception as e:
@@ -667,10 +707,10 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                         # Event.wait()를 사용한 효율적 대기 - 1초씩 대기하며 즉시 정지 감지
                         for remaining in range(wait_seconds, 0, -1):
                             # 정지 플래그가 설정되면 즉시 깨어남
-                            if download_req.id in download_manager.stop_events:
-                                stop_event = download_manager.stop_events[download_req.id]
+                            if req.id in download_manager.stop_events:
+                                stop_event = download_manager.stop_events[req.id]
                                 if stop_event.wait(timeout=1.0):  # 1초 대기, 정지 신호 있으면 즉시 깨어남
-                                    print(f"[LOG] 카운트다운 중 정지 플래그 감지 (Event): ID {download_req.id}")
+                                    print(f"[LOG] 카운트다운 중 정지 플래그 감지 (Event): ID {req.id}")
                                     return None
                             else:
                                 time.sleep(1)  # Event가 없으면 일반 대기
@@ -696,14 +736,14 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                 temp_db = SessionLocal()
                                 try:
                                     download_req = temp_db.query(DownloadRequest).filter(
-                                        DownloadRequest.url == url
-                                    ).order_by(DownloadRequest.requested_at.desc()).first()
+                                        DownloadRequest.id == req.id
+                                    ).first()
                                     
                                     wait_minutes = remaining // 60
                                     wait_message = f"대기 중 ({wait_minutes}분 {remaining % 60}초)" if wait_minutes > 0 else f"대기 중 ({remaining}초)"
                                     
                                     wait_data = {
-                                        "download_id": download_req.id if download_req else None,
+                                        "download_id": req.id if download_req else None,
                                         "remaining_time": remaining,
                                         "wait_message": wait_message,
                                         "total_wait_time": wait_seconds,
@@ -718,7 +758,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                                         if download_req.file_name:
                                             wait_data["file_name"] = download_req.file_name
                                     
-                                    print(f"[LOG] wait_countdown 메시지 전송: ID={download_req.id}, remaining={remaining}초")
+                                    print(f"[LOG] wait_countdown 메시지 전송: ID={req.id}, remaining={remaining}초")
                                     send_sse_message("wait_countdown", wait_data)
                                 finally:
                                     temp_db.close()
@@ -746,16 +786,19 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
                     temp_db = SessionLocal()
                     try:
                         download_req = temp_db.query(DownloadRequest).filter(
-                            DownloadRequest.url == url
-                        ).order_by(DownloadRequest.requested_at.desc()).first()
+                            DownloadRequest.id == req.id
+                        ).first()
                         
                         if download_req:
+                            # 진행 중인 대기 작업에서 제거
+                            wait_store.finish_wait(req.id)
+                            
                             # 대기 완료 - wait_info 정리 메시지
                             send_sse_message("wait_countdown_complete", {
-                                "id": download_req.id,
+                                "id": req.id,
                                 "url": url
                             })
-                            print(f"[LOG] 대기 완료 WebSocket 메시지 전송: ID {download_req.id}")
+                            print(f"[LOG] 대기 완료 WebSocket 메시지 전송: ID {req.id}")
                     finally:
                         temp_db.close()
                 except Exception as e:
@@ -844,8 +887,6 @@ def _parse_with_connection(scraper, url, password, headers, proxies, wait_time_l
     return None, None
 def _extract_download_link_smart(html_content, original_url):
     """간단하고 확실한 다운로드 링크 추출 - 실제 다운로드 서버만"""
-    import re
-    from bs4 import BeautifulSoup
     
     try:
         # 모든 1fichier.com URL 찾아서 스마트 필터링
@@ -957,7 +998,6 @@ def parse_file_info_only(url, password=None, use_proxy=True):
 def _detect_download_limits(html_content, original_url):
     """1fichier 다운로드 제한 상황 감지"""
     try:
-        import re
         
         # HTML 내용 디버깅
         print(f"[DEBUG] HTML 길이: {len(html_content)} 글자")
@@ -1295,7 +1335,7 @@ def is_direct_link_expired(direct_link, use_proxy=False, proxy_addr=None):
     
     try:
         # HEAD 요청으로 링크 유효성 확인 (타임아웃 늘림)
-        response = requests.head(direct_link, headers=headers, timeout=(5, 10), allow_redirects=True, proxies=proxies)
+        response = requests.head(direct_link, headers=headers, timeout=(10, 30), allow_redirects=True, proxies=proxies)
         print(f"[LOG] Direct Link 유효성 검사: {response.status_code}")
         
         if response.status_code in [200, 206]:  # 200 OK 또는 206 Partial Content
@@ -1319,3 +1359,330 @@ def is_direct_link_expired(direct_link, use_proxy=False, proxy_addr=None):
             print(f"[LOG] DNS 해상도 오류로 인한 링크 만료 확정: {error_str}")
             
         return True  # 기타 에러 시 만료로 간주
+
+
+def _update_download_status_to_downloading(req):
+    """다운로드 상태를 downloading으로 업데이트"""
+    try:
+        from .db import SessionLocal
+        from .models import DownloadRequest
+        
+        temp_db = SessionLocal()
+        try:
+            download_req = temp_db.query(DownloadRequest).filter(
+                DownloadRequest.id == req.id
+            ).first()
+            
+            if download_req:
+                download_req.status = "downloading"
+                temp_db.commit()
+                print(f"[LOG] 다운로드 상태를 'downloading'으로 업데이트: ID {req.id}")
+                return download_req
+        finally:
+            temp_db.close()
+    except Exception as e:
+        print(f"[LOG] 상태 업데이트 실패: {e}")
+    return None
+
+
+def _send_wait_countdown_message(req, wait_seconds, proxy_addr, url):
+    """대기 카운트다운 메시지 전송"""
+    try:
+        from .download_core import send_sse_message
+        from utils.wait_store import wait_store
+        from .db import SessionLocal
+        from .models import DownloadRequest
+        
+        wait_minutes = wait_seconds // 60
+        wait_message = f"대기 중 ({wait_minutes}분 {wait_seconds % 60}초)" if wait_minutes > 0 else f"대기 중 ({wait_seconds}초)"
+        
+        wait_data = {
+            "id": req.id,
+            "remaining_time": wait_seconds,
+            "wait_message": wait_message,
+            "total_wait_time": wait_seconds,
+            "proxy_addr": proxy_addr,
+            "url": url
+        }
+        
+        # 파일 크기 정보 추가 (새로운 세션에서 조회)
+        temp_db = SessionLocal()
+        try:
+            download_req = temp_db.query(DownloadRequest).filter(
+                DownloadRequest.id == req.id
+            ).first()
+            
+            if download_req and download_req.total_size:
+                wait_data["total_size"] = download_req.total_size
+            if download_req and download_req.file_name:
+                wait_data["file_name"] = download_req.file_name
+        finally:
+            temp_db.close()
+        
+        print(f"[LOG] 대기 시작 wait_countdown 메시지 전송: ID={req.id}, remaining={wait_seconds}초")
+        print(f"[DEBUG] wait_countdown 데이터: {wait_data}")
+        
+        # 진행 중인 대기 작업으로 등록 (스레드 안전)
+        wait_store.start_wait(req.id, wait_seconds, url)
+        
+        # 상태 업데이트와 wait_countdown 메시지를 연속으로 전송
+        send_sse_message("status_update", {
+            "id": req.id,
+            "status": "downloading"
+        })
+        send_sse_message("wait_countdown", wait_data)
+        
+    except Exception as e:
+        print(f"[LOG] 대기 카운트다운 메시지 전송 실패: {e}")
+
+
+def _send_telegram_wait_notification(req, wait_seconds):
+    """텔레그램 대기 알림 전송 (5분 이상 대기시간일 때)"""
+    if wait_seconds >= 300:  # 300초 = 5분
+        try:
+            from .download_core import send_telegram_wait_notification
+            from .db import SessionLocal
+            from .models import DownloadRequest
+            
+            with SessionLocal() as db:
+                download_req = db.query(DownloadRequest).filter(DownloadRequest.id == req.id).first()
+                file_name = download_req.file_name if download_req and download_req.file_name else "1fichier File"
+                file_size = download_req.file_size if download_req and download_req.file_size else None
+            
+            wait_minutes = wait_seconds // 60
+            send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size)
+        except Exception as e:
+            print(f"[WARN] 텔레그램 대기시간 알림 실패: {e}")
+
+
+def _perform_monitored_wait(req, wait_seconds):
+    """상태 모니터링과 함께 대기 수행"""
+    if wait_seconds <= 10:
+        # 10초 이하 짧은 대기시간 - 1초씩 나누어 정지 상태 체크
+        print(f"[LOG] 짧은 대기시간 ({wait_seconds}초) - 정지 상태 체크하며 대기")
+        return _perform_short_wait_with_monitoring(req, wait_seconds)
+    else:
+        # 긴 대기시간 - Event.wait()를 사용한 효율적인 대기
+        return _perform_long_wait_with_monitoring(req, wait_seconds)
+
+
+def _perform_short_wait_with_monitoring(req, wait_seconds):
+    """짧은 대기시간 처리 (1초씩 모니터링)"""
+    from .db import SessionLocal
+    from .models import DownloadRequest, StatusEnum
+    from .shared import download_manager
+    
+    for i in range(wait_seconds):
+        # 정지 상태 체크
+        try:
+            temp_db = SessionLocal()
+            try:
+                download_req = temp_db.query(DownloadRequest).filter(
+                    DownloadRequest.id == req.id
+                ).first()
+                
+                if download_req:
+                    # 정지 플래그 체크
+                    if download_manager.is_download_stopped(req.id):
+                        print(f"[LOG] 짧은 대기 중 정지 플래그 감지: ID {req.id}")
+                        return None  # 정지된 경우 파싱 중단
+                    
+                    # DB 상태 체크
+                    if download_req.status == StatusEnum.stopped:
+                        print(f"[LOG] 짧은 대기 중 정지 감지: ID {req.id}")
+                        return None  # 정지된 경우 파싱 중단
+            finally:
+                temp_db.close()
+        except Exception as e:
+            print(f"[LOG] 짧은 대기 중 상태 체크 실패: {e}")
+        
+        time.sleep(1)
+        
+        # SSE로 카운트다운 업데이트 전송 (status_update 메시지 사용)
+        if send_sse_message:
+            try:
+                remaining = wait_seconds - (i + 1)
+                progress_percent = ((i + 1) / wait_seconds) * 100
+                
+                send_sse_message("status_update", {
+                    "id": req.id,
+                    "status": "downloading", 
+                    "progress": min(95, progress_percent),
+                    "message": f"다운로드 중 (대기: {remaining}초)",
+                    "remaining_time": remaining,
+                    "total_wait_time": wait_seconds,
+                    "url": req.url,
+                    "file_name": getattr(req, 'file_name', None),
+                    "downloaded_size": getattr(req, 'downloaded_size', 0),
+                    "total_size": getattr(req, 'total_size', 0),
+                    "use_proxy": getattr(req, 'use_proxy', False)
+                })
+            except Exception as e:
+                pass  # SSE 실패해도 대기는 계속
+    
+    return True  # 대기 완료
+
+
+def _perform_long_wait_with_monitoring(req, wait_seconds):
+    """긴 대기시간 처리 (Event.wait 사용)"""
+    from .shared import download_manager
+    from .db import SessionLocal
+    from .models import DownloadRequest, StatusEnum
+    
+    print(f"[LOG] 긴 대기시간 ({wait_seconds}초) - Event.wait() 사용")
+    
+    # 3초씩 나누어서 정지 상태 체크 (더 빠른 반응성)
+    check_interval = 3
+    remaining_time = wait_seconds
+    
+    max_iterations = (wait_seconds // check_interval) + 2  # 최대 반복 횟수 제한
+    iteration_count = 0
+    
+    while remaining_time > 0 and iteration_count < max_iterations:
+        iteration_count += 1
+        current_wait = min(check_interval, remaining_time)
+        
+        print(f"[LOG] 대기 루프 {iteration_count}/{max_iterations}: {remaining_time}초 남음")
+        
+        # 정지 상태 체크 (타임아웃 추가)
+        try:
+            temp_db = SessionLocal()
+            try:
+                download_req = temp_db.query(DownloadRequest).filter(
+                    DownloadRequest.id == req.id
+                ).first()
+                
+                if download_req:
+                    # DB 상태 체크
+                    if download_req.status == StatusEnum.stopped:
+                        print(f"[LOG] 긴 대기 중 정지 감지: ID {req.id}")
+                        return None  # 정지된 경우 파싱 중단
+                    
+                    # 정지 플래그 체크
+                    if download_manager.is_download_stopped(req.id):
+                        print(f"[LOG] 긴 대기 중 정지 플래그 감지: ID {req.id}")
+                        return None  # 정지된 경우 파싱 중단
+            finally:
+                temp_db.close()
+        except Exception as e:
+            print(f"[LOG] 긴 대기 중 상태 체크 실패: {e}")
+        
+        # 실제 대기 - 안전한 타임아웃 처리
+        wait_start_time = time.time()
+        try:
+            if hasattr(download_manager, 'download_stop_events') and req.id in download_manager.download_stop_events:
+                stop_event = download_manager.download_stop_events[req.id]
+                if stop_event.wait(timeout=current_wait):
+                    print(f"[LOG] 긴 대기 중 정지 이벤트 감지: ID {req.id}")
+                    return None  # 정지된 경우 파싱 중단
+            else:
+                # stop_event가 없으면 일반 대기
+                time.sleep(current_wait)
+        except KeyboardInterrupt:
+            print(f"[LOG] 대기 중 키보드 인터럽트 감지: ID {req.id}")
+            return None
+        except Exception as e:
+            print(f"[LOG] 대기 중 예외 발생: {e}")
+            time.sleep(min(current_wait, 3))  # 예외 발생 시 최대 3초만 대기
+        
+        # 실제 대기한 시간을 계산하여 차감 (무한루프 방지)
+        actual_wait_time = time.time() - wait_start_time
+        remaining_time = max(0, remaining_time - actual_wait_time)
+        print(f"[LOG] 대기 중... 남은 시간: {remaining_time}초")
+        
+        # SSE로 카운트다운 업데이트 전송 (status_update 메시지 사용) - 매번 전송
+        print(f"[DEBUG] send_sse_message 함수 사용 가능: {send_sse_message is not None}")
+        if send_sse_message:
+            try:
+                # 진행률 계산 (남은시간 기준)
+                total_wait = wait_seconds
+                progress_percent = ((total_wait - remaining_time) / total_wait) * 100
+                
+                send_sse_message("status_update", {
+                    "id": req.id,
+                    "status": "downloading",
+                    "progress": min(95, progress_percent),
+                    "message": f"다운로드 중 (대기: {remaining_time}초)",
+                    "remaining_time": remaining_time,
+                    "total_wait_time": total_wait,
+                    "url": req.url,
+                    "file_name": getattr(req, 'file_name', None),
+                    "downloaded_size": getattr(req, 'downloaded_size', 0),
+                    "total_size": getattr(req, 'total_size', 0),
+                    "use_proxy": getattr(req, 'use_proxy', False)
+                })
+                print(f"[LOG] SSE 카운트다운 전송: {int(remaining_time)}초 남음")
+            except Exception as e:
+                print(f"[LOG] SSE 카운트다운 전송 실패: {e}")  # 디버깅용 로그
+        
+        # KeyboardInterrupt는 상위 레벨에서 처리
+        if remaining_time <= 0:
+            break
+    
+    # 루프 종료 원인 확인
+    if iteration_count >= max_iterations:
+        print(f"[LOG] 최대 반복 횟수 도달로 대기 종료: {iteration_count}회")
+    elif remaining_time <= 0:
+        print(f"[LOG] 정상적으로 대기 완료: {wait_seconds}초")
+    
+    return True  # 대기 완료
+
+
+def _is_download_stopped(req):
+    """다운로드 정지 상태를 체크하는 통합 함수"""
+    if not req:
+        return False
+    
+    try:
+        from .shared import download_manager
+        from .db import SessionLocal
+        from .models import DownloadRequest, StatusEnum
+        
+        # 1. 메모리 정지 플래그 체크 (가장 빠름)
+        if download_manager.is_download_stopped(req.id):
+            return True
+        
+        # 2. DB 상태 체크
+        temp_db = SessionLocal()
+        try:
+            download_req = temp_db.query(DownloadRequest).filter(
+                DownloadRequest.id == req.id
+            ).first()
+            
+            if download_req and download_req.status == StatusEnum.stopped:
+                return True
+        finally:
+            temp_db.close()
+            
+    except Exception as e:
+        print(f"[LOG] 정지 상태 체크 오류: {e}")
+    
+    return False
+
+def _handle_wait_time(req, wait_seconds, proxy_addr, url):
+    """대기시간 처리 통합 함수"""
+    if not wait_seconds:
+        return True
+        
+    # 대기 시작 전 마지막 정지 상태 체크
+    if _is_download_stopped(req):
+        print(f"[LOG] ★★★ 대기 처리 시작 전 정지 감지: ID {req.id} ★★★")
+        return None
+        
+    print(f"[LOG] 🕐 {wait_seconds}초 대기 중...")
+    
+    # 1. 상태를 downloading으로 업데이트
+    _update_download_status_to_downloading(req)
+    
+    # 2. 대기 카운트다운 메시지 전송
+    _send_wait_countdown_message(req, wait_seconds, proxy_addr, url)
+    
+    # 3. 시간 표시
+    if wait_seconds > 300:  # 5분 이상
+        print(f"[LOG] ⚠️  긴 대기시간 감지: {wait_seconds//60}분 {wait_seconds%60}초")
+    
+    # 4. 텔레그램 알림 (5분 이상 대기시간일 때)
+    _send_telegram_wait_notification(req, wait_seconds)
+    
+    # 5. 실제 대기 수행
+    return _perform_monitored_wait(req, wait_seconds)

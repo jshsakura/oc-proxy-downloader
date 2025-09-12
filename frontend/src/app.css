@@ -1492,7 +1492,7 @@ html.dracula .page-number-btn.active {
   box-shadow: 0 2px 4px rgba(189, 147, 249, 0.4);
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .pagination-footer {
     flex-direction: column;
     gap: 1rem;
@@ -1537,38 +1537,17 @@ html.dracula .page-number-btn.active {
   }
 }
 
-/* Spinner for loading states */
+/* Unified spinner for all loading states */
 .spinner {
   width: 16px;
   height: 16px;
   display: inline-block;
   margin-right: 8px;
-  position: relative;
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
-.spinner::before,
-.spinner::after {
-  content: '';
-  position: absolute;
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
   border-radius: 50%;
-}
-
-.spinner::before {
-  width: 16px;
-  height: 16px;
-  border: 2px solid currentColor;
-  opacity: 0.2;
-  animation: ripple 1.5s ease-out infinite;
-}
-
-.spinner::after {
-  width: 8px;
-  height: 8px;
-  top: 4px;
-  left: 4px;
-  background: currentColor;
-  animation: bounce 1s ease-in-out infinite;
+  animation: spin 1s linear infinite;
 }
 
 @keyframes ripple {

@@ -30,7 +30,6 @@ class DownloadRequest(Base):
     total_size = Column(Integer, default=0)
     save_path = Column(String, nullable=True)
     password = Column(String, nullable=True)
-    direct_link = Column(String, nullable=True)
     use_proxy = Column(Boolean, default=True)  # 프록시 사용 여부
 
     def as_dict(self):

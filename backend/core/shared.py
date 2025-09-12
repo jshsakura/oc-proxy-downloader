@@ -13,6 +13,7 @@ from core.models import DownloadRequest, StatusEnum
 # SSE 메시지 큐 (메모리 누수 방지를 위한 크기 제한)
 status_queue = queue.Queue(maxsize=1000)
 
+
 def safe_status_queue_put(message):
     """안전한 status_queue put - 큐가 가득 찬 경우 오래된 메시지 제거"""
     try:
@@ -56,6 +57,11 @@ class DownloadManager:
         
         # 쿨다운 타이머 중복 생성 방지
         self._cooldown_timer_running = False
+    
+    @property
+    def download_stop_events(self):
+        """하위 호환성을 위한 별칭 속성"""
+        return self.stop_events
 
     def can_start_download(self, url=None):
         """다운로드를 시작할 수 있는지 확인 (전체 제한 + 1fichier 개별 제한 + 쿨다운)"""
@@ -554,11 +560,19 @@ class DownloadManager:
                 
                 # SSE 상태 업데이트 브로드캐스트
                 import json
+                # 현재 진행률 계산
+                progress = 0.0
+                if req.total_size and req.total_size > 0 and req.downloaded_size:
+                    progress = min(100.0, (req.downloaded_size / req.total_size) * 100)
+                
                 safe_status_queue_put(json.dumps({
                     "type": "status_update",
                     "data": {
                         "id": download_id,
-                        "status": "stopped"
+                        "status": "stopped",
+                        "progress": progress,
+                        "downloaded_size": req.downloaded_size or 0,
+                        "total_size": req.total_size or 0
                     }
                 }))
         except Exception as e:
@@ -601,11 +615,19 @@ class DownloadManager:
                         print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경 (이어받기 지원)")
                         
                         # SSE 상태 업데이트 브로드캐스트
+                        # 현재 진행률 계산
+                        progress = 0.0
+                        if req.total_size and req.total_size > 0 and req.downloaded_size:
+                            progress = min(100.0, (req.downloaded_size / req.total_size) * 100)
+                        
                         safe_status_queue_put(json.dumps({
                             "type": "status_update",
                             "data": {
                                 "id": download_id,
-                                "status": "stopped"
+                                "status": "stopped",
+                                "progress": progress,
+                                "downloaded_size": req.downloaded_size or 0,
+                                "total_size": req.total_size or 0
                             }
                         }))
                 db.commit()

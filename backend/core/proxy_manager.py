@@ -194,7 +194,6 @@ def reset_proxy_usage(db: Session):
 def reset_recent_failed_proxies(db: Session, hours_back: int = 1):
     """최근 실패한 프록시만 초기화 (재시작 복구용)"""
     try:
-        import datetime
         cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=hours_back)
         
         # 최근 1시간 이내에 실패한 프록시들만 삭제
@@ -236,7 +235,6 @@ def test_proxy(proxy_addr, timeout=15, lenient_mode=False):
             # 관대한 모드: 간단한 HTTP 연결 테스트만 수행 (재시작 직후용)
             print(f"[DEBUG] 프록시 {proxy_addr} 간단 연결 테스트 (관대한 모드)")
             
-            import requests
             proxy_config = {
                 "http": f"http://{proxy_addr}",
                 "https": f"http://{proxy_addr}"
@@ -382,7 +380,6 @@ def test_proxy_batch(db: Session, batch_proxies, req=None, lenient_mode=False):
     def test_single_proxy(proxy_addr):
         try:
             # 연속 요청 방지를 위한 랜덤 지연 (0.5~1.5초)
-            import time
             import random
             delay = random.uniform(0.5, 1.5)
             time.sleep(delay)
@@ -467,7 +464,6 @@ def get_working_proxy_batch(db: Session, batch_size=10, req=None):
     def test_single_proxy(proxy_addr):
         try:
             # 연속 요청 방지를 위한 랜덤 지연 (0.5~1.5초)
-            import time
             import random
             delay = random.uniform(0.5, 1.5)
             time.sleep(delay)

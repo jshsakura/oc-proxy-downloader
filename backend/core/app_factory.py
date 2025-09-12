@@ -10,7 +10,8 @@ from fastapi.responses import FileResponse
 from services.sse_manager import sse_manager
 from services.download_service import download_service
 from api.middleware import log_requests
-from api.routes import downloads, settings, proxy, events, auth
+from api.routes import downloads, settings, events, auth
+from api.routes.proxy import router as proxy_router
 from core.db import engine
 from core.models import Base
 from core.i18n import load_all_translations
@@ -50,22 +51,48 @@ async def lifespan(app: FastAPI):
         print("[LOG] Download service stopped")
     except asyncio.TimeoutError:
         print("[WARNING] Download service stop timeout")
+    except asyncio.CancelledError:
+        print("[LOG] Download service stop cancelled - normal during shutdown")
+    except Exception as e:
+        print(f"[WARNING] Download service stop error: {e}")
 
     try:
         await asyncio.wait_for(sse_manager.stop(), timeout=5.0)
         print("[LOG] SSE manager stopped")
     except asyncio.TimeoutError:
         print("[WARNING] SSE manager stop timeout")
+    except asyncio.CancelledError:
+        print("[LOG] SSE manager stop cancelled - normal during shutdown")
+    except Exception as e:
+        print(f"[WARNING] SSE manager stop error: {e}")
 
-    # 실행 중인 태스크들 정리
+    # 실행 중인 태스크들 정리 (현재 태스크 제외하여 무한 재귀 방지)
     try:
-        tasks = [task for task in asyncio.all_tasks() if not task.done()]
+        current_task = asyncio.current_task()
+        tasks = [task for task in asyncio.all_tasks() 
+                if not task.done() and task != current_task]
         if tasks:
             print(f"[LOG] Cancelling {len(tasks)} remaining tasks...")
+            # 각 태스크를 개별적으로 취소하고 예외 처리
             for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            print("[LOG] Tasks cancelled")
+                try:
+                    task.cancel()
+                except Exception as e:
+                    print(f"[WARNING] Failed to cancel task {task}: {e}")
+            
+            # 타임아웃을 설정하여 무한 대기 방지
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=3.0
+                )
+                print("[LOG] Tasks cancelled")
+            except asyncio.TimeoutError:
+                print("[WARNING] Task cancellation timeout")
+            except asyncio.CancelledError:
+                print("[LOG] Task cancellation interrupted - this is normal during shutdown")
+            except Exception as e:
+                print(f"[WARNING] Unexpected error during task cancellation: {e}")
     except Exception as e:
         print(f"[WARNING] Task cleanup error: {e}")
 
@@ -93,7 +120,7 @@ def create_app() -> FastAPI:
     api_router.include_router(auth.router)
     api_router.include_router(downloads.router)
     api_router.include_router(settings.router)
-    api_router.include_router(proxy.router)
+    api_router.include_router(proxy_router)
     api_router.include_router(events.router)
 
     app.include_router(api_router)

@@ -11,8 +11,10 @@ import time
 import threading
 import requests
 import json
+import datetime
 from pathlib import Path
 from sqlalchemy.orm import Session
+from urllib.parse import urlparse, unquote
 
 from .db import get_db
 from .models import DownloadRequest, StatusEnum
@@ -42,16 +44,24 @@ def format_file_size(bytes_size):
 
 
 def send_sse_message(message_type: str, data: dict):
-    """SSE 메시지를 전송하는 함수"""
+    """통합된 SSE 메시지 전송 함수"""
     try:
-        # main.py의 status_queue에 메시지 전송
-        from core.shared import safe_status_queue_put
-        message = json.dumps({
-            "type": message_type,
-            "data": data
-        }, ensure_ascii=False)
-        safe_status_queue_put(message)
-        # print(f"[LOG] SSE 메시지 전송: {message_type}")
+        import asyncio
+        from services.sse_manager import sse_manager
+        
+        # 간단하게 새 스레드에서 비동기 실행
+        def run_broadcast():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(sse_manager.broadcast_message(message_type, data))
+                loop.close()
+            except Exception as e:
+                print(f"[LOG] SSE 전송 실패: {e}")
+        
+        import threading
+        threading.Thread(target=run_broadcast, daemon=True).start()
+            
     except Exception as e:
         print(f"[LOG] SSE 메시지 전송 실패: {e}")
 
@@ -110,7 +120,6 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
         translations = get_translations(lang)
         
         # HTML 형식으로 예쁜 메시지 작성
-        import datetime
         if lang == "ko":
             # 한국어일 때만 KST로 표시
             current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
@@ -135,7 +144,6 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
 <code>{wait_minutes}분</code>"""
         
         # 텔레그램 API 호출 (비동기)
-        import requests
         import threading
         
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -164,7 +172,6 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
 def utc_to_kst(utc_time_str: str) -> str:
     """UTC 시간 문자열을 KST로 변환"""
     try:
-        import datetime
         # ISO 형식의 UTC 시간을 파싱
         if utc_time_str.endswith('Z'):
             utc_time_str = utc_time_str[:-1]
@@ -176,7 +183,7 @@ def utc_to_kst(utc_time_str: str) -> str:
     except:
         return utc_time_str or "알 수 없음"
 
-def send_telegram_start_notification(file_name: str, download_mode: str, lang: str = "ko", file_size: str = None):
+def send_telegram_start_notification(file_name: str, download_mode: str, lang: str = "ko", file_size: str = None, requested_at = None):
     """텔레그램 다운로드 시작 알림 전송"""
     try:
         config = get_config()
@@ -193,13 +200,35 @@ def send_telegram_start_notification(file_name: str, download_mode: str, lang: s
         translations = get_translations(lang)
         
         # HTML 형식으로 예쁜 메시지 작성
-        import datetime
-        if lang == "ko":
-            # 한국어일 때만 KST로 표시
-            current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+        # 요청시간 사용 (requested_at이 없으면 현재 시간)
+        if requested_at:
+            if lang == "ko":
+                # 한국어일 때만 KST로 표시
+                if isinstance(requested_at, str):
+                    # 문자열이면 파싱
+                    try:
+                        dt = datetime.datetime.fromisoformat(requested_at.replace('Z', '+00:00'))
+                    except:
+                        dt = datetime.datetime.utcnow()
+                else:
+                    dt = requested_at
+                current_time = (dt + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                # 영어 등 다른 언어는 UTC로 표시
+                if isinstance(requested_at, str):
+                    try:
+                        dt = datetime.datetime.fromisoformat(requested_at.replace('Z', '+00:00'))
+                    except:
+                        dt = datetime.datetime.utcnow()
+                else:
+                    dt = requested_at
+                current_time = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
         else:
-            # 영어 등 다른 언어는 UTC로 표시
-            current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            # requested_at이 없으면 현재 시간 사용 (기존 로직)
+            if lang == "ko":
+                current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         
         start_text = translations.get("telegram_download_started", "Download Started")
         filename_text = translations.get("telegram_filename", "Filename")
@@ -231,7 +260,6 @@ def send_telegram_start_notification(file_name: str, download_mode: str, lang: s
 <code>{current_time}</code>"""
         
         # 텔레그램 API 호출 (비동기)
-        import requests
         import threading
         
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -280,7 +308,6 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
         translations = get_translations(lang)
         
         # HTML 형식으로 예쁜 메시지 작성
-        import datetime
         
         # 현재 시간 처리 (시간대 고려)
         if lang == "ko":
@@ -339,7 +366,6 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
             return
             
         # 텔레그램 API 호출
-        import requests
         
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         payload = {
@@ -527,6 +553,16 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             print(f"[LOG] 다운로드 요청을 찾을 수 없음: ID {request_id}")
             return
         
+        # 다운로드 매니저에 등록 (정지 플래그 생성을 위해 필수)
+        download_manager.register_download(request_id, req.url, use_proxy)
+        print(f"[LOG] 다운로드 매니저에 등록 완료: ID {request_id}")
+        
+        # 등록 후 즉시 한 번 더 정지 체크
+        if download_manager.is_download_stopped(request_id):
+            print(f"[LOG] 다운로드 등록 후 정지 플래그 감지: ID {request_id}")
+            download_manager.unregister_download(request_id, auto_start_next=False)
+            return
+        
         # 즉시 정지 플래그만 초기화 (등록은 실제 다운로드 시작 시점에)
         with download_manager._lock:
             download_manager.stop_events[request_id] = threading.Event()
@@ -535,7 +571,6 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         # 지연 시간 체크 (5번 이후 재시도에서 3분 지연)
         if req.error and "delay_until:" in req.error:
             try:
-                import datetime
                 delay_part = req.error.split("delay_until:")[1].strip()
                 delay_until = datetime.datetime.fromisoformat(delay_part)
                 current_time = datetime.datetime.utcnow()
@@ -596,7 +631,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     
                     # wait_countdown 메시지 전송
                     send_sse_message("wait_countdown", {
-                        "download_id": req.id,
+                        "id": req.id,
                         "remaining_time": estimated_wait_time,
                         "wait_message": wait_message,
                         "url": req.url,
@@ -676,6 +711,18 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         db.commit()
         print(f"[LOG] 저장 경로 설정: {file_path}")
         
+        # SSE로 저장 경로 업데이트 전송
+        send_sse_message("status_update", {
+            "id": req.id,
+            "url": req.url,
+            "file_name": req.file_name,
+            "status": req.status.value if hasattr(req.status, 'value') else str(req.status),
+            "save_path": req.save_path,
+            "total_size": req.total_size or 0,
+            "downloaded_size": req.downloaded_size or 0,
+            "use_proxy": req.use_proxy
+        })
+        
         # 기존 파일 확인 (재시도/재개 여부에 따라 메시지 구분)
         initial_downloaded_size = 0
         is_resume = (retry_count > 0 or req.status == StatusEnum.stopped)  # 재시도이거나 정지 상태에서 재개
@@ -697,7 +744,6 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 req.status = StatusEnum.done
                 req.downloaded_size = initial_downloaded_size
                 req.total_size = initial_downloaded_size
-                import datetime
                 req.finished_at = datetime.datetime.utcnow()
                 db.commit()
                 
@@ -749,8 +795,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 "status": "proxying",
                 "error": None
             })
-            force_reparse = initial_downloaded_size > 0 or req.direct_link is None
-            print(f"[LOG] 강제 재파싱 모드: {force_reparse} (이어받기: {initial_downloaded_size > 0}, 링크없음: {req.direct_link is None})")
+            force_reparse = initial_downloaded_size > 0
+            print(f"[LOG] 강제 재파싱 모드: {force_reparse} (이어받기: {initial_downloaded_size > 0})")
             direct_link, used_proxy_addr = parse_with_proxy_cycling(req, db, force_reparse=force_reparse)
         else:
             print(f"[LOG] 로컬 모드로 Direct Link 파싱")
@@ -767,8 +813,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             })
             
             # 재시도이거나 이어받기인 경우 항상 강제 재파싱 (원본 URL로 새로 파싱)
-            force_reparse = initial_downloaded_size > 0 or req.direct_link is None
-            print(f"[LOG] 강제 재파싱 모드: {force_reparse} (이어받기: {initial_downloaded_size > 0}, 링크없음: {req.direct_link is None})")
+            force_reparse = initial_downloaded_size > 0
+            print(f"[LOG] 강제 재파싱 모드: {force_reparse} (이어받기: {initial_downloaded_size > 0})")
             
             # 로컬 모드에서는 파일 정보와 함께 파싱
             from .parser_service import parse_direct_link_with_file_info
@@ -817,7 +863,6 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             print(f"[WARNING] 파싱된 파일명이 없습니다. fallback 로직 시작")
             
             # URL에서 파일명 추출 시도
-            from urllib.parse import urlparse, unquote
             parsed_url = urlparse(req.url)
             url_filename = None
             
@@ -860,6 +905,18 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             req.save_path = str(final_path)
             db.commit()
             print(f"[LOG] 저장 경로 업데이트 완료: {final_path}")
+            
+            # SSE로 저장 경로 업데이트 전송
+            send_sse_message("status_update", {
+                "id": req.id,
+                "url": req.url,
+                "file_name": req.file_name,
+                "status": req.status.value if hasattr(req.status, 'value') else str(req.status),
+                "save_path": req.save_path,
+                "total_size": req.total_size or 0,
+                "downloaded_size": req.downloaded_size or 0,
+                "use_proxy": req.use_proxy
+            })
 
         # 정지 상태 체크 (파싱 후) - 정지 플래그 우선 확인
         if download_manager.is_download_stopped(request_id):
@@ -877,8 +934,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             from .parser_service import is_direct_link_expired
             if is_direct_link_expired(direct_link, use_proxy=use_proxy):
                 print(f"[LOG] Direct Link 만료 감지 - 강제 재파싱 시도: {direct_link}")
-                req.direct_link = None
-                db.commit()
+                # direct_link 필드 제거됨
                 
                 # 강제 재파싱
                 if use_proxy:
@@ -891,7 +947,6 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         if not direct_link:
             # URL 유효성 체크를 통한 더 자세한 에러 메시지
             try:
-                import requests
                 test_response = requests.head(req.url, timeout=5)
                 if test_response.status_code == 404:
                     error_msg = "파일이 존재하지 않거나 삭제됨 (404 에러)"
@@ -922,7 +977,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 "requested_at": req.requested_at.isoformat() if req.requested_at else None,
                 "finished_at": None,
                 "password": req.password,
-                "direct_link": req.direct_link,
+                "direct_link": None,  # direct_link 필드 제거됨
                 "use_proxy": req.use_proxy
             })
             
@@ -931,7 +986,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         # 특별한 다운로드 모드 처리
         if direct_link in ["DIRECT_DOWNLOAD_STREAM", "DIRECT_FILE_RESPONSE"]:
             print(f"[LOG] 직접 다운로드 모드: {direct_link}")
-            req.direct_link = direct_link
+            # direct_link 필드 제거됨
             req.status = StatusEnum.downloading
             db.commit()
             
@@ -957,7 +1012,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             
         else:
             print(f"[LOG] Direct Link 획득: {direct_link}")
-            req.direct_link = direct_link
+            # direct_link 필드 제거됨
             req.status = StatusEnum.downloading
             db.commit()
             
@@ -977,7 +1032,8 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                     file_name=req.file_name or "Unknown File",
                     download_mode=download_mode,
                     lang=lang,
-                    file_size=file_size_str
+                    file_size=file_size_str,
+                    requested_at=req.requested_at
                 )
             except Exception as e:
                 print(f"[LOG] 텔레그램 시작 알림 전송 실패: {e}")
@@ -995,7 +1051,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                 "requested_at": req.requested_at.isoformat() if req.requested_at else None,
                 "finished_at": None,
                 "password": req.password,
-                "direct_link": req.direct_link,
+                "direct_link": None,  # direct_link 필드 제거됨
                 "use_proxy": req.use_proxy
             })
             
@@ -1053,7 +1109,6 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
         
         # DB 업데이트
         req.status = StatusEnum.done
-        import datetime
         req.finished_at = datetime.datetime.utcnow()
         if final_file_path:
             req.save_path = str(final_file_path)
@@ -1072,7 +1127,6 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             file_size_str = format_file_size(req.total_size)
 
         # 시간 포맷팅
-        import datetime
         requested_time_str = None
         if req.requested_at:
             if lang == "ko":
@@ -1124,7 +1178,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
             "requested_at": req.requested_at.isoformat() if req.requested_at else None,
             "finished_at": req.finished_at.isoformat() if req.finished_at else None,
             "password": req.password,
-            "direct_link": req.direct_link,
+            "direct_link": None,  # direct_link 필드 제거됨
             "use_proxy": req.use_proxy
         })
         
@@ -1177,7 +1231,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                         "requested_at": req.requested_at.isoformat() if req.requested_at else None,
                         "finished_at": None,
                         "password": req.password,
-                        "direct_link": req.direct_link,
+                        "direct_link": None,  # direct_link 필드 제거됨
                         "use_proxy": req.use_proxy
                     })
                     
@@ -1223,7 +1277,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                             "requested_at": req.requested_at.isoformat() if req.requested_at else None,
                             "finished_at": None,
                             "password": req.password,
-                            "direct_link": req.direct_link,
+                            "direct_link": None,  # direct_link 필드 제거됨
                             "use_proxy": req.use_proxy
                         })
                         
@@ -1274,7 +1328,7 @@ def download_1fichier_file_new(request_id: int, lang: str = "ko", use_proxy: boo
                             "requested_at": req.requested_at.isoformat() if req.requested_at else None,
                             "finished_at": None,
                             "password": req.password,
-                            "direct_link": req.direct_link,
+                            "direct_link": None,  # direct_link 필드 제거됨
                             "use_proxy": req.use_proxy
                         })
                         
@@ -1374,7 +1428,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
     #     db.commit()
         
     #     send_sse_message("status_update", {
-    #         "id": req.id,
+    #         "download_id": req.id,
     #         "status": "parsing",
     #         "message": get_message("proxy_parsing_started"),
     #         "progress": 0,
@@ -1430,7 +1484,6 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
         
         # 배치 프록시를 병렬 테스트 (캐시된 목록 사용)
         # 재시작 직후 5분 이내에는 관대한 모드 사용
-        import time
         server_start_time = getattr(download_manager, '_server_start_time', time.time())
         use_lenient_mode = (time.time() - server_start_time) < 300  # 5분
         
@@ -1457,7 +1510,6 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             proxy_index += batch_size
             
             # 배치 간 지연 (차단 방지용)
-            import time
             print(f"[LOG] 배치 간 지연 (차단 방지): 2초 대기")
             time.sleep(2)
             continue
@@ -1481,6 +1533,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
         try:
             # SSE로 프록시 시도 중 알림 (상세)
             send_sse_message("proxy_trying", {
+                "id": req.id,
                 "proxy": working_proxy,
                 "step": "파싱 중 (검증됨)",
                 "current": i + 1,
@@ -1603,6 +1656,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             
             # SSE로 프록시 시도 중 알림
             send_sse_message("proxy_trying", {
+                "id": req.id,
                 "proxy": proxy_addr,
                 "step": "파싱 중",
                 "current": i + 1,
@@ -1770,6 +1824,7 @@ def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial
             
             # SSE로 프록시 시도 중 알림
             send_sse_message("proxy_trying", {
+                "id": req.id,
                 "proxy": proxy_addr,
                 "step": "다운로드 중",
                 "current": i + 1,
@@ -1871,6 +1926,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
         
         # SSE로 다운로드 시작 알림
         send_sse_message("proxy_trying", {
+            "id": req.id,
             "proxy": proxy_addr,
             "step": "다운로드 중",
             "current": 1,
@@ -1878,7 +1934,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             "url": req.url
         })
         
-        with requests.get(direct_link, stream=True, headers=headers, proxies=proxies, timeout=(3, 10)) as response:
+        with requests.get(direct_link, stream=True, headers=headers, proxies=proxies, timeout=(10, 60)) as response:
             response.raise_for_status()
             
             # 응답 받은 후 정지 상태 체크
@@ -1893,7 +1949,6 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             # Content-Disposition에서 실제 파일명 추출 시도
             content_disposition = response.headers.get('Content-Disposition', '')
             if content_disposition and 'filename' in content_disposition:
-                import re
                 # filename="..." 또는 filename*=UTF-8''... 형태 처리
                 filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';\r\n]*)["\']?', content_disposition)
                 if filename_match:
@@ -1999,8 +2054,8 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                             downloaded += len(chunk)
                             chunk_count += 1
                             
-                            # 매 64KB마다(8개 청크) 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
-                            if chunk_count % 8 == 0:
+                            # 매 128KB마다(16개 청크) 정지 상태 및 SSE 업데이트 체크 (성능 최적화)
+                            if chunk_count % 16 == 0:
                                 from .shared import download_manager
                                 if download_manager.is_download_stopped(req.id):
                                     print(f"[LOG] 다운로드 중 즉시 정지 플래그 감지: {req.id} (진행률: {downloaded}/{total_size})")
@@ -2060,9 +2115,9 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                                         req._speed_start_time = current_time
                                         req._speed_start_bytes = downloaded
                                 
-                            # SSE 업데이트: 2초 간격
+                            # SSE 업데이트: 최적화된 간격 (2초마다)
                             last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
-                            if current_time - last_sse_send_time >= 2:
+                            if current_time - last_sse_send_time >= 2.0:
                                 req._last_sse_send_time = current_time
 
                                 # 속도 계산
@@ -2159,8 +2214,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
             
             try:
                 # 기존 direct_link 완전 초기화
-                req.direct_link = None
-                db.commit()
+                # direct_link 필드 제거됨
                 
                 # 강제 재파싱 시도 (여러 프록시로 시도)
                 print(f"[LOG] 원본 URL로 강제 재파싱 시도: {req.url}")
@@ -2168,8 +2222,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                 
                 if new_direct_link and new_direct_link != direct_link:
                     print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 성공: {new_direct_link}")
-                    req.direct_link = new_direct_link
-                    db.commit()
+                    # direct_link 필드 제거됨
                     
                     # 재파싱된 링크로 다시 다운로드 시도
                     if used_proxy:
@@ -2189,8 +2242,7 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
                     local_direct_link = parse_direct_link_simple(req.url, req.password, use_proxy=False)
                     if local_direct_link and local_direct_link != direct_link:
                         print(f"[LOG] 로컬 연결로 재파싱 성공: {local_direct_link}")
-                        req.direct_link = local_direct_link
-                        db.commit()
+                        # direct_link 필드 제거됨
                         return download_local(local_direct_link, file_path, initial_size, req, db)
                 except Exception as local_error:
                     print(f"[LOG] 로컬 연결 재파싱도 실패: {local_error}")
@@ -2208,6 +2260,9 @@ def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, d
 
 def download_local(direct_link, file_path, initial_size, req, db):
     """로컬 연결로 다운로드"""
+    # SSE 업데이트를 즉시 시작할 수 있도록 초기화
+    req._last_sse_send_time = 0
+    
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': '*/*',
@@ -2228,7 +2283,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
         
         print(f"[LOG] 로컬 연결로 다운로드 시작")
         
-        with requests.get(direct_link, stream=True, headers=headers, timeout=(10, 30)) as response:
+        with requests.get(direct_link, stream=True, headers=headers, timeout=(15, 90)) as response:
             response.raise_for_status()
             
             # 응답 받은 후 정지 상태 체크
@@ -2243,7 +2298,6 @@ def download_local(direct_link, file_path, initial_size, req, db):
             # Content-Disposition에서 실제 파일명 추출 시도 (로컬)
             content_disposition = response.headers.get('Content-Disposition', '')
             if content_disposition and 'filename' in content_disposition:
-                import re
                 # filename="..." 또는 filename*=UTF-8''... 형태 처리
                 filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';\r\n]*)["\']?', content_disposition)
                 if filename_match:
@@ -2349,8 +2403,8 @@ def download_local(direct_link, file_path, initial_size, req, db):
                             downloaded += len(chunk)
                             chunk_count += 1
                             
-                            # 매 64KB마다(8개 청크) 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
-                            if chunk_count % 8 == 0:
+                            # 매 128KB마다(16개 청크) 정지 상태 및 SSE 업데이트 체크 (성능 최적화)
+                            if chunk_count % 16 == 0:
                                 from .shared import download_manager
                                 if download_manager.is_download_stopped(req.id):
                                     print(f"[LOG] 다운로드 중 즉시 정지 플래그 감지: {req.id} (진행률: {downloaded}/{total_size})")
@@ -2377,11 +2431,12 @@ def download_local(direct_link, file_path, initial_size, req, db):
                             current_percent_for_log = int(progress // 5) * 5  # 5% 단위 (로그용)
                             current_percent_for_ui = int(progress * 2) / 2  # 0.5% 단위 (UI 업데이트용)
                             
-                            # 속도 계산을 위한 시간 추적
+                            # 속도 계산을 위한 시간 추적 (로컬 다운로드)
                             current_time = time.time()
                             if not hasattr(req, '_local_speed_start_time'):
                                 req._local_speed_start_time = current_time
                                 req._local_speed_start_bytes = downloaded
+                                req._last_sse_send_time = 0  # SSE 초기화로 즉시 전송 가능하게
                             
                             # DB 업데이트: 5MB마다 또는 10초마다
                             last_db_update_time = getattr(req, '_last_local_db_update_time', 0)
@@ -2410,14 +2465,17 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                         req._local_speed_start_time = current_time
                                         req._local_speed_start_bytes = downloaded
                                 
-                            # SSE 업데이트: 2초 간격
+                            # SSE 업데이트: 강제로 매번 전송 (테스트용)
                             last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
-                            if current_time - last_sse_send_time >= 2:
+                            print(f"[LOG] 로컬 SSE 체크: 현재시간={current_time:.1f}, 마지막전송={last_sse_send_time:.1f}, 차이={current_time - last_sse_send_time:.1f}초")
+                            
+                            # SSE 업데이트 간격 최적화 (2초마다)
+                            if current_time - last_sse_send_time >= 2.0:
                                 req._last_sse_send_time = current_time
 
                                 # 속도 계산
                                 speed_time_elapsed = current_time - getattr(req, '_local_ui_speed_time', req._local_speed_start_time)
-                                if speed_time_elapsed > 0.5: # 0.5초 이상 간격으로만
+                                if speed_time_elapsed > 1.0: # 1초 이상 간격으로만
                                     speed_bytes_diff = downloaded - getattr(req, '_local_ui_speed_bytes', req._local_speed_start_bytes)
                                     download_speed = speed_bytes_diff / speed_time_elapsed
                                     
@@ -2429,6 +2487,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
                                 
                                 req._last_local_download_speed = download_speed
 
+                                print(f"[LOG] 로컬 SSE 전송: ID={req.id}, 진행률={round(progress, 1)}%, 속도={round(download_speed, 0)}")
                                 send_sse_message("status_update", {
                                         "id": req.id,
                                         "downloaded_size": downloaded,
@@ -2487,8 +2546,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
             
             try:
                 # 기존 direct_link 완전 초기화
-                req.direct_link = None
-                db.commit()
+                # direct_link 필드 제거됨
                 
                 # 우선 로컬 연결로 재파싱 시도
                 print(f"[LOG] 로컬 연결으로 강제 재파싱 시도: {req.url}")
@@ -2497,8 +2555,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
                 
                 if new_direct_link and new_direct_link != direct_link:
                     print(f"[LOG] 로컬 연결 DNS 오류 후 재파싱 성공: {new_direct_link}")
-                    req.direct_link = new_direct_link
-                    db.commit()
+                    # direct_link 필드 제거됨
                     return download_local(new_direct_link, file_path, initial_size, req, db)
                 else:
                     print(f"[LOG] 로컬 재파싱 실패 - 프록시 순환 시도")
@@ -2508,8 +2565,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
                         new_direct_link, used_proxy = parse_with_proxy_cycling(req, db, force_reparse=True)
                         if new_direct_link and new_direct_link != direct_link:
                             print(f"[LOG] 프록시 순환으로 재파싱 성공: {new_direct_link}")
-                            req.direct_link = new_direct_link
-                            db.commit()
+                            # direct_link 필드 제거됨
                             
                             if used_proxy:
                                 return download_with_proxy(new_direct_link, file_path, used_proxy, initial_size, req, db)
@@ -2522,6 +2578,28 @@ def download_local(direct_link, file_path, initial_size, req, db):
                         
             except Exception as reparse_error:
                 print(f"[LOG] DNS 오류 후 재파싱 중 예외: {reparse_error}")
+        
+        # 연결 시간 초과 또는 읽기 시간 초과 감지 시 프록시로 전환 시도
+        elif any(timeout_error in error_str for timeout_error in [
+            "HTTPSConnectionPool", "Connection timed out", "Read timed out", 
+            "ConnectTimeout", "ReadTimeout", "timeout", "RemoteDisconnected"
+        ]):
+            print(f"[LOG] 연결/읽기 시간 초과 감지 - 프록시 연결로 전환 시도")
+            print(f"[LOG] 실패한 로컬 연결: {direct_link}")
+            
+            try:
+                # 프록시를 사용해서 재파싱 및 다운로드 시도
+                print(f"[LOG] 프록시 순환으로 재파싱 및 다운로드 시도: {req.url}")
+                from .parser_service import parse_with_proxy_cycling
+                new_direct_link, used_proxy = parse_with_proxy_cycling(req, db, force_reparse=True)
+                
+                if new_direct_link and used_proxy:
+                    print(f"[LOG] 프록시 순환으로 재파싱 성공: {new_direct_link} (프록시: {used_proxy})")
+                    return download_with_proxy(new_direct_link, file_path, used_proxy, initial_size, req, db)
+                else:
+                    print(f"[LOG] 프록시 순환 재파싱 실패")
+            except Exception as proxy_timeout_error:
+                print(f"[LOG] 프록시 연결 전환 실패: {proxy_timeout_error}")
         
         # SSE로 로컬 다운로드 실패 상태 전송
         send_sse_message("status_update", {
@@ -2536,7 +2614,7 @@ def download_local(direct_link, file_path, initial_size, req, db):
             "requested_at": req.requested_at.isoformat() if req.requested_at else None,
             "finished_at": None,
             "password": req.password,
-            "direct_link": req.direct_link,
+            "direct_link": None,  # direct_link 필드 제거됨
             "use_proxy": req.use_proxy
         })
         
@@ -2630,9 +2708,6 @@ def download_general_file(request_id, language="ko", use_proxy=False):
     """일반 파일 다운로드 (non-1fichier) - URL에서 직접 다운로드"""
     from .db import SessionLocal
     from .models import DownloadRequest, StatusEnum
-    from urllib.parse import urlparse, unquote
-    import requests
-    import re
     
     db = SessionLocal()
     req = None  # 변수 초기화
@@ -2706,11 +2781,23 @@ def download_general_file(request_id, language="ko", use_proxy=False):
                 extracted_filename = unquote(filename_match.group(1))
                 req.file_name = extracted_filename
                 print(f"[LOG] Content-Disposition에서 파일명 추출: '{extracted_filename}'")
+                db.commit()
+                
+                # SSE로 파일명 업데이트 즉시 전송
+                send_sse_message("status_update", {
+                    "id": req.id,
+                    "file_name": req.file_name,
+                    "url": req.url,
+                    "status": req.status.value if hasattr(req.status, 'value') else str(req.status),
+                    "file_size": req.file_size,
+                    "total_size": req.total_size or 0
+                })
         
         # 파일명이 없으면 임시명 설정
         if not req.file_name or req.file_name.strip() == '':
             req.file_name = f"general_{request_id}.tmp"
             print(f"[LOG] 파일명을 추출할 수 없어 임시명 사용: {req.file_name}")
+            db.commit()
             
         # Content-Length에서 파일 크기 추출
         content_length = head_response.headers.get('Content-Length')
@@ -2743,7 +2830,8 @@ def download_general_file(request_id, language="ko", use_proxy=False):
                 file_name=req.file_name or "Unknown File",
                 download_mode=download_mode,
                 lang=lang,
-                file_size=file_size_str
+                file_size=file_size_str,
+                requested_at=req.requested_at
             )
         except Exception as e:
             print(f"[LOG] 텔레그램 시작 알림 전송 실패 (일반): {e}")
@@ -2794,6 +2882,18 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         db.commit()
         print(f"[LOG] 저장 경로 설정: {file_path}")
         
+        # SSE로 저장 경로 업데이트 전송
+        send_sse_message("status_update", {
+            "id": req.id,
+            "url": req.url,
+            "file_name": req.file_name,
+            "status": req.status.value if hasattr(req.status, 'value') else str(req.status),
+            "save_path": req.save_path,
+            "total_size": req.total_size or 0,
+            "downloaded_size": req.downloaded_size or 0,
+            "use_proxy": req.use_proxy
+        })
+        
         # 기존 파일 확인 (일반 파일 다운로드)
         initial_size = 0
         if part_file_path.exists():
@@ -2807,7 +2907,6 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             req.status = StatusEnum.done
             req.downloaded_size = initial_size
             req.total_size = initial_size
-            import datetime
             req.finished_at = datetime.datetime.utcnow()
             db.commit()
             
@@ -2825,6 +2924,33 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             file_path = part_file_path
             print(f"[LOG] 새 다운로드 시작")
         
+        # 정지 상태 체크 (다운로드 시작 전)
+        from .shared import download_manager
+        if download_manager.is_download_stopped(request_id):
+            print(f"[LOG] 일반 다운로드 시작 전 정지 플래그 감지: ID {request_id}")
+            return
+            
+        db.refresh(req)
+        if req.status == StatusEnum.stopped:
+            print(f"[LOG] 일반 다운로드 시작 전 정지 상태 감지: ID {request_id}")
+            return
+
+        # 다운로드 상태로 변경 및 SSE 전송
+        req.status = StatusEnum.downloading
+        db.commit()
+        
+        send_sse_message("status_update", {
+            "id": req.id,
+            "url": req.url,
+            "file_name": req.file_name,
+            "status": "downloading",
+            "save_path": req.save_path,
+            "total_size": req.total_size or 0,
+            "downloaded_size": req.downloaded_size or 0,
+            "progress": 0.0,
+            "use_proxy": req.use_proxy
+        })
+
         # 실제 다운로드는 기존 다운로드 로직 재사용
         if use_proxy:
             print(f"[LOG] 프록시 모드로 일반 파일 다운로드")
@@ -2842,7 +2968,6 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         final_file_path = cleanup_download_file(file_path)
 
         req.status = StatusEnum.done
-        import datetime
         req.finished_at = datetime.datetime.utcnow()
         if final_file_path:
             req.save_path = str(final_file_path)
@@ -2898,7 +3023,7 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             "requested_at": req.requested_at.isoformat() if req.requested_at else None,
             "finished_at": req.finished_at.isoformat() if req.finished_at else None,
             "password": req.password,
-            "direct_link": req.direct_link,
+            "direct_link": None,  # direct_link 필드 제거됨
             "use_proxy": req.use_proxy
         })
         

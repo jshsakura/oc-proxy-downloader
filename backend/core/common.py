@@ -3,6 +3,8 @@ import os
 import random
 import requests
 import cloudscraper
+import threading
+import time
 
 def convert_size(size_bytes: int) -> str:
     if size_bytes == 0:

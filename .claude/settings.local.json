@@ -10,7 +10,11 @@
       "Bash(curl:*)",
       "Bash(echo:*)",
       "Bash(echo \"AUTH_USERNAME=$AUTH_USERNAME\")",
-      "Bash(del \"C:\\Users\\jshsa\\Documents\\workspace-github\\oc-proxy-downloader\\test_preparse.py\")"
+      "Bash(del \"C:\\Users\\jshsa\\Documents\\workspace-github\\oc-proxy-downloader\\test_preparse.py\")",
+      "Bash(C:UsersWIN11AppDataLocalProgramsPythonPython313python.exe -m pip install PyJWT)",
+      "Bash(Get-Content backend/logs/app.log -Tail 50)",
+      "Bash(npm run dev:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": [],

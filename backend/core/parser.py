@@ -178,7 +178,6 @@ class FichierParser:
             
             # 1fichier 대기시간 체크 (기존 방식과 동일하게 처리)
             if 'Free download in' in html_content:
-                import re
                 # 16분 대기시간 체크
                 wait_match = re.search(r'Free download in.*?(\d+)\s*minutes?', html_content, re.IGNORECASE)
                 if wait_match:

@@ -28,49 +28,30 @@
   export let showModal;
   export let currentSettings;
 
-  let settings = { ...currentSettings };
-  let selectedTheme = settings.theme || $theme;
-  let selectedLocale = settings.language || "ko";
-  let selectedLocaleWasSet = false;
-  let initialSettingsLoaded = false;
+  let settings = {};
+  let selectedTheme = "system";
+  let selectedLocale = "ko";
 
   let userProxies = [];
   let newProxyAddress = "";
   let newProxyDescription = "";
   let isAddingProxy = false;
+  
+  // 페이징 변수들
+  let currentPage = 1;
+  let itemsPerPage = 50; // 페이지당 50개만 표시
+  $: totalPages = Math.ceil(userProxies.length / itemsPerPage);
+  $: paginatedProxies = userProxies.slice(
+    (currentPage - 1) * itemsPerPage, 
+    currentPage * itemsPerPage
+  );
   let telegramGuideExpanded = false;
   let telegramSettingsExpanded = false;
   let detailedGuideExpanded = false;
   let showLogoutConfirm = false;
 
-  $: if (
-    currentSettings &&
-    currentSettings.download_path &&
-    !initialSettingsLoaded
-  ) {
-    settings = {
-      ...currentSettings,
-      telegram_bot_token: currentSettings.telegram_bot_token || "",
-      telegram_chat_id: currentSettings.telegram_chat_id || "",
-      telegram_notify_success: currentSettings.telegram_notify_success || false,
-      telegram_notify_failure: currentSettings.telegram_notify_failure || true,
-      telegram_notify_wait: currentSettings.telegram_notify_wait !== false, // 기본값 true
-      telegram_notify_start: currentSettings.telegram_notify_start || false,
-    };
-    selectedTheme = settings.theme || $theme;
-    initialSettingsLoaded = true;
-  }
 
-  $: isLoading = !settings;
-
-  $: if (showModal && !selectedLocaleWasSet) {
-    selectedLocale = localStorage.getItem("lang") || "ko";
-    selectedLocaleWasSet = true;
-  }
-  $: if (!showModal) {
-    selectedLocaleWasSet = false;
-    initialSettingsLoaded = false;
-  }
+  $: isLoading = !settings || Object.keys(settings).length === 0;
 
   function closeModal() {
     dispatch("close");
@@ -234,6 +215,20 @@
       console.error("Telegram test error:", error);
       showToastMsg($t("telegram_test_error"), "error");
     }
+  }
+
+  $: if (showModal && currentSettings && Object.keys(currentSettings).length > 0) {
+    settings = {
+      ...currentSettings,
+      telegram_bot_token: currentSettings.telegram_bot_token || "",
+      telegram_chat_id: currentSettings.telegram_chat_id || "",
+      telegram_notify_success: currentSettings.telegram_notify_success || false,
+      telegram_notify_failure: currentSettings.telegram_notify_failure !== false,
+      telegram_notify_wait: currentSettings.telegram_notify_wait !== false,
+      telegram_notify_start: currentSettings.telegram_notify_start || false,
+    };
+    selectedTheme = settings.theme || $theme;
+    selectedLocale = localStorage.getItem("lang") || "ko";
   }
 
   $: if (showModal) {
@@ -585,7 +580,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each userProxies as proxy (proxy.id)}
+                      {#each paginatedProxies as proxy, i (proxy.id || i)}
                         <tr
                           class="proxy-row {proxy.is_active
                             ? 'active'
@@ -596,8 +591,8 @@
                               <span class="proxy-url">{proxy.address}</span>
                               <button
                                 class="copy-proxy-button"
-                                on:click={() => copyToClipboard(proxy.address)}
-                                title={$t("proxy_copy_address")}
+                                on:click={() => navigator.clipboard?.writeText(proxy.address)}
+                                title="Copy address"
                                 type="button"
                               >
                                 <CopyIcon />
@@ -628,7 +623,7 @@
                             </span>
                           </td>
                           <td class="proxy-date text-center">
-                            {formatDate(proxy.added_at)}
+                            {proxy.added_at ? new Date(proxy.added_at).toLocaleDateString() : "-"}
                           </td>
                           <td class="proxy-actions">
                             <div class="proxy-action-buttons">
@@ -708,6 +703,54 @@
                     </tbody>
                   </table>
                 </div>
+              </div>
+              
+              <!-- 프록시 테이블 푸터 -->
+              <div class="proxy-table-footer">
+                <div class="proxy-footer-info">
+                  <div class="proxy-count-info">
+                    총 {userProxies.length}개 프록시
+                  </div>
+                  {#if totalPages > 1}
+                    <div class="proxy-page-info">
+                      {(currentPage - 1) * itemsPerPage + 1}~{Math.min(currentPage * itemsPerPage, userProxies.length)} 표시
+                    </div>
+                  {/if}
+                </div>
+                
+                {#if totalPages > 1}
+                  <div class="proxy-pagination-buttons">
+                    <button
+                      class="proxy-page-number-btn proxy-prev-next-btn"
+                      on:click={() => currentPage = currentPage - 1}
+                      disabled={currentPage <= 1}
+                    >
+                      ←
+                    </button>
+
+                    <!-- 페이지 번호 버튼들 - 최대 5개 표시 -->
+                    {#each Array(Math.min(totalPages, 5)) as _, i}
+                      {@const pageNum = Math.max(1, currentPage - 2) + i}
+                      {#if pageNum <= totalPages}
+                        <button
+                          class="proxy-page-number-btn"
+                          class:active={currentPage === pageNum}
+                          on:click={() => currentPage = pageNum}
+                        >
+                          {pageNum}
+                        </button>
+                      {/if}
+                    {/each}
+
+                    <button
+                      class="proxy-page-number-btn proxy-prev-next-btn"
+                      on:click={() => currentPage = currentPage + 1}
+                      disabled={currentPage >= totalPages}
+                    >
+                      →
+                    </button>
+                  </div>
+                {/if}
               </div>
             {/if}
           </div>
@@ -1183,6 +1226,164 @@
     color: var(--text-secondary, #666);
     font-weight: 600;
     letter-spacing: 0.05em;
+  }
+
+  /* 프록시 로딩 상태 */
+  .proxy-loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    gap: 1rem;
+    text-align: center;
+  }
+
+  .proxy-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--card-border, #e0e0e0);
+    border-top: 3px solid var(--primary-color, #0b6bcb);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  /* 프록시 테이블 푸터 */
+  .proxy-table-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    min-height: 60px;
+    background-color: var(--card-background);
+    border: 1px solid var(--card-border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    margin: 0;
+    gap: 1rem;
+  }
+
+  .proxy-footer-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    text-align: left;
+  }
+
+  .proxy-count-info {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .proxy-pagination-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .proxy-page-number-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--card-border);
+    background: var(--card-background);
+    color: var(--text-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .proxy-page-number-btn:hover:not(.active) {
+    background: var(--bg-secondary);
+    border-color: var(--primary-color);
+  }
+
+  .proxy-page-number-btn.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+  }
+
+  .proxy-page-number-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--card-border);
+  }
+
+  .proxy-prev-next-btn {
+    font-size: 18px;
+    font-weight: bold;
+  }
+
+  .proxy-page-info {
+    color: #6b7280;
+    font-size: 0.85rem;
+    font-weight: 400;
+  }
+
+  /* 테마별 프록시 페이지 번호 버튼 스타일 */
+  :global(body.dark) .proxy-page-number-btn {
+    background: #374151;
+    border-color: #4b5563;
+    color: #f3f4f6;
+  }
+
+  :global(body.dark) .proxy-page-number-btn:hover:not(.active) {
+    background: #4b5563;
+  }
+
+  :global(body.dark) .proxy-page-number-btn:disabled {
+    background: #4b5563;
+  }
+
+  :global(body.dracula) .proxy-page-number-btn {
+    background: #44475a;
+    border-color: #6272a4;
+    color: #f8f8f2;
+  }
+
+  :global(body.dracula) .proxy-page-number-btn:hover:not(.active) {
+    background: #6272a4;
+  }
+
+  :global(body.dracula) .proxy-page-number-btn:disabled {
+    background: #6272a4;
+  }
+
+  /* 프록시 테이블 푸터 모바일 반응형 */
+  @media (max-width: 768px) {
+    .proxy-table-footer {
+      flex-direction: column;
+      gap: 1rem;
+      padding: 1rem;
+      align-items: center;
+    }
+    
+    .proxy-footer-info {
+      width: 100%;
+      text-align: center;
+      align-items: center;
+    }
+
+    .proxy-pagination-buttons {
+      gap: 0.25rem;
+    }
+
+    .proxy-page-number-btn {
+      width: 32px;
+      height: 32px;
+      font-size: 12px;
+    }
+
+    .proxy-prev-next-btn {
+      font-size: 16px;
+    }
   }
 
   .modal-body {
