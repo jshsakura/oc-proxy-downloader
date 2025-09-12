@@ -13,6 +13,11 @@ if sys.platform.startswith('win'):
         pass
 
 import requests
+import json
+import os
+import re
+import time
+import threading
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, HttpUrl
@@ -21,16 +26,19 @@ from core.db import engine, get_db
 from core.auth import get_current_user_optional, AUTHENTICATION_ENABLED
 from typing import Dict, Any
 from core.i18n import get_message
-import json
-import os
-import re
-import time
+from sqlalchemy import text
+from .parser_service import parse_direct_link_with_file_info
+from .parser_service import parse_file_info_only
+from main import notify_status_update
+from .download_core import download_1fichier_file
+from .shared import download_manager
+from .download_core import download_general_file
+    
 
 # 테이블 생성은 main.py에서 처리
 
 # 기존 'paused' 상태를 'stopped'로 마이그레이션
 try:
-    from sqlalchemy import text
     with engine.connect() as conn:
         result = conn.execute(text("UPDATE download_requests SET status = 'stopped' WHERE status = 'paused'"))
         conn.commit()
@@ -102,8 +110,6 @@ def parse_file_info_only(request: DownloadRequestCreate, db: Session = Depends(g
         url_str = str(request.url)
         if re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', url_str.lower()):
             # 1fichier URL - 기존 파서 사용
-            from .parser_service import parse_direct_link_with_file_info
-            
             try:
                 print(f"[LOG] 1fichier 파일 정보 파싱 시작...")
                 direct_link, file_info = parse_direct_link_with_file_info(
@@ -315,7 +321,7 @@ def create_download_task(
         if '1fichier.com' in url_str.lower():
             print(f"[LOG] 파일명이 없어서 1fichier 사전 파싱 시작...")
             try:
-                from .parser_service import parse_file_info_only
+                
                 file_info = parse_file_info_only(str(request.url), request.password, request.use_proxy)
                 if file_info and file_info.get('name'):
                     # 현재 DB 세션에서 바로 업데이트
@@ -326,7 +332,6 @@ def create_download_task(
                     print(f"[LOG] 📁 파일 정보 사전 파싱 완료: {file_info['name']} ({file_info.get('size', '알 수 없음')})")
                     
                     # SSE로 UI 업데이트
-                    from main import notify_status_update
                     notify_status_update(db, db_req.id)
                 else:
                     print(f"[LOG] ⚠️ 파일 정보 파싱 실패 - 파일명을 가져올 수 없음")
@@ -341,19 +346,14 @@ def create_download_task(
     print(f"[LOG] 데이터베이스에 저장된 요청 ID: {db_req.id}")
     print(f"[LOG] 다운로드 스레드 시작 준비")
     
-    from .download_core import download_1fichier_file_new
-    from .shared import download_manager
-    import threading
     
     # URL 타입에 따라 적절한 다운로드 함수 선택
     if re.match(r'https?://(?:[^\.]+\.)?1fichier\.com/', db_req.url.lower()):
         # 1fichier 다운로드
-        from .download_core import download_1fichier_file_new
-        target_function = download_1fichier_file_new
+        target_function = download_1fichier_file
         print(f"[LOG] 1fichier 다운로드 함수 선택: {db_req.url}")
     else:
         # 일반 다운로드
-        from .download_core import download_general_file
         target_function = download_general_file
         print(f"[LOG] 일반 다운로드 함수 선택: {db_req.url}")
     
@@ -441,8 +441,8 @@ def start_actual_download(download_id: int, db: Session = Depends(get_db)):
     
     # URL 타입에 따라 적절한 다운로드 함수 선택
     if "1fichier.com" in item.url.lower():
-        from .download_core import download_1fichier_file_new
-        target_function = download_1fichier_file_new
+        from .download_core import download_1fichier_file
+        target_function = download_1fichier_file
     else:
         from .download_core import download_general_file
         target_function = download_general_file
@@ -528,8 +528,8 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
         
         # URL 타입에 따라 적절한 다운로드 함수 선택 (재시작)
         if "1fichier.com" in item.url.lower():
-            from .download_core import download_1fichier_file_new
-            target_function = download_1fichier_file_new
+            from .download_core import download_1fichier_file
+            target_function = download_1fichier_file
         else:
             from .download_core import download_general_file
             target_function = download_general_file
@@ -665,7 +665,7 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
     
     # 프록시 다운로드인 경우 즉시 시작 가능
     if original_use_proxy:
-        from .download_core import download_1fichier_file_new
+        from .download_core import download_1fichier_file
         import threading
         
         setattr(item, "status", StatusEnum.downloading)
@@ -673,8 +673,8 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
         
         # URL 타입에 따라 적절한 다운로드 함수 선택 (재시도)
         if "1fichier.com" in item.url.lower():
-            from .download_core import download_1fichier_file_new
-            target_function = download_1fichier_file_new
+            from .download_core import download_1fichier_file
+            target_function = download_1fichier_file
         else:
             from .download_core import download_general_file
             target_function = download_general_file
@@ -695,8 +695,8 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
             # 즉시 시작 가능
             # URL 타입에 따라 적절한 다운로드 함수 선택 (재시도 로컬)
             if "1fichier.com" in item.url.lower():
-                from .download_core import download_1fichier_file_new
-                target_function = download_1fichier_file_new
+                from .download_core import download_1fichier_file
+                target_function = download_1fichier_file
             else:
                 from .download_core import download_general_file
                 target_function = download_general_file

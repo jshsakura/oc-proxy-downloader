@@ -9,6 +9,8 @@ import sys
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from utils.logging import setup_logging, replace_print
+from core.app_factory import create_app
 
 # .env 파일 로드 (루트 디렉토리에서 찾기)
 project_root = Path(__file__).parent.parent
@@ -31,12 +33,10 @@ if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
 
 # 로깅 설정 (.env 로딩 후에)
-from utils.logging import setup_logging, replace_print
 setup_logging()
 replace_print()
 
 # 메인 애플리케이션 생성 (.env 로딩 후에)
-from core.app_factory import create_app
 app = create_app()
 
 

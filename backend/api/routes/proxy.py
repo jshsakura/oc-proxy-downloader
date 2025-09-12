@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends, Body
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.models import DownloadRequest, StatusEnum, ProxyStatus
+from core.models import DownloadRequest, StatusEnum, ProxyStatus, UserProxy
 from core.proxy_manager import (
     get_unused_proxies,
     get_user_proxy_list,
@@ -19,7 +19,6 @@ router = APIRouter(prefix="/api", tags=["proxy"])
 async def get_proxies(request: Request, db: Session = Depends(get_db)):
     """프록시 목록 조회 (사용자가 추가한 프록시 설정만 반환)"""
     try:
-        from core.models import UserProxy
         user_proxies = db.query(UserProxy).all()
         
         proxies = []

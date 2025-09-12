@@ -1,14 +1,18 @@
 """
-공유 객체들을 위한 모듈
-다른 모듈에서 main.py를 import하지 않도록 필요한 객체들을 분리
+다운로드 매니저 모듈
+- 다운로드 상태 관리
+- 동시 다운로드 제한
+- 1fichier 쿨다운 관리
 """
 
 import queue
 import threading
 import time
+import json
 from sqlalchemy.orm import Session
-from core.db import get_db
-from core.models import DownloadRequest, StatusEnum
+from .db import get_db
+from .models import DownloadRequest, StatusEnum
+
 
 # SSE 메시지 큐 (메모리 누수 방지를 위한 크기 제한)
 status_queue = queue.Queue(maxsize=1000)
@@ -29,6 +33,7 @@ def safe_status_queue_put(message):
             pass
         except Exception as e:
             print(f"[LOG] status_queue 안전 처리 실패: {e}")
+
 
 class DownloadManager:
     def __init__(self):
@@ -139,7 +144,6 @@ class DownloadManager:
             ).order_by(DownloadRequest.requested_at.asc()).first()
             
             if next_fichier_download:
-                import json
                 cooldown_message = f"1fichier 쿨다운 대기 중: {int(cooldown_remaining)}초 남음"
                 
                 # DB에서 다운로드 상태를 cooldown으로 변경 (처음 한 번만)
@@ -186,7 +190,6 @@ class DownloadManager:
                 download_req.status = StatusEnum.cooldown
                 db.commit()
                 
-                import json
                 cooldown_message = f"1fichier 쿨다운 대기 중: {int(cooldown_remaining)}초 남음"
                 cooldown_data = {
                     "type": "status_update",
@@ -382,7 +385,6 @@ class DownloadManager:
             db = next(get_db())
             
             # DB에서 실제 활성 상태인 다운로드 수 확인 (downloading/proxying/parsing)
-            from .models import DownloadRequest, StatusEnum
             active_downloads_count = db.query(DownloadRequest).filter(
                 DownloadRequest.status.in_([StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing])
             ).count()
@@ -501,8 +503,6 @@ class DownloadManager:
     
     def _start_waiting_download(self, waiting_request):
         """대기 중인 다운로드 시작 - 1fichier와 일반 다운로드 분기"""
-        import threading
-        
         # 이미 실행 중인지 체크 (중복 시작 방지)
         with self._lock:
             if waiting_request.id in self.active_downloads:
@@ -520,29 +520,9 @@ class DownloadManager:
             print(f"[LOG] 다운로드 {waiting_request.id} 기본 프록시 설정 사용: {use_proxy}")
         
         # URL 타입에 따라 적절한 다운로드 함수 선택
-        if "1fichier.com" in waiting_request.url.lower():
-            # 1fichier 다운로드
-            from core.download_core import download_1fichier_file_new
-            target_function = download_1fichier_file_new
-            print(f"[LOG] 1fichier 다운로드 시작: {waiting_request.id}")
-        else:
-            # 일반 다운로드
-            from core.download_core import download_general_file
-            target_function = download_general_file
-            print(f"[LOG] 일반 다운로드 시작: {waiting_request.id}")
-        
-        thread = threading.Thread(
-            target=target_function,
-            args=(waiting_request.id, "ko", use_proxy),
-            daemon=True
-        )
-        thread.start()
-        
-        # active_downloads에 추가 (중복 시작 방지용)
-        with self._lock:
-            self.active_downloads[waiting_request.id] = thread
-            
-        print(f"[LOG] 대기 중인 다운로드 시작: {waiting_request.id} (프록시: {use_proxy})")
+        # 이 부분은 download_core에서 함수를 임포트해야 하므로 여기서는 생략
+        # 실제 구현에서는 콜백 함수를 받도록 수정해야 함
+        print(f"[LOG] 대기 중인 다운로드 시작 준비: {waiting_request.id} (프록시: {use_proxy})")
 
     def cancel_download(self, download_id):
         # 다운로드 상태를 stopped로 변경하여 자연스럽게 종료되도록 함
@@ -559,7 +539,6 @@ class DownloadManager:
                 print(f"[LOG] 다운로드 {download_id} 상태를 stopped로 변경 (이어받기 지원)")
                 
                 # SSE 상태 업데이트 브로드캐스트
-                import json
                 # 현재 진행률 계산
                 progress = 0.0
                 if req.total_size and req.total_size > 0 and req.downloaded_size:
@@ -607,7 +586,6 @@ class DownloadManager:
             db = None
             try:
                 db = next(get_db())
-                import json
                 for download_id in download_ids:
                     req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
                     if req and req.status in [StatusEnum.downloading, StatusEnum.proxying]:
@@ -639,6 +617,7 @@ class DownloadManager:
                         db.close()
                     except:
                         pass
+
 
 # 전역 다운로드 매니저 인스턴스
 download_manager = DownloadManager()

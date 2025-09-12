@@ -14,6 +14,7 @@ from services.sse_manager import sse_manager
 from services.preparse_service import preparse_service
 from core.i18n import get_message
 from utils.wait_store import wait_store
+from core.download_core import download_manager
 
 router = APIRouter(prefix="/api", tags=["downloads"])
 
@@ -91,10 +92,8 @@ async def pause_download(download_id: int, request: Request, db: Session = Depen
     """다운로드 일시정지"""
     try:
         # 즉시 정지 플래그 설정 (가장 중요)
-        from core.shared import download_manager
-        from services.download_manager import download_manager as simple_manager
         download_manager.stop_download_immediately(download_id)
-        simple_manager.cleanup(download_id)  # active_downloads에서 정리
+        download_manager.cleanup(download_id)  # active_downloads에서 정리
         print(f"[LOG] 다운로드 {download_id} 즉시 정지 플래그 설정 완료")
         
         # 다운로드 취소
@@ -151,7 +150,6 @@ async def resume_download(download_id: int, request: Request, db: Session = Depe
             return {"message": "이미 다운로드가 진행 중입니다."}
 
         # 정지 플래그 초기화 (중요)
-        from core.shared import download_manager
         if download_id in download_manager.stop_events:
             download_manager.stop_events[download_id].clear()
             print(f"[LOG] 다운로드 {download_id} 정지 플래그 초기화 완료")

@@ -17,7 +17,6 @@ Base = declarative_base()
 
 class DownloadRequest(Base):
     __tablename__ = "download_requests"
-
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, nullable=False)
     file_name = Column(String)

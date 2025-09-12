@@ -9,6 +9,10 @@ import lxml.html
 from urllib.parse import urljoin, urlparse
 import logging
 
+# send_telegram_wait_notification 의존성 제거 - 순수 파싱 로직만 유지
+from .db import SessionLocal
+from .models import DownloadRequest
+
 logger = logging.getLogger(__name__)
 
 class FichierParser:
@@ -188,17 +192,15 @@ class FichierParser:
                     # 5분 이상 대기시간일 때 텔레그램 알림 (로컬 다운로드만)
                     if wait_minutes >= 5:
                         try:
-                            from .download_core import send_telegram_wait_notification
-                            # DB에서 실제 파일명 가져오기
-                            from .db import SessionLocal
-                            from .models import DownloadRequest
                             
                             with SessionLocal() as db:
                                 req = db.query(DownloadRequest).filter(DownloadRequest.url == url).first()
                                 file_name = req.file_name if req and req.file_name else "1fichier File"
                                 file_size = req.file_size if req and req.file_size else None
                             
-                            send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size)
+                            # 텔레그램 알림은 호출하는 곳에서 처리하도록 변경
+                            # send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size)
+                            print(f"[PARSER] 대기 시간 감지: {file_name}, {wait_minutes}분")
                         except Exception as e:
                             print(f"[WARN] 텔레그램 대기시간 알림 실패: {e}")
                     

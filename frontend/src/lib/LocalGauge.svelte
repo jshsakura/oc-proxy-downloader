@@ -75,6 +75,7 @@
   }
 
   .local-info {
+    min-height: 30px;
     display: flex;
     align-items: center;
     gap: 1rem;
@@ -143,7 +144,7 @@
   }
 
   .local-status {
-    margin-top: 0.7rem;
+    margin-top: 0.5rem;
     padding: 0.5rem 0.75rem;
     border-radius: 8px;
     font-size: 0.8rem;
@@ -155,11 +156,7 @@
     background-color: var(--card-background);
     color: var(--text-secondary);
     border: 1px solid var(--card-border);
-  }
-
-  .local-status {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
+    opacity: 0.7;
   }
 
   .status-icon {

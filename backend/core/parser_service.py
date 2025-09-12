@@ -11,15 +11,19 @@ import cloudscraper
 import time
 import re
 import ssl
-try:
-    from bs4 import BeautifulSoup
-except ImportError:
-    BeautifulSoup = None
+import urllib3
+
+from bs4 import BeautifulSoup
 from .parser import FichierParser
 from utils.wait_store import wait_store
 from services.sse_manager import sse_manager
 from urllib3.util.ssl_ import create_urllib3_context
 from requests.adapters import HTTPAdapter
+from .db import SessionLocal
+from .models import DownloadRequest, StatusEnum
+from .download_manager import status_queue
+from services.notification_service import send_sse_message, send_telegram_wait_notification
+from collections import Counter
 
 
 def parse_filename_only_with_proxy(url, password, proxy_addr):
@@ -130,8 +134,6 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
     scraper.verify = False  # SSL 검증 비활성화
     
     # SSL 컨텍스트 설정 (hostname 체크 비활성화)
-    import ssl
-    import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     # requests 세션의 SSL 설정 변경
@@ -322,8 +324,6 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                     # URL로 DB에서 해당 다운로드 요청을 찾아 파일명 즉시 저장
                     temp_db = None
                     try:
-                        from .db import SessionLocal
-                        from .models import DownloadRequest
                         temp_db = SessionLocal()
                         
                         # ID로 정확한 다운로드 요청 찾기
@@ -358,7 +358,6 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                                 
                                 # SSE로 파일명과 크기 업데이트 전송
                                 try:
-                                    from core.shared import status_queue
                                     import json
                                     message = json.dumps({
                                         "type": "filename_update",
@@ -555,9 +554,6 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                 # 대기 완료 처리 (req가 있는 경우에만)
                 if req:
                     try:
-                        from .download_core import send_sse_message
-                        from utils.wait_store import wait_store
-                        
                         # 진행 중인 대기 작업에서 제거
                         wait_store.finish_wait(req.id)
                         
@@ -571,10 +567,6 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                         print(f"[LOG] 대기 완료 WebSocket 전송 실패: {e}")
                 
                 try:
-                    from .download_core import send_sse_message
-                    from .db import SessionLocal
-                    from .models import DownloadRequest
-                    
                     # DB에서 다운로드 ID 찾기 -> 전달받은 req 객체를 직접 사용
                     temp_db = SessionLocal()
                     try:
@@ -632,10 +624,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                 # 5분 이상 대기시간일 때 텔레그램 알림 (로컬 다운로드만)
                 if wait_seconds >= 300:  # 300초 = 5분
                     try:
-                        from .download_core import send_telegram_wait_notification
                         # DB에서 실제 파일명 가져오기
-                        from .db import SessionLocal
-                        from .models import DownloadRequest
                         
                         with SessionLocal() as db:
                             download_req = db.query(DownloadRequest).filter(DownloadRequest.id == req.id).first()
@@ -653,9 +642,6 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                     for i in range(wait_seconds):
                         # 정지 상태 체크 (정지 플래그 + DB 상태)
                         try:
-                            from .db import SessionLocal
-                            from .models import DownloadRequest, StatusEnum
-                            from .shared import download_manager
                             
                             temp_db = SessionLocal()
                             try:
@@ -683,11 +669,6 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                         time.sleep(1)
                 else:
                     # 긴 대기시간 - Event.wait()를 사용한 효율적인 대기 (즉시 정지 반응)
-                    from .shared import download_manager
-                    from .db import SessionLocal
-                    from .models import DownloadRequest, StatusEnum
-                    
-                    # 다운로드 ID 먼저 찾기
                     download_req = None
                     try:
                         temp_db = SessionLocal()
@@ -728,10 +709,6 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                         
                         if should_send_update:
                             try:
-                                from .download_core import send_sse_message
-                                from .db import SessionLocal
-                                from .models import DownloadRequest
-                                
                                 # 파일 크기 정보를 위해 다운로드 요청 조회
                                 temp_db = SessionLocal()
                                 try:
@@ -778,31 +755,24 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                 print(f"[LOG] ✅ 대기 완료! POST 요청 시작")
                 
                 # SSE로 대기 완료 알림 (카운트다운 정리)
+                temp_db = SessionLocal()
                 try:
-                    from .download_core import send_sse_message
-                    from .db import SessionLocal
-                    from .models import DownloadRequest
+                    download_req = temp_db.query(DownloadRequest).filter(
+                        DownloadRequest.id == req.id
+                    ).first()
                     
-                    temp_db = SessionLocal()
-                    try:
-                        download_req = temp_db.query(DownloadRequest).filter(
-                            DownloadRequest.id == req.id
-                        ).first()
+                    if download_req:
+                        # 진행 중인 대기 작업에서 제거
+                        wait_store.finish_wait(req.id)
                         
-                        if download_req:
-                            # 진행 중인 대기 작업에서 제거
-                            wait_store.finish_wait(req.id)
-                            
-                            # 대기 완료 - wait_info 정리 메시지
-                            send_sse_message("wait_countdown_complete", {
-                                "id": req.id,
-                                "url": url
-                            })
-                            print(f"[LOG] 대기 완료 WebSocket 메시지 전송: ID {req.id}")
-                    finally:
-                        temp_db.close()
-                except Exception as e:
-                    print(f"[LOG] 대기 완료 WebSocket 전송 실패: {e}")
+                        # 대기 완료 - wait_info 정리 메시지
+                        send_sse_message("wait_countdown_complete", {
+                            "id": req.id,
+                            "url": url
+                        })
+                        print(f"[LOG] 대기 완료 WebSocket 메시지 전송: ID {req.id}")
+                finally:
+                    temp_db.close()
                 
                 # 5단계: POST 요청으로 다음 단계
                 # 폼 데이터 찾기
@@ -1212,7 +1182,6 @@ def _detect_download_limits(html_content, original_url):
         if reasonable_countdown_numbers:
             print(f"[DEBUG] HTML에서 발견된 카운트다운 후보 숫자들: {reasonable_countdown_numbers[:10]}")
             # 가장 흔한 숫자나 특정 범위의 숫자를 카운트다운으로 추정
-            from collections import Counter
             counter = Counter(reasonable_countdown_numbers)
             most_common = counter.most_common(1)
             if most_common:
@@ -1363,87 +1332,68 @@ def is_direct_link_expired(direct_link, use_proxy=False, proxy_addr=None):
 
 def _update_download_status_to_downloading(req):
     """다운로드 상태를 downloading으로 업데이트"""
+    temp_db = SessionLocal()
     try:
-        from .db import SessionLocal
-        from .models import DownloadRequest
+        download_req = temp_db.query(DownloadRequest).filter(
+            DownloadRequest.id == req.id
+        ).first()
         
-        temp_db = SessionLocal()
-        try:
-            download_req = temp_db.query(DownloadRequest).filter(
-                DownloadRequest.id == req.id
-            ).first()
-            
-            if download_req:
-                download_req.status = "downloading"
-                temp_db.commit()
-                print(f"[LOG] 다운로드 상태를 'downloading'으로 업데이트: ID {req.id}")
-                return download_req
-        finally:
-            temp_db.close()
-    except Exception as e:
-        print(f"[LOG] 상태 업데이트 실패: {e}")
+        if download_req:
+            download_req.status = "downloading"
+            temp_db.commit()
+            print(f"[LOG] 다운로드 상태를 'downloading'으로 업데이트: ID {req.id}")
+            return download_req
+    finally:
+        temp_db.close()
     return None
 
 
 def _send_wait_countdown_message(req, wait_seconds, proxy_addr, url):
     """대기 카운트다운 메시지 전송"""
+    wait_minutes = wait_seconds // 60
+    wait_message = f"대기 중 ({wait_minutes}분 {wait_seconds % 60}초)" if wait_minutes > 0 else f"대기 중 ({wait_seconds}초)"
+    
+    wait_data = {
+        "id": req.id,
+        "remaining_time": wait_seconds,
+        "wait_message": wait_message,
+        "total_wait_time": wait_seconds,
+        "proxy_addr": proxy_addr,
+        "url": url
+    }
+    
+    # 파일 크기 정보 추가 (새로운 세션에서 조회)
+    temp_db = SessionLocal()
     try:
-        from .download_core import send_sse_message
-        from utils.wait_store import wait_store
-        from .db import SessionLocal
-        from .models import DownloadRequest
+        download_req = temp_db.query(DownloadRequest).filter(
+            DownloadRequest.id == req.id
+        ).first()
         
-        wait_minutes = wait_seconds // 60
-        wait_message = f"대기 중 ({wait_minutes}분 {wait_seconds % 60}초)" if wait_minutes > 0 else f"대기 중 ({wait_seconds}초)"
+        if download_req and download_req.total_size:
+            wait_data["total_size"] = download_req.total_size
+        if download_req and download_req.file_name:
+            wait_data["file_name"] = download_req.file_name
+    finally:
+        temp_db.close()
+    
+    print(f"[LOG] 대기 시작 wait_countdown 메시지 전송: ID={req.id}, remaining={wait_seconds}초")
+    print(f"[DEBUG] wait_countdown 데이터: {wait_data}")
+    
+    # 진행 중인 대기 작업으로 등록 (스레드 안전)
+    wait_store.start_wait(req.id, wait_seconds, url)
+    
+    # 상태 업데이트와 wait_countdown 메시지를 연속으로 전송
+    send_sse_message("status_update", {
+        "id": req.id,
+        "status": "downloading"
+    })
+    send_sse_message("wait_countdown", wait_data)
         
-        wait_data = {
-            "id": req.id,
-            "remaining_time": wait_seconds,
-            "wait_message": wait_message,
-            "total_wait_time": wait_seconds,
-            "proxy_addr": proxy_addr,
-            "url": url
-        }
-        
-        # 파일 크기 정보 추가 (새로운 세션에서 조회)
-        temp_db = SessionLocal()
-        try:
-            download_req = temp_db.query(DownloadRequest).filter(
-                DownloadRequest.id == req.id
-            ).first()
-            
-            if download_req and download_req.total_size:
-                wait_data["total_size"] = download_req.total_size
-            if download_req and download_req.file_name:
-                wait_data["file_name"] = download_req.file_name
-        finally:
-            temp_db.close()
-        
-        print(f"[LOG] 대기 시작 wait_countdown 메시지 전송: ID={req.id}, remaining={wait_seconds}초")
-        print(f"[DEBUG] wait_countdown 데이터: {wait_data}")
-        
-        # 진행 중인 대기 작업으로 등록 (스레드 안전)
-        wait_store.start_wait(req.id, wait_seconds, url)
-        
-        # 상태 업데이트와 wait_countdown 메시지를 연속으로 전송
-        send_sse_message("status_update", {
-            "id": req.id,
-            "status": "downloading"
-        })
-        send_sse_message("wait_countdown", wait_data)
-        
-    except Exception as e:
-        print(f"[LOG] 대기 카운트다운 메시지 전송 실패: {e}")
-
 
 def _send_telegram_wait_notification(req, wait_seconds):
     """텔레그램 대기 알림 전송 (5분 이상 대기시간일 때)"""
     if wait_seconds >= 300:  # 300초 = 5분
         try:
-            from .download_core import send_telegram_wait_notification
-            from .db import SessionLocal
-            from .models import DownloadRequest
-            
             with SessionLocal() as db:
                 download_req = db.query(DownloadRequest).filter(DownloadRequest.id == req.id).first()
                 file_name = download_req.file_name if download_req and download_req.file_name else "1fichier File"
@@ -1468,10 +1418,6 @@ def _perform_monitored_wait(req, wait_seconds):
 
 def _perform_short_wait_with_monitoring(req, wait_seconds):
     """짧은 대기시간 처리 (1초씩 모니터링)"""
-    from .db import SessionLocal
-    from .models import DownloadRequest, StatusEnum
-    from .shared import download_manager
-    
     for i in range(wait_seconds):
         # 정지 상태 체크
         try:
@@ -1525,10 +1471,6 @@ def _perform_short_wait_with_monitoring(req, wait_seconds):
 
 def _perform_long_wait_with_monitoring(req, wait_seconds):
     """긴 대기시간 처리 (Event.wait 사용)"""
-    from .shared import download_manager
-    from .db import SessionLocal
-    from .models import DownloadRequest, StatusEnum
-    
     print(f"[LOG] 긴 대기시간 ({wait_seconds}초) - Event.wait() 사용")
     
     # 3초씩 나누어서 정지 상태 체크 (더 빠른 반응성)
@@ -1634,10 +1576,6 @@ def _is_download_stopped(req):
         return False
     
     try:
-        from .shared import download_manager
-        from .db import SessionLocal
-        from .models import DownloadRequest, StatusEnum
-        
         # 1. 메모리 정지 플래그 체크 (가장 빠름)
         if download_manager.is_download_stopped(req.id):
             return True

@@ -1,3 +1,5 @@
+import json
+from core.shared import status_queue
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .db import get_db
@@ -61,8 +63,7 @@ def reset_proxy_status(db: Session = Depends(get_db)):
         
         # 3. 프록시 리셋을 WebSocket으로 알림
         try:
-            import json
-            from core.shared import status_queue
+            
             status_queue.put(json.dumps({
                 "type": "proxy_reset", 
                 "data": {"message": "All proxies reset and reloaded"}

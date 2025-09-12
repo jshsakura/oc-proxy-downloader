@@ -9,18 +9,28 @@
 import requests
 import datetime
 import re
+import threading
+import time
+import cloudscraper
+import ssl
+import urllib3
+import random
+
 from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from .models import ProxyStatus, UserProxy, StatusEnum
 from .db import get_db
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
+from .download_manager import download_manager
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # FastAPI 라우터
 router = APIRouter()
 
 # 프록시 목록 캐시 (URL -> (프록시 목록, 캐시 시간))
-import time
 _proxy_list_cache = {}
 
 class ProxyCreate(BaseModel):
@@ -217,9 +227,6 @@ def test_proxy(proxy_addr, timeout=15, lenient_mode=False):
         timeout: 타임아웃 (초)
         lenient_mode: 관대한 모드 (재시작 직후 등에 사용, 간단한 연결 테스트만)
     """
-    import cloudscraper
-    import ssl
-    import urllib3
     
     # SSL 경고 무시
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -273,8 +280,7 @@ def test_proxy(proxy_addr, timeout=15, lenient_mode=False):
         scraper.verify = False
         
         # SSL 컨텍스트 설정 (파싱 서비스와 동일)
-        from requests.adapters import HTTPAdapter
-        from urllib3.util.ssl_ import create_urllib3_context
+       
         
         class NoSSLVerifyHTTPAdapter(HTTPAdapter):
             def init_poolmanager(self, *args, **kwargs):
@@ -287,7 +293,6 @@ def test_proxy(proxy_addr, timeout=15, lenient_mode=False):
         scraper.mount('https://', NoSSLVerifyHTTPAdapter())
         
         # 파싱 서비스와 동일한 헤더 설정
-        import random
         user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
@@ -363,7 +368,6 @@ def test_proxy_batch(db: Session, batch_proxies, req=None, lenient_mode=False):
     
     # 요청이 있는 경우 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
     if req:
-        from .shared import download_manager
         if download_manager.is_download_stopped(req.id):
             print(f"[LOG] 프록시 테스트 중 즉시 정지 플래그 감지: {req.id}")
             return [], []
@@ -380,7 +384,6 @@ def test_proxy_batch(db: Session, batch_proxies, req=None, lenient_mode=False):
     def test_single_proxy(proxy_addr):
         try:
             # 연속 요청 방지를 위한 랜덤 지연 (0.5~1.5초)
-            import random
             delay = random.uniform(0.5, 1.5)
             time.sleep(delay)
             
@@ -393,8 +396,7 @@ def test_proxy_batch(db: Session, batch_proxies, req=None, lenient_mode=False):
             return proxy_addr, False
     
     # ThreadPoolExecutor로 병렬 실행
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
+    
     
     with ThreadPoolExecutor(max_workers=min(len(batch_proxies), 10)) as executor:
         # 모든 프록시 테스트를 동시에 시작
@@ -403,7 +405,6 @@ def test_proxy_batch(db: Session, batch_proxies, req=None, lenient_mode=False):
         for future in as_completed(future_to_proxy):
             # 각 결과 처리 전에 정지 상태 재확인
             if req:
-                from .shared import download_manager
                 if download_manager.is_download_stopped(req.id):
                     print(f"[LOG] 프록시 테스트 결과 처리 중 즉시 정지 플래그 감지: {req.id}")
                     # 나머지 테스트들도 취소
@@ -447,7 +448,6 @@ def get_working_proxy_batch(db: Session, batch_size=10, req=None):
     
     # 요청이 있는 경우 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
     if req:
-        from .shared import download_manager
         if download_manager.is_download_stopped(req.id):
             print(f"[LOG] 프록시 테스트 중 즉시 정지 플래그 감지: {req.id}")
             return []
@@ -464,7 +464,6 @@ def get_working_proxy_batch(db: Session, batch_size=10, req=None):
     def test_single_proxy(proxy_addr):
         try:
             # 연속 요청 방지를 위한 랜덤 지연 (0.5~1.5초)
-            import random
             delay = random.uniform(0.5, 1.5)
             time.sleep(delay)
             
@@ -477,8 +476,6 @@ def get_working_proxy_batch(db: Session, batch_size=10, req=None):
             return proxy_addr, False
     
     # ThreadPoolExecutor로 병렬 실행
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
     
     with ThreadPoolExecutor(max_workers=min(batch_size, 10)) as executor:
         # 모든 프록시 테스트를 동시에 시작
@@ -487,7 +484,6 @@ def get_working_proxy_batch(db: Session, batch_size=10, req=None):
         for future in as_completed(future_to_proxy):
             # 각 결과 처리 전에 정지 상태 재확인
             if req:
-                from .shared import download_manager
                 if download_manager.is_download_stopped(req.id):
                     print(f"[LOG] 프록시 테스트 결과 처리 중 즉시 정지 플래그 감지: {req.id}")
                     # 나머지 테스트들도 취소

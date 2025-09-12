@@ -19,6 +19,10 @@ from core.i18n import get_message
 from core.proxy_manager import get_unused_proxies, mark_proxy_used
 from services.sse_manager import sse_manager
 from services.download_manager import download_manager
+from core.download_core import download_general_file
+from core.download_core import send_sse_message
+from core.parser_service import get_or_parse_direct_link
+
 
 class AsyncDownloadService:
     def __init__(self):
@@ -162,7 +166,6 @@ class AsyncDownloadService:
                 started_count = 0
                 
                 # ENV에서 최대 동시 다운로드 수 설정 읽기
-                from services.download_manager import download_manager
                 max_total = download_manager.max_concurrent
                 
                 # 1fichier 다운로드 최대 1개 시작 (프록시/로컬 구분 없이)
@@ -230,10 +233,8 @@ class AsyncDownloadService:
         except asyncio.CancelledError:
             print(f"[LOG] Download {request_id} was cancelled")
             await self._update_download_status(request_id, StatusEnum.stopped)
-            
             # 취소시에도 매니저에서 정리
-            from services.download_manager import download_manager as simple_manager
-            simple_manager.finish(request_id, "", success=False)
+            download_manager.finish(request_id, "", success=False)
             print(f"[LOG] Download manager cleaned up for cancelled download {request_id}")
 
         except Exception as e:
@@ -241,8 +242,7 @@ class AsyncDownloadService:
             await self._update_download_status(request_id, StatusEnum.failed, str(e))
             
             # 실패시에도 매니저에서 정리
-            from services.download_manager import download_manager as simple_manager
-            simple_manager.finish(request_id, "", success=False)
+            download_manager.finish(request_id, "", success=False)
             print(f"[LOG] Download manager cleaned up for failed download {request_id}")
 
     def _download_file_blocking(self, request_id: int, lang: str, use_proxy: bool):
@@ -324,7 +324,6 @@ class AsyncDownloadService:
             print(f"[LOG] 일반 다운로드 시작: {req.url}")
             
             # 일반 다운로드 함수 호출 (기존 구현 활용)
-            from core.download_core import download_general_file
             download_general_file(request_id, language=lang, use_proxy=use_proxy)
             
         except Exception as e:
@@ -403,7 +402,6 @@ class AsyncDownloadService:
                     return
                 
                 # SSE로 프록시 시도 상태 전송
-                from core.download_core import send_sse_message
                 send_sse_message("proxy_trying", {
                     "id": req.id,
                     "proxy": proxy_addr,
@@ -413,7 +411,6 @@ class AsyncDownloadService:
                 })
                 
                 try:
-                    from core.parser_service import get_or_parse_direct_link
                     direct_link = get_or_parse_direct_link(req, use_proxy=True, force_reparse=force_reparse, proxy_addr=proxy_addr)
                     
                     if direct_link:
@@ -454,7 +451,6 @@ class AsyncDownloadService:
                     continue
         else:
             # 프록시 없이 시도
-            from core.parser_service import get_or_parse_direct_link
             direct_link = get_or_parse_direct_link(req, use_proxy=False, force_reparse=force_reparse, proxy_addr=None)
         
         if not direct_link:
@@ -706,14 +702,11 @@ class AsyncDownloadService:
             print(f"[LOG] 프록시 {used_proxy_addr} 다운로드 성공 기록됨")
             
         # 다운로드 매니저에서 완료 처리
-        from services.download_manager import download_manager as simple_manager
-        simple_manager.finish(req.id, req.url, success=True)
+        download_manager.finish(req.id, req.url, success=True)
 
     def _notify_status_update_sync(self, db, download_id):
         """동기적 상태 업데이트"""
         try:
-            from core.download_core import send_sse_message
-            
             req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
             if req:
                 # 진행률 계산
@@ -722,7 +715,6 @@ class AsyncDownloadService:
                     progress = min(100.0, (req.downloaded_size / req.total_size) * 100)
                 
                 # 통합된 SSE 전송 방식 사용
-                from core.download_core import send_sse_message
                 send_sse_message("status_update", {
                     "id": req.id,
                     "url": req.url,
