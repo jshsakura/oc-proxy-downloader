@@ -37,33 +37,41 @@ class SSEConnection:
         self.connected = False
         
     async def get_stream(self) -> AsyncGenerator[str, None]:
-        """SSE 스트림 생성"""
+        """SSE 스트림 생성 - 안전한 처리"""
         try:
             # 연결 확인 메시지
             yield f"data: {json.dumps({'type': 'connection', 'status': 'connected'})}\n\n"
-            
+
             while self.connected:
                 try:
-                    # 100ms 타임아웃으로 메시지 확인
-                    message = await asyncio.wait_for(self.queue.get(), timeout=0.1)
-                    
+                    # 더 짧은 타임아웃으로 빠른 응답
+                    message = await asyncio.wait_for(self.queue.get(), timeout=0.5)
+
                     # 메시지 전송
                     yield f"data: {json.dumps(message)}\n\n"
-                    
+
                 except asyncio.TimeoutError:
-                    # 30초마다 heartbeat 전송
-                    if time.time() - self.last_heartbeat > 30:
-                        heartbeat = {
-                            "type": "heartbeat",
-                            "queue_size": self.queue.qsize() if hasattr(self.queue, 'qsize') else 0
-                        }
-                        yield f"data: {json.dumps(heartbeat)}\n\n"
-                        self.last_heartbeat = time.time()
-                        
+                    # 60초마다 heartbeat 전송
+                    if time.time() - self.last_heartbeat > 60:
+                        try:
+                            heartbeat = {
+                                "type": "heartbeat",
+                                "timestamp": time.time()
+                            }
+                            yield f"data: {json.dumps(heartbeat)}\n\n"
+                            self.last_heartbeat = time.time()
+                        except:
+                            break
+
+                except asyncio.CancelledError:
+                    print("[LOG] SSE stream cancelled gracefully")
+                    break
                 except Exception as e:
                     print(f"[ERROR] SSE stream error: {e}")
                     break
-                    
+
+        except asyncio.CancelledError:
+            print("[LOG] SSE connection cancelled")
         except Exception as e:
             print(f"[ERROR] SSE connection error: {e}")
         finally:
@@ -140,20 +148,20 @@ class SSEManager:
         while True:
             try:
                 await asyncio.sleep(60)  # 1분마다 정리
-                
+
                 async with self._lock:
                     active_connections = []
-                    
+
                     for conn in self.connections:
                         if conn.connected:
                             active_connections.append(conn)
                         else:
                             print(f"[LOG] Cleaning up disconnected SSE connection")
-                            
+
                     if len(active_connections) != len(self.connections):
                         self.connections = active_connections
                         print(f"[LOG] Active SSE connections: {len(self.connections)}")
-                        
+
             except asyncio.CancelledError:
                 break
             except Exception as e:

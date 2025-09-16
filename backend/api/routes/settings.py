@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from core.config import get_config, save_config, get_download_path
 from core.db import get_db
-from core.i18n import get_translations
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -109,16 +108,3 @@ async def select_folder(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/locales/{lang}.json")
-async def get_locale(lang: str, request: Request):
-    """언어 파일 조회"""
-    try:
-        translations = get_translations(lang)
-        if not translations:
-            raise HTTPException(status_code=404, detail="Language not found")
-
-        return translations
-
-    except Exception as e:
-        print(f"[ERROR] Get locale failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

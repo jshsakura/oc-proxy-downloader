@@ -9,7 +9,7 @@ import os
 import re
 import time
 import threading
-import requests
+import httpx
 import json
 import datetime
 from pathlib import Path
@@ -17,12 +17,21 @@ from sqlalchemy.orm import Session
 from urllib.parse import urlparse, unquote
 import asyncio
 
-from .db import get_db
+from .db import get_db, SessionLocal
 from .models import DownloadRequest, StatusEnum
 from .config import get_download_path, get_config
-from .proxy_manager import get_unused_proxies, mark_proxy_used
-from .parser_service import get_or_parse_direct_link
+from .proxy_manager import get_unused_proxies, mark_proxy_used, get_working_proxy_batch, test_proxy_batch
+from .parser_service import get_or_parse_direct_link, parse_direct_link_with_file_info, is_direct_link_expired, parse_filename_only_with_proxy, parse_direct_link_simple
+from .local_transfer import download_local
+from .proxy_transfer import download_with_proxy, download_with_proxy_cycling
+from services.download_manager import download_manager
+from .i18n import get_message
+from utils.sse import send_sse_message
 from services.sse_manager import sse_manager
+
+def safe_status_queue_put(message):
+    """임시 대체 함수 - 로그만 출력"""
+    print(f"[LOG] Status message: {message}")
 
 
 def format_file_size(bytes_size):
@@ -44,25 +53,6 @@ def format_file_size(bytes_size):
     else:
         return f"{size:.2f} {units[unit_index]}".rstrip('0').rstrip('.')
 
-
-def send_sse_message(message_type: str, data: dict):
-    """통합된 SSE 메시지 전송 함수"""
-    try:
-        # 간단하게 새 스레드에서 비동기 실행
-        def run_broadcast():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(sse_manager.broadcast_message(message_type, data))
-                loop.close()
-            except Exception as e:
-                print(f"[LOG] SSE 전송 실패: {e}")
-        
-        import threading
-        threading.Thread(target=run_broadcast, daemon=True).start()
-            
-    except Exception as e:
-        print(f"[LOG] SSE 메시지 전송 실패: {e}")
 
 def get_unique_filepath(path: Path) -> Path:
     """
@@ -154,7 +144,7 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, lang: str
         
         def send_async():
             try:
-                response = requests.post(url, json=payload, timeout=10)
+                response = httpx.post(url, json=payload, timeout=10)
                 if response.status_code == 200:
                     print(f"[LOG] 텔레그램 대기시간 알림 전송 성공: {file_name} ({wait_minutes}분)")
                 else:
@@ -207,7 +197,8 @@ def send_telegram_start_notification(file_name: str, download_mode: str, lang: s
                     # 문자열이면 파싱
                     try:
                         dt = datetime.datetime.fromisoformat(requested_at.replace('Z', '+00:00'))
-                    except:
+                    except ValueError as e:
+                        print(f"[LOG] Date parsing error: {e}")
                         dt = datetime.datetime.utcnow()
                 else:
                     dt = requested_at
@@ -217,7 +208,8 @@ def send_telegram_start_notification(file_name: str, download_mode: str, lang: s
                 if isinstance(requested_at, str):
                     try:
                         dt = datetime.datetime.fromisoformat(requested_at.replace('Z', '+00:00'))
-                    except:
+                    except ValueError as e:
+                        print(f"[LOG] Date parsing error: {e}")
                         dt = datetime.datetime.utcnow()
                 else:
                     dt = requested_at
@@ -270,7 +262,7 @@ def send_telegram_start_notification(file_name: str, download_mode: str, lang: s
         
         def send_async():
             try:
-                response = requests.post(url, json=payload, timeout=10)
+                response = httpx.post(url, json=payload, timeout=10)
                 if response.status_code == 200:
                     print(f"[LOG] 텔레그램 다운로드 시작 알림 전송 성공: {file_name}")
                 else:
@@ -376,7 +368,7 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
         # 백그라운드에서 전송 (블로킹 방지)
         def send_async():
             try:
-                response = requests.post(url, json=payload, timeout=10)
+                response = httpx.post(url, json=payload, timeout=10)
                 if response.status_code == 200:
                     print(f"[LOG] 텔레그램 알림 전송 성공: {file_name}")
                 else:
@@ -520,7 +512,7 @@ def should_1fichier_auto_retry(url: str, file_name: str, file_size: str, fichier
     return True
 
 
-def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = True, retry_count: int = 0, fichier_retry_count: int = 0):
+async def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = True, retry_count: int = 0, fichier_retry_count: int = 0):
     """
     새로운 프록시 순환 로직을 사용한 1fichier 다운로드 함수
     """
@@ -533,10 +525,8 @@ def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = 
     print("=" * 80)
     
     # 다운로드 매니저 import
-    from .shared import download_manager
     
     # 새로운 DB 세션 생성
-    from .db import SessionLocal
     db = SessionLocal()
     req = None
     
@@ -816,7 +806,6 @@ def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = 
             print(f"[LOG] 강제 재파싱 모드: {force_reparse} (이어받기: {initial_downloaded_size > 0})")
             
             # 로컬 모드에서는 파일 정보와 함께 파싱
-            from .parser_service import parse_direct_link_with_file_info
             print(f"[LOG] parse_direct_link_with_file_info 시작: {req.url}")
             direct_link, file_info = parse_direct_link_with_file_info(
                 req.url, req.password, use_proxy=False
@@ -930,7 +919,6 @@ def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = 
         # direct_link 유효성 체크 (DNS 오류 등으로 인한 만료된 링크 감지)
         if direct_link:
             print(f"[LOG] Direct Link 유효성 체크: {direct_link}")
-            from .parser_service import is_direct_link_expired
             if is_direct_link_expired(direct_link, use_proxy=use_proxy):
                 print(f"[LOG] Direct Link 만료 감지 - 강제 재파싱 시도: {direct_link}")
                 # direct_link 필드 제거됨
@@ -946,7 +934,7 @@ def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = 
         if not direct_link:
             # URL 유효성 체크를 통한 더 자세한 에러 메시지
             try:
-                test_response = requests.head(req.url, timeout=5)
+                test_response = httpx.head(req.url, timeout=5)
                 if test_response.status_code == 404:
                     error_msg = "파일이 존재하지 않거나 삭제됨 (404 에러)"
                 elif test_response.status_code == 403:
@@ -1030,7 +1018,7 @@ def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = 
                 send_telegram_start_notification(
                     file_name=req.file_name or "Unknown File",
                     download_mode=download_mode,
-                    lang=lang,
+                    lang=language,
                     file_size=file_size_str,
                     requested_at=req.requested_at
                 )
@@ -1061,12 +1049,24 @@ def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = 
                 return
             
             # 2단계: 프록시 순환으로 실제 다운로드
-            if use_proxy:
-                print(f"[LOG] 프록시 순환 다운로드 시작 (시작 프록시: {used_proxy_addr})")
-                download_with_proxy_cycling(direct_link, file_path, used_proxy_addr, initial_downloaded_size, req, db)
-            else:
-                print(f"[LOG] 로컬 연결로 다운로드 시작")
-                download_local(direct_link, file_path, initial_downloaded_size, req, db)
+            try:
+                if use_proxy:
+                    print(f"[LOG] 프록시 순환 다운로드 시작 (시작 프록시: {used_proxy_addr})")
+                    await download_with_proxy_cycling(direct_link, file_path, used_proxy_addr, initial_downloaded_size, req, db)
+                else:
+                    print(f"[LOG] 로컬 연결로 다운로드 시작")
+                    await download_local(direct_link, file_path, initial_downloaded_size, req, db)
+            except Exception as download_error:
+                print(f"[ERROR] 다운로드 중 오류 발생 - 서버 유지: {type(download_error).__name__}: {download_error}")
+                # 특정 오류 타입에 대한 자세한 로깅
+                if "decompressing" in str(download_error).lower() or "deflate" in str(download_error).lower():
+                    print(f"[ERROR] 압축 해제 오류 감지: {download_error}")
+                    print(f"[ERROR] 이는 보통 서버의 잘못된 압축 데이터로 인한 것입니다")
+                elif "stream" in str(download_error).lower() and "closed" in str(download_error).lower():
+                    print(f"[ERROR] 스트림 연결 오류 감지: {download_error}")
+                    print(f"[ERROR] 네트워크 연결이 중단되었습니다")
+                # 오류를 다시 발생시켜 기존 재시도 로직이 동작하도록 함
+                raise download_error
         
         # 정지 상태 체크 (완료 처리 전)
         db.refresh(req)
@@ -1085,7 +1085,6 @@ def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = 
             final_file_path and '1fichier_' in str(final_file_path)):
             
             try:
-                from pathlib import Path
                 
                 current_path = Path(final_file_path)
                 download_dir = current_path.parent
@@ -1357,9 +1356,6 @@ def download_1fichier_file(request_id: int, lang: str = "ko", use_proxy: bool = 
 
 def parse_filename_with_proxy_cycling(req, db: Session):
     """프록시를 사용해서 파일명만 빠르게 파싱"""
-    from .proxy_manager import get_working_proxy_batch, get_unused_proxies
-    from .parser_service import parse_filename_only_with_proxy
-    from .i18n import get_message
     
     # 프록시 목록 가져오기
     all_unused_proxies = get_unused_proxies(db)
@@ -1414,9 +1410,6 @@ def parse_filename_with_proxy_cycling(req, db: Session):
 
 def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
     """프록시 배치를 병렬 테스트해서 성공한 프록시들로 파싱"""
-    from .proxy_manager import get_working_proxy_batch, get_unused_proxies
-    from .i18n import get_message
-    from .shared import download_manager
     
     # 프록시 목록 한 번만 가져와서 캐시
     all_unused_proxies = get_unused_proxies(db)
@@ -1470,7 +1463,6 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
         server_start_time = getattr(download_manager, '_server_start_time', time.time())
         use_lenient_mode = (time.time() - server_start_time) < 300  # 5분
         
-        from .proxy_manager import test_proxy_batch, mark_proxy_used
         working_proxies, failed_proxies = test_proxy_batch(db, batch_proxies, req=req, lenient_mode=use_lenient_mode)
         
         # 프록시 테스트 결과 처리 후 즉시 정지 상태 확인
@@ -1536,7 +1528,6 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             
             # 프록시로 파싱 시도 (재시도 없이 1회만) - 파일 정보도 함께 추출
             try:
-                from .parser_service import parse_direct_link_with_file_info
                 print(f"[LOG] 프록시 {working_proxy}로 1회 파싱 시도")
                 direct_link, file_info = parse_direct_link_with_file_info(
                     req.url, 
@@ -1624,7 +1615,6 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
     
     for i, proxy_addr in enumerate(unused_proxies):
         # 매 프록시 시도마다 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
-        from .shared import download_manager
         if download_manager.is_download_stopped(req.id):
             print(f"[LOG] 프록시 파싱 중 즉시 정지 플래그 감지: {req.id}")
             return None, None
@@ -1649,7 +1639,6 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
             
             # 프록시로 파싱 시도 (카운트다운 감지) - 파일 정보도 함께 추출
             try:
-                from .parser_service import parse_direct_link_with_file_info
                 direct_link, file_info = parse_direct_link_with_file_info(
                     req.url, 
                     req.password, 
@@ -1700,10 +1689,10 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
                 
                 return direct_link, proxy_addr
                 
-        except (requests.exceptions.ConnectTimeout, 
-                requests.exceptions.ReadTimeout, 
-                requests.exceptions.Timeout, 
-                requests.exceptions.ProxyError) as e:
+        except (httpx.ConnectTimeout, 
+                httpx.ReadTimeout, 
+                httpx.TimeoutException, 
+                httpx.ProxyError) as e:
             
             print(f"[LOG] 파싱 실패 - 프록시 {proxy_addr}: {e}")
             mark_proxy_used(db, proxy_addr, success=False)
@@ -1736,875 +1725,7 @@ def parse_with_proxy_cycling(req, db: Session, force_reparse=False):
     return None, None
 
 
-def download_with_proxy_cycling(direct_link, file_path, preferred_proxy, initial_size, req, db):
-    """프록시를 순환하면서 다운로드 - 실패시 자동으로 다음 프록시로 이동"""
-    from .proxy_manager import get_unused_proxies, mark_proxy_used
-    
-    print(f"[LOG] ===== 프록시 순환 다운로드 시작 =====")
-    print(f"[LOG] Download ID: {req.id}, file_path: {file_path}")
-    print(f"[LOG] initial_size: {initial_size}, req.downloaded_size: {req.downloaded_size}")
-    print(f"[LOG] req.total_size: {req.total_size}")
-    
-    # 실제 파일 크기 확인 및 이어받기 설정
-    if os.path.exists(file_path):
-        actual_file_size = os.path.getsize(file_path)
-        print(f"[LOG] 기존 파일 존재 - 실제 크기: {actual_file_size} bytes")
-        
-        # initial_size가 0인데 실제 파일이 있으면 이어받기로 변경
-        if initial_size == 0 and actual_file_size > 0:
-            print(f"[LOG] [WARN] initial_size: 0인데 기존 파일 존재 - 이어받기로 변경: {actual_file_size}")
-            initial_size = actual_file_size
-            # DB의 downloaded_size도 동기화
-            if req.downloaded_size != actual_file_size:
-                print(f"[LOG] DB downloaded_size 동기화: {req.downloaded_size} → {actual_file_size}")
-                req.downloaded_size = actual_file_size
-                db.commit()
-    else:
-        print(f"[LOG] 기존 파일 없음")
-        # 파일이 없으면 DB의 downloaded_size도 0으로 초기화
-        if req.downloaded_size > 0:
-            print(f"[LOG] DB downloaded_size 초기화: {req.downloaded_size} → 0")
-            req.downloaded_size = 0
-            db.commit()
-    
-    # 선호 프록시부터 시작하여 모든 프록시 시도
-    unused_proxies = get_unused_proxies(db)
-    
-    # 선호 프록시가 있으면 맨 앞에 배치
-    if preferred_proxy and preferred_proxy not in unused_proxies:
-        unused_proxies.insert(0, preferred_proxy)
-    elif preferred_proxy and preferred_proxy in unused_proxies:
-        # 선호 프록시를 맨 앞으로 이동
-        unused_proxies.remove(preferred_proxy)
-        unused_proxies.insert(0, preferred_proxy)
-    
-    if not unused_proxies:
-        print("[LOG] 사용 가능한 프록시가 없음")
-        req.status = StatusEnum.failed
-        req.error = "사용 가능한 프록시가 없음"
-        db.commit()
-        return
-    
-    print(f"[LOG] {len(unused_proxies)}개 프록시로 다운로드 순환 시도")
-    
-    last_error = None
-    for i, proxy_addr in enumerate(unused_proxies):
-        # 매 프록시 시도마다 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
-        from .shared import download_manager
-        if download_manager.is_download_stopped(req.id):
-            print(f"[LOG] 프록시 다운로드 중 즉시 정지 플래그 감지: {req.id}")
-            return
-        
-        db.refresh(req)
-        if req.status == StatusEnum.stopped:
-            print(f"[LOG] 프록시 다운로드 중 정지됨: {req.id}")
-            return
-        
-        try:
-            print(f"[LOG] ===== 프록시 순환 시도 {i+1}/{len(unused_proxies)} 시작 =====")
-            print(f"[LOG] Download ID: {req.id}, 프록시: {proxy_addr}")
-            print(f"[LOG] 현재 상태 - downloaded_size: {req.downloaded_size}, total_size: {req.total_size}")
-            
-            # SSE로 프록시 시도 중 알림
-            send_sse_message("proxy_trying", {
-                "id": req.id,
-                "proxy": proxy_addr,
-                "step": "다운로드 중",
-                "current": i + 1,
-                "total": len(unused_proxies),
-                "url": req.url
-            })
-            
-            # 프록시 시도 전 상태 확인 및 정리
-            print(f"[LOG] 프록시 시도 전 - initial_size: {initial_size}, req.downloaded_size: {req.downloaded_size}")
-            
-            # 진행률 관련 속성 초기화 (프록시 시도마다)
-            for attr in ['_last_ui_percent', '_last_logged_percent', '_last_speed_percent', 
-                       '_ui_speed_time', '_ui_speed_bytes', '_speed_start_time', '_speed_start_bytes',
-                       '_download_start_time', '_last_download_speed']:
-                if hasattr(req, attr):
-                    delattr(req, attr)
-            
-            # 프록시로 다운로드 시도
-            download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, db)
-            
-            # 성공하면 프록시 성공 마킹하고 종료
-            mark_proxy_used(db, proxy_addr, success=True)
-            print(f"[LOG] ===== 프록시 순환 성공 완료 =====")
-            print(f"[LOG] 성공한 프록시: {proxy_addr}, Download ID: {req.id}")
-            print(f"[LOG] 최종 다운로드 크기: {req.downloaded_size}/{req.total_size}")
-            return
-            
-        except Exception as e:
-            last_error = e
-            error_str = str(e)
-            
-            # 실패 시 이 프록시가 얼마나 다운로드했는지 확인
-            db.refresh(req)
-            current_downloaded = req.downloaded_size
-            downloaded_this_proxy = current_downloaded - initial_size if current_downloaded > initial_size else 0
-            
-            print(f"[LOG] 프록시 {proxy_addr} 다운로드 실패: {error_str}")
-            print(f"[LOG] [INFO] 이 프록시 다운로드량: {downloaded_this_proxy} bytes")
-            print(f"[LOG] [INFO] 시작: {initial_size} → 실패 시: {current_downloaded}")
-            if downloaded_this_proxy > 0:
-                percentage = (downloaded_this_proxy / req.total_size * 100) if req.total_size > 0 else 0
-                print(f"[LOG] [INFO] 이 프록시 기여도: +{percentage:.2f}%")
-            
-            # 프록시 실패 마킹
-            mark_proxy_used(db, proxy_addr, success=False)
-            
-            # SSE로 프록시 실패 알림
-            send_sse_message("proxy_failed", {
-                "proxy": proxy_addr,
-                "error": error_str,
-                "current": i + 1,
-                "total": len(unused_proxies),
-                "url": req.url
-            })
-            
-            # 파일은 이어받기를 위해 보존
-            
-            # 마지막 프록시가 아니면 계속 시도
-            if i < len(unused_proxies) - 1:
-                print(f"[LOG] 다음 프록시로 이동: {i+2}/{len(unused_proxies)}")
-                # 다음 프록시는 현재까지 다운로드된 부분부터 시작
-                initial_size = current_downloaded
-                print(f"[LOG] [INFO] 다음 프록시 시작점 업데이트: {initial_size} bytes")
-                continue
-    
-    # 모든 프록시에서 실패
-    print(f"[LOG] 모든 프록시에서 다운로드 실패")
-    if last_error:
-        raise last_error  # 마지막 에러를 상위로 전파
-
-
-def download_with_proxy(direct_link, file_path, proxy_addr, initial_size, req, db):
-    """지정된 프록시로 다운로드"""
-    print(f"[LOG] download_with_proxy 시작 - Download ID: {req.id}, Proxy: {proxy_addr}, initial_size: {initial_size}, req.downloaded_size: {req.downloaded_size}")
-    print(f"[LOG] 프록시 {proxy_addr} 점유 시작 - Download ID: {req.id}")
-    
-    proxies = {
-        'http': f'http://{proxy_addr}',
-        'https': f'http://{proxy_addr}'
-    }
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'ko-KR,ko;q=0.9',
-        'Connection': 'keep-alive'
-    }
-    
-    if initial_size > 0:
-        headers['Range'] = f'bytes={initial_size}-'
-        print(f"[LOG] 이어받기 헤더: Range={headers['Range']}")
-    
-    try:
-        # 다운로드 시작 전 정지 상태 체크
-        db.refresh(req)
-        if req.status == StatusEnum.stopped:
-            print(f"[LOG] 다운로드 시작 전 정지됨: {req.id}")
-            return
-        
-        # SSE로 다운로드 시작 알림
-        send_sse_message("proxy_trying", {
-            "id": req.id,
-            "proxy": proxy_addr,
-            "step": "다운로드 중",
-            "current": 1,
-            "total": 1,
-            "url": req.url
-        })
-        
-        with requests.get(direct_link, stream=True, headers=headers, proxies=proxies, timeout=(10, 60)) as response:
-            response.raise_for_status()
-            
-            # 응답 받은 후 정지 상태 체크
-            db.refresh(req)
-            if req.status == StatusEnum.stopped:
-                print(f"[LOG] 응답 받은 후 정지됨: {req.id}")
-                return
-            
-            content_length = int(response.headers.get('Content-Length', 0))
-            content_type = response.headers.get('Content-Type', '').lower()
-            
-            # Content-Disposition에서 실제 파일명 추출 시도
-            content_disposition = response.headers.get('Content-Disposition', '')
-            if content_disposition and 'filename' in content_disposition:
-                # filename="..." 또는 filename*=UTF-8''... 형태 처리
-                filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';\r\n]*)["\']?', content_disposition)
-                if filename_match:
-                    extracted_filename = filename_match.group(1).strip()
-                    # URL 디코딩
-                    from urllib.parse import unquote
-                    extracted_filename = unquote(extracted_filename)
-                    
-                    # 임시 파일명이거나 파일명이 확정되지 않은 경우에만 업데이트
-                    if (req.file_name.endswith('.tmp') or req.file_name == '1fichier.com: Cloud Storage' or 
-                        req.file_name.startswith('1fichier_')):
-                        print(f"[LOG] Content-Disposition에서 실제 파일명 추출: '{extracted_filename}'")
-                        req.file_name = extracted_filename
-                        db.commit()
-                        
-                        # SSE로 파일명 업데이트 전송
-                        send_sse_message("filename_update", {
-                            "id": req.id,
-                            "file_name": req.file_name,
-                            "url": req.url,
-                            "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
-                        })
-            
-            # 응답 검증: HTML이나 빈 파일인지 확인
-            print(f"[LOG] 프록시 응답 분석 - Content-Length: {content_length}, Content-Type: {content_type}")
-            
-            # Content-Type이 HTML인 경우 - 내용을 확인해서 실제 HTML인지 판단
-            if 'text/html' in content_type:
-                print(f"[LOG] HTML Content-Type 감지 - 내용 검사 중...")
-                # 처음 1024바이트를 확인해서 실제 HTML인지 판단
-                peek_content = response.content[:1024] if hasattr(response, 'content') else b''
-                try:
-                    peek_text = peek_content.decode('utf-8', errors='ignore').lower()
-                    # 실제 HTML 태그와 에러 메시지가 있는지 확인
-                    html_indicators = ['<html', '<body', '<head', '<!doctype']
-                    error_indicators = ['error', '404', '403', 'not found', 'access denied', 'forbidden']
-                    
-                    has_html_tags = any(indicator in peek_text for indicator in html_indicators)
-                    has_error_msg = any(indicator in peek_text for indicator in error_indicators)
-                    
-                    # HTML 태그가 있고 에러 메시지도 있으면 실제 에러 페이지
-                    if has_html_tags and has_error_msg:
-                        print(f"[LOG] 실제 HTML 에러 페이지 감지: {peek_text[:100]}...")
-                        raise Exception("다운로드 링크가 에러 페이지로 리다이렉트됨 (HTML 응답)")
-                    elif has_html_tags:
-                        print(f"[LOG] HTML 페이지지만 에러가 아닐 수 있음 - 계속 진행")
-                    else:
-                        print(f"[LOG] HTML Content-Type이지만 실제 파일 데이터로 보임 - 계속 진행")
-                except:
-                    print(f"[LOG] HTML 내용 검사 실패 - 계속 진행")
-                    pass
-            
-            # Content-Length가 너무 작은 경우 (1KB 미만)
-            if content_length < 1024 and initial_size == 0:
-                print(f"[LOG] 파일 크기가 너무 작음: {content_length} bytes - 에러 응답일 가능성")
-                # 작은 응답의 내용을 확인해봄
-                peek_content = response.content[:500]  # 처음 500바이트만 확인
-                try:
-                    peek_text = peek_content.decode('utf-8', errors='ignore').lower()
-                    # HTML 태그나 에러 메시지가 포함되어 있는지 확인
-                    error_indicators = ['<html', '<body', 'error', '404', '403', 'not found', 'access denied']
-                    if any(indicator in peek_text for indicator in error_indicators):
-                        print(f"[LOG] 응답에 에러 내용 감지: {peek_text[:100]}...")
-                        raise Exception(f"다운로드 실패 - 에러 응답 감지 (크기: {content_length} bytes)")
-                except:
-                    pass  # 디코딩 실패해도 계속 진행
-            
-            if initial_size > 0:
-                # 이어받기: 전체 크기 = 기존 크기 + 남은 크기
-                total_size = initial_size + content_length
-                print(f"[LOG] 이어받기 - 기존: {initial_size}, 남은 크기: {content_length}")
-            else:
-                # 새 다운로드: 전체 크기 = Content-Length
-                total_size = content_length
-            
-            # 파일 크기가 0인 경우 다운로드 중단
-            if total_size == 0:
-                print(f"[LOG] 파일 크기가 0 - 다운로드 중단")
-                raise Exception("파일 크기가 0입니다. 다운로드 링크가 올바르지 않습니다.")
-            
-            req.total_size = total_size
-            db.commit()
-            
-            print(f"[LOG] 프록시 다운로드 시작 - 총 크기: {total_size} bytes, Content-Type: {content_type}")
-            
-            # 파일 경로 검증 및 디렉토리 생성
-            try:
-                download_path = Path(file_path).parent
-                download_path.mkdir(parents=True, exist_ok=True)
-                print(f"[LOG] 파일 저장 경로: {file_path}")
-            except Exception as e:
-                raise Exception(f"다운로드 디렉토리 생성 실패: {e}")
-            
-            try:
-                with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
-                    downloaded = initial_size
-                    last_update_size = downloaded
-                    
-                    chunk_count = 0
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            chunk_count += 1
-                            
-                            # 매 128KB마다(16개 청크) 정지 상태 및 SSE 업데이트 체크 (성능 최적화)
-                            if chunk_count % 16 == 0:
-                                from .shared import download_manager
-                                if download_manager.is_download_stopped(req.id):
-                                    print(f"[LOG] 다운로드 중 즉시 정지 플래그 감지: {req.id} (진행률: {downloaded}/{total_size})")
-                                    return
-                                
-                                db.refresh(req)
-                                if req.status == StatusEnum.stopped:
-                                    print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
-                                    return
-                            
-                            # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
-                            # 진행률 및 속도 계산
-                            # 안전한 진행률 계산 (NaN 방지)
-                            try:
-                                if total_size > 0 and downloaded >= 0:
-                                    progress = (downloaded / total_size * 100)
-                                    # NaN 체크
-                                    if not (0 <= progress <= 100):
-                                        progress = 0.0
-                                else:
-                                    progress = 0.0
-                            except (ZeroDivisionError, TypeError, ValueError):
-                                progress = 0.0
-                            current_percent_for_log = int(progress // 5) * 5  # 5% 단위 (로그용)
-                            current_percent_for_ui = int(progress * 2) / 2  # 0.5% 단위 (UI 업데이트용)
-                            
-                            # 속도 계산을 위한 시간 추적
-                            current_time = time.time()
-                            if not hasattr(req, '_speed_start_time'):
-                                req._speed_start_time = current_time
-                                req._speed_start_bytes = downloaded
-                            
-                            # DB 업데이트: 5MB마다 또는 10초마다
-                            last_db_update_time = getattr(req, '_last_db_update_time', 0)
-                            last_db_update_size = getattr(req, '_last_db_update_size', 0)
-                            db_update_needed = (
-                                chunk_count % 640 == 0 or  # 5MB마다 (640 * 8KB)
-                                (current_time - last_db_update_time) >= 10 or  # 10초마다
-                                (downloaded - last_db_update_size) >= 5 * 1024 * 1024  # 5MB 차이
-                            )
-                            
-                            if db_update_needed:
-                                req.downloaded_size = downloaded
-                                db.commit()
-                                req._last_db_update_time = current_time
-                                req._last_db_update_size = downloaded
-                                
-                                if int(progress) != getattr(req, '_last_logged_percent', 0) and int(progress) % 5 == 0 and int(progress) > 0:
-                                    req._last_logged_percent = int(progress)
-                                    # 속도 계산 (로그용)
-                                    time_elapsed = current_time - req._speed_start_time
-                                    if time_elapsed > 0:
-                                        bytes_diff = downloaded - req._speed_start_bytes
-                                        download_speed = bytes_diff / time_elapsed
-                                        speed_mb = download_speed / (1024 * 1024)
-                                        print(f"[LOG] 프록시 진행률: {int(progress)}% ({downloaded}/{total_size}) - 속도: {speed_mb:.2f}MB/s")
-                                        req._speed_start_time = current_time
-                                        req._speed_start_bytes = downloaded
-                                
-                            # SSE 업데이트: 최적화된 간격 (2초마다)
-                            last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
-                            if current_time - last_sse_send_time >= 2.0:
-                                req._last_sse_send_time = current_time
-
-                                # 속도 계산
-                                speed_time_elapsed = current_time - getattr(req, '_ui_speed_time', req._speed_start_time)
-                                if speed_time_elapsed > 0.5: # 0.5초 이상 간격으로만
-                                    speed_bytes_diff = downloaded - getattr(req, '_ui_speed_bytes', req._speed_start_bytes)
-                                    download_speed = speed_bytes_diff / speed_time_elapsed
-                                    
-                                    req._ui_speed_time = current_time
-                                    req._ui_speed_bytes = downloaded
-                                else:
-                                    # 마지막 계산된 속도 재사용
-                                    download_speed = getattr(req, '_last_download_speed', 0)
-                                
-                                req._last_download_speed = download_speed
-
-                                send_sse_message("status_update", {
-                                    "id": req.id,
-                                    "downloaded_size": downloaded,
-                                    "total_size": total_size,
-                                    "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
-                                    "download_speed": round(download_speed, 0),
-                                    "status": "downloading",
-                                    "use_proxy": req.use_proxy,
-                                    "file_name": req.file_name,
-                                    "url": req.url
-                                })
-                    
-                    req.downloaded_size = downloaded
-                    db.commit()
-                
-            except Exception as file_error:
-                raise Exception(f"파일 쓰기 실패: {file_error}")
-                
-        print(f"[LOG] 프록시 다운로드 완료: {downloaded} bytes")
-        
-        # 다운로드 완료 후 파일 검증
-        if downloaded == 0:
-            print(f"[LOG] 경고: 다운로드된 데이터가 0 bytes")
-            raise Exception("다운로드 실패 - 받은 데이터가 없습니다")
-        elif downloaded < 1024:
-            print(f"[LOG] 경고: 다운로드된 파일이 매우 작음 ({downloaded} bytes)")
-            # 작은 파일의 내용을 확인해봄
-            try:
-                with open(file_path, 'rb') as check_file:
-                    content = check_file.read(500)
-                    try:
-                        text_content = content.decode('utf-8', errors='ignore').lower()
-                        if any(indicator in text_content for indicator in ['<html', 'error', '404', '403']):
-                            print(f"[LOG] 다운로드된 파일이 에러 페이지임: {text_content[:100]}...")
-                            raise Exception(f"다운로드 실패 - 에러 페이지 받음 ({downloaded} bytes)")
-                    except:
-                        pass
-            except:
-                pass
-        
-        print(f"[LOG] 프록시 {proxy_addr} 다운로드 성공 완료 - Download ID: {req.id}, 최종 크기: {downloaded} bytes")
-        mark_proxy_used(db, proxy_addr, success=True)
-        
-        # SSE로 다운로드 성공 알림
-        send_sse_message("proxy_success", {
-            "proxy": proxy_addr,
-            "step": "다운로드 완료",
-            "url": req.url
-        })
-        
-        print(f"[LOG] 프록시 {proxy_addr} 점유 종료 (성공) - Download ID: {req.id}")
-        
-    except Exception as e:
-        error_str = str(e)
-        
-        # 실패 시 얼마나 다운로드했는지 확인  
-        db.refresh(req)  # 최신 상태 확인
-        current_downloaded = req.downloaded_size
-        downloaded_this_proxy = current_downloaded - initial_size if current_downloaded > initial_size else 0
-        
-        print(f"[LOG] 프록시 {proxy_addr} 다운로드 실패 - Download ID: {req.id}")
-        print(f"[LOG] [WARN] 이 프록시로 다운로드한 양: {downloaded_this_proxy} bytes")
-        print(f"[LOG] [WARN] 시작 시: {initial_size} bytes → 실패 시: {current_downloaded} bytes")
-        if downloaded_this_proxy > 0:
-            percentage = (downloaded_this_proxy / req.total_size * 100) if req.total_size > 0 else 0
-            print(f"[LOG] [WARN] 이 프록시 진행률: +{percentage:.2f}%")
-        print(f"[LOG] 에러: {e}")
-        print(f"[LOG] 프록시 {proxy_addr} 점유 종료 (실패) - Download ID: {req.id}")
-        mark_proxy_used(db, proxy_addr, success=False)
-        
-        # DNS 오류 감지 시 재파싱 시도 (프록시에서도)
-        if any(dns_error in error_str for dns_error in [
-            "NameResolutionError", "Failed to resolve", "Name or service not known", 
-            "No address associated with hostname", "nodename nor servname provided"
-        ]):
-            print(f"[LOG] 프록시에서 DNS 해상도 오류 감지 - 다운로드 링크 재파싱 시도")
-            print(f"[LOG] 만료된 링크: {direct_link}")
-            
-            try:
-                # 기존 direct_link 완전 초기화
-                # direct_link 필드 제거됨
-                
-                # 강제 재파싱 시도 (여러 프록시로 시도)
-                print(f"[LOG] 원본 URL로 강제 재파싱 시도: {req.url}")
-                new_direct_link, used_proxy = parse_with_proxy_cycling(req, db, force_reparse=True)
-                
-                if new_direct_link and new_direct_link != direct_link:
-                    print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 성공: {new_direct_link}")
-                    # direct_link 필드 제거됨
-                    
-                    # 재파싱된 링크로 다시 다운로드 시도
-                    if used_proxy:
-                        return download_with_proxy(new_direct_link, file_path, used_proxy, initial_size, req, db)
-                    else:
-                        return download_local(new_direct_link, file_path, initial_size, req, db)
-                else:
-                    print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 실패 - 프록시 순환으로도 새 링크 획득 불가")
-                    
-            except Exception as reparse_error:
-                print(f"[LOG] 프록시에서 DNS 오류 후 재파싱 중 예외: {reparse_error}")
-                
-                # 마지막 시도: 로컬 연결로 재파싱
-                try:
-                    print(f"[LOG] 마지막 시도: 로컬 연결로 재파싱")
-                    from .parser_service import parse_direct_link_simple
-                    local_direct_link = parse_direct_link_simple(req.url, req.password, use_proxy=False)
-                    if local_direct_link and local_direct_link != direct_link:
-                        print(f"[LOG] 로컬 연결로 재파싱 성공: {local_direct_link}")
-                        # direct_link 필드 제거됨
-                        return download_local(local_direct_link, file_path, initial_size, req, db)
-                except Exception as local_error:
-                    print(f"[LOG] 로컬 연결 재파싱도 실패: {local_error}")
-        
-        # SSE로 다운로드 실패 알림
-        send_sse_message("proxy_failed", {
-            "proxy": proxy_addr,
-            "step": "다운로드 실패",
-            "error": str(e),
-            "url": req.url
-        })
-        
-        raise e
-
-
-def download_local(direct_link, file_path, initial_size, req, db):
-    """로컬 연결로 다운로드"""
-    # SSE 업데이트를 즉시 시작할 수 있도록 초기화
-    req._last_sse_send_time = 0
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'ko-KR,ko;q=0.9',
-        'Connection': 'keep-alive'
-    }
-    
-    if initial_size > 0:
-        headers['Range'] = f'bytes={initial_size}-'
-        print(f"[LOG] 이어받기 헤더: Range={headers['Range']}")
-    
-    try:
-        # 다운로드 시작 전 정지 상태 체크
-        db.refresh(req)
-        if req.status == StatusEnum.stopped:
-            print(f"[LOG] 다운로드 시작 전 정지됨: {req.id}")
-            return
-        
-        print(f"[LOG] 로컬 연결로 다운로드 시작")
-        
-        with requests.get(direct_link, stream=True, headers=headers, timeout=(15, 90)) as response:
-            response.raise_for_status()
-            
-            # 응답 받은 후 정지 상태 체크
-            db.refresh(req)
-            if req.status == StatusEnum.stopped:
-                print(f"[LOG] 응답 받은 후 정지됨: {req.id}")
-                return
-            
-            content_length = int(response.headers.get('Content-Length', 0))
-            content_type = response.headers.get('Content-Type', '').lower()
-            
-            # Content-Disposition에서 실제 파일명 추출 시도 (로컬)
-            content_disposition = response.headers.get('Content-Disposition', '')
-            if content_disposition and 'filename' in content_disposition:
-                # filename="..." 또는 filename*=UTF-8''... 형태 처리
-                filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';\r\n]*)["\']?', content_disposition)
-                if filename_match:
-                    extracted_filename = filename_match.group(1).strip()
-                    # URL 디코딩
-                    from urllib.parse import unquote
-                    extracted_filename = unquote(extracted_filename)
-                    
-                    # 임시 파일명이거나 파일명이 확정되지 않은 경우에만 업데이트
-                    if (req.file_name.endswith('.tmp') or req.file_name == '1fichier.com: Cloud Storage' or 
-                        req.file_name.startswith('1fichier_')):
-                        print(f"[LOG] 로컬 Content-Disposition에서 실제 파일명 추출: '{extracted_filename}'")
-                        req.file_name = extracted_filename
-                        db.commit()
-                        
-                        # SSE로 파일명 업데이트 전송
-                        send_sse_message("filename_update", {
-                            "id": req.id,
-                            "file_name": req.file_name,
-                            "url": req.url,
-                            "status": req.status.value if hasattr(req.status, 'value') else str(req.status)
-                        })
-            
-            # 응답 검증: HTML이나 빈 파일인지 확인
-            print(f"[LOG] 로컬 응답 분석 - Content-Length: {content_length}, Content-Type: {content_type}")
-            
-            # Content-Type이 HTML인 경우 - 내용을 확인해서 실제 HTML인지 판단
-            if 'text/html' in content_type:
-                print(f"[LOG] HTML Content-Type 감지 - 내용 검사 중...")
-                # 처음 1024바이트를 확인해서 실제 HTML인지 판단
-                peek_content = response.content[:1024] if hasattr(response, 'content') else b''
-                try:
-                    peek_text = peek_content.decode('utf-8', errors='ignore').lower()
-                    # 실제 HTML 태그와 에러 메시지가 있는지 확인
-                    html_indicators = ['<html', '<body', '<head', '<!doctype']
-                    error_indicators = ['error', '404', '403', 'not found', 'access denied', 'forbidden']
-                    
-                    has_html_tags = any(indicator in peek_text for indicator in html_indicators)
-                    has_error_msg = any(indicator in peek_text for indicator in error_indicators)
-                    
-                    # HTML 태그가 있고 에러 메시지도 있으면 실제 에러 페이지
-                    if has_html_tags and has_error_msg:
-                        print(f"[LOG] 실제 HTML 에러 페이지 감지: {peek_text[:100]}...")
-                        raise Exception("다운로드 링크가 에러 페이지로 리다이렉트됨 (HTML 응답)")
-                    elif has_html_tags:
-                        print(f"[LOG] HTML 페이지지만 에러가 아닐 수 있음 - 계속 진행")
-                    else:
-                        print(f"[LOG] HTML Content-Type이지만 실제 파일 데이터로 보임 - 계속 진행")
-                except:
-                    print(f"[LOG] HTML 내용 검사 실패 - 계속 진행")
-                    pass
-            
-            # Content-Length가 너무 작은 경우 (1KB 미만)
-            if content_length < 1024 and initial_size == 0:
-                print(f"[LOG] 파일 크기가 너무 작음: {content_length} bytes - 에러 응답일 가능성")
-                # 작은 응답의 내용을 확인해봄
-                peek_content = response.content[:500]  # 처음 500바이트만 확인
-                try:
-                    peek_text = peek_content.decode('utf-8', errors='ignore').lower()
-                    # HTML 태그나 에러 메시지가 포함되어 있는지 확인
-                    error_indicators = ['<html', '<body', 'error', '404', '403', 'not found', 'access denied']
-                    if any(indicator in peek_text for indicator in error_indicators):
-                        print(f"[LOG] 응답에 에러 내용 감지: {peek_text[:100]}...")
-                        raise Exception(f"다운로드 실패 - 에러 응답 감지 (크기: {content_length} bytes)")
-                except:
-                    pass  # 디코딩 실패해도 계속 진행
-            
-            if initial_size > 0:
-                # 이어받기: 전체 크기 = 기존 크기 + 남은 크기
-                total_size = initial_size + content_length
-                print(f"[LOG] 이어받기 - 기존: {initial_size}, 남은 크기: {content_length}")
-            else:
-                # 새 다운로드: 전체 크기 = Content-Length
-                total_size = content_length
-            
-            # 파일 크기가 0인 경우 다운로드 중단
-            if total_size == 0:
-                print(f"[LOG] 파일 크기가 0 - 다운로드 중단")
-                raise Exception("파일 크기가 0입니다. 다운로드 링크가 올바르지 않습니다.")
-            
-            req.total_size = total_size
-            db.commit()
-            
-            print(f"[LOG] 로컬 다운로드 시작 - 총 크기: {total_size} bytes, Content-Type: {content_type}")
-            
-            # 파일 경로 검증 및 디렉토리 생성
-            try:
-                download_path = Path(file_path).parent
-                download_path.mkdir(parents=True, exist_ok=True)
-                print(f"[LOG] 파일 저장 경로: {file_path}")
-            except Exception as e:
-                raise Exception(f"다운로드 디렉토리 생성 실패: {e}")
-            
-            try:
-                with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
-                    downloaded = initial_size
-                    last_update_size = downloaded
-                    
-                    chunk_count = 0
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            chunk_count += 1
-                            
-                            # 매 128KB마다(16개 청크) 정지 상태 및 SSE 업데이트 체크 (성능 최적화)
-                            if chunk_count % 16 == 0:
-                                from .shared import download_manager
-                                if download_manager.is_download_stopped(req.id):
-                                    print(f"[LOG] 다운로드 중 즉시 정지 플래그 감지: {req.id} (진행률: {downloaded}/{total_size})")
-                                    return
-                                
-                                db.refresh(req)
-                                if req.status == StatusEnum.stopped:
-                                    print(f"[LOG] 다운로드 중 정지됨: {req.id} (진행률: {downloaded}/{total_size})")
-                                    return
-                            
-                            # 진행률 업데이트 - 적절한 빈도 (매 512KB마다) + WebSocket 실시간 전송  
-                            # 진행률 및 속도 계산
-                            # 안전한 진행률 계산 (NaN 방지)
-                            try:
-                                if total_size > 0 and downloaded >= 0:
-                                    progress = (downloaded / total_size * 100)
-                                    # NaN 체크
-                                    if not (0 <= progress <= 100):
-                                        progress = 0.0
-                                else:
-                                    progress = 0.0
-                            except (ZeroDivisionError, TypeError, ValueError):
-                                progress = 0.0
-                            current_percent_for_log = int(progress // 5) * 5  # 5% 단위 (로그용)
-                            current_percent_for_ui = int(progress * 2) / 2  # 0.5% 단위 (UI 업데이트용)
-                            
-                            # 속도 계산을 위한 시간 추적 (로컬 다운로드)
-                            current_time = time.time()
-                            if not hasattr(req, '_local_speed_start_time'):
-                                req._local_speed_start_time = current_time
-                                req._local_speed_start_bytes = downloaded
-                                req._last_sse_send_time = 0  # SSE 초기화로 즉시 전송 가능하게
-                            
-                            # DB 업데이트: 5MB마다 또는 10초마다
-                            last_db_update_time = getattr(req, '_last_local_db_update_time', 0)
-                            last_db_update_size = getattr(req, '_last_local_db_update_size', 0)
-                            db_update_needed = (
-                                chunk_count % 640 == 0 or  # 5MB마다 (640 * 8KB)
-                                (current_time - last_db_update_time) >= 10 or  # 10초마다
-                                (downloaded - last_db_update_size) >= 5 * 1024 * 1024  # 5MB 차이
-                            )
-                            
-                            if db_update_needed:
-                                req.downloaded_size = downloaded
-                                db.commit()
-                                req._last_local_db_update_time = current_time
-                                req._last_local_db_update_size = downloaded
-                                
-                                if int(progress) != getattr(req, '_last_logged_percent', 0) and int(progress) % 5 == 0 and int(progress) > 0:
-                                    req._last_logged_percent = int(progress)
-                                    # 속도 계산 (로그용)
-                                    time_elapsed = current_time - req._local_speed_start_time
-                                    if time_elapsed > 0:
-                                        bytes_diff = downloaded - req._local_speed_start_bytes
-                                        download_speed = bytes_diff / time_elapsed
-                                        speed_mb = download_speed / (1024 * 1024)
-                                        print(f"[LOG] 로컬 진행률: {int(progress)}% ({downloaded}/{total_size}) - 속도: {speed_mb:.2f}MB/s")
-                                        req._local_speed_start_time = current_time
-                                        req._local_speed_start_bytes = downloaded
-                                
-                            # SSE 업데이트: 강제로 매번 전송 (테스트용)
-                            last_sse_send_time = getattr(req, '_last_sse_send_time', 0)
-                            print(f"[LOG] 로컬 SSE 체크: 현재시간={current_time:.1f}, 마지막전송={last_sse_send_time:.1f}, 차이={current_time - last_sse_send_time:.1f}초")
-                            
-                            # SSE 업데이트 간격 최적화 (2초마다)
-                            if current_time - last_sse_send_time >= 2.0:
-                                req._last_sse_send_time = current_time
-
-                                # 속도 계산
-                                speed_time_elapsed = current_time - getattr(req, '_local_ui_speed_time', req._local_speed_start_time)
-                                if speed_time_elapsed > 1.0: # 1초 이상 간격으로만
-                                    speed_bytes_diff = downloaded - getattr(req, '_local_ui_speed_bytes', req._local_speed_start_bytes)
-                                    download_speed = speed_bytes_diff / speed_time_elapsed
-                                    
-                                    req._local_ui_speed_time = current_time
-                                    req._local_ui_speed_bytes = downloaded
-                                else:
-                                    # 마지막 계산된 속도 재사용
-                                    download_speed = getattr(req, '_last_local_download_speed', 0)
-                                
-                                req._last_local_download_speed = download_speed
-
-                                print(f"[LOG] 로컬 SSE 전송: ID={req.id}, 진행률={round(progress, 1)}%, 속도={round(download_speed, 0)}")
-                                send_sse_message("status_update", {
-                                        "id": req.id,
-                                        "downloaded_size": downloaded,
-                                        "total_size": total_size,
-                                        "progress": round(max(0.0, min(100.0, progress or 0.0)), 1),
-                                        "download_speed": round(download_speed, 0),
-                                        "status": "downloading",
-                                        "use_proxy": req.use_proxy,
-                                        "file_name": req.file_name,
-                                        "url": req.url
-                                    })
-                    
-                    req.downloaded_size = downloaded
-                    db.commit()
-                
-            except Exception as file_error:
-                raise Exception(f"파일 쓰기 실패: {file_error}")
-                
-        print(f"[LOG] 로컬 다운로드 완료: {downloaded} bytes")
-        
-        # 다운로드 완료 후 파일 검증
-        if downloaded == 0:
-            print(f"[LOG] 경고: 다운로드된 데이터가 0 bytes")
-            raise Exception("다운로드 실패 - 받은 데이터가 없습니다")
-        # Content-Type으로 잘못된 파일 감지 (용량은 체크하지 않음)
-        content_type = response.headers.get('Content-Type', '').lower()
-        if any(wrong_type in content_type for wrong_type in ['text/html', 'text/css', 'text/javascript', 'application/json']):
-            raise Exception(f"잘못된 파일 타입 다운로드: {content_type} ({downloaded} bytes)")
-        elif downloaded < 1024:  # 1KB 미만은 확실히 문제
-            print(f"[LOG] 경고: 다운로드된 파일이 매우 작음 ({downloaded} bytes)")
-            # 작은 파일의 내용을 확인해봄
-            try:
-                with open(file_path, 'rb') as check_file:
-                    content = check_file.read(500)
-                    try:
-                        text_content = content.decode('utf-8', errors='ignore').lower()
-                        if any(indicator in text_content for indicator in ['<html', 'error', '404', '403']):
-                            print(f"[LOG] 다운로드된 파일이 에러 페이지임: {text_content[:100]}...")
-                            raise Exception(f"다운로드 실패 - 에러 페이지 받음 ({downloaded} bytes)")
-                    except:
-                        pass
-            except:
-                pass
-        
-    except Exception as e:
-        error_str = str(e)
-        print(f"[LOG] 로컬 다운로드 실패: {e}")
-        
-        # DNS 오류 감지 시 재파싱 시도
-        if any(dns_error in error_str for dns_error in [
-            "NameResolutionError", "Failed to resolve", "Name or service not known", 
-            "No address associated with hostname", "nodename nor servname provided"
-        ]):
-            print(f"[LOG] DNS 해상도 오류 감지 - 다운로드 링크 재파싱 시도")
-            print(f"[LOG] 만료된 링크: {direct_link}")
-            
-            try:
-                # 기존 direct_link 완전 초기화
-                # direct_link 필드 제거됨
-                
-                # 우선 로컬 연결로 재파싱 시도
-                print(f"[LOG] 로컬 연결으로 강제 재파싱 시도: {req.url}")
-                from .parser_service import parse_direct_link_simple
-                new_direct_link = parse_direct_link_simple(req.url, req.password, use_proxy=False)
-                
-                if new_direct_link and new_direct_link != direct_link:
-                    print(f"[LOG] 로컬 연결 DNS 오류 후 재파싱 성공: {new_direct_link}")
-                    # direct_link 필드 제거됨
-                    return download_local(new_direct_link, file_path, initial_size, req, db)
-                else:
-                    print(f"[LOG] 로컬 재파싱 실패 - 프록시 순환 시도")
-                    
-                    # 로컬 재파싱 실패 시 프록시로 시도
-                    try:
-                        new_direct_link, used_proxy = parse_with_proxy_cycling(req, db, force_reparse=True)
-                        if new_direct_link and new_direct_link != direct_link:
-                            print(f"[LOG] 프록시 순환으로 재파싱 성공: {new_direct_link}")
-                            # direct_link 필드 제거됨
-                            
-                            if used_proxy:
-                                return download_with_proxy(new_direct_link, file_path, used_proxy, initial_size, req, db)
-                            else:
-                                return download_local(new_direct_link, file_path, initial_size, req, db)
-                        else:
-                            print(f"[LOG] 프록시 순환 재파싱도 실패")
-                    except Exception as proxy_error:
-                        print(f"[LOG] 프록시 순환 재파싱 중 예외: {proxy_error}")
-                        
-            except Exception as reparse_error:
-                print(f"[LOG] DNS 오류 후 재파싱 중 예외: {reparse_error}")
-        
-        # 연결 시간 초과 또는 읽기 시간 초과 감지 시 프록시로 전환 시도
-        elif any(timeout_error in error_str for timeout_error in [
-            "HTTPSConnectionPool", "Connection timed out", "Read timed out", 
-            "ConnectTimeout", "ReadTimeout", "timeout", "RemoteDisconnected"
-        ]):
-            print(f"[LOG] 연결/읽기 시간 초과 감지 - 프록시 연결로 전환 시도")
-            print(f"[LOG] 실패한 로컬 연결: {direct_link}")
-            
-            try:
-                # 프록시를 사용해서 재파싱 및 다운로드 시도
-                print(f"[LOG] 프록시 순환으로 재파싱 및 다운로드 시도: {req.url}")
-                from .parser_service import parse_with_proxy_cycling
-                new_direct_link, used_proxy = parse_with_proxy_cycling(req, db, force_reparse=True)
-                
-                if new_direct_link and used_proxy:
-                    print(f"[LOG] 프록시 순환으로 재파싱 성공: {new_direct_link} (프록시: {used_proxy})")
-                    return download_with_proxy(new_direct_link, file_path, used_proxy, initial_size, req, db)
-                else:
-                    print(f"[LOG] 프록시 순환 재파싱 실패")
-            except Exception as proxy_timeout_error:
-                print(f"[LOG] 프록시 연결 전환 실패: {proxy_timeout_error}")
-        
-        # SSE로 로컬 다운로드 실패 상태 전송
-        send_sse_message("status_update", {
-            "id": req.id,
-            "url": req.url,
-            "file_name": req.file_name,
-            "status": "failed",
-            "error": str(e),
-            "downloaded_size": req.downloaded_size or 0,
-            "total_size": req.total_size or 0,
-            "save_path": req.save_path,
-            "requested_at": req.requested_at.isoformat() if req.requested_at else None,
-            "finished_at": None,
-            "password": req.password,
-            "direct_link": None,  # direct_link 필드 제거됨
-            "use_proxy": req.use_proxy
-        })
-        
-        raise e
-
-
-def download_from_stream(proxy_addr, file_path, initial_size, req, db, use_proxy):
+async def download_from_stream(proxy_addr, file_path, initial_size, req, db, use_proxy):
     """직접 다운로드 스트림에서 파일 다운로드"""
     print(f"[LOG] 직접 스트림 다운로드 시작 (프록시: {proxy_addr})")
     
@@ -2612,16 +1733,15 @@ def download_from_stream(proxy_addr, file_path, initial_size, req, db, use_proxy
     # 여기서는 재시도 메커니즘을 구현
     try:
         # 새로운 요청으로 다운로드 재시작
-        from .parser_service import get_or_parse_direct_link
         
         if use_proxy and proxy_addr:
             # 프록시 사용하여 다운로드 재시작
             print(f"[LOG] 프록시 {proxy_addr}로 스트림 다운로드 재시작")
-            download_with_proxy("STREAM_RETRY", file_path, proxy_addr, initial_size, req, db)
+            await download_with_proxy("STREAM_RETRY", file_path, proxy_addr, initial_size, req, db)
         else:
             # 로컬 연결로 다운로드 재시작
             print(f"[LOG] 로컬 연결로 스트림 다운로드 재시작")
-            download_local("STREAM_RETRY", file_path, initial_size, req, db)
+            await download_local("STREAM_RETRY", file_path, initial_size, req, db)
             
     except Exception as e:
         print(f"[LOG] 스트림 다운로드 실패: {e}")
@@ -2687,14 +1807,14 @@ def cleanup_download_file(file_path):
         raise e
 
 
-def download_general_file(request_id, language="ko", use_proxy=False):
-    """일반 파일 다운로드 (non-1fichier) - URL에서 직접 다운로드"""
-    from .db import SessionLocal
+async def download_general_file(request_id, language="ko", use_proxy=False):
+    """일반 파일 다운로드 (non-1fichier) - URL에서 직접 다운로드 (비동기)"""
     from .models import DownloadRequest, StatusEnum
-    
+
     db = SessionLocal()
-    req = None  # 변수 초기화
-    
+    req = None
+
+    # 최상위 예외 경계 - 어떤 오류도 프로세스를 죽이지 않음
     try:
         # 다운로드 요청 조회
         req = db.query(DownloadRequest).filter(DownloadRequest.id == request_id).first()
@@ -2703,9 +1823,9 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             return
         
         # 즉시 정지 플래그만 초기화 (일반 파일은 제한 없으므로 바로 등록)
-        from .shared import download_manager
         with download_manager._lock:
             download_manager.stop_events[request_id] = threading.Event()
+        
         download_manager.register_download(request_id, req.url, use_proxy)
         print(f"[LOG] 일반 다운로드 {request_id} 등록 완료 - 즉시 정지 플래그 초기화됨")
         
@@ -2717,7 +1837,8 @@ def download_general_file(request_id, language="ko", use_proxy=False):
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
             
-            head_response = requests.head(req.url, headers=headers, timeout=30, allow_redirects=True)
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                head_response = await client.head(req.url, headers=headers, timeout=30)
             if head_response.status_code == 200:
                 # Content-Type 체크 - 다운로드 가능한 파일인지 먼저 확인
                 content_type = head_response.headers.get('Content-Type', '').lower()
@@ -2767,7 +1888,7 @@ def download_general_file(request_id, language="ko", use_proxy=False):
                 db.commit()
                 
                 # SSE로 파일명 업데이트 즉시 전송
-                send_sse_message("status_update", {
+                await sse_manager.broadcast_message("status_update", {
                     "id": req.id,
                     "file_name": req.file_name,
                     "url": req.url,
@@ -2812,7 +1933,7 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             send_telegram_start_notification(
                 file_name=req.file_name or "Unknown File",
                 download_mode=download_mode,
-                lang=lang,
+                lang=language,
                 file_size=file_size_str,
                 requested_at=req.requested_at
             )
@@ -2908,7 +2029,6 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             print(f"[LOG] 새 다운로드 시작")
         
         # 정지 상태 체크 (다운로드 시작 전)
-        from .shared import download_manager
         if download_manager.is_download_stopped(request_id):
             print(f"[LOG] 일반 다운로드 시작 전 정지 플래그 감지: ID {request_id}")
             return
@@ -2937,10 +2057,10 @@ def download_general_file(request_id, language="ko", use_proxy=False):
         # 실제 다운로드는 기존 다운로드 로직 재사용
         if use_proxy:
             print(f"[LOG] 프록시 모드로 일반 파일 다운로드")
-            download_with_proxy_cycling(req.url, file_path, None, initial_size, req, db)
+            await download_with_proxy_cycling(req.url, file_path, None, initial_size, req, db)
         else:
             print(f"[LOG] 로컬 모드로 일반 파일 다운로드")
-            download_local(req.url, file_path, initial_size, req, db)
+            await download_local(req.url, file_path, initial_size, req, db)
             
         # 3단계: 완료 처리
         db.refresh(req)
@@ -3016,11 +2136,27 @@ def download_general_file(request_id, language="ko", use_proxy=False):
             
     except Exception as e:
         print(f"[LOG] 일반 다운로드 중 오류: {e}")
-        if req:
-            req.status = StatusEnum.failed
-            req.error_message = str(e)
-            db.commit()
-        raise e
+        try:
+            if req:
+                req.status = StatusEnum.failed
+                req.error_message = str(e)
+                db.commit()
+                
+                # SSE로 실패 상태 전송
+                send_sse_message("status_update", {
+                    "id": req.id,
+                    "url": req.url,
+                    "file_name": req.file_name,
+                    "status": "failed",
+                    "error": str(e),
+                    "downloaded_size": req.downloaded_size or 0,
+                    "total_size": req.total_size or 0,
+                    "progress": 0.0
+                })
+        except Exception as update_error:
+            print(f"[ERROR] 다운로드 실패 상태 업데이트 중 오류: {update_error}")
+        
+        # 예외를 전파하지 않고 여기서 처리 완료
     finally:
         # 다운로드 종료 시 항상 매니저에서 해제하여 다음 큐가 진행되도록 보장
         try:

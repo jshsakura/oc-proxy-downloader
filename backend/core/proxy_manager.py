@@ -6,7 +6,7 @@
 - 사용자 프록시 관리
 """
 
-import requests
+import httpx
 import datetime
 import re
 import threading
@@ -17,18 +17,14 @@ import urllib3
 import random
 
 from sqlalchemy.orm import Session
-from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from .models import ProxyStatus, UserProxy, StatusEnum
 from .db import get_db
-from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
-from .download_manager import download_manager
+from services.download_manager import download_manager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# FastAPI 라우터
-router = APIRouter()
 
 # 프록시 목록 캐시 (URL -> (프록시 목록, 캐시 시간))
 _proxy_list_cache = {}
@@ -88,7 +84,7 @@ def get_user_proxy_list(db: Session):
             else:
                 # 프록시 목록 URL에서 프록시들 가져오기
                 try:
-                    response = requests.get(user_proxy.address, timeout=10)
+                    response = httpx.get(user_proxy.address, timeout=10)
                     if response.status_code == 200:
                         # 각 줄을 프록시로 처리
                         lines = response.text.strip().split('\n')
@@ -252,7 +248,7 @@ def test_proxy(proxy_addr, timeout=15, lenient_mode=False):
             }
             
             # 더 간단한 테스트 URL (google.com 대신 httpbin.org 사용)
-            response = requests.get(
+            response = httpx.get(
                 "http://httpbin.org/ip", 
                 proxies=proxy_config, 
                 headers=headers,
@@ -340,9 +336,9 @@ def test_proxy(proxy_addr, timeout=15, lenient_mode=False):
             print(f"[LOG] ❌ 터널 실패: {proxy_addr} (응답 코드: {response.status_code})")
             return False
             
-    except (requests.exceptions.ProxyError, 
-            requests.exceptions.ConnectTimeout, 
-            requests.exceptions.ReadTimeout) as e:
+    except (httpx.ProxyError, 
+            httpx.ConnectTimeout, 
+            httpx.ReadTimeout) as e:
         error_msg = str(e)
         if "Tunnel connection failed" in error_msg or "400 Bad Request" in error_msg:
             print(f"[LOG] ❌ HTTPS 터널 실패: {proxy_addr}")
@@ -523,84 +519,3 @@ def get_working_proxy(db: Session, max_test=15, req=None):
     return working_proxies[0] if working_proxies else None
 
 
-# ==================== 사용자 프록시 관리 API ====================
-
-@router.get("/proxies", response_model=List[ProxyResponse])
-def get_user_proxies(db: Session = Depends(get_db)):
-    """사용자 프록시 목록 조회"""
-    proxies = db.query(UserProxy).order_by(UserProxy.added_at.desc()).all()
-    return proxies
-
-@router.post("/proxies", response_model=ProxyResponse)
-def add_user_proxy(proxy: ProxyCreate, db: Session = Depends(get_db)):
-    """사용자 프록시 추가"""
-    
-    # 중복 체크
-    existing = db.query(UserProxy).filter(UserProxy.address == proxy.address).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="이미 등록된 프록시 주소입니다")
-    
-    # 프록시 타입 자동 감지
-    proxy_type = detect_proxy_type(proxy.address)
-    
-    # 프록시 유효성 검증 (선택적)
-    if proxy_type == "list":
-        try:
-            # URL 형태인 경우 접근 가능한지 확인
-            response = requests.head(proxy.address, timeout=5)
-            print(f"[LOG] 프록시 목록 URL 검증: {proxy.address} -> {response.status_code}")
-        except Exception as e:
-            print(f"[LOG] 프록시 목록 URL 검증 실패: {proxy.address} -> {e}")
-            # 검증 실패해도 추가는 허용
-    
-    # DB에 저장
-    db_proxy = UserProxy(
-        address=proxy.address,
-        proxy_type=proxy_type,
-        description=proxy.description,
-        is_active=True
-    )
-    
-    db.add(db_proxy)
-    db.commit()
-    db.refresh(db_proxy)
-    
-    print(f"[LOG] 사용자 프록시 추가: {proxy.address} (타입: {proxy_type})")
-    return db_proxy
-
-@router.delete("/proxies/{proxy_id}")
-def delete_user_proxy(proxy_id: int, db: Session = Depends(get_db)):
-    """사용자 프록시 삭제"""
-    
-    proxy = db.query(UserProxy).filter(UserProxy.id == proxy_id).first()
-    if not proxy:
-        raise HTTPException(status_code=404, detail="프록시를 찾을 수 없습니다")
-    
-    db.delete(proxy)
-    db.commit()
-    
-    print(f"[LOG] 사용자 프록시 삭제: {proxy.address}")
-    return {"message": "프록시가 삭제되었습니다"}
-
-@router.put("/proxies/{proxy_id}/toggle")
-def toggle_user_proxy(proxy_id: int, db: Session = Depends(get_db)):
-    """사용자 프록시 활성/비활성 토글"""
-    
-    proxy = db.query(UserProxy).filter(UserProxy.id == proxy_id).first()
-    if not proxy:
-        raise HTTPException(status_code=404, detail="프록시를 찾을 수 없습니다")
-    
-    proxy.is_active = not proxy.is_active
-    db.commit()
-    db.refresh(proxy)
-    
-    status = "활성화" if proxy.is_active else "비활성화"
-    print(f"[LOG] 사용자 프록시 {status}: {proxy.address}")
-    
-    return proxy
-
-@router.get("/proxies/available")
-def check_proxy_availability(db: Session = Depends(get_db)):
-    """프록시 사용 가능 여부 확인"""
-    active_proxies = db.query(UserProxy).filter(UserProxy.is_active == True).count()
-    return {"available": active_proxies > 0, "count": active_proxies}

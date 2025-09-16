@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
-import requests
+import httpx
 import re
+import asyncio
 from urllib.parse import urlparse
 
 from core.models import DownloadRequest, StatusEnum
@@ -14,7 +15,7 @@ from services.sse_manager import sse_manager
 from services.preparse_service import preparse_service
 from core.i18n import get_message
 from utils.wait_store import wait_store
-from core.download_core import download_manager
+from services.download_manager import download_manager
 
 router = APIRouter(prefix="/api", tags=["downloads"])
 
@@ -65,12 +66,13 @@ async def create_download_task(
         db.commit()
         db.refresh(req)
 
-        # 비동기 다운로드 시작
-        success = await download_service.start_download(
+        # 비동기 다운로드 시작 (백그라운드에서 실행)
+        asyncio.create_task(download_service.start_download(
             req.id,
             lang="ko",  # TODO: 요청에서 언어 가져오기
             use_proxy=download_req.use_proxy
-        )
+        ))
+        success = True
 
         if not success:
             raise HTTPException(
@@ -91,12 +93,7 @@ async def create_download_task(
 async def pause_download(download_id: int, request: Request, db: Session = Depends(get_db)):
     """다운로드 일시정지"""
     try:
-        # 즉시 정지 플래그 설정 (가장 중요)
-        download_manager.stop_download_immediately(download_id)
-        download_manager.cleanup(download_id)  # active_downloads에서 정리
-        print(f"[LOG] 다운로드 {download_id} 즉시 정지 플래그 설정 완료")
-        
-        # 다운로드 취소
+        # 다운로드 서비스에서 취소 처리
         success = await download_service.cancel_download(download_id)
 
         if not success:
@@ -149,10 +146,9 @@ async def resume_download(download_id: int, request: Request, db: Session = Depe
         if req.status in [StatusEnum.downloading, StatusEnum.proxying, StatusEnum.parsing]:
             return {"message": "이미 다운로드가 진행 중입니다."}
 
-        # 정지 플래그 초기화 (중요)
-        if download_id in download_manager.stop_events:
-            download_manager.stop_events[download_id].clear()
-            print(f"[LOG] 다운로드 {download_id} 정지 플래그 초기화 완료")
+        # 다운로드 매니저에 재개 요청 (자동으로 콜백 처리됨)
+        # download_manager는 내부적으로 처리하므로 별도 정리 불필요
+        print(f"[LOG] 다운로드 {download_id} 재개 준비 완료")
         
         # 즉시 상태를 parsing으로 변경 (사용자 피드백)
         req.status = StatusEnum.parsing
@@ -408,7 +404,7 @@ async def validate_download_url(
         # 일반 URL의 경우 HEAD 요청으로 다운로드 링크인지 확인
         try:
             print(f"[LOG] URL validation HEAD request: {url}")
-            response = requests.head(url, timeout=10, allow_redirects=True)
+            response = httpx.head(url, timeout=10, follow_redirects=True)
             
             # Content-Type 확인
             content_type = response.headers.get('Content-Type', '').lower()
@@ -469,19 +465,19 @@ async def validate_download_url(
                     "content_type": content_type
                 }
                 
-        except requests.exceptions.Timeout:
+        except httpx.TimeoutException:
             return {
                 "valid": False,
                 "reason": "timeout",
                 "message": "URL 응답 시간이 초과되었습니다."
             }
-        except requests.exceptions.ConnectionError:
+        except httpx.ConnectError:
             return {
                 "valid": False,
                 "reason": "connection_error",
                 "message": "URL에 연결할 수 없습니다."
             }
-        except requests.exceptions.RequestException as e:
+        except httpx.RequestError as e:
             return {
                 "valid": False,
                 "reason": "request_error",

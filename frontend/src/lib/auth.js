@@ -56,7 +56,7 @@ class AuthManager {
                 // 토큰이 유효한 경우 서버에서 재검증
                 try {
                     const verifyResponse = await fetch('/api/auth/verify', {
-                        method: 'POST',
+                        method: 'GET',
                         headers: {
                             'Authorization': `Bearer ${token}`,
                             'Content-Type': 'application/json'

@@ -12,7 +12,7 @@ if sys.platform.startswith('win'):
     except:
         pass
 
-import requests
+import httpx
 import json
 import os
 import re
@@ -29,10 +29,12 @@ from core.i18n import get_message
 from sqlalchemy import text
 from .parser_service import parse_direct_link_with_file_info
 from .parser_service import parse_file_info_only
-from main import notify_status_update
+from .notifications import notify_status_update
 from .download_core import download_1fichier_file
-from .shared import download_manager
+from services.download_manager import download_manager
 from .download_core import download_general_file
+from .config import get_download_path
+from pathlib import Path
     
 
 # 테이블 생성은 main.py에서 처리
@@ -137,7 +139,7 @@ def parse_file_info_only(request: DownloadRequestCreate, db: Session = Depends(g
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
                 
-                head_response = requests.head(url_str, headers=headers, timeout=30, allow_redirects=True)
+                head_response = httpx.head(url_str, headers=headers, timeout=30, follow_redirects=True)
                 if head_response.status_code == 200:
                     # Content-Type 체크 - 웹페이지는 바로 차단
                     content_type = head_response.headers.get('Content-Type', '').lower()
@@ -425,7 +427,6 @@ def start_actual_download(download_id: int, db: Session = Depends(get_db)):
     print(f"[LOG] 실제 다운로드 시작: ID {download_id}, 파일명: {item.file_name}")
     
     # 다운로드 제한 체크
-    from .shared import download_manager
     original_use_proxy = getattr(item, 'use_proxy', False)
     
     # 다운로드 제한 체크 (프록시 사용 여부와 관계없이 모든 다운로드에서 체크)
@@ -441,10 +442,8 @@ def start_actual_download(download_id: int, db: Session = Depends(get_db)):
     
     # URL 타입에 따라 적절한 다운로드 함수 선택
     if "1fichier.com" in item.url.lower():
-        from .download_core import download_1fichier_file
         target_function = download_1fichier_file
     else:
-        from .download_core import download_general_file
         target_function = download_general_file
     
     import threading
@@ -479,7 +478,6 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
         
         # 로컬 다운로드인 경우 다운로드 제한 체크
         if not use_proxy:
-            from .shared import download_manager
             if not download_manager.can_start_download(item.url):
                 # 대기 상태로 설정
                 setattr(item, "status", StatusEnum.pending)
@@ -487,7 +485,6 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
                 
                 # SSE로 상태 업데이트 알림 (대기 상태)
                 try:
-                    from main import notify_status_update
                     notify_status_update(db, download_id)
                     print(f"[LOG] ★ 대기 상태 SSE 알림 전송 완료: ID={download_id}")
                 except Exception as e:
@@ -520,7 +517,6 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
         
         # WebSocket으로 상태 업데이트 알림 (다운로드 시작)
         try:
-            from main import notify_status_update
             notify_status_update(db, download_id)
             print(f"[LOG] ★ 재개 SSE 알림 전송 완료: ID={download_id}")
         except Exception as e:
@@ -528,11 +524,9 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
         
         # URL 타입에 따라 적절한 다운로드 함수 선택 (재시작)
         if "1fichier.com" in item.url.lower():
-            from .download_core import download_1fichier_file
-            target_function = download_1fichier_file
+                target_function = download_1fichier_file
         else:
-            from .download_core import download_general_file
-            target_function = download_general_file
+                target_function = download_general_file
         
         import threading
         
@@ -549,7 +543,6 @@ def resume_download(download_id: int, use_proxy: bool = False, db: Session = Dep
         # 실제 파일 존재 여부도 체크
         is_actual_resume = False
         if item.file_name:
-            from .config import get_download_path
             from pathlib import Path
             import os
             
@@ -591,7 +584,6 @@ def delete_download(download_id: int, db: Session = Depends(get_db)):
         time.sleep(1)
     
     # 삭제 전에 다운로드 매니저에서 해제 (대기 중인 다운로드 시작을 위해)
-    from .shared import download_manager
     download_manager.unregister_download(download_id)
     
     # DB에서 삭제
@@ -621,7 +613,6 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     print(f"[LOG] 다운로드 상태를 stopped로 변경 완료: ID {download_id}")
     
     # 즉시 정지 플래그 설정 (안전한 즉시 정지)
-    from .shared import download_manager
     download_manager.stop_download_immediately(download_id)
     
     # 정지 후 다운로드 매니저에서 해제 (정지 시에는 자동 시작 안 함)
@@ -629,7 +620,6 @@ def pause_download(download_id: int, db: Session = Depends(get_db)):
     
     # SSE로 상태 업데이트 알림 (강제 새로고침)
     try:
-        from main import notify_status_update
         notify_status_update(db, download_id)
         print(f"[LOG] ★ 정지 SSE 알림 전송 완료: ID={download_id}")
         
@@ -665,7 +655,6 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
     
     # 프록시 다운로드인 경우 즉시 시작 가능
     if original_use_proxy:
-        from .download_core import download_1fichier_file
         import threading
         
         setattr(item, "status", StatusEnum.downloading)
@@ -673,11 +662,9 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
         
         # URL 타입에 따라 적절한 다운로드 함수 선택 (재시도)
         if "1fichier.com" in item.url.lower():
-            from .download_core import download_1fichier_file
-            target_function = download_1fichier_file
+                target_function = download_1fichier_file
         else:
-            from .download_core import download_general_file
-            target_function = download_general_file
+                target_function = download_general_file
         
         thread = threading.Thread(
             target=target_function,
@@ -689,17 +676,15 @@ def retry_download(download_id: int, db: Session = Depends(get_db)):
         return {"id": item.id, "status": item.status, "message": "Download retry started (proxy mode)"}
     else:
         # 로컬 다운로드 - 큐 상황에 따라 즉시 시작 또는 대기
-        from core.shared import download_manager
+        from services.download_manager import download_manager
         
         if download_manager.can_start_download(item.url):
             # 즉시 시작 가능
             # URL 타입에 따라 적절한 다운로드 함수 선택 (재시도 로컬)
             if "1fichier.com" in item.url.lower():
-                from .download_core import download_1fichier_file
-                target_function = download_1fichier_file
+                        target_function = download_1fichier_file
             else:
-                from .download_core import download_general_file
-                target_function = download_general_file
+                        target_function = download_general_file
             
             import threading
             

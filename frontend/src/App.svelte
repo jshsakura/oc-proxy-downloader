@@ -551,7 +551,7 @@
       // SSE 테스트 메시지 처리
       if (message.type === "test_message") {
         console.log("🧪 SSE 테스트 메시지 수신:", message.data);
-        alert("SSE 연결 정상: " + message.data.message);
+        alert($t("sse_connection_normal") + ": " + message.data.message);
       }
 
       if (message.type === "force_refresh") {
@@ -712,7 +712,18 @@
         localStats.localProgress = 0;
       }
     } else if (activeLocalDownloads.length > 0) {
-      localStats.localStatus = "waiting";
+      // 실제 진행 중인 상태만 확인: pending, parsing 등
+      const activeStatusDownloads = activeLocalDownloads.filter(d => {
+        const status = d.status?.toLowerCase() || "";
+        return ["pending", "parsing"].includes(status);
+      });
+
+      if (activeStatusDownloads.length > 0) {
+        localStats.localStatus = "waiting";
+      } else {
+        // failed, stopped 등은 진행중이 아니므로 idle
+        localStats.localStatus = "";
+      }
       localStats.localProgress = 0;
     } else {
       localStats.localStatus = "";
@@ -829,19 +840,19 @@
         console.log(`API 호출 성공: ${endpoint}`);
       } else {
         // 에러 메시지 표시
-        const action = endpoint.includes("/pause/") ? "정지" : 
-                     endpoint.includes("/resume/") ? "재개" : 
-                     endpoint.includes("/retry/") ? "재시도" : "작업";
+        const action = endpoint.includes("/pause/") ? $t("action_stop") :
+                     endpoint.includes("/resume/") ? $t("action_resume_action") :
+                     endpoint.includes("/retry/") ? $t("action_retry_action") : $t("action_work");
         
         showToastMsg(`${action} 요청에 실패했습니다.`, "error");
         console.error(`API 호출 실패: ${endpoint}, 상태: ${response.status}`);
       }
     } catch (error) {
-      const action = endpoint.includes("/pause/") ? "정지" : 
-                   endpoint.includes("/resume/") ? "재개" : 
-                   endpoint.includes("/retry/") ? "재시도" : "작업";
+      const action = endpoint.includes("/pause/") ? $t("action_stop") :
+                   endpoint.includes("/resume/") ? $t("action_resume_action") :
+                   endpoint.includes("/retry/") ? $t("action_retry_action") : $t("action_work");
       
-      showToastMsg(`${action} 요청 처리 중 오류가 발생했습니다.`, "error");
+      showToastMsg($t("request_processing_error", {action}), "error");
       console.error(`Error calling ${endpoint}:`, error);
     }
     
@@ -852,7 +863,7 @@
     // ID 유효성 검사
     if (!id || isNaN(parseInt(id))) {
       console.error("❌ 잘못된 다운로드 ID:", id);
-      showToastMsg("잘못된 다운로드 ID입니다", "error");
+      showToastMsg($t("invalid_download_id"), "error");
       return;
     }
     
@@ -915,7 +926,7 @@
     if (
       download.status.toLowerCase() === "pending" &&
       download.error &&
-      download.error.includes("1fichier 자동 재시도 중")
+      download.error.includes($t("auto_retry_in_progress"))
     ) {
       return download.error + "\n3분마다 자동 재시도됩니다.";
     }
@@ -1057,7 +1068,7 @@
       }
 
       // 서버에서 URL 검증
-      showToastMsg("URL을 검증하는 중...", "info");
+      showToastMsg($t("url_validating"), "info");
       
       try {
         const response = await fetch("/api/validate-url/", {
@@ -1506,22 +1517,25 @@
                           )})
                           <span class="cooldown-indicator"></span>
                         </span>
-                      {:else if (downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0) || (download.status.toLowerCase() === "downloading" && !download.progress)}
+                      {:else if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
                         <span class="wait-countdown">
-                          {#if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time}
-                            {#if downloadWaitInfo[download.id].remaining_time >= 60}
-                              {$t("download_waiting_time")} ({Math.floor(
-                                downloadWaitInfo[download.id].remaining_time /
-                                  60
-                              )}{$t("time_minutes")})
-                            {:else}
-                              {$t("download_waiting_time")} ({downloadWaitInfo[
-                                download.id
-                              ].remaining_time}{$t("time_seconds")})
-                            {/if}
+                          {#if downloadWaitInfo[download.id].remaining_time >= 60}
+                            {$t("download_waiting_time")} ({Math.floor(
+                              downloadWaitInfo[download.id].remaining_time /
+                                60
+                            )}{$t("time_minutes")})
                           {:else}
-                            {$t("download_downloading")}
+                            {$t("download_waiting_time")} ({downloadWaitInfo[
+                              download.id
+                            ].remaining_time}{$t("time_seconds")})
                           {/if}
+                          <span
+                            class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
+                          ></span>
+                        </span>
+                      {:else if download.status.toLowerCase() === "downloading" && !download.progress}
+                        <span class="wait-countdown">
+                          {$t("download_downloading")}
                           <span
                             class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
                           ></span>
@@ -1623,7 +1637,7 @@
                         } catch (error) {
                           console.error("프록시 토글 오류:", error);
                           showToastMsg(
-                            "프록시 모드 변경 중 오류가 발생했습니다.",
+                            $t("proxy_mode_change_error"),
                             "error"
                           );
                         }

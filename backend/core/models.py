@@ -6,6 +6,7 @@ import enum
 class StatusEnum(str, enum.Enum):
     pending = "pending"
     parsing = "parsing"
+    waiting = "waiting"
     proxying = "proxying"
     downloading = "downloading"
     stopped = "stopped"
@@ -48,7 +49,8 @@ class DownloadRequest(Base):
                 # Clean error messages (simplified for performance)
                 try:
                     data[c.name] = str(value)
-                except:
+                except (UnicodeDecodeError, UnicodeEncodeError) as e:
+                    print(f"[LOG] Encoding error for {c.name}: {e}")
                     data[c.name] = "Encoding error"
             else:
                 data[c.name] = value
@@ -83,7 +85,8 @@ class UserProxy(Base):
                 # Clean error messages (simplified for performance)
                 try:
                     data[c.name] = str(value)
-                except:
+                except (UnicodeDecodeError, UnicodeEncodeError) as e:
+                    print(f"[LOG] Encoding error for {c.name}: {e}")
                     data[c.name] = "Encoding error"
             else:
                 data[c.name] = value

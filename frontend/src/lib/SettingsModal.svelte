@@ -256,11 +256,7 @@
         const responseData = await response.json();
         console.log("[DEBUG] Save response data:", responseData);
 
-        if (localStorage.getItem("lang") !== selectedLocale) {
-          localStorage.setItem("lang", selectedLocale);
-          window.location.reload();
-          return;
-        }
+        // 언어는 이미 changeLocale에서 적용되었으므로 별도 처리 불필요
 
         dispatch("settingsChanged", settings);
         closeModal();
@@ -315,8 +311,11 @@
     }
   }
 
-  function changeLocale(e) {
+  async function changeLocale(e) {
     selectedLocale = e.target.value;
+    // 언어 변경 시 즉시 번역 로드하여 미리보기 제공
+    localStorage.setItem("lang", selectedLocale);
+    await loadTranslations(selectedLocale);
   }
 
   function handleLogout() {
@@ -709,7 +708,7 @@
               <div class="proxy-table-footer">
                 <div class="proxy-footer-info">
                   <div class="proxy-count-info">
-                    총 {userProxies.length}개 프록시
+{$t("total_proxies", {count: userProxies.length})}
                   </div>
                   {#if totalPages > 1}
                     <div class="proxy-page-info">

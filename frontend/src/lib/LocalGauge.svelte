@@ -86,7 +86,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    background-color: var(--success-color);
+    background-color: var(--primary-color);
     color: white;
     padding: 4px 15px;
     border-radius: 15px;
@@ -122,16 +122,17 @@
   }
 
   .local-dot.downloading {
-    background-color: #81c784;
+    background-color: var(--primary-color);
     animation: pulse 2s infinite;
+    opacity: 0.7;
   }
 
   .local-dot.waiting {
-    background-color: var(--success-color);
+    background-color: var(--primary-color);
   }
 
   .local-dot.completed {
-    background-color: var(--success-color);
+    background-color: var(--primary-color);
   }
 
   .local-dot.failed {
@@ -153,6 +154,33 @@
     align-items: center;
     gap: 0.5rem;
     transition: background-color 0.3s ease;
+  }
+
+  .local-status.downloading {
+    background-color: var(--primary-color);
+    color: #fff;
+    border: 1px solid var(--primary-color);
+  }
+
+  .local-status.waiting {
+    background-color: var(--warning-color);
+    color: #fff;
+    border: 1px solid var(--warning-color);
+  }
+
+  .local-status.completed {
+    background-color: var(--success-color);
+    color: #fff;
+    border: 1px solid var(--success-color);
+  }
+
+  .local-status.failed {
+    background-color: var(--danger-color);
+    color: #fff;
+    border: 1px solid var(--danger-color);
+  }
+
+  .local-status.idle {
     background-color: var(--card-background);
     color: var(--text-secondary);
     border: 1px solid var(--card-border);

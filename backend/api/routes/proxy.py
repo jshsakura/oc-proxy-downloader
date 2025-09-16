@@ -3,6 +3,8 @@ from fastapi import APIRouter, Request, HTTPException, Depends, Body
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.i18n import get_message
+from core.config import get_config
 from core.models import DownloadRequest, StatusEnum, ProxyStatus, UserProxy
 from core.proxy_manager import (
     get_unused_proxies,
@@ -160,16 +162,29 @@ async def get_proxy_status(request: Request, db: Session = Depends(get_db)):
             DownloadRequest.status == StatusEnum.parsing
         ).count()
         
-        # 프록시 상태 메시지 결정
+        # 프록시 상태 메시지 결정 (i18n 지원)
+        config = get_config()
+        lang = config.get("language", "ko")
+
         if active_proxy_downloads > 0:
             if parsing_proxy_downloads > 0:
-                proxy_status = f"파싱 중 ({parsing_proxy_downloads}개)"
+                proxy_status = get_message("proxy_status_parsing", lang).format(count=parsing_proxy_downloads)
             else:
-                proxy_status = f"다운로드 중 ({active_proxy_downloads}개)"
+                proxy_status = get_message("proxy_status_downloading", lang).format(count=active_proxy_downloads)
         elif pending_proxy_downloads > 0:
-            proxy_status = f"대기 중 ({pending_proxy_downloads}개)"
+            proxy_status = get_message("proxy_status_pending", lang).format(count=pending_proxy_downloads)
         else:
-            proxy_status = "대기 중..."
+            # Check if there are any proxy downloads at all (including stopped/failed)
+            total_proxy_downloads = db.query(DownloadRequest).filter(
+                DownloadRequest.use_proxy == True
+            ).count()
+
+            if total_proxy_downloads > 0:
+                # There are proxy downloads but none are actively progressing - show idle
+                proxy_status = ""
+            else:
+                # No proxy downloads at all - show waiting
+                proxy_status = get_message("proxy_status_waiting", lang)
 
         return {
             "total_proxies": total_proxies,

@@ -34,7 +34,8 @@ class PreparseService:
         try:
             parsed = urlparse(url)
             return '1fichier.com' in parsed.netloc.lower()
-        except:
+        except Exception as e:
+            print(f"[LOG] URL parsing error: {e}")
             return False
     
     async def preparse_1fichier(self, url: str) -> Dict[str, Any]:

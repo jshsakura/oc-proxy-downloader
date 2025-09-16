@@ -19,13 +19,16 @@ def load_all_translations():
     
     # 먼저 fallback 번역으로 초기화
     _translations_cache = fallback_translations.copy()
-    
+
     # 파일에서 번역 로드하여 fallback과 병합
     for lang in ['ko', 'en']:
         locale_file_path = os.path.join(locales_dir, f"{lang}.json")
         try:
             with open(locale_file_path, encoding="utf-8") as f:
                 file_translations = json.load(f)
+                # 언어별 캐시가 없으면 생성
+                if lang not in _translations_cache:
+                    _translations_cache[lang] = {}
                 # fallback과 파일 번역 병합 (파일 번역이 우선)
                 _translations_cache[lang].update(file_translations)
                 print(f"[i18n] Loaded {len(file_translations)} translations from {lang}.json")

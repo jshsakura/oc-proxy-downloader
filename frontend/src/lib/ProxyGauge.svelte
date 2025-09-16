@@ -168,7 +168,7 @@
     {:else}
       <span class="status-icon idle-icon"></span>
       <span class="status-text">
-        {#if statusMessage}
+        {#if statusMessage && statusMessage.trim() !== ""}
           {statusMessage}
         {:else if activeDownloadCount === 0}
           {$t("proxy_idle")}

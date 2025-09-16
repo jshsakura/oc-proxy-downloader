@@ -6,24 +6,157 @@
 """
 
 import os
-import requests
+import httpx
 import cloudscraper
 import time
+import asyncio
 import re
 import ssl
 import urllib3
+from requests.adapters import HTTPAdapter
 
 from bs4 import BeautifulSoup
 from .parser import FichierParser
 from utils.wait_store import wait_store
 from services.sse_manager import sse_manager
 from urllib3.util.ssl_ import create_urllib3_context
-from requests.adapters import HTTPAdapter
 from .db import SessionLocal
 from .models import DownloadRequest, StatusEnum
-from .download_manager import status_queue
+from services.download_manager import download_manager
 from services.notification_service import send_sse_message, send_telegram_wait_notification
 from collections import Counter
+from typing import Optional, Dict, Any, Union
+
+
+def parse_1fichier_link_only(url: str, password: Optional[str] = None, proxy_addr: Optional[str] = None) -> Dict[str, Any]:
+    """
+    1fichier URL에서 다운로드 링크와 대기시간만 추출하는 함수 (동기)
+    ThreadPoolExecutor에서 실행될 예정
+
+    Returns:
+    {
+        "success": bool,
+        "direct_link": str,  # 즉시 다운로드 가능한 경우
+        "wait_time": int,    # 대기시간이 있는 경우 (초)
+        "file_name": str,    # 파일명 (있는 경우)
+        "file_size": str,    # 파일 크기 (있는 경우)
+        "error": str         # 오류 메시지
+    }
+    """
+
+    # 프록시 설정
+    proxies = None
+    if proxy_addr:
+        proxies = {
+            'http': f'http://{proxy_addr}',
+            'https': f'http://{proxy_addr}'
+        }
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    }
+
+    try:
+        print(f"[LOG] 1fichier 파싱 시작: {url}")
+
+        # cloudscraper로 페이지 가져오기
+        scraper = cloudscraper.create_scraper()
+        response = scraper.get(url, headers=headers, proxies=proxies, timeout=(10, 30))
+
+        if response.status_code != 200:
+            return {"success": False, "error": f"HTTP {response.status_code}"}
+
+        html_content = response.text
+
+        # 파일명 추출
+        file_name = None
+        file_name_patterns = [
+            r'<h1[^>]*>([^<]+)</h1>',
+            r'<title>([^<]+)</title>',
+            r'class="[^"]*filename[^"]*"[^>]*>([^<]+)<',
+        ]
+
+        for pattern in file_name_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE)
+            if match:
+                file_name = match.group(1).strip()
+                break
+
+        # 파일 크기 추출
+        file_size = None
+        size_patterns = [
+            r'File size[^:]*:\s*([^<\n]+)',
+            r'Size[^:]*:\s*([^<\n]+)',
+        ]
+
+        for pattern in size_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE)
+            if match:
+                file_size = match.group(1).strip()
+                break
+
+        # 다운로드 링크 패턴들
+        direct_link_patterns = [
+            r'href="(https://[a-z0-9\-]+\.1fichier\.com/[^"]+)"[^>]*class="[^"]*(?:ok|btn|download)[^"]*"',
+            r'<a[^>]+href="(https://[a-z0-9\-]+\.1fichier\.com/[^"]+)"[^>]*>.*?(?:Click|Download|download)[^<]*</a>',
+            r'href="(https://[a-z0-9\-]+\.1fichier\.com/c\d+)"',
+        ]
+
+        # 다운로드 링크 찾기
+        for pattern in direct_link_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
+            if match:
+                direct_link = match.group(1)
+                print(f"[LOG] ✅ 다운로드 링크 발견: {direct_link}")
+                return {
+                    "success": True,
+                    "direct_link": direct_link,
+                    "wait_time": 0,
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "error": None
+                }
+
+        # 대기시간 패턴 검사
+        wait_patterns = [
+            r'var\s+ct\s*=\s*(\d+)',
+            r'countdown["\s]*[=:]["\s]*(\d+)',
+            r'wait["\s]*[=:]["\s]*(\d+)',
+            r'waitTime["\s]*[=:]["\s]*(\d+)'
+        ]
+
+        for pattern in wait_patterns:
+            matches = re.findall(pattern, html_content, re.IGNORECASE)
+            if matches:
+                wait_seconds = int(matches[0])
+                print(f"[LOG] ⏰ 대기시간 감지: {wait_seconds}초")
+                return {
+                    "success": True,
+                    "direct_link": None,
+                    "wait_time": wait_seconds,
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "error": None
+                }
+
+        # 링크도 대기시간도 없음
+        print(f"[LOG] ❌ 다운로드 링크나 대기시간을 찾을 수 없음")
+        return {
+            "success": False,
+            "error": "다운로드 링크를 찾을 수 없습니다"
+        }
+
+    except Exception as e:
+        print(f"[LOG] ❌ 1fichier 파싱 오류: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 def parse_filename_only_with_proxy(url, password, proxy_addr):
@@ -115,8 +248,134 @@ def get_or_parse_direct_link(req, proxies=None, use_proxy=False, force_reparse=F
     
     # 1fichier URL이므로 매번 새로 파싱
     print(f"[LOG] 1fichier direct_link 새로 파싱 (proxy: {proxy_addr})")
-    return parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy, proxy_addr=proxy_addr, req=req)
+    result = parse_direct_link_simple(req.url, req.password, proxies=proxies, use_proxy=use_proxy, proxy_addr=proxy_addr, req=req)
 
+    # 대기 등록 결과 처리
+    if isinstance(result, tuple) and len(result) == 2 and result[1] == "WAIT_REGISTERED":
+        return "WAIT_REGISTERED"
+    elif isinstance(result, tuple):
+        return result[0]  # 첫 번째 요소(direct_link)만 반환
+    else:
+        return result
+
+
+async def parse_direct_link_simple_async(url, password=None, proxies=None, use_proxy=False, proxy_addr=None, req=None):
+    """비동기 1fichier Direct Link 파싱 (cloudscraper 사용)"""
+    import cloudscraper
+    import re
+    import asyncio
+
+    print(f"[LOG] 비동기 Direct Link 파싱 시작: {url}")
+
+    def _sync_cloudscraper_request():
+        """동기 cloudscraper 요청을 별도 함수로 분리"""
+        scraper = cloudscraper.create_scraper()
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'Upgrade-Insecure-Requests': '1'
+        }
+
+        # 프록시 설정
+        proxy_dict = None
+        if use_proxy and proxy_addr:
+            proxy_dict = {
+                'http': f'http://{proxy_addr}',
+                'https': f'http://{proxy_addr}'
+            }
+
+        response = scraper.get(url, headers=headers, proxies=proxy_dict, timeout=(10, 30))
+        return response
+
+    try:
+        print(f"[LOG] 1fichier 페이지 로드 (비동기 cloudscraper)")
+        # cloudscraper를 별도 스레드에서 실행
+        response = await asyncio.to_thread(_sync_cloudscraper_request)
+
+        if response.status_code != 200:
+            print(f"[LOG] 페이지 로드 실패: HTTP {response.status_code}")
+            return None, None
+
+        html_content = response.text
+
+        # 다운로드 링크 검색
+        direct_link_patterns = [
+            r'href="(https://[a-z0-9\-]+\.1fichier\.com/[^"]+)"[^>]*class="[^"]*(?:ok|btn|download)[^"]*"',
+            r'<a[^>]+href="(https://[a-z0-9\-]+\.1fichier\.com/[^"]+)"[^>]*>.*?(?:Click|Download|download)[^<]*</a>',
+            r'href="(https://[a-z0-9\-]+\.1fichier\.com/c\d+)"',
+        ]
+
+        for pattern in direct_link_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
+            if match:
+                direct_link = match.group(1)
+                print(f"[LOG] ✅ 다운로드 링크 발견: {direct_link}")
+                return direct_link, html_content
+
+        # 대기시간 검색
+        wait_patterns = [
+            r'var\s+ct\s*=\s*(\d+)',
+            r'countdown["\s]*[=:]["\s]*(\d+)',
+            r'wait["\s]*[=:]["\s]*(\d+)'
+        ]
+
+        for pattern in wait_patterns:
+            matches = re.findall(pattern, html_content, re.IGNORECASE)
+            if matches:
+                wait_seconds = int(matches[0])
+                print(f"[LOG] 대기시간 감지: {wait_seconds}초")
+
+                # 대기시간 처리
+                if req:
+                    wait_result = await _handle_wait_time_async(req, wait_seconds, proxy_addr, url)
+                    if wait_result == "WAIT_REGISTERED":
+                        return "WAIT_REGISTERED", "WAIT_REGISTERED"
+
+                return None, None
+
+        print(f"[LOG] 다운로드 링크나 대기시간을 찾을 수 없음")
+        return None, None
+
+    except Exception as e:
+        print(f"[LOG] 비동기 파싱 오류: {e}")
+        return None, None
+
+async def _handle_wait_time_async(req, wait_seconds, proxy_addr, url):
+    """비동기 대기시간 처리"""
+    print(f"[LOG] 🕐 {wait_seconds}초 대기 중... (비동기)")
+
+    # 즉시 대기시간 등록하고 반환
+    wait_store.start_wait(req.id, wait_seconds, url)
+    req.status = StatusEnum.waiting
+
+    # DB 업데이트는 동기적으로 (SQLAlchemy 세션)
+    # DB 커밋은 호출한 곳에서 처리
+
+    # SSE 전송
+    from services.sse_manager import sse_manager
+    await sse_manager.broadcast_message("wait_countdown", {
+        "id": req.id,
+        "remaining_time": wait_seconds,
+        "wait_message": f"대기 중 ({wait_seconds//60}분 {wait_seconds%60}초)" if wait_seconds >= 60 else f"대기 중 ({wait_seconds}초)",
+        "total_wait_time": wait_seconds,
+        "proxy_addr": proxy_addr,
+        "url": url,
+        "file_name": req.file_name or ""
+    })
+
+    print(f"[LOG] 비동기 대기시간 등록 완료: {wait_seconds}초")
+    return "WAIT_REGISTERED"
 
 def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, proxy_addr=None, req=None):
     """단순화된 1fichier Direct Link 파싱"""
@@ -185,13 +444,16 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
             if parse_result is None:
                 return None  # 정지된 경우
             direct_link, html_content = parse_result
+            # WAIT_REGISTERED 처리
+            if direct_link == "WAIT_REGISTERED":
+                return "WAIT_REGISTERED"
             return direct_link  # 기존 호환성 유지
-        except (requests.exceptions.ConnectTimeout, 
-                requests.exceptions.ReadTimeout, 
-                requests.exceptions.Timeout) as e:
+        except (httpx.ConnectTimeout, 
+                httpx.ReadTimeout, 
+                httpx.TimeoutException) as e:
             print(f"[LOG] 타임아웃: {e}")
             raise e  # 프록시 순환 로직에서 처리하도록 raise
-        except requests.exceptions.ProxyError as e:
+        except httpx.ProxyError as e:
             error_msg = str(e)
             proxy_display = proxy_addr if proxy_addr else 'Unknown'
             if "Tunnel connection failed: 400 Bad Request" in error_msg:
@@ -213,23 +475,28 @@ def parse_direct_link_simple(url, password=None, proxies=None, use_proxy=False, 
             if parse_result is None:
                 return None  # 정지된 경우
             direct_link, html_content = parse_result
+            # WAIT_REGISTERED 처리
+            if direct_link == "WAIT_REGISTERED":
+                return "WAIT_REGISTERED"
             return direct_link  # 기존 호환성 유지
-        except requests.exceptions.SSLError as e:
+        except httpx.SSLError as e:
             print(f"[LOG] SSL 에러 발생, 인증서 검증 비활성화하여 재시도: {e}")
             # SSL 에러인 경우 인증서 검증을 완전히 비활성화하고 재시도
             scraper.verify = False
-            import urllib3
             urllib3.disable_warnings()
             try:
                 parse_result = _parse_with_connection(scraper, url, password, headers, None, req, wait_time_limit=90)
                 if parse_result is None:
                     return None  # 정지된 경우
                 direct_link, html_content = parse_result
+                # WAIT_REGISTERED 처리
+                if direct_link == "WAIT_REGISTERED":
+                    return "WAIT_REGISTERED"
                 return direct_link
             except Exception as retry_e:
                 print(f"[LOG] SSL 비활성화 후에도 실패: {retry_e}")
                 raise retry_e
-        except requests.exceptions.ConnectionError as e:
+        except httpx.ConnectError as e:
             print(f"[LOG] 연결 에러 발생: {e}")
             raise e
         except Exception as e:
@@ -252,10 +519,8 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
         delay=1  # 요청 간 지연 추가
     )
     scraper.verify = False  # SSL 검증 비활성화
-    
+
     # SSL 컨텍스트 설정 (hostname 체크 비활성화)
-    import ssl
-    import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     # requests 세션의 SSL 설정 변경
@@ -369,7 +634,7 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
                                             "status": download_req.status.value if hasattr(download_req.status, 'value') else str(download_req.status)
                                         }
                                     }, ensure_ascii=False)
-                                    status_queue.put(message)
+                                    # status_queue.put(message) # 임시 비활성화
                                 except Exception as ws_e:
                                     print(f"[LOG] WebSocket 파일명 업데이트 전송 실패: {ws_e}")
                         
@@ -405,6 +670,10 @@ def parse_direct_link_with_file_info(url, password=None, use_proxy=False, proxy_
             # 정지된 경우
             return None, None
         direct_link, html_content = parse_result
+
+        # WAIT_REGISTERED 처리
+        if direct_link == "WAIT_REGISTERED":
+            return "WAIT_REGISTERED", "WAIT_REGISTERED"
         
         if direct_link and html_content:
             # 방금 파싱한 새로운 링크는 만료 검사 불필요
@@ -458,7 +727,18 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                 
             # 1단계: 페이지 로드
             print(f"[LOG] 1fichier 페이지 로드")
-            response = scraper.get(url, headers=headers, proxies=proxies, timeout=(10, 30))
+
+            # 빠른 대기시간 감지를 위해 짧은 타임아웃 사용
+            try:
+                response = scraper.get(url, headers=headers, proxies=proxies, timeout=(3, 10))
+            except Exception as e:
+                print(f"[LOG] HTTP 요청 실패 (타임아웃/에러): {e}")
+                # 기본 대기시간 60초로 가정하고 진행
+                print(f"[LOG] 기본 대기시간 60초로 가정")
+                wait_result = _handle_wait_time(req, 60, proxy_addr, url) if req else None
+                if wait_result == "WAIT_REGISTERED":
+                    return "WAIT_REGISTERED", "WAIT_REGISTERED"
+                continue
             
             if response.status_code != 200:
                 print(f"[LOG] 페이지 로드 실패: HTTP {response.status_code}")
@@ -482,6 +762,12 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                 direct_link = direct_link_match.group(1)
                 print(f"[LOG] ✅ 다운로드 링크 발견: {direct_link}")
                 return direct_link, None
+
+            # 정규식 패턴이 실패하면 스마트 추출 시도
+            smart_link = _extract_download_link_smart(response.text, url)
+            if smart_link:
+                print(f"[LOG] ✅ 스마트 추출로 다운로드 링크 발견: {smart_link}")
+                return smart_link, None
                 
             # 3단계: 대기시간 확인 및 추출
             wait_seconds = None
@@ -543,16 +829,21 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                 print(f"[LOG] 🕐 {wait_seconds}초 대기 중... (시도 {attempt}/{max_attempts})")
                 
                 # 대기시간 처리 (req가 있는 경우에만)
+                wait_result = None
                 if req:
                     wait_result = _handle_wait_time(req, wait_seconds, proxy_addr, url)
                     if wait_result is None:
                         return None, None  # 정지된 경우 파싱 중단
+                    elif wait_result == "WAIT_REGISTERED":
+                        print(f"[LOG] 대기시간 백그라운드 등록됨, 파싱 함수 즉시 반환")
+                        return "WAIT_REGISTERED", "WAIT_REGISTERED"  # 대기 등록됨을 표시
                 else:
-                    # req가 없으면 기본 대기만 수행
-                    time.sleep(wait_seconds)
-                
-                # 대기 완료 처리 (req가 있는 경우에만)
-                if req:
+                    # req가 없으면 대기 없이 진행 (블로킹 방지)
+                    print(f"[LOG] req 없음, 대기 없이 진행")
+                    pass
+
+                # 대기 완료 처리 (req가 있고 WAIT_REGISTERED가 아닌 경우에만)
+                if req and wait_result != "WAIT_REGISTERED":
                     try:
                         # 진행 중인 대기 작업에서 제거
                         wait_store.finish_wait(req.id)
@@ -576,11 +867,21 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                         ).first()
                         
                         if download_req:
-                            # 상태를 downloading으로 업데이트
-                            download_req.status = "downloading"
+                            # 상태를 waiting으로 업데이트 (대기 중)
+                            download_req.status = StatusEnum.waiting
                             temp_db.commit()
-                            print(f"[LOG] 다운로드 상태를 'downloading'으로 업데이트: ID {req.id}")
-                            
+                            print(f"[LOG] 다운로드 상태를 'waiting'으로 업데이트: ID {req.id}")
+
+                            # waiting 상태 즉시 전송 (프론트엔드 상태 업데이트용)
+                            send_sse_message("status_update", {
+                                "id": req.id,
+                                "status": "waiting",
+                                "message": f"대기 중 ({wait_seconds}초)",
+                                "progress": 0,
+                                "url": req.url,
+                                "file_name": getattr(req, 'file_name', None)
+                            })
+
                             # 대기 시작 시 즉시 wait_countdown 메시지 전송
                             wait_minutes = wait_seconds // 60
                             wait_message = f"대기 중 ({wait_minutes}분 {wait_seconds % 60}초)" if wait_minutes > 0 else f"대기 중 ({wait_seconds}초)"
@@ -609,7 +910,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                             # 상태 업데이트와 wait_countdown 메시지를 연속으로 전송 (순서 보장)
                             send_sse_message("status_update", {
                                 "id": req.id,
-                                "status": "downloading"
+                                "status": "waiting"
                             })
                             send_sse_message("wait_countdown", wait_data)
                     finally:
@@ -666,7 +967,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                         except Exception as e:
                             print(f"[LOG] 짧은 대기 중 상태 체크 실패: {e}")
                         
-                        time.sleep(1)
+                        pass  # time.sleep(1) 제거 - 블로킹 방지
                 else:
                     # 긴 대기시간 - Event.wait()를 사용한 효율적인 대기 (즉시 정지 반응)
                     download_req = None
@@ -683,7 +984,9 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                     
                     if not download_req:
                         print(f"[LOG] 다운로드 요청을 찾을 수 없음, 기본 대기로 진행")
-                        time.sleep(wait_seconds)
+                        # 1초씩 나누어서 대기하여 블로킹을 최소화
+                        for i in range(wait_seconds):
+                            pass  # time.sleep(1) 제거 - 블로킹 방지
                     else:
                         # Event.wait()를 사용한 효율적 대기 - 1초씩 대기하며 즉시 정지 감지
                         for remaining in range(wait_seconds, 0, -1):
@@ -694,7 +997,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                                     print(f"[LOG] 카운트다운 중 정지 플래그 감지 (Event): ID {req.id}")
                                     return None
                             else:
-                                time.sleep(1)  # Event가 없으면 일반 대기
+                                pass  # time.sleep(1) 제거 - 블로킹 방지  # Event가 없으면 일반 대기
                         
                         remaining_minutes = remaining // 60
                         remaining_seconds = remaining % 60
@@ -750,7 +1053,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                             # 마지막 10초는 매초 표시
                             print(f"[LOG] 남은 시간: {remaining}초")
                         
-                        time.sleep(1)
+                        pass  # time.sleep(1) 제거 - 블로킹 방지
                 
                 print(f"[LOG] ✅ 대기 완료! POST 요청 시작")
                 
@@ -820,9 +1123,15 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                             direct_link = direct_link_match.group(1)
                             print(f"[LOG] ✅ POST 후 다운로드 링크 발견: {direct_link}")
                             return direct_link, response.text
-                    
-                    print(f"[LOG] POST 후에도 다운로드 링크 없음, 다음 시도로 계속")
-                    continue  # 다시 루프 시작 (새 페이지에서 링크 찾기)
+
+                    # POST 후에도 정규식 실패하면 스마트 추출 시도
+                    smart_link = _extract_download_link_smart(response.text, url)
+                    if smart_link:
+                        print(f"[LOG] ✅ POST 후 스마트 추출로 다운로드 링크 발견: {smart_link}")
+                        return smart_link, response.text
+
+                    print(f"[LOG] POST 후에도 다운로드 링크 없음 - 파싱 실패")
+                    break  # POST 후에는 더 이상 시도하지 않음 (무한루프 방지)
                 else:
                     print(f"[LOG] POST 요청 실패: {post_response.status_code}")
                     continue
@@ -830,7 +1139,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
                 print(f"[LOG] ❌ 대기시간을 찾을 수 없음 (시도 {attempt})")
                 if attempt >= max_attempts:
                     break
-                time.sleep(2)  # 잠깐 대기 후 재시도
+                pass  # time.sleep(2) 제거 - 블로킹 방지
                 continue
                 
         except Exception as e:
@@ -850,7 +1159,7 @@ def _parse_with_connection(scraper, url, password, headers, proxies, req=None, w
             
             if attempt >= max_attempts:
                 break
-            time.sleep(2)
+            pass  # time.sleep(2) 제거 - 블로킹 방지
             continue
             
     print(f"[LOG] {max_attempts}회 시도 후 실패")
@@ -1304,7 +1613,7 @@ def is_direct_link_expired(direct_link, use_proxy=False, proxy_addr=None):
     
     try:
         # HEAD 요청으로 링크 유효성 확인 (타임아웃 늘림)
-        response = requests.head(direct_link, headers=headers, timeout=(10, 30), allow_redirects=True, proxies=proxies)
+        response = httpx.head(direct_link, headers=headers, timeout=30, follow_redirects=True, proxies=proxies)
         print(f"[LOG] Direct Link 유효성 검사: {response.status_code}")
         
         if response.status_code in [200, 206]:  # 200 OK 또는 206 Partial Content
@@ -1330,8 +1639,8 @@ def is_direct_link_expired(direct_link, use_proxy=False, proxy_addr=None):
         return True  # 기타 에러 시 만료로 간주
 
 
-def _update_download_status_to_downloading(req):
-    """다운로드 상태를 downloading으로 업데이트"""
+def _update_download_status_to_waiting(req):
+    """다운로드 상태를 waiting으로 업데이트 (대기 시작)"""
     temp_db = SessionLocal()
     try:
         download_req = temp_db.query(DownloadRequest).filter(
@@ -1339,9 +1648,9 @@ def _update_download_status_to_downloading(req):
         ).first()
         
         if download_req:
-            download_req.status = "downloading"
+            download_req.status = StatusEnum.waiting
             temp_db.commit()
-            print(f"[LOG] 다운로드 상태를 'downloading'으로 업데이트: ID {req.id}")
+            print(f"[LOG] 다운로드 상태를 'waiting'으로 업데이트: ID {req.id}")
             return download_req
     finally:
         temp_db.close()
@@ -1385,7 +1694,7 @@ def _send_wait_countdown_message(req, wait_seconds, proxy_addr, url):
     # 상태 업데이트와 wait_countdown 메시지를 연속으로 전송
     send_sse_message("status_update", {
         "id": req.id,
-        "status": "downloading"
+        "status": "waiting"
     })
     send_sse_message("wait_countdown", wait_data)
         
@@ -1407,17 +1716,15 @@ def _send_telegram_wait_notification(req, wait_seconds):
 
 def _perform_monitored_wait(req, wait_seconds):
     """상태 모니터링과 함께 대기 수행"""
-    if wait_seconds <= 10:
-        # 10초 이하 짧은 대기시간 - 1초씩 나누어 정지 상태 체크
-        print(f"[LOG] 짧은 대기시간 ({wait_seconds}초) - 정지 상태 체크하며 대기")
-        return _perform_short_wait_with_monitoring(req, wait_seconds)
-    else:
-        # 긴 대기시간 - Event.wait()를 사용한 효율적인 대기
-        return _perform_long_wait_with_monitoring(req, wait_seconds)
+    print(f"[LOG] 대기시간 감지, 백그라운드 처리로 전환: {wait_seconds}초")
+    return "WAIT_REGISTERED"  # 항상 즉시 반환하여 블로킹 방지
 
 
 def _perform_short_wait_with_monitoring(req, wait_seconds):
     """짧은 대기시간 처리 (1초씩 모니터링)"""
+    print(f"[LOG] 짧은 대기시간 감지, 백그라운드 대기로 전환: {wait_seconds}초")
+    return "WAIT_REGISTERED"  # 즉시 반환하여 블로킹 방지
+
     for i in range(wait_seconds):
         # 정지 상태 체크
         try:
@@ -1442,26 +1749,21 @@ def _perform_short_wait_with_monitoring(req, wait_seconds):
         except Exception as e:
             print(f"[LOG] 짧은 대기 중 상태 체크 실패: {e}")
         
-        time.sleep(1)
+        pass  # time.sleep(1) 제거 - 블로킹 방지
         
-        # SSE로 카운트다운 업데이트 전송 (status_update 메시지 사용)
+        # SSE로 wait_countdown 메시지만 전송 (가짜 진행률 제거)
         if send_sse_message:
             try:
                 remaining = wait_seconds - (i + 1)
-                progress_percent = ((i + 1) / wait_seconds) * 100
-                
-                send_sse_message("status_update", {
+
+                send_sse_message("wait_countdown", {
                     "id": req.id,
-                    "status": "downloading", 
-                    "progress": min(95, progress_percent),
-                    "message": f"다운로드 중 (대기: {remaining}초)",
+                    "status": "waiting",
                     "remaining_time": remaining,
                     "total_wait_time": wait_seconds,
+                    "message": f"대기 중: {remaining}초 남음",
                     "url": req.url,
-                    "file_name": getattr(req, 'file_name', None),
-                    "downloaded_size": getattr(req, 'downloaded_size', 0),
-                    "total_size": getattr(req, 'total_size', 0),
-                    "use_proxy": getattr(req, 'use_proxy', False)
+                    "file_name": getattr(req, 'file_name', None)
                 })
             except Exception as e:
                 pass  # SSE 실패해도 대기는 계속
@@ -1471,10 +1773,11 @@ def _perform_short_wait_with_monitoring(req, wait_seconds):
 
 def _perform_long_wait_with_monitoring(req, wait_seconds):
     """긴 대기시간 처리 (Event.wait 사용)"""
-    print(f"[LOG] 긴 대기시간 ({wait_seconds}초) - Event.wait() 사용")
+    print(f"[LOG] 긴 대기시간 감지, 백그라운드 대기로 전환: {wait_seconds}초")
+    return "WAIT_REGISTERED"  # 즉시 반환하여 블로킹 방지
     
-    # 3초씩 나누어서 정지 상태 체크 (더 빠른 반응성)
-    check_interval = 3
+    # 1초씩 나누어서 정지 상태 체크 (더 빠른 반응성)
+    check_interval = 1
     remaining_time = wait_seconds
     
     max_iterations = (wait_seconds // check_interval) + 2  # 최대 반복 횟수 제한
@@ -1519,39 +1822,31 @@ def _perform_long_wait_with_monitoring(req, wait_seconds):
                     return None  # 정지된 경우 파싱 중단
             else:
                 # stop_event가 없으면 일반 대기
-                time.sleep(current_wait)
+                pass  # time.sleep(current_wait) 제거 - 블로킹 방지
         except KeyboardInterrupt:
             print(f"[LOG] 대기 중 키보드 인터럽트 감지: ID {req.id}")
             return None
         except Exception as e:
             print(f"[LOG] 대기 중 예외 발생: {e}")
-            time.sleep(min(current_wait, 3))  # 예외 발생 시 최대 3초만 대기
+            pass  # time.sleep(min(current_wait, 3)) 제거 - 블로킹 방지
         
         # 실제 대기한 시간을 계산하여 차감 (무한루프 방지)
         actual_wait_time = time.time() - wait_start_time
         remaining_time = max(0, remaining_time - actual_wait_time)
         print(f"[LOG] 대기 중... 남은 시간: {remaining_time}초")
         
-        # SSE로 카운트다운 업데이트 전송 (status_update 메시지 사용) - 매번 전송
+        # SSE로 wait_countdown 메시지만 전송 (가짜 진행률 제거) - 매번 전송
         print(f"[DEBUG] send_sse_message 함수 사용 가능: {send_sse_message is not None}")
         if send_sse_message:
             try:
-                # 진행률 계산 (남은시간 기준)
-                total_wait = wait_seconds
-                progress_percent = ((total_wait - remaining_time) / total_wait) * 100
-                
-                send_sse_message("status_update", {
+                send_sse_message("wait_countdown", {
                     "id": req.id,
-                    "status": "downloading",
-                    "progress": min(95, progress_percent),
-                    "message": f"다운로드 중 (대기: {remaining_time}초)",
+                    "status": "waiting",
                     "remaining_time": remaining_time,
-                    "total_wait_time": total_wait,
+                    "total_wait_time": wait_seconds,
+                    "message": f"대기 중: {int(remaining_time)}초 남음",
                     "url": req.url,
-                    "file_name": getattr(req, 'file_name', None),
-                    "downloaded_size": getattr(req, 'downloaded_size', 0),
-                    "total_size": getattr(req, 'total_size', 0),
-                    "use_proxy": getattr(req, 'use_proxy', False)
+                    "file_name": getattr(req, 'file_name', None)
                 })
                 print(f"[LOG] SSE 카운트다운 전송: {int(remaining_time)}초 남음")
             except Exception as e:
@@ -1609,8 +1904,8 @@ def _handle_wait_time(req, wait_seconds, proxy_addr, url):
         
     print(f"[LOG] 🕐 {wait_seconds}초 대기 중...")
     
-    # 1. 상태를 downloading으로 업데이트
-    _update_download_status_to_downloading(req)
+    # 1. 상태를 waiting으로 업데이트 (대기 시작)
+    _update_download_status_to_waiting(req)
     
     # 2. 대기 카운트다운 메시지 전송
     _send_wait_countdown_message(req, wait_seconds, proxy_addr, url)
@@ -1622,5 +1917,6 @@ def _handle_wait_time(req, wait_seconds, proxy_addr, url):
     # 4. 텔레그램 알림 (5분 이상 대기시간일 때)
     _send_telegram_wait_notification(req, wait_seconds)
     
-    # 5. 실제 대기 수행
-    return _perform_monitored_wait(req, wait_seconds)
+    # 5. 백그라운드 대기 등록만 하고 파싱 즉시 반환
+    print(f"[LOG] 백그라운드 대기 등록 완료, 파싱 함수 반환")
+    return "WAIT_REGISTERED"  # 특별한 반환값으로 대기 등록됨을 표시

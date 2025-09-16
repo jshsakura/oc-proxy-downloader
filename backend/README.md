@@ -36,6 +36,35 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 서버 실행 후 http://localhost:8000 에서 API 확인 가능합니다.
 
+# Project Technical Overview: Claude Context (claude.md)
+
+## 1. Project Summary
+This is a modern web application featuring a high-performance backend built with FastAPI and a reactive, component-based frontend using Svelte. The entire architecture is designed around asynchronous principles to ensure scalability and efficiency.
+
+## 2. Backend Technology Stack
+The backend is built on Python with a strong emphasis on `asyncio` for non-blocking I/O operations.
+
+- **Framework**: **FastAPI** is the core web framework. All API endpoints and business logic should leverage its `async`/`await` capabilities.
+- **ASGI Server**: The application is served by **uvicorn**, a lightning-fast ASGI server.
+- **Data Validation**: **Pydantic** is used extensively for data modeling, validation, and settings management. This is a core component of FastAPI.
+- **Database ORM**: **SQLAlchemy 2.0+** is used for all database interactions, specifically utilizing its `asyncio` extension for non-blocking database queries.
+- **Authentication**: Security is handled via **passlib** with **bcrypt** for password hashing and **PyJWT** for token-based authentication (JWTs).
+- **Asynchronous HTTP Client**: **httpx** is the standard for making external API calls in a non-blocking manner.
+- **General Principle**: The entire backend is built on an `asyncio` foundation. Avoid synchronous, blocking calls at all costs to maintain performance.
+
+## 3. Frontend Technology Stack
+- **Framework**: **Svelte** is used for the frontend. It's a modern JavaScript framework that compiles components to highly efficient imperative code.
+
+## 4. Key Dependencies List
+For context, the key libraries in use are:
+- `fastapi`: Core framework
+- `uvicorn`: ASGI server
+- `sqlalchemy`: ORM (async mode)
+- `pydantic`: Data validation
+- `svelte`: Frontend framework
+- `httpx`: Async HTTP client
+- `passlib`, `bcrypt`, `pyjwt`: Security and authentication
+
 ## 📁 프로젝트 구조
 
 ```

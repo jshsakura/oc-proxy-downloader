@@ -7,6 +7,8 @@ OC Proxy Downloader - 새 아키텍처
 """
 import sys
 import os
+import signal
+import traceback
 from pathlib import Path
 from dotenv import load_dotenv
 from utils.logging import setup_logging, replace_print
@@ -40,28 +42,62 @@ replace_print()
 app = create_app()
 
 
+def monitor_process_health():
+    """프로세스 상태 모니터링 - 좀비 프로세스 방지"""
+    try:
+        import psutil
+        import os
+
+        current_pid = os.getpid()
+        process = psutil.Process(current_pid)
+
+        # 메모리 사용량 체크
+        memory_info = process.memory_info()
+        if memory_info.rss > 500 * 1024 * 1024:  # 500MB 초과시
+            print(f"[WARNING] High memory usage: {memory_info.rss / 1024 / 1024:.1f}MB")
+
+        # 자식 프로세스 체크
+        children = process.children(recursive=True)
+        if len(children) > 10:
+            print(f"[WARNING] Too many child processes: {len(children)}")
+
+        return True
+    except ImportError:
+        # psutil이 없어도 동작하도록
+        return True
+    except Exception as e:
+        print(f"[LOG] Process monitoring error (ignored): {e}")
+        return True
+
+
 def force_cleanup_threads():
-    """AnyIO worker thread 강제 정리 - reentrant call 방지"""
+    """모든 스레드 강제 정리 - reentrant call 방지"""
     try:
         import threading
         import time
 
         print("[LOG] Starting thread cleanup...")
 
-        # 1초 대기로 정상 종료 기회 제공
-        time.sleep(1)
+        # 짧은 대기로 정상 종료 기회 제공
+        time.sleep(0.2)
 
         # 현재 스레드 확인
         active_threads = threading.enumerate()
-        anyio_threads = [
-            t for t in active_threads if 'AnyIO worker thread' in t.name and not t.daemon]
 
-        if anyio_threads:
-            print(
-                f"[LOG] Found {len(anyio_threads)} AnyIO worker threads to cleanup")
+        # 정리할 스레드 타입들
+        cleanup_threads = []
+        for t in active_threads:
+            if (('AnyIO worker thread' in t.name) or
+                ('Download' in t.name) or
+                ('ThreadPoolExecutor' in str(type(t))) or
+                ('_thread' in str(type(t)).lower())) and not t.daemon:
+                cleanup_threads.append(t)
+
+        if cleanup_threads:
+            print(f"[LOG] Found {len(cleanup_threads)} threads to cleanup")
 
             # 강제 종료 시도 (daemon으로 변경)
-            for thread in anyio_threads:
+            for thread in cleanup_threads:
                 try:
                     thread.daemon = True
                     print(f"[LOG] Set daemon=True for {thread.name}")
@@ -84,44 +120,40 @@ if __name__ == "__main__":
     print("   - SSE + asyncio ✅")
     print("=" * 60)
 
-    # 종료 시 스레드 정리 등록
+    # 종료 시 스레드 정리 등록 (다중 등록 방지)
     atexit.register(force_cleanup_threads)
 
-    # 시그널 핸들러 - 강력한 즉시 종료
-    def signal_handler(signum, frame):
-        print(f"[LOG] ⚠️  Received signal {signum}, IMMEDIATE EXIT!")
-        print("[LOG] 강제 종료 - 모든 프로세스 종료 중...")
-        
-        # 모든 스레드 강제 종료
-        try:
-            import threading
-            for thread in threading.enumerate():
-                if thread != threading.main_thread():
-                    print(f"[LOG] 강제 종료 스레드: {thread.name}")
-        except:
-            pass
-        
-        # 즉시 강제 종료 (정리 작업 없음)
-        import os
-        os._exit(0)
+    # 강제 종료 핸들러 설정
+    def signal_handler(sig, frame):
+        print(f"\n[LOG] 종료 신호 수신 ({sig}) - 강제 종료 중...")
+        force_cleanup_threads()
+        os._exit(0)  # 강제 종료
 
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C 처리
+    signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # 종료 요청
 
     try:
-        # 개발 서버 실행
+        # 개발 서버 실행 - 기본 설정
         config = uvicorn.Config(
             "main:app",
             host="0.0.0.0",
             port=8000,
-            reload=False,  # reload=False로 변경 (AnyIO 스레드 문제 방지)
-            log_level="info",
-            loop="asyncio",  # asyncio 루프 명시
-            workers=1,  # 단일 워커 (스레드 문제 방지)
+            reload=False,
+            log_level="critical",
+            loop="asyncio",
+            workers=1,
+            access_log=False,
         )
         server = uvicorn.Server(config)
+
+        print("[LOG] 서버 시작 - 기본 설정")
+
         server.run()
     except KeyboardInterrupt:
-        print("[LOG] KeyboardInterrupt received")
+        print("[LOG] KeyboardInterrupt - 정상 종료")
+    except Exception as fatal_error:
+        print(f"[FATAL] 치명적 오류 발생: {fatal_error}")
+        print(f"[FATAL] 서버를 다시 시작해주세요")
+        traceback.print_exc()
     finally:
         force_cleanup_threads()

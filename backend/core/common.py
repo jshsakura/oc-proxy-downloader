@@ -1,7 +1,6 @@
 import math
 import os
 import random
-import requests
 import cloudscraper
 import threading
 import time

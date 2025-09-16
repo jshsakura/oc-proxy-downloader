@@ -8,7 +8,7 @@
 
 import re
 import time
-import requests
+import httpx
 import cloudscraper
 from bs4 import BeautifulSoup
 
