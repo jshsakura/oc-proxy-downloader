@@ -54,7 +54,16 @@
       "Bash(tasklist:*)",
       "Bash(Stop-Process -Id 7312 -Force)",
       "Bash(del \"C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\auto_restart.py\")",
-      "Bash(Stop-Process -Id 7876 -Force)"
+      "Bash(Stop-Process -Id 7876 -Force)",
+      "Bash(del \"C:\\Users\\WIN11\\Documents\\workspace\\oc-proxy-downloader\\backend\\services\\download_manager.py\")",
+      "Bash(.venv\\Scripts\\python.exe -m pip install:*)",
+      "Bash(..venvScriptspython.exe -m pip install aiofiles aiohttp)",
+      "Bash(C:UsersWIN11Documentsworkspaceoc-proxy-downloaderbackend.venvScriptspython.exe -m pip install aiofiles aiohttp)",
+      "Bash(..venvScriptspip.exe install aiofiles aiohttp)",
+      "Bash(pkill:*)",
+      "Bash(..venvScriptspip install aiofiles aiohttp)",
+      "Bash(.venv/Scripts/pip.exe install:*)",
+      "Bash(Stop-Process -Id 13228 -Force)"
     ],
     "deny": [],
     "ask": [],

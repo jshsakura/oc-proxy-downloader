@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import unquote
 from core.models import StatusEnum
 from utils.sse import send_sse_message
-from services.download_manager import download_manager
+# 기존 동기 다운로드 매니저 제거됨
 
 
 def extract_filename_from_headers(response, req, db):
@@ -58,9 +58,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                     chunk_count += 1
                 
                 if chunk_count % 16 == 0:
-                    if download_manager.is_download_stopped(req.id):
-                        print(f"[LOG] 다운로드 중 정지 플래그 감지: {req.id}")
-                        return downloaded
+                    # 다운로드 중지 체크는 새로운 비동기 구조에서 처리
                     
                     db.refresh(req)
                     if req.status == StatusEnum.stopped:

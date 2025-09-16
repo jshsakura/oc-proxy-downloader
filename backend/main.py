@@ -125,15 +125,23 @@ if __name__ == "__main__":
 
     # 강제 종료 핸들러 설정
     def signal_handler(sig, frame):
-        print(f"\n[LOG] 종료 신호 수신 ({sig}) - 강제 종료 중...")
-        force_cleanup_threads()
-        os._exit(0)  # 강제 종료
+        print(f"\n[LOG] 종료 신호 수신 ({sig}) - 즉시 강제 종료...")
+        try:
+            # 빠른 정리
+            import sys
+            sys.exit(0)
+        except:
+            os._exit(0)  # 강제 종료
 
     signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
     signal.signal(signal.SIGTERM, signal_handler)  # 종료 요청
 
+    # Windows에서 Ctrl+Break도 처리
+    if hasattr(signal, 'SIGBREAK'):
+        signal.signal(signal.SIGBREAK, signal_handler)
+
     try:
-        # 개발 서버 실행 - 기본 설정
+        # 개발 서버 실행 - 빠른 종료 설정
         config = uvicorn.Config(
             "main:app",
             host="0.0.0.0",
@@ -143,6 +151,9 @@ if __name__ == "__main__":
             loop="asyncio",
             workers=1,
             access_log=False,
+            lifespan="on",  # 빠른 시작/종료
+            timeout_keep_alive=5,  # 연결 타임아웃 단축
+            timeout_graceful_shutdown=3,  # 종료 타임아웃 단축
         )
         server = uvicorn.Server(config)
 

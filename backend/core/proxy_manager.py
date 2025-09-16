@@ -1,521 +1,372 @@
+# -*- coding: utf-8 -*-
 """
-프록시 관리 모듈
-- 프록시 목록 관리
-- 프록시 상태 추적  
-- 프록시 테스트
-- 사용자 프록시 관리
+비동기 프록시 관리 모듈
+- 비동기 프록시 테스트
+- 논블로킹 배치 처리
+- asyncio 기반 구현
 """
 
-import httpx
+import asyncio
+import aiohttp
 import datetime
 import re
-import threading
 import time
-import cloudscraper
-import ssl
-import urllib3
 import random
-
+from typing import List, Optional, Tuple, AsyncGenerator
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Optional
+
 from .models import ProxyStatus, UserProxy, StatusEnum
 from .db import get_db
-from urllib3.util.ssl_ import create_urllib3_context
-from services.download_manager import download_manager
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-# 프록시 목록 캐시 (URL -> (프록시 목록, 캐시 시간))
-_proxy_list_cache = {}
+class ProxyManager:
+    """비동기 프록시 매니저"""
 
-class ProxyCreate(BaseModel):
-    address: str
-    description: str = ""
+    def __init__(self):
+        self.proxy_cache = {}
+        self.cache_timeout = 300  # 5분
 
-class ProxyResponse(BaseModel):
-    id: int
-    address: str
-    proxy_type: str
-    is_active: bool
-    added_at: datetime.datetime
-    last_used: Optional[datetime.datetime]
-    description: Optional[str]
+    async def get_user_proxy_list(self, db: Session) -> List[str]:
+        """사용자 프록시 목록을 비동기로 가져오기"""
+        user_proxies = db.query(UserProxy).filter(UserProxy.is_active == True).all()
+        proxy_list = []
 
-def detect_proxy_type(address: str) -> str:
-    """프록시 주소 형태를 자동 감지"""
-    # URL 형태인지 확인 (http:// 또는 https://로 시작)
-    if address.startswith(('http://', 'https://')):
-        return "list"
-    
-    # IP:PORT 형태인지 확인
-    ip_port_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$'
-    if re.match(ip_port_pattern, address):
-        return "single"
-    
-    # 도메인:PORT 형태
-    domain_port_pattern = r'^[a-zA-Z0-9.-]+:\d+$'
-    if re.match(domain_port_pattern, address):
-        return "single"
-    
-    # 기본값은 list로 처리
-    return "list"
+        # URL 타입 프록시들을 비동기로 처리
+        url_proxies = [p for p in user_proxies if p.proxy_type == "list"]
+        single_proxies = [p.address for p in user_proxies if p.proxy_type == "single"]
 
+        # 단일 프록시들은 바로 추가
+        proxy_list.extend(single_proxies)
 
-def get_user_proxy_list(db: Session):
-    """사용자가 추가한 프록시 목록을 가져와서 처리"""
-    user_proxies = db.query(UserProxy).filter(UserProxy.is_active == True).all()
-    proxy_list = []
-    
-    for user_proxy in user_proxies:
-        if user_proxy.proxy_type == "single":
-            # 개별 프록시 추가
-            proxy_list.append(user_proxy.address)
-        elif user_proxy.proxy_type == "list":
-            # 캐시 확인 (5분간 유효)
-            cache_key = user_proxy.address
-            current_time = time.time()
-            
-            if (cache_key in _proxy_list_cache and 
-                current_time - _proxy_list_cache[cache_key][1] < 300):  # 5분
-                cached_proxies = _proxy_list_cache[cache_key][0]
-                proxy_list.extend(cached_proxies)
-                print(f"[LOG] 프록시 목록 캐시 사용: {len(cached_proxies)}개 - {user_proxy.address}")
-            else:
-                # 프록시 목록 URL에서 프록시들 가져오기
-                try:
-                    response = httpx.get(user_proxy.address, timeout=10)
-                    if response.status_code == 200:
-                        # 각 줄을 프록시로 처리
-                        lines = response.text.strip().split('\n')
-                        url_proxies = []
+        # URL 프록시들을 비동기로 병렬 처리
+        if url_proxies:
+            url_results = await asyncio.gather(
+                *[self._fetch_proxy_list(proxy.address) for proxy in url_proxies],
+                return_exceptions=True
+            )
+
+            for result in url_results:
+                if isinstance(result, list):
+                    proxy_list.extend(result)
+                elif isinstance(result, Exception):
+                    print(f"[LOG] 프록시 URL 처리 실패: {result}")
+
+        return proxy_list
+
+    async def _fetch_proxy_list(self, url: str) -> List[str]:
+        """URL에서 프록시 목록을 비동기로 가져오기"""
+        cache_key = url
+        current_time = time.time()
+
+        # 캐시 확인
+        if (cache_key in self.proxy_cache and
+            current_time - self.proxy_cache[cache_key][1] < self.cache_timeout):
+            cached_proxies = self.proxy_cache[cache_key][0]
+            print(f"[LOG] 프록시 목록 캐시 사용: {len(cached_proxies)}개 - {url}")
+            return cached_proxies
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        text = await response.text()
+                        lines = text.strip().split('\n')
+                        proxies = []
+
                         for line in lines:
                             line = line.strip()
                             if line and ':' in line:
                                 # IP:PORT 형태인지 확인
-                                if detect_proxy_type(line) == "single":
-                                    url_proxies.append(line)
-                        
+                                if self._detect_proxy_type(line) == "single":
+                                    proxies.append(line)
+
                         # 캐시에 저장
-                        _proxy_list_cache[cache_key] = (url_proxies, current_time)
-                        proxy_list.extend(url_proxies)
-                        print(f"[LOG] 프록시 목록 URL에서 {len(url_proxies)} 개 프록시 로드 (캐시됨): {user_proxy.address}")
+                        self.proxy_cache[cache_key] = (proxies, current_time)
+                        print(f"[LOG] 프록시 목록 URL에서 {len(proxies)}개 프록시 로드: {url}")
+                        return proxies
                     else:
-                        print(f"[LOG] 프록시 목록 URL 접근 실패: {user_proxy.address} ({response.status_code})")
-                except Exception as e:
-                    print(f"[LOG] 프록시 목록 URL 처리 실패: {user_proxy.address} -> {e}")
-    
-    return proxy_list
+                        print(f"[LOG] 프록시 목록 URL 접근 실패: {url} ({response.status})")
+                        return []
 
-def get_unused_proxies(db: Session):
-    """사용하지 않은 프록시 목록 반환 (사용자 프록시만)"""
-    # 사용자가 추가한 프록시들만 사용
-    user_proxy_list = get_user_proxy_list(db)
-    
-    # 전체 프록시 목록 (사용자 프록시만)
-    all_proxies = user_proxy_list
-    
-    # 4. 이미 사용된 프록시 주소들 
-    used_proxies = db.query(ProxyStatus).filter(
-        ProxyStatus.ip.isnot(None),
-        ProxyStatus.port.isnot(None)
-    ).all()
-    used_proxy_addresses = {f"{p.ip}:{p.port}" for p in used_proxies}
-    
-    # 5. 전체 프록시에서 사용된 것들 제외
-    unused_proxies = [p for p in all_proxies if p not in used_proxy_addresses]
-    
-    # 성공한 프록시들을 우선적으로 배치
-    successful_proxies = db.query(ProxyStatus).filter(
-        ProxyStatus.last_status == 'success'
-    ).all()
-    priority_proxies = [f"{p.ip}:{p.port}" for p in successful_proxies if f"{p.ip}:{p.port}" in unused_proxies]
-    other_proxies = [p for p in unused_proxies if p not in priority_proxies]
-    
-    # 성공한 프록시를 앞에 배치
-    final_proxies = priority_proxies + other_proxies
-    
-    print(f"[LOG] 사용자 프록시: {len(user_proxy_list)}개")
-    print(f"[LOG] 전체 프록시: {len(all_proxies)}개, 사용된 프록시: {len(used_proxy_addresses)}개")
-    print(f"[LOG] 미사용 프록시: {len(unused_proxies)}개 (우선순위: {len(priority_proxies)}개)")
-    
-    return final_proxies
+        except Exception as e:
+            print(f"[LOG] 프록시 목록 URL 처리 실패: {url} -> {e}")
+            return []
 
+    def _detect_proxy_type(self, address: str) -> str:
+        """프록시 주소 형태를 감지"""
+        if address.startswith(('http://', 'https://')):
+            return "list"
 
-def mark_proxy_used(db: Session, proxy_addr: str, success: bool):
-    """프록시 사용 결과를 데이터베이스에 기록"""
-    try:
-        if ':' not in proxy_addr:
-            print(f"[LOG] 잘못된 프록시 주소 형식: {proxy_addr}")
-            return
-            
-        ip, port = proxy_addr.strip().split(':', 1)
-        
-        # 기존 레코드 확인
-        existing = db.query(ProxyStatus).filter(
-            ProxyStatus.ip == ip,
-            ProxyStatus.port == int(port)
-        ).first()
-        
-        current_time = datetime.datetime.now()
-        
-        if existing:
-            # 기존 레코드 업데이트
-            existing.last_status = 'success' if success else 'fail'
-            existing.success = success  # 호환성을 위해 추가
-            existing.last_used_at = current_time
-            if not success:
-                existing.last_failed_at = current_time
-        else:
-            # 새 레코드 생성
-            new_record = ProxyStatus(
-                ip=ip,
-                port=int(port),
-                last_status='success' if success else 'fail',
-                success=success,  # 호환성을 위해 추가
-                last_used_at=current_time,
-                last_failed_at=current_time if not success else None
-            )
-            db.add(new_record)
-        
-        db.commit()
-        status_text = "성공" if success else "실패"
-        # print(f"[LOG] 프록시 {proxy_addr} 사용 결과 기록: {status_text}")
-        
-    except Exception as e:
-        print(f"[LOG] 프록시 사용 기록 실패 ({proxy_addr}): {e}")
-        db.rollback()
+        ip_port_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$'
+        if re.match(ip_port_pattern, address):
+            return "single"
 
+        domain_port_pattern = r'^[a-zA-Z0-9.-]+:\d+$'
+        if re.match(domain_port_pattern, address):
+            return "single"
 
-def reset_proxy_usage(db: Session):
-    """프록시 사용 기록 초기화"""
-    try:
-        deleted_count = db.query(ProxyStatus).delete()
-        db.commit()
-        print(f"[LOG] 프록시 사용 기록 {deleted_count}개 초기화 완료")
-    except Exception as e:
-        print(f"[LOG] 프록시 사용 기록 초기화 실패: {e}")
-        db.rollback()
+        return "list"
 
-def reset_recent_failed_proxies(db: Session, hours_back: int = 1):
-    """최근 실패한 프록시만 초기화 (재시작 복구용)"""
-    try:
-        cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=hours_back)
-        
-        # 최근 1시간 이내에 실패한 프록시들만 삭제
-        deleted_count = db.query(ProxyStatus).filter(
-            ProxyStatus.last_status == 'fail',
-            ProxyStatus.last_failed_at >= cutoff_time
-        ).delete()
-        
-        db.commit()
-        print(f"[LOG] 최근 {hours_back}시간 이내 실패 프록시 {deleted_count}개 초기화 완료")
-    except Exception as e:
-        print(f"[LOG] 최근 실패 프록시 초기화 실패: {e}")
-        db.rollback()
+    async def test_proxy_async(self, proxy_addr: str, timeout: int = 15, lenient_mode: bool = False) -> bool:
+        """비동기 프록시 테스트"""
 
-
-def test_proxy(proxy_addr, timeout=15, lenient_mode=False):
-    """프록시 연결 테스트 - 실제 파싱과 동일한 조건으로 테스트
-    
-    Args:
-        proxy_addr: 프록시 주소 (IP:PORT)
-        timeout: 타임아웃 (초)
-        lenient_mode: 관대한 모드 (재시작 직후 등에 사용, 간단한 연결 테스트만)
-    """
-    
-    # SSL 경고 무시
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    
-    # 1fichier는 HTTPS만 지원하므로 HTTPS 프록시만 테스트
-    proxy_config = {
-        "http": f"http://{proxy_addr}",
-        "https": f"http://{proxy_addr}"
-    }
-    
-    try:
         if lenient_mode:
-            # 관대한 모드: 간단한 HTTP 연결 테스트만 수행 (재시작 직후용)
-            print(f"[DEBUG] 프록시 {proxy_addr} 간단 연결 테스트 (관대한 모드)")
-            
-            proxy_config = {
-                "http": f"http://{proxy_addr}",
-                "https": f"http://{proxy_addr}"
-            }
-            
+            return await self._test_proxy_simple(proxy_addr, timeout)
+        else:
+            return await self._test_proxy_https(proxy_addr, timeout)
+
+    async def _test_proxy_simple(self, proxy_addr: str, timeout: int) -> bool:
+        """간단한 프록시 연결 테스트"""
+        try:
+            proxy_url = f"http://{proxy_addr}"
+            timeout_config = aiohttp.ClientTimeout(total=timeout)
+
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
-            
-            # 더 간단한 테스트 URL (google.com 대신 httpbin.org 사용)
-            response = httpx.get(
-                "http://httpbin.org/ip", 
-                proxies=proxy_config, 
-                headers=headers,
-                timeout=8  # 더 짧은 타임아웃
-            )
-            
-            if response.status_code == 200 and 'origin' in response.text:
-                print(f"[LOG] ✅ 간단 연결 테스트 성공: {proxy_addr}")
-                return True
-            else:
-                print(f"[LOG] ❌ 간단 연결 테스트 실패: {proxy_addr} (상태: {response.status_code})")
-                return False
-        
-        print(f"[DEBUG] 프록시 {proxy_addr} HTTPS 터널 테스트")
-        
-        # 실제 파싱에서 사용하는 것과 동일한 CloudScraper 설정
-        scraper = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'desktop': True
-            },
-            delay=1
-        )
-        scraper.verify = False
-        
-        # SSL 컨텍스트 설정 (파싱 서비스와 동일)
-       
-        
-        class NoSSLVerifyHTTPAdapter(HTTPAdapter):
-            def init_poolmanager(self, *args, **kwargs):
-                context = create_urllib3_context()
-                context.check_hostname = False
-                context.verify_mode = ssl.CERT_NONE
-                kwargs['ssl_context'] = context
-                return super().init_poolmanager(*args, **kwargs)
-        
-        scraper.mount('https://', NoSSLVerifyHTTPAdapter())
-        
-        # 파싱 서비스와 동일한 헤더 설정
-        user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0'
-        ]
-        
-        headers = {
-            'User-Agent': random.choice(user_agents),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br, zstd',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0',
-            'DNT': '1'
-        }
-        
-        # 실제 1fichier 파일 URL 패턴에 GET 요청 (실제 파싱과 동일한 조건)
-        # 터널 테스트에서도 CloudScraper가 정상 작동하는지 확인
-        response = scraper.get(
-            "https://1fichier.com/", 
-            proxies=proxy_config, 
-            headers=headers,
-            timeout=(10, 30)  # 파싱 서비스와 동일한 타임아웃
-        )
-        
-        print(f"[DEBUG] 프록시 {proxy_addr} HTTPS 터널 응답: {response.status_code}")
-        
-        # CloudScraper 처리 가능한 응답 코드들 (실제 파싱과 동일한 기준)
-        success_codes = [200, 301, 302, 403, 429, 404, 503]
-        if response.status_code in success_codes:
-            # 응답 내용이 있는지 확인 (빈 응답이면 프록시 문제)
-            if len(response.text) > 100:  # 최소한의 HTML 내용이 있어야 함
-                print(f"[LOG] ✅ HTTPS 터널 작동: {proxy_addr}")
-                return True
-            else:
-                print(f"[LOG] ❌ 터널 실패: {proxy_addr} (응답 내용 없음)")
-                return False
-        else:
-            print(f"[LOG] ❌ 터널 실패: {proxy_addr} (응답 코드: {response.status_code})")
+
+            async with aiohttp.ClientSession(timeout=timeout_config) as session:
+                async with session.get(
+                    "http://httpbin.org/ip",
+                    proxy=proxy_url,
+                    headers=headers
+                ) as response:
+                    if response.status == 200:
+                        text = await response.text()
+                        if 'origin' in text:
+                            print(f"[LOG] ✅ 간단 연결 테스트 성공: {proxy_addr}")
+                            return True
+
+                    print(f"[LOG] ❌ 간단 연결 테스트 실패: {proxy_addr} (상태: {response.status})")
+                    return False
+
+        except Exception as e:
+            print(f"[LOG] ❌ 간단 연결 테스트 오류: {proxy_addr} ({str(e)[:100]})")
             return False
-            
-    except (httpx.ProxyError, 
-            httpx.ConnectTimeout, 
-            httpx.ReadTimeout) as e:
-        error_msg = str(e)
-        if "Tunnel connection failed" in error_msg or "400 Bad Request" in error_msg:
-            print(f"[LOG] ❌ HTTPS 터널 실패: {proxy_addr}")
-        elif "Unable to connect to proxy" in error_msg:
+
+    async def _test_proxy_https(self, proxy_addr: str, timeout: int) -> bool:
+        """HTTPS 터널 프록시 테스트"""
+        try:
+            proxy_url = f"http://{proxy_addr}"
+            timeout_config = aiohttp.ClientTimeout(total=timeout)
+
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+            ]
+
+            headers = {
+                'User-Agent': random.choice(user_agents),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'DNT': '1'
+            }
+
+            # SSL 검증 비활성화
+            connector = aiohttp.TCPConnector(ssl=False)
+
+            async with aiohttp.ClientSession(
+                timeout=timeout_config,
+                connector=connector
+            ) as session:
+                async with session.get(
+                    "https://1fichier.com/",
+                    proxy=proxy_url,
+                    headers=headers
+                ) as response:
+                    success_codes = [200, 301, 302, 403, 429, 404, 503]
+                    if response.status in success_codes:
+                        text = await response.text()
+                        if len(text) > 100:
+                            print(f"[LOG] ✅ HTTPS 터널 작동: {proxy_addr}")
+                            return True
+                        else:
+                            print(f"[LOG] ❌ 터널 실패: {proxy_addr} (응답 내용 없음)")
+                            return False
+                    else:
+                        print(f"[LOG] ❌ 터널 실패: {proxy_addr} (응답 코드: {response.status})")
+                        return False
+
+        except aiohttp.ClientProxyConnectionError:
             print(f"[LOG] ❌ 프록시 연결 불가: {proxy_addr}")
-        else:
-            print(f"[LOG] ❌ 터널 테스트 실패: {proxy_addr} ({str(e)[:100]})")
-        return False
-    except Exception as e:
-        print(f"[LOG] ❌ 터널 테스트 오류: {proxy_addr} ({str(e)[:100]})")
-        return False
-
-
-def test_proxy_batch(db: Session, batch_proxies, req=None, lenient_mode=False):
-    """주어진 프록시 배치를 병렬 테스트해서 성공한 것들을 반환"""
-    
-    if not batch_proxies:
-        print(f"[LOG] 테스트할 프록시가 없음")
-        return [], []
-
-    mode_text = " (관대한 모드)" if lenient_mode else ""
-    print(f"[LOG] {len(batch_proxies)}개 프록시 병렬 테스트 시작{mode_text}... (캐시된 목록 사용)")
-    
-    # 요청이 있는 경우 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
-    if req:
-        if download_manager.is_download_stopped(req.id):
-            print(f"[LOG] 프록시 테스트 중 즉시 정지 플래그 감지: {req.id}")
-            return [], []
-        
-        db.refresh(req)
-        if req.status == StatusEnum.stopped:
-            print(f"[LOG] 프록시 테스트 중 정지됨: {req.id}")
-            return [], []
-    
-    working_proxies = []
-    failed_proxies = []
-    
-    # 병렬 테스트 함수 (지연 포함)
-    def test_single_proxy(proxy_addr):
-        try:
-            # 연속 요청 방지를 위한 랜덤 지연 (0.5~1.5초)
-            delay = random.uniform(0.5, 1.5)
-            time.sleep(delay)
-            
-            if test_proxy(proxy_addr, timeout=10, lenient_mode=lenient_mode):
-                return proxy_addr, True
-            else:
-                return proxy_addr, False
+            return False
+        except asyncio.TimeoutError:
+            print(f"[LOG] ❌ 프록시 타임아웃: {proxy_addr}")
+            return False
         except Exception as e:
-            print(f"[LOG] 프록시 {proxy_addr} 테스트 중 오류: {e}")
-            return proxy_addr, False
-    
-    # ThreadPoolExecutor로 병렬 실행
-    
-    
-    with ThreadPoolExecutor(max_workers=min(len(batch_proxies), 10)) as executor:
-        # 모든 프록시 테스트를 동시에 시작
-        future_to_proxy = {executor.submit(test_single_proxy, proxy): proxy for proxy in batch_proxies}
-        
-        for future in as_completed(future_to_proxy):
-            # 각 결과 처리 전에 정지 상태 재확인
-            if req:
-                if download_manager.is_download_stopped(req.id):
-                    print(f"[LOG] 프록시 테스트 결과 처리 중 즉시 정지 플래그 감지: {req.id}")
-                    # 나머지 테스트들도 취소
-                    for remaining_future in future_to_proxy:
-                        if not remaining_future.done():
-                            remaining_future.cancel()
-                    return [], []
-                
-                db.refresh(req)
-                if req.status == StatusEnum.stopped:
-                    print(f"[LOG] 프록시 테스트 결과 처리 중 정지됨: {req.id}")
-                    # 나머지 테스트들도 취소
-                    for remaining_future in future_to_proxy:
-                        if not remaining_future.done():
-                            remaining_future.cancel()
-                    return [], []
-            
-            proxy_addr, is_working = future.result()
-            
-            if is_working:
-                working_proxies.append(proxy_addr)
-                print(f"[LOG] ✅ 작동 프록시: {proxy_addr}")
+            error_msg = str(e)
+            if "Tunnel connection failed" in error_msg or "400 Bad Request" in error_msg:
+                print(f"[LOG] ❌ HTTPS 터널 실패: {proxy_addr}")
             else:
-                failed_proxies.append(proxy_addr)
-                print(f"[LOG] ❌ 실패 프록시: {proxy_addr}")
-    
-    # 배치 테스트 중에는 실패한 프록시를 DB에 기록하지 않음 (캐시 유지를 위해)
-    print(f"[LOG] 배치 테스트 완료: 성공 {len(working_proxies)}개, 실패 {len(failed_proxies)}개")
-    return working_proxies, failed_proxies  # 실패한 프록시도 반환
+                print(f"[LOG] ❌ 터널 테스트 오류: {proxy_addr} ({str(e)[:100]})")
+            return False
 
-def get_working_proxy_batch(db: Session, batch_size=10, req=None):
-    """배치 단위로 프록시를 병렬 테스트해서 성공한 것들을 반환 (기존 호환성)"""
-    unused_proxies = get_unused_proxies(db)
-    
-    if not unused_proxies:
-        print(f"[LOG] 사용 가능한 프록시가 없음")
-        return []
-    
-    batch_proxies = unused_proxies[:batch_size]
-    print(f"[LOG] {len(batch_proxies)}개 프록시 병렬 테스트 시작...")
-    
-    # 요청이 있는 경우 정지 상태 체크 (즉시 정지 플래그 + DB 상태)
-    if req:
-        if download_manager.is_download_stopped(req.id):
-            print(f"[LOG] 프록시 테스트 중 즉시 정지 플래그 감지: {req.id}")
-            return []
-        
-        db.refresh(req)
-        if req.status == StatusEnum.stopped:
-            print(f"[LOG] 프록시 테스트 중 정지됨: {req.id}")
-            return []
-    
-    working_proxies = []
-    failed_proxies = []
-    
-    # 병렬 테스트 함수 (지연 포함)
-    def test_single_proxy(proxy_addr):
+    async def test_proxy_batch_async(
+        self,
+        db: Session,
+        batch_proxies: List[str],
+        req=None,
+        lenient_mode: bool = False,
+        max_concurrent: int = 10
+    ) -> Tuple[List[str], List[str]]:
+        """비동기 배치 프록시 테스트"""
+
+        if not batch_proxies:
+            print(f"[LOG] 테스트할 프록시가 없음")
+            return [], []
+
+        mode_text = " (관대한 모드)" if lenient_mode else ""
+        print(f"[LOG] {len(batch_proxies)}개 프록시 비동기 배치 테스트 시작{mode_text}")
+
+        # 요청 상태 확인
+        if req:
+            db.refresh(req)
+            if req.status == StatusEnum.stopped:
+                print(f"[LOG] 프록시 테스트 중 정지됨: {req.id}")
+                return [], []
+
+        working_proxies = []
+        failed_proxies = []
+
+        # 세마포어로 동시 실행 수 제한
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def test_single_proxy_with_delay(proxy_addr: str) -> Tuple[str, bool]:
+            async with semaphore:
+                # 연속 요청 방지를 위한 랜덤 지연
+                delay = random.uniform(0.2, 0.8)  # 비동기에서는 더 짧은 지연
+                await asyncio.sleep(delay)
+
+                try:
+                    result = await self.test_proxy_async(proxy_addr, timeout=10, lenient_mode=lenient_mode)
+                    return proxy_addr, result
+                except Exception as e:
+                    print(f"[LOG] 프록시 {proxy_addr} 테스트 중 오류: {e}")
+                    return proxy_addr, False
+
+        # 모든 프록시를 비동기로 테스트
+        tasks = [test_single_proxy_with_delay(proxy) for proxy in batch_proxies]
+
         try:
-            # 연속 요청 방지를 위한 랜덤 지연 (0.5~1.5초)
-            delay = random.uniform(0.5, 1.5)
-            time.sleep(delay)
-            
-            if test_proxy(proxy_addr, timeout=10, lenient_mode=lenient_mode):
-                return proxy_addr, True
-            else:
-                return proxy_addr, False
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, tuple):
+                    proxy_addr, is_working = result
+                    if is_working:
+                        working_proxies.append(proxy_addr)
+                        print(f"[LOG] ✅ 작동 프록시: {proxy_addr}")
+                    else:
+                        failed_proxies.append(proxy_addr)
+                        print(f"[LOG] ❌ 실패 프록시: {proxy_addr}")
+                elif isinstance(result, Exception):
+                    print(f"[LOG] 프록시 테스트 예외: {result}")
+
         except Exception as e:
-            print(f"[LOG] 프록시 {proxy_addr} 테스트 중 오류: {e}")
-            return proxy_addr, False
-    
-    # ThreadPoolExecutor로 병렬 실행
-    
-    with ThreadPoolExecutor(max_workers=min(batch_size, 10)) as executor:
-        # 모든 프록시 테스트를 동시에 시작
-        future_to_proxy = {executor.submit(test_single_proxy, proxy): proxy for proxy in batch_proxies}
-        
-        for future in as_completed(future_to_proxy):
-            # 각 결과 처리 전에 정지 상태 재확인
-            if req:
-                if download_manager.is_download_stopped(req.id):
-                    print(f"[LOG] 프록시 테스트 결과 처리 중 즉시 정지 플래그 감지: {req.id}")
-                    # 나머지 테스트들도 취소
-                    for remaining_future in future_to_proxy:
-                        if not remaining_future.done():
-                            remaining_future.cancel()
-                    return []
-                
-                db.refresh(req)
-                if req.status == StatusEnum.stopped:
-                    print(f"[LOG] 프록시 테스트 결과 처리 중 정지됨: {req.id}")
-                    # 나머지 테스트들도 취소
-                    for remaining_future in future_to_proxy:
-                        if not remaining_future.done():
-                            remaining_future.cancel()
-                    return []
-            
-            proxy_addr, is_working = future.result()
-            
-            if is_working:
-                working_proxies.append(proxy_addr)
-                print(f"[LOG] ✅ 작동 프록시: {proxy_addr}")
+            print(f"[LOG] 배치 테스트 중 오류: {e}")
+
+        print(f"[LOG] 비동기 배치 테스트 완료: 성공 {len(working_proxies)}개, 실패 {len(failed_proxies)}개")
+        return working_proxies, failed_proxies
+
+    async def get_working_proxy_async(
+        self,
+        db: Session,
+        max_test: int = 15,
+        req=None,
+        lenient_mode: bool = False
+    ) -> Optional[str]:
+        """비동기로 작동하는 프록시 찾기"""
+
+        # 미사용 프록시 목록 가져오기
+        user_proxy_list = await self.get_user_proxy_list(db)
+
+        # 이미 사용된 프록시 주소들
+        used_proxies = db.query(ProxyStatus).filter(
+            ProxyStatus.ip.isnot(None),
+            ProxyStatus.port.isnot(None)
+        ).all()
+        used_proxy_addresses = {f"{p.ip}:{p.port}" for p in used_proxies}
+
+        # 미사용 프록시 필터링
+        unused_proxies = [p for p in user_proxy_list if p not in used_proxy_addresses]
+
+        if not unused_proxies:
+            print(f"[LOG] 사용 가능한 프록시가 없음")
+            return None
+
+        # 성공한 프록시들을 우선적으로 배치
+        successful_proxies = db.query(ProxyStatus).filter(
+            ProxyStatus.last_status == 'success'
+        ).all()
+        priority_proxies = [f"{p.ip}:{p.port}" for p in successful_proxies if f"{p.ip}:{p.port}" in unused_proxies]
+        other_proxies = [p for p in unused_proxies if p not in priority_proxies]
+
+        # 우선순위 프록시를 앞에 배치
+        final_proxies = priority_proxies + other_proxies
+        batch_proxies = final_proxies[:max_test]
+
+        print(f"[LOG] 전체 프록시: {len(user_proxy_list)}개, 미사용 프록시: {len(unused_proxies)}개")
+        print(f"[LOG] 우선순위 프록시: {len(priority_proxies)}개")
+
+        # 비동기 배치 테스트
+        working_proxies, failed_proxies = await self.test_proxy_batch_async(
+            db, batch_proxies, req, lenient_mode
+        )
+
+        # 실패한 프록시들을 DB에 기록
+        for failed_proxy in failed_proxies:
+            self.mark_proxy_used(db, failed_proxy, success=False)
+
+        return working_proxies[0] if working_proxies else None
+
+    def mark_proxy_used(self, db: Session, proxy_addr: str, success: bool):
+        """프록시 사용 결과를 DB에 기록 (동기 함수 유지)"""
+        try:
+            if ':' not in proxy_addr:
+                print(f"[LOG] 잘못된 프록시 주소 형식: {proxy_addr}")
+                return
+
+            ip, port = proxy_addr.strip().split(':', 1)
+
+            # 기존 레코드 확인
+            existing = db.query(ProxyStatus).filter(
+                ProxyStatus.ip == ip,
+                ProxyStatus.port == int(port)
+            ).first()
+
+            current_time = datetime.datetime.now()
+
+            if existing:
+                # 기존 레코드 업데이트
+                existing.last_status = 'success' if success else 'fail'
+                existing.success = success
+                existing.last_used_at = current_time
+                if not success:
+                    existing.last_failed_at = current_time
             else:
-                failed_proxies.append(proxy_addr)
-                print(f"[LOG] ❌ 실패 프록시: {proxy_addr}")
-    
-    # 실패한 프록시들을 사용됨으로 표시
-    for failed_proxy in failed_proxies:
-        mark_proxy_used(db, failed_proxy, success=False)
-    
-    print(f"[LOG] 배치 테스트 완료: 성공 {len(working_proxies)}개, 실패 {len(failed_proxies)}개")
-    return working_proxies
+                # 새 레코드 생성
+                new_record = ProxyStatus(
+                    ip=ip,
+                    port=int(port),
+                    last_status='success' if success else 'fail',
+                    success=success,
+                    last_used_at=current_time,
+                    last_failed_at=current_time if not success else None
+                )
+                db.add(new_record)
 
-def get_working_proxy(db: Session, max_test=15, req=None):
-    """기존 호환성을 위한 래퍼 - 배치 테스트에서 첫 번째 성공한 프록시 반환"""
-    working_proxies = get_working_proxy_batch(db, batch_size=max_test, req=req)
-    return working_proxies[0] if working_proxies else None
+            db.commit()
+
+        except Exception as e:
+            print(f"[LOG] 프록시 사용 기록 실패 ({proxy_addr}): {e}")
+            db.rollback()
 
 
+# 전역 인스턴스
+proxy_manager = ProxyManager()

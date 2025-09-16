@@ -13,6 +13,7 @@ from services.download_service import download_service
 from api.middleware import log_requests
 from api.routes import downloads, settings, events, auth, locales
 from api.routes.proxy import router as proxy_router
+from api.routes.history import router as history_router
 from core.db import engine
 from core.models import Base
 from core.i18n import load_all_translations
@@ -149,6 +150,7 @@ def create_app() -> FastAPI:
     # 라우터들 등록
     api_router.include_router(auth.router)
     api_router.include_router(downloads.router)
+    api_router.include_router(history_router)
     api_router.include_router(settings.router)
     api_router.include_router(proxy_router)
     api_router.include_router(events.router)

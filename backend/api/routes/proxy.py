@@ -6,12 +6,44 @@ from core.db import get_db
 from core.i18n import get_message
 from core.config import get_config
 from core.models import DownloadRequest, StatusEnum, ProxyStatus, UserProxy
-from core.proxy_manager import (
-    get_unused_proxies,
-    get_user_proxy_list,
-    reset_proxy_usage,
-    test_proxy
-)
+from core.proxy_manager import proxy_manager
+# 호환성 함수들
+async def get_unused_proxies(db):
+    """미사용 프록시 목록 반환"""
+    try:
+        # 사용자 프록시 목록 가져오기
+        user_proxy_list = await proxy_manager.get_user_proxy_list(db)
+
+        # 이미 사용된 프록시 주소들
+        used_proxies = db.query(ProxyStatus).filter(
+            ProxyStatus.ip.isnot(None),
+            ProxyStatus.port.isnot(None)
+        ).all()
+        used_proxy_addresses = {f"{p.ip}:{p.port}" for p in used_proxies}
+
+        # 미사용 프록시 필터링
+        unused_proxies = [p for p in user_proxy_list if p not in used_proxy_addresses]
+
+        return unused_proxies
+    except Exception as e:
+        print(f"[ERROR] get_unused_proxies failed: {e}")
+        return []
+
+def get_user_proxy_list(db):
+    return db.query(UserProxy).filter(UserProxy.is_active == True).all()
+
+def reset_proxy_usage(db):
+    db.query(ProxyStatus).delete()
+    db.commit()
+
+async def test_proxy(address, timeout=15):
+    """프록시 테스트"""
+    try:
+        result = await proxy_manager.test_proxy_async(address, timeout)
+        return result
+    except Exception as e:
+        print(f"[ERROR] test_proxy failed: {e}")
+        return False
 from sqlalchemy import desc
 
 router = APIRouter(prefix="/api", tags=["proxy"])
@@ -137,7 +169,8 @@ async def get_proxy_status(request: Request, db: Session = Depends(get_db)):
             desc(ProxyStatus.last_used_at)).limit(100).all()
 
         total_proxies = len(proxies)
-        available_proxies = len(get_unused_proxies(db))
+        unused_proxies_list = await get_unused_proxies(db)
+        available_proxies = len(unused_proxies_list)
         used_proxies = total_proxies - available_proxies
 
         success_count = len([s for s in recent_stats if s.success])
