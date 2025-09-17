@@ -108,6 +108,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                                     "id": req.id,
                                     "status": "stopped",
                                     "progress": round((downloaded / total_size * 100), 1) if total_size > 0 else 0,
+                                    "download_speed": 0,  # 정지 시 속도 0으로 명시
                                     "message": "다운로드가 중지되었습니다."
                                 }))
                         except Exception as sse_error:
@@ -143,11 +144,11 @@ def should_update_progress(downloaded, last_update_size, total_size, req):
     last_update_time = getattr(req, '_last_sse_send_time', 0)
     time_since_last_update = current_time - last_update_time
 
-    # 첫 번째 업데이트이거나, 완료 시 즉시, 그외에는 2초마다
+    # 첫 번째 업데이트이거나, 완료 시 즉시, 그외에는 3초마다 (적당한 간격)
     should_update = (
         (last_update_time == 0) or  # 첫 번째 업데이트
         (downloaded >= total_size) or  # 완료 시 즉시
-        (time_since_last_update >= 2.0)  # 2초마다 업데이트 (속도 표시 개선)
+        (time_since_last_update >= 3.0)  # 3초마다 업데이트 (너무 자주 변하지 않게)
     )
 
     print(f"[DEBUG] should_update_progress: last_time={last_update_time}, time_diff={time_since_last_update:.2f}, should_update={should_update}")
@@ -168,7 +169,17 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
     # 속도 계산 개선 (bytes per second로 계산)
     if time_diff > 0 and downloaded > last_update_size:
         size_diff = downloaded - last_update_size
-        download_speed = size_diff / time_diff  # B/s (프론트엔드 formatSpeed에 맞춤)
+        new_speed = size_diff / time_diff  # B/s (프론트엔드 formatSpeed에 맞춤)
+
+        # 이전 속도와 스무딩 적용 (급격한 변화 방지)
+        speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
+        prev_speed = getattr(req, speed_attr, new_speed)
+
+        if prev_speed > 0:
+            # 가중평균으로 스무딩 (70% 이전속도 + 30% 새속도)
+            download_speed = prev_speed * 0.7 + new_speed * 0.3
+        else:
+            download_speed = new_speed
 
         # 속도 변수 업데이트
         if hasattr(req, '_last_proxy_download_speed'):
@@ -177,27 +188,35 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
             req._last_local_download_speed = download_speed
 
         req._last_sse_send_time = current_time
-        print(f"[DEBUG] 속도 계산: {size_diff} bytes in {time_diff:.2f}s = {download_speed:.0f} B/s")
+        print(f"[DEBUG] 속도 계산: {size_diff} bytes in {time_diff:.2f}s, 원본={new_speed:.0f} B/s, 스무딩={download_speed:.0f} B/s")
     else:
         print(f"[DEBUG] 속도 계산 건너뜀 - 조건 불만족")
         # 첫 번째 업데이트이거나 이전 속도 사용
         if last_update_time == 0:
-            # 첫 번째 업데이트: 속도 0으로 시작
-            download_speed = 0
+            # 첫 번째 업데이트: 속도를 추정해서 계산
+            if time_diff > 0.1 and downloaded > 0:  # 최소 0.1초 경과하고 데이터가 있으면
+                download_speed = downloaded / time_diff
+                print(f"[DEBUG] 첫 번째 업데이트: 추정 속도 {download_speed:.0f} B/s")
+            else:
+                download_speed = 0
+                print(f"[DEBUG] 첫 번째 업데이트: 속도 계산 불가 (시간부족 또는 데이터없음)")
             req._last_sse_send_time = current_time
-            print(f"[DEBUG] 첫 번째 업데이트: 속도 0으로 설정")
         else:
-            # 이전 속도 사용
+            # 이전 속도 그대로 유지 (정지 전까지 안정적으로 표시)
             speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
             download_speed = getattr(req, speed_attr, 0)
-            print(f"[DEBUG] 이전 속도 사용: {download_speed:.0f} B/s")
+            print(f"[DEBUG] 이전 속도 유지: {download_speed:.0f} B/s")
 
     # 속도가 너무 작으면 0으로 표시 (10 B/s 이하)
     if download_speed < 10:
         download_speed = 0
-        print(f"[DEBUG] 속도가 너무 낮음: {download_speed} B/s -> 0으로 설정")
+        print(f"[DEBUG] 속도가 너무 낮음 -> 0으로 설정")
     else:
         print(f"[DEBUG] 최종 속도: {download_speed:.0f} B/s")
+
+    # 속도 변수 업데이트 (0이어도 저장)
+    speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
+    setattr(req, speed_attr, download_speed)
     
     # sse_manager를 import 해서 사용
     try:

@@ -29,6 +29,12 @@ class DownloadCore:
 
     def __init__(self):
         self.download_tasks: Dict[int, asyncio.Task] = {}
+        # 1fichier 로컬 다운로드 동시실행 제한 (무료 제한 회피용)
+        self.MAX_FICHIER_LOCAL_DOWNLOADS = 1
+        self.fichier_local_semaphore = asyncio.Semaphore(self.MAX_FICHIER_LOCAL_DOWNLOADS)
+        # 프록시 및 일반 다운로드 동시실행 제한
+        self.MAX_GENERAL_DOWNLOADS = 5
+        self.general_download_semaphore = asyncio.Semaphore(self.MAX_GENERAL_DOWNLOADS)
 
     async def send_download_update(self, req_id: int, update_data: Dict[str, Any]):
         """통합 다운로드 상태 업데이트 SSE 전송"""
@@ -39,6 +45,63 @@ class DownloadCore:
             })
         except Exception as e:
             print(f"[ERROR] SSE 업데이트 전송 실패: {e}")
+
+    async def _perform_preparse(self, req: DownloadRequest, db: Session):
+        """사전파싱 수행 (세마포어 밖에서 실행)"""
+        if "1fichier.com" in req.url:
+            from core.simple_parser import preparse_1fichier_standalone
+
+            parse_url = req.original_url if req.original_url else req.url
+            print(f"[LOG] 사전파싱 시작: {req.id}")
+
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                preparse_info = await loop.run_in_executor(None, preparse_1fichier_standalone, parse_url)
+
+                if preparse_info:
+                    if preparse_info.get('name') and not req.file_name:
+                        req.file_name = preparse_info['name']
+                        print(f"[LOG] 사전파싱 파일명: {req.file_name}")
+
+                    if preparse_info.get('size') and not req.file_size:
+                        req.file_size = preparse_info['size']
+                        print(f"[LOG] 사전파싱 파일크기: {req.file_size}")
+
+                        # file_size 문자열을 total_size 정수로 변환
+                        try:
+                            import re
+                            size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', req.file_size, re.IGNORECASE)
+                            if size_match:
+                                size_value = float(size_match.group(1))
+                                size_unit = size_match.group(2).upper()
+                                multipliers = {'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
+                                total_bytes = int(size_value * multipliers.get(size_unit, 1))
+                                print(f"[DEBUG] 크기 변환: {req.file_size} -> {total_bytes} bytes, 현재 total_size={req.total_size}")
+                                if not req.total_size or req.total_size == 0:
+                                    req.total_size = total_bytes
+                                    print(f"[LOG] 사전파싱에서 total_size 설정: {total_bytes} bytes")
+                                else:
+                                    print(f"[DEBUG] total_size가 이미 설정됨: {req.total_size}, 변환된 값: {total_bytes}")
+                        except Exception as size_convert_error:
+                            print(f"[WARNING] 파일 크기 변환 실패: {size_convert_error}")
+
+                    db.commit()
+
+                    # DB 커밋 후 상태 확인
+                    print(f"[DEBUG] DB 커밋 후 상태: req.id={req.id}, file_name='{req.file_name}', file_size='{req.file_size}', total_size={req.total_size}")
+
+                    # 즉시 SSE로 파일 정보 전송
+                    sse_data = {
+                        "id": req.id,
+                        "filename": req.file_name,
+                        "file_size": req.file_size
+                    }
+                    print(f"[LOG] SSE filename_update 전송 시작: {sse_data}")
+                    await sse_manager.broadcast_message("filename_update", sse_data)
+                    print(f"[LOG] 사전파싱 완료 - SSE 전송 완료")
+            except Exception as preparse_error:
+                print(f"[WARNING] 사전파싱 실패: {preparse_error}")
 
     async def send_download_log(self, req_id: int, message: str, level: str = "info"):
         """다운로드 로그 SSE 전송"""
@@ -57,7 +120,13 @@ class DownloadCore:
         try:
             # 상태를 parsing으로 변경
             req.status = StatusEnum.parsing
-            req.downloaded_size = 0
+            # downloaded_size는 이어받기가 아닌 경우에만 초기화
+            # 기존에 total_size나 downloaded_size가 있으면 보존
+            if (not req.total_size or req.total_size == 0) and (not req.downloaded_size or req.downloaded_size == 0):
+                req.downloaded_size = 0
+                print(f"[LOG] 새 다운로드: downloaded_size를 0으로 초기화")
+            else:
+                print(f"[LOG] 기존 다운로드 정보 보존: total_size={req.total_size}, downloaded_size={req.downloaded_size}")
             db.commit()
 
             await self.send_download_update(req.id, {
@@ -65,6 +134,15 @@ class DownloadCore:
                 "progress": 0,
                 "message": "파싱 시작 중..."
             })
+
+            # 텔레그램 시작 알림 전송
+            try:
+                from services.notification_service import send_telegram_start_notification
+                download_mode = "프록시 다운로드" if hasattr(self, '_download_with_proxy_async') else "로컬 다운로드"
+                send_telegram_start_notification(req.file_name, download_mode, "ko", req.file_size)
+                print(f"[LOG] 텔레그램 시작 알림 호출됨: {req.file_name}")
+            except Exception as telegram_error:
+                print(f"[WARNING] 텔레그램 시작 알림 실패: {telegram_error}")
 
             # 비동기 다운로드 태스크 생성
             task = asyncio.create_task(self._download_task(req.id))
@@ -94,15 +172,75 @@ class DownloadCore:
 
             print(f"[DEBUG] 다운로드 태스크 시작: ID={req_id}, URL={req.url}, USE_PROXY={req.use_proxy}")
 
-            # 다운로드 진행 - URL 기준으로 분기 (원래 로직)
+            # 다운로드 진행 - URL과 프록시 설정 기준으로 분기
             is_1fichier = "1fichier.com" in req.url
 
-            if is_1fichier:
-                print(f"[DEBUG] 1fichier 다운로드 시작: {req_id}")
-                await self._download_with_proxy_async(req, db)  # 1fichier는 프록시 다운로드
+            if is_1fichier and not req.use_proxy:
+                # 1fichier 로컬 다운로드 (무료 제한 회피용 - 최대 1개)
+                print(f"[DEBUG] 1fichier 로컬 다운로드 시작: {req_id}")
+
+                # 먼저 사전파싱을 세마포어 밖에서 실행
+                await self._perform_preparse(req, db)
+
+                # 1fichier 로컬 다운로드 동시실행 제한 적용
+                # 세마포어 대기 여부 확인
+                if self.fichier_local_semaphore._value == 0:  # 세마포어가 이미 사용 중인 경우
+                    print(f"[DEBUG] 1fichier 로컬 다운로드 제한 도달, 순서 대기 중: {req_id}")
+                    await self.send_download_update(req_id, {
+                        "status": "pending",
+                        "message": f"다운로드 순서를 기다리는 중... (최대 {self.MAX_FICHIER_LOCAL_DOWNLOADS}개 동시 실행)"
+                    })
+                    # 상태 DB 업데이트
+                    req.status = StatusEnum.pending
+                    db.commit()
+
+                async with self.fichier_local_semaphore:
+                    print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 획득: {req_id}")
+                    # 대기가 끝나면 다시 파싱 상태로 변경
+                    await self.send_download_update(req_id, {
+                        "status": "parsing",
+                        "message": "대기 완료, 1fichier 로컬 다운로드 시작 중..."
+                    })
+                    req.status = StatusEnum.parsing
+                    db.commit()
+
+                    await self._download_with_proxy_async(req, db, skip_preparse=True)  # 사전파싱 이미 완료
+                    print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
             else:
-                print(f"[DEBUG] 로컬 다운로드 시작: {req_id}")
-                await self._download_local_async(req, db)  # 일반 URL은 로컬 다운로드
+                # 일반 다운로드 (1fichier 프록시 포함, 일반 URL 포함 - 최대 5개)
+                if is_1fichier:
+                    download_type = "1fichier 프록시"
+                else:
+                    download_type = "일반"
+                print(f"[DEBUG] {download_type} 다운로드 시작: {req_id}")
+
+                # 일반 다운로드 동시실행 제한 적용
+                # 세마포어 대기 여부 확인
+                if self.general_download_semaphore._value == 0:  # 세마포어가 이미 사용 중인 경우
+                    print(f"[DEBUG] {download_type} 다운로드 제한 도달, 순서 대기 중: {req_id}")
+                    await self.send_download_update(req_id, {
+                        "status": "pending",
+                        "message": f"다운로드 순서를 기다리는 중... (최대 {self.MAX_GENERAL_DOWNLOADS}개 동시 실행)"
+                    })
+                    # 상태 DB 업데이트
+                    req.status = StatusEnum.pending
+                    db.commit()
+
+                async with self.general_download_semaphore:
+                    print(f"[DEBUG] {download_type} 다운로드 세마포어 획득: {req_id}")
+                    # 대기가 끝나면 다시 파싱 상태로 변경
+                    await self.send_download_update(req_id, {
+                        "status": "parsing",
+                        "message": f"대기 완료, {download_type} 다운로드 시작 중..."
+                    })
+                    req.status = StatusEnum.parsing
+                    db.commit()
+
+                    if is_1fichier:
+                        await self._download_with_proxy_async(req, db)  # 1fichier 프록시 다운로드
+                    else:
+                        await self._download_local_async(req, db)  # 일반 URL 다운로드
+                    print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
 
         except asyncio.CancelledError:
             # 다운로드 취소됨
@@ -128,7 +266,7 @@ class DownloadCore:
         finally:
             db.close()
 
-    async def _download_with_proxy_async(self, req: DownloadRequest, db: Session):
+    async def _download_with_proxy_async(self, req: DownloadRequest, db: Session, skip_preparse: bool = False):
         """1fichier 프록시 다운로드 (원래 함수명)"""
         print(f"[DEBUG] _download_with_proxy_async 시작: {req.id}")
         await self.send_download_log(req.id, "1fichier 다운로드 시작")
@@ -151,8 +289,8 @@ class DownloadCore:
             # TODO: 필요시 프록시 설정
 
             # 1fichier 파싱 실행 (이미 비동기 함수)
-            # 1fichier인 경우에만 original_url 사용, 일반 다운로드는 현재 url 사용
-            if "1fichier.com" in (req.original_url or req.url):
+            # 1fichier인 경우에만 original_url 사용, 일반 다운로드는 현재 url 사용 - skip_preparse가 True면 건너뜀
+            if "1fichier.com" in (req.original_url or req.url) and not skip_preparse:
                 parse_url = req.original_url if req.original_url else req.url
                 print(f"[DEBUG] 1fichier 파싱 URL: {parse_url}")
 
@@ -172,7 +310,28 @@ class DownloadCore:
                             req.file_size = preparse_info['size']
                             print(f"[LOG] 사전파싱 파일크기: {req.file_size}")
 
+                            # file_size 문자열을 total_size 정수로 변환
+                            try:
+                                import re
+                                size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', req.file_size, re.IGNORECASE)
+                                if size_match:
+                                    size_value = float(size_match.group(1))
+                                    size_unit = size_match.group(2).upper()
+                                    multipliers = {'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
+                                    total_bytes = int(size_value * multipliers.get(size_unit, 1))
+                                    print(f"[DEBUG] 크기 변환: {req.file_size} -> {total_bytes} bytes, 현재 total_size={req.total_size}")
+                                    if not req.total_size or req.total_size == 0:
+                                        req.total_size = total_bytes
+                                        print(f"[LOG] 사전파싱에서 total_size 설정: {total_bytes} bytes")
+                                    else:
+                                        print(f"[DEBUG] total_size가 이미 설정됨: {req.total_size}, 변환된 값: {total_bytes}")
+                            except Exception as size_convert_error:
+                                print(f"[WARNING] 파일 크기 변환 실패: {size_convert_error}")
+
                         db.commit()
+
+                        # DB 커밋 후 상태 확인
+                        print(f"[DEBUG] DB 커밋 후 상태: req.id={req.id}, file_name='{req.file_name}', file_size='{req.file_size}', total_size={req.total_size}")
 
                         # 즉시 SSE로 파일 정보 전송
                         sse_data = {
@@ -295,17 +454,17 @@ class DownloadCore:
                 print(f"[DEBUG] _perform_file_download_async 완료: {req.id}")
                 return True
             else:
-                print(f"[LOG] 다운로드 링크 추출 실패 - 파일 정보는 저장 완료, 재시도 가능")
-                # 파일 정보는 저장되었으므로 대기 상태로 두어 재시도 가능하게 함
-                req.status = StatusEnum.pending
+                print(f"[LOG] 다운로드 링크 추출 실패 - failed 상태로 변경")
+                # 다운로드 링크 추출 실패 시 failed 상태로 설정
+                req.status = StatusEnum.failed
                 req.error = "다운로드 링크 추출 실패 - 재시도 버튼으로 다시 시도하세요"
                 db.commit()
 
                 await self.send_download_update(req.id, {
-                    "status": "pending",
-                    "message": "다운로드 링크 추출 실패 - 재시도 가능"
+                    "status": "failed",
+                    "message": "다운로드 링크 추출 실패 - 재시도 버튼으로 다시 시도하세요"
                 })
-                return True  # 파일 정보 저장은 성공했으므로 True 반환
+                return False  # 다운로드 실패
 
         except Exception as e:
             print(f"[ERROR] 1fichier 파싱 실패: {e}")
@@ -373,11 +532,12 @@ class DownloadCore:
                     if response.status not in [200, 206]:
                         raise Exception(f"HTTP {response.status}: {response.reason}")
 
-                    # Content-Length 가져오기
+                    # Content-Length 가져오기 (사전파싱에서 얻은 total_size가 있으면 덮어쓰지 않음)
                     content_length = response.headers.get('Content-Length')
-                    if content_length:
+                    if content_length and (not req.total_size or req.total_size == 0):
                         req.total_size = int(content_length) + initial_size
                         db.commit()
+                        print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
 
                     # 실제 파일 다운로드
                     print(f"[DEBUG] 파일 다운로드 시작 - 초기크기: {initial_size}, 총크기: {req.total_size}")

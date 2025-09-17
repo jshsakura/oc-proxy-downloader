@@ -10,7 +10,7 @@ import requests
 import datetime
 from services.sse_manager import sse_manager
 from core.config import get_config
-from utils.translations import get_translations
+from core.i18n import get_translations
 
 
 def send_sse_message(message_type: str, data: dict):
@@ -34,6 +34,7 @@ def send_sse_message(message_type: str, data: dict):
 
 def send_telegram_wait_notification(file_name: str, wait_minutes: int, language: str = "ko", file_size_str: str = None):
     """텔레그램 대기 시간 알림 전송"""
+    print(f"[DEBUG] 텔레그램 대기 알림 호출됨: file_name={file_name}, wait_minutes={wait_minutes}")
     try:
         config = get_config()
 
@@ -41,7 +42,10 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
         chat_id = config.get("telegram_chat_id", "").strip()
         notify_wait = config.get("telegram_notify_wait", True)
 
+        print(f"[DEBUG] 텔레그램 설정: bot_token={'있음' if bot_token else '없음'}, chat_id={'있음' if chat_id else '없음'}, notify_wait={notify_wait}")
+
         if not bot_token or not chat_id or not notify_wait:
+            print(f"[DEBUG] 텔레그램 알림 조건 불만족 - 전송 중단")
             return
 
         translations = get_translations(language)
@@ -68,6 +72,8 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
 ⏰ <b>{wait_time_text}</b>
 <code>{wait_minutes}분</code>"""
 
+        print(f"[DEBUG] 텔레그램 메시지 생성 완료, API 호출 시작")
+
         # 텔레그램 API 호출
         def send_notification():
             try:
@@ -78,15 +84,17 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
                     "parse_mode": "HTML"
                 }
 
+                print(f"[DEBUG] 텔레그램 API 호출: URL={url[:50]}..., chat_id={chat_id}")
                 response = requests.post(url, json=payload, timeout=10)
                 if response.status_code == 200:
                     print(f"[TELEGRAM] 대기 알림 전송 성공: {file_name} ({wait_minutes}분)")
                 else:
-                    print(f"[WARNING] 텔레그램 전송 실패 - HTTP {response.status_code}")
+                    print(f"[WARNING] 텔레그램 전송 실패 - HTTP {response.status_code}: {response.text}")
             except Exception as e:
                 print(f"[WARNING] 텔레그램 전송 실패: {e}")
 
         # 별도 스레드에서 전송
+        print(f"[DEBUG] 텔레그램 알림 스레드 시작")
         threading.Thread(target=send_notification, daemon=True).start()
 
     except Exception as e:
@@ -95,6 +103,7 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
 
 def send_telegram_start_notification(file_name: str, download_mode: str, language: str = "ko", file_size_str: str = None):
     """텔레그램 다운로드 시작 알림"""
+    print(f"[DEBUG] 텔레그램 시작 알림 호출됨: file_name={file_name}, download_mode={download_mode}")
     try:
         config = get_config()
 
@@ -102,7 +111,10 @@ def send_telegram_start_notification(file_name: str, download_mode: str, languag
         chat_id = config.get("telegram_chat_id", "").strip()
         notify_start = config.get("telegram_notify_start", False)
 
+        print(f"[DEBUG] 텔레그램 시작 설정: bot_token={'있음' if bot_token else '없음'}, chat_id={'있음' if chat_id else '없음'}, notify_start={notify_start}")
+
         if not bot_token or not chat_id or not notify_start:
+            print(f"[DEBUG] 텔레그램 시작 알림 조건 불만족 - 전송 중단")
             return
 
         translations = get_translations(language)
