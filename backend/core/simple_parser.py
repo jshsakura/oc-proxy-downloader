@@ -49,7 +49,18 @@ def parse_1fichier_simple(url, password=None, proxies=None, proxy_addr=None):
         wait_seconds = extract_wait_time_from_button(response.text)
         if wait_seconds:
             print(f"[LOG] 대기시간: {wait_seconds}초")
-            
+
+            # 텔레그램 대기시간 알림 (5분 이상인 경우)
+            if wait_seconds >= 300:  # 5분 이상
+                wait_minutes = wait_seconds // 60
+                try:
+                    from services.notification_service import send_telegram_wait_notification
+                    file_name = file_info.get('name', 'Unknown File') if file_info else 'Unknown File'
+                    file_size = file_info.get('size') if file_info else None
+                    send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size)
+                except Exception as telegram_error:
+                    print(f"[WARNING] 텔레그램 알림 실패: {telegram_error}")
+
             # 4단계: 정확히 대기
             print(f"[LOG] {wait_seconds}초 대기 시작...")
             time.sleep(wait_seconds)
