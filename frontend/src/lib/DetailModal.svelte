@@ -86,7 +86,7 @@
             <div class="title-text">
               <h2>{$t("detail_modal_title")}</h2>
               <p class="subtitle">
-                {download.file_name || $t("detail_not_available")}
+                {download.filename || $t("detail_not_available")}
               </p>
             </div>
           </div>
@@ -101,7 +101,7 @@
         <table class="detail-table">
           <tbody>
             <tr>
-              <th>{$t("detail_original_url")}</th>
+              <th>{$t("detail_download_url")}</th>
               <td>
                 <div class="url-container">
                   <span class="url-text" title={download.url}
@@ -117,6 +117,25 @@
                 </div>
               </td>
             </tr>
+            {#if download.original_url}
+            <tr>
+              <th>{$t("detail_parsed_link")}</th>
+              <td>
+                <div class="url-container">
+                  <span class="url-text" title={download.original_url}
+                    >{download.original_url}</span
+                  >
+                  <button
+                    class="copy-button"
+                    on:click={() => copyToClipboard(download.original_url)}
+                    title={$t("copy_url")}
+                  >
+                    <CopyIcon />
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {/if}
             <tr>
               <th>{$t("detail_download_path")}</th>
               <td>
@@ -141,8 +160,8 @@
             <tr>
               <th>{$t("detail_requested_at")}</th>
               <td>
-                {#if download.requested_at}
-                  {formatTimestamp(download.requested_at)}
+                {#if download.created_at}
+                  {formatTimestamp(download.created_at)}
                 {:else}
                   {$t("detail_not_available")}
                 {/if}
@@ -159,14 +178,14 @@
             <tr>
               <th>{$t("detail_file_name")}</th>
               <td>
-                {#if download.file_name}
+                {#if download.filename}
                   <div class="url-container">
-                    <span class="url-text" title={download.file_name}
-                      >{download.file_name}</span
+                    <span class="url-text" title={download.filename}
+                      >{download.filename}</span
                     >
                     <button
                       class="copy-button"
-                      on:click={() => copyToClipboard(download.file_name)}
+                      on:click={() => copyToClipboard(download.filename)}
                       title={$t("copy_filename")}
                     >
                       <CopyIcon />
@@ -199,13 +218,13 @@
               <th>{$t("detail_error_message")}</th>
               <td>
                 <div class="error-message-container">
-                  <span class="error-text" title={download.error || ""}>
-                    {download.error || $t("detail_no_error")}
+                  <span class="error-text" title={download.error_message || ""}>
+                    {download.error_message || $t("detail_no_error")}
                   </span>
-                  {#if download.error}
+                  {#if download.error_message}
                     <button
                       class="copy-button"
-                      on:click={() => copyToClipboard(download.error)}
+                      on:click={() => copyToClipboard(download.error_message)}
                       title={$t("copy_error")}
                     >
                       <CopyIcon />
@@ -225,9 +244,9 @@
             <span class="status-badge status-{download.status?.toLowerCase()}">
               {$t(`download_${download.status?.toLowerCase()}`)}
             </span>
-            {#if download.requested_at}
+            {#if download.created_at}
               <span class="timestamp">
-                {formatTimestamp(download.requested_at)}
+                {formatTimestamp(download.created_at)}
               </span>
             {/if}
           </div>

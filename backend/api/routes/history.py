@@ -32,14 +32,15 @@ async def get_download_history(
             history.append({
                 "id": download.id,
                 "url": download.url,
-                "filename": download.filename or "Unknown",
+                "filename": download.file_name or "Unknown",
                 "status": download.status.value if download.status else "unknown",
-                "progress": download.progress or 0,
+                "progress": round((download.downloaded_size / download.total_size * 100), 1) if download.total_size and download.total_size > 0 else 0,
                 "use_proxy": download.use_proxy or False,
-                "created_at": download.created_at.isoformat() if download.created_at else None,
-                "download_started_at": download.download_started_at.isoformat() if download.download_started_at else None,
-                "download_completed_at": download.download_completed_at.isoformat() if download.download_completed_at else None,
-                "error_message": download.error_message
+                "created_at": download.requested_at.isoformat() if download.requested_at else None,
+                "finished_at": download.finished_at.isoformat() if download.finished_at else None,
+                "error_message": download.error,
+                "total_size": download.total_size,
+                "downloaded_size": download.downloaded_size
             })
 
         return {"history": history, "total": len(history)}
@@ -67,11 +68,13 @@ async def get_active_downloads(db: Session = Depends(get_db)):
             downloads.append({
                 "id": download.id,
                 "url": download.url,
-                "filename": download.filename or "Unknown",
+                "filename": download.file_name or "Unknown",
                 "status": download.status.value if download.status else "unknown",
-                "progress": download.progress or 0,
+                "progress": round((download.downloaded_size / download.total_size * 100), 1) if download.total_size and download.total_size > 0 else 0,
                 "use_proxy": download.use_proxy or False,
-                "error_message": download.error_message
+                "error_message": download.error,
+                "total_size": download.total_size,
+                "downloaded_size": download.downloaded_size
             })
 
         return {"downloads": downloads, "count": len(downloads)}

@@ -31,14 +31,14 @@ class DownloadService:
             return
 
         self.is_running = True
-        print("[LOG] DownloadService started (완전 비동기)")
+        print("[LOG] DownloadService started")
 
         # 시작시 모든 다운로드를 stopped 상태로 초기화
         await self._reset_all_downloads()
 
         # 대기시간 모니터링 시작
         self.wait_monitor_task = asyncio.create_task(self._monitor_wait_timeouts())
-        print("[LOG] Wait timeout monitor started (비동기)")
+        print("[LOG] Wait timeout monitor started")
 
     async def stop(self):
         """서비스 정지"""
@@ -98,7 +98,7 @@ class DownloadService:
             db.close()
 
     async def _monitor_wait_timeouts(self):
-        """대기시간 타임아웃 모니터링 (비동기)"""
+        """대기시간 타임아웃 모니터링"""
         while self.is_running:
             try:
                 await asyncio.sleep(60)  # 1분마다 체크
@@ -113,7 +113,7 @@ class DownloadService:
                     current_time = datetime.datetime.now()
 
                     for req in waiting_downloads:
-                        if req.wait_until and current_time >= req.wait_until:
+                        if hasattr(req, 'wait_until') and req.wait_until and current_time >= req.wait_until:
                             # 대기시간 완료 - 다운로드 재시작
                             await self._restart_after_wait(req, db)
 
@@ -135,8 +135,10 @@ class DownloadService:
 
             # 상태를 parsing으로 변경
             req.status = StatusEnum.parsing
-            req.wait_until = None
-            req.progress = 0
+            if hasattr(req, 'wait_until'):
+                req.wait_until = None
+            if hasattr(req, 'progress'):
+                req.progress = 0
             db.commit()
 
             # SSE 알림
@@ -197,7 +199,7 @@ class DownloadService:
             # 24시간 이전에 완료된 다운로드들 삭제
             completed_old = db.query(DownloadRequest).filter(
                 DownloadRequest.status == StatusEnum.done,
-                DownloadRequest.download_completed_at < cutoff_time
+                DownloadRequest.finished_at < cutoff_time
             )
 
             count = completed_old.count()

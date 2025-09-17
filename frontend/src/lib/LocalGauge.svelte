@@ -163,9 +163,10 @@
   }
 
   .local-status.waiting {
-    background-color: var(--warning-color);
-    color: #fff;
-    border: 1px solid var(--warning-color);
+    background-color: var(--card-background);
+    color: var(--text-secondary);
+    border: 1px solid var(--card-border);
+    opacity: 0.7;
   }
 
   .local-status.completed {

@@ -20,6 +20,7 @@ class DownloadRequest(Base):
     __tablename__ = "download_requests"
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, nullable=False)
+    original_url = Column(String, nullable=True)  # 원본 URL (파싱 전)
     file_name = Column(String)
     file_size = Column(String, nullable=True)  # 파일 크기 (예: "6.98 GB")
     status = Column(Enum(StatusEnum), default=StatusEnum.pending)
@@ -31,6 +32,22 @@ class DownloadRequest(Base):
     save_path = Column(String, nullable=True)
     password = Column(String, nullable=True)
     use_proxy = Column(Boolean, default=True)  # 프록시 사용 여부
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # 임시 속성들 (DB에 저장되지 않음)
+        self._wait_until = None  # 대기 완료 시간
+        self.progress = 0  # 현재 진행률
+
+    @property
+    def wait_until(self):
+        """대기 완료 시간을 반환합니다. DB에서 로드된 객체의 경우 기본값을 반환합니다."""
+        return getattr(self, '_wait_until', None)
+
+    @wait_until.setter
+    def wait_until(self, value):
+        """대기 완료 시간을 설정합니다."""
+        self._wait_until = value
 
     def as_dict(self):
         data = {}

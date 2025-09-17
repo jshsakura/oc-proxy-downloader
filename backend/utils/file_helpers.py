@@ -5,11 +5,44 @@
 
 import time
 import re
+import os
 from pathlib import Path
 from urllib.parse import unquote
 from core.models import StatusEnum
+from core.config import get_download_path
 from utils.sse import send_sse_message
 # 기존 동기 다운로드 매니저 제거됨
+
+
+def generate_file_path(filename, is_temporary=True):
+    """파일 저장 경로 생성"""
+    download_dir = get_download_path()
+
+    # 안전한 파일명으로 변환
+    safe_filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    file_path = download_dir / safe_filename
+
+    # 중복 파일명 처리
+    counter = 1
+    original_path = file_path
+    while file_path.exists() or (file_path.with_suffix(file_path.suffix + '.part').exists() if not is_temporary else False):
+        stem = original_path.stem
+        suffix = original_path.suffix
+        file_path = original_path.parent / f"{stem}({counter}){suffix}"
+        counter += 1
+
+    # 다운로드 중에는 .part 확장자 추가
+    if is_temporary:
+        file_path = file_path.with_suffix(file_path.suffix + '.part')
+
+    return str(file_path)
+
+
+def get_final_file_path(temp_file_path):
+    """임시 파일(.part)에서 최종 파일 경로 생성"""
+    if temp_file_path.endswith('.part'):
+        return temp_file_path[:-5]  # .part 제거
+    return temp_file_path
 
 
 def extract_filename_from_headers(response, req, db):
@@ -51,28 +84,46 @@ async def download_file_content(response, file_path, initial_size, total_size, r
 
     try:
         with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
-            async for chunk in response.aiter_bytes(chunk_size=8192):
+            async for chunk in response.content.iter_chunked(8192):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
                     chunk_count += 1
                 
-                if chunk_count % 16 == 0:
-                    # 다운로드 중지 체크는 새로운 비동기 구조에서 처리
-                    
+                # 성능 개선: 체크 간격을 늘림 (128개 청크마다 = 1MB마다)
+                if chunk_count % 128 == 0:
+                    # 다운로드 중지 체크
                     db.refresh(req)
                     if req.status == StatusEnum.stopped:
                         print(f"[LOG] 다운로드 중 정지됨: {req.id}")
+
+                        # 정지 상태 SSE 전송
+                        try:
+                            from services.sse_manager import sse_manager
+                            import asyncio
+
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                loop.create_task(sse_manager.broadcast_message("status_update", {
+                                    "id": req.id,
+                                    "status": "stopped",
+                                    "progress": round((downloaded / total_size * 100), 1) if total_size > 0 else 0,
+                                    "message": "다운로드가 중지되었습니다."
+                                }))
+                        except Exception as sse_error:
+                            print(f"[WARNING] 정지 상태 SSE 전송 실패: {sse_error}")
+
                         return downloaded
-                
-                if should_update_progress(downloaded, last_update_size, total_size, req):
-                    try:
-                        last_update_size = send_progress_update(
-                            downloaded, total_size, last_update_size, req, db
-                        )
-                    except Exception as sse_error:
-                        print(f"[WARNING] SSE 업데이트 실패: {sse_error}")
-                        last_update_size = downloaded
+
+                    # 진행률 업데이트 체크
+                    if should_update_progress(downloaded, last_update_size, total_size, req):
+                        try:
+                            last_update_size = send_progress_update(
+                                downloaded, total_size, last_update_size, req, db
+                            )
+                        except Exception as sse_error:
+                            print(f"[WARNING] SSE 업데이트 실패: {sse_error}")
+                            last_update_size = downloaded
 
             print(f"[LOG] 파일 다운로드 완료: {downloaded} bytes")
 
@@ -87,29 +138,37 @@ async def download_file_content(response, file_path, initial_size, total_size, r
 
 
 def should_update_progress(downloaded, last_update_size, total_size, req):
-    """진행률 업데이트가 필요한지 확인 - 순수 시간 기반"""
+    """진행률 업데이트가 필요한지 확인 - 최적화된 간격"""
     current_time = time.time()
     last_update_time = getattr(req, '_last_sse_send_time', 0)
     time_since_last_update = current_time - last_update_time
 
-    # 시간 기반으로만 업데이트 (크기 기반 제거)
-    return (
+    # 첫 번째 업데이트이거나, 완료 시 즉시, 그외에는 2초마다
+    should_update = (
+        (last_update_time == 0) or  # 첫 번째 업데이트
         (downloaded >= total_size) or  # 완료 시 즉시
-        (time_since_last_update >= 2.5)  # 2.5초마다 업데이트
+        (time_since_last_update >= 2.0)  # 2초마다 업데이트 (속도 표시 개선)
     )
+
+    print(f"[DEBUG] should_update_progress: last_time={last_update_time}, time_diff={time_since_last_update:.2f}, should_update={should_update}")
+
+    return should_update
 
 
 def send_progress_update(downloaded, total_size, last_update_size, req, db):
     """진행률 업데이트 전송"""
     progress = (downloaded / total_size * 100) if total_size > 0 else 0.0
     current_time = time.time()
-    last_update_time = getattr(req, '_last_sse_send_time', current_time)
+    last_update_time = getattr(req, '_last_sse_send_time', 0)
     time_diff = current_time - last_update_time
 
-    # 속도 계산 개선
+    # 속도 계산 디버깅
+    print(f"[DEBUG] 속도 계산 조건: time_diff={time_diff:.2f}, downloaded={downloaded}, last_update_size={last_update_size}")
+
+    # 속도 계산 개선 (bytes per second로 계산)
     if time_diff > 0 and downloaded > last_update_size:
         size_diff = downloaded - last_update_size
-        download_speed = (size_diff / 1024) / time_diff  # KB/s
+        download_speed = size_diff / time_diff  # B/s (프론트엔드 formatSpeed에 맞춤)
 
         # 속도 변수 업데이트
         if hasattr(req, '_last_proxy_download_speed'):
@@ -118,28 +177,57 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
             req._last_local_download_speed = download_speed
 
         req._last_sse_send_time = current_time
+        print(f"[DEBUG] 속도 계산: {size_diff} bytes in {time_diff:.2f}s = {download_speed:.0f} B/s")
     else:
-        # 이전 속도 사용
-        speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
-        download_speed = getattr(req, speed_attr, 0)
+        print(f"[DEBUG] 속도 계산 건너뜀 - 조건 불만족")
+        # 첫 번째 업데이트이거나 이전 속도 사용
+        if last_update_time == 0:
+            # 첫 번째 업데이트: 속도 0으로 시작
+            download_speed = 0
+            req._last_sse_send_time = current_time
+            print(f"[DEBUG] 첫 번째 업데이트: 속도 0으로 설정")
+        else:
+            # 이전 속도 사용
+            speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
+            download_speed = getattr(req, speed_attr, 0)
+            print(f"[DEBUG] 이전 속도 사용: {download_speed:.0f} B/s")
 
-    # 속도가 너무 작으면 0으로 표시
-    if download_speed < 0.1:
+    # 속도가 너무 작으면 0으로 표시 (10 B/s 이하)
+    if download_speed < 10:
         download_speed = 0
+        print(f"[DEBUG] 속도가 너무 낮음: {download_speed} B/s -> 0으로 설정")
+    else:
+        print(f"[DEBUG] 최종 속도: {download_speed:.0f} B/s")
     
-    send_sse_message("status_update", {
-        "id": req.id,
-        "downloaded_size": downloaded,
-        "total_size": total_size,
-        "progress": round(min(100.0, progress), 1),  # 100% 초과 방지
-        "speed": f"{round(download_speed, 0)} KB/s" if download_speed > 0 else "0 KB/s",
-        "status": "downloading"
-    })
+    # sse_manager를 import 해서 사용
+    try:
+        from services.sse_manager import sse_manager
+        import asyncio
+
+        # 비동기 SSE 전송
+        sse_data = {
+            "id": req.id,
+            "downloaded_size": downloaded,
+            "total_size": total_size,
+            "progress": round(min(100.0, progress), 1),
+            "download_speed": int(download_speed) if download_speed > 0 else 0,
+            "status": "downloading"
+        }
+
+        print(f"[DEBUG] SSE 전송 데이터: {sse_data}")
+
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(sse_manager.broadcast_message("status_update", sse_data))
+    except Exception as sse_error:
+        print(f"[WARNING] SSE 진행률 전송 실패: {sse_error}")
     
-    if downloaded - getattr(req, '_last_db_update_size', 0) >= 1024 * 1024:
+    # 데이터베이스 업데이트도 최적화 (5초마다)
+    last_db_update_time = getattr(req, '_last_db_update_time', 0)
+    if current_time - last_db_update_time >= 5.0 or downloaded >= total_size:
         req.downloaded_size = downloaded
         db.commit()
-        req._last_db_update_size = downloaded
+        req._last_db_update_time = current_time
     
     return downloaded
 

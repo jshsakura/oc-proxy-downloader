@@ -405,6 +405,13 @@
           if (updatedDownload.save_path) {
             console.log("📁 다운로드 경로 업데이트:", updatedDownload.id, updatedDownload.save_path);
           }
+
+          // 상태가 stopped로 변경되면 대기 정보 제거
+          if (updatedDownload.status === "stopped" && downloadWaitInfo[downloadId]) {
+            delete downloadWaitInfo[downloadId];
+            downloadWaitInfo = { ...downloadWaitInfo };
+            console.log(`🛑 상태 변경으로 인한 대기 정보 제거: ${downloadId}`);
+          }
         } else {
           // 중복 추가 방지: 유효한 ID와 URL이 있을 때만 추가
           if (downloadId && !isNaN(downloadId) && updatedDownload.url) {
@@ -499,8 +506,8 @@
       // 대기시간 카운트다운 처리
       if (message.type === "wait_countdown") {
         console.log("🕐 wait_countdown 메시지 수신:", message.data);
-        const { download_id, remaining_time, wait_message } = message.data;
-        downloadWaitInfo[download_id] = {
+        const { id, remaining_time, wait_message } = message.data;
+        downloadWaitInfo[id] = {
           remaining_time: remaining_time,
           message: wait_message,
           timestamp: Date.now(),
@@ -510,12 +517,12 @@
         downloadWaitInfo = { ...downloadWaitInfo };
         console.log("📊 downloadWaitInfo 업데이트됨:", downloadWaitInfo);
         console.log("🔍 wait_countdown 조건 체크:", {
-          download_id,
-          hasWaitInfo: !!downloadWaitInfo[download_id],
-          remaining_time: downloadWaitInfo[download_id]?.remaining_time,
+          id,
+          hasWaitInfo: !!downloadWaitInfo[id],
+          remaining_time: downloadWaitInfo[id]?.remaining_time,
           condition:
-            downloadWaitInfo[download_id] &&
-            downloadWaitInfo[download_id].remaining_time > 0,
+            downloadWaitInfo[id] &&
+            downloadWaitInfo[id].remaining_time > 0,
         });
       }
 
@@ -526,20 +533,30 @@
         downloadWaitInfo = { ...downloadWaitInfo };
       }
 
+      // 다운로드 정지 시 대기 정보 제거
+      if (message.type === "download_stopped") {
+        const { id } = message.data;
+        if (downloadWaitInfo[id]) {
+          delete downloadWaitInfo[id];
+          downloadWaitInfo = { ...downloadWaitInfo };
+          console.log(`🛑 정지로 인한 대기 정보 제거: ${id}`);
+        }
+      }
+
       // 파일명 업데이트 처리
       if (message.type === "filename_update") {
         console.log("📁 filename_update 메시지 수신:", message.data);
-        const { id, file_name, file_size } = message.data;
+        const { id, filename, file_size } = message.data;
         const index = downloads.findIndex((d) => d.id === id);
         if (index !== -1) {
           downloads = downloads.map((d, i) => {
             if (i === index) {
               console.log(
-                `📁 파일명 업데이트: ID=${id}, ${d.file_name} → ${file_name}`
+                `📁 파일명 업데이트: ID=${id}, ${d.filename} → ${filename}, 크기: ${file_size}`
               );
               return {
                 ...d,
-                file_name: file_name || d.file_name,
+                filename: filename || d.filename,
                 file_size: file_size || d.file_size,
               };
             }
@@ -582,7 +599,17 @@
       const response = await fetch(`/api/history/`);
       if (response.ok) {
         const data = await response.json();
-        downloads = data;
+        downloads = data.history || [];
+
+        // 완료되거나 정지된 다운로드의 대기 정보 정리
+        Object.keys(downloadWaitInfo).forEach(downloadId => {
+          const id = parseInt(downloadId);
+          const download = downloads.find(d => d.id === id);
+          if (!download || download.status === 'stopped' || download.status === 'done' || download.status === 'failed') {
+            delete downloadWaitInfo[downloadId];
+          }
+        });
+        downloadWaitInfo = { ...downloadWaitInfo };
       }
     } catch (error) {
       console.error("Background sync failed:", error);
@@ -601,18 +628,19 @@
       if (response.ok) {
         const data = await response.json();
         console.log("History API response:", data);
-        if (Array.isArray(data) && data.length > 0) {
-          console.log("First download status:", data[0].status);
+        const historyData = data.history || [];
+        if (Array.isArray(historyData) && historyData.length > 0) {
+          console.log("First download status:", historyData[0].status);
           console.log(
             "All download statuses:",
-            data.map((d) => d.status)
+            historyData.map((d) => d.status)
           );
         }
-        downloads = data;
+        downloads = historyData;
         currentPage = 1;
         totalPages = 1;
 
-        updateStats(data);
+        updateStats(historyData);
       } else {
         console.error("History API failed with status:", response.status);
         const errorText = await response.text();
@@ -650,7 +678,7 @@
   }
 
   function updateProxyStats(downloadsData) {
-    if (!downloadsData) return;
+    if (!downloadsData || !Array.isArray(downloadsData)) return;
 
     const activeProxyDownloads = downloadsData.filter(
       (d) =>
@@ -662,22 +690,28 @@
     proxyStats = { ...proxyStats };
   }
 
+  // 전역 디바운싱을 위한 플래그
+  let needsActiveDownloadsUpdate = false;
+
+  // fetchActiveDownloads를 주기적으로 호출하는 인터벌 (5초마다 - 성능 최적화)
+  setInterval(() => {
+    if (needsActiveDownloadsUpdate) {
+      fetchActiveDownloads();
+      needsActiveDownloadsUpdate = false;
+    }
+  }, 5000);
+
   // 통합된 통계 업데이트 함수
   function updateStats(downloadsData) {
     updateProxyStats(downloadsData);
     updateLocalStats(downloadsData);
-    
-    // fetchActiveDownloads 디바운싱
-    if (activeDownloadsTimer) {
-      clearTimeout(activeDownloadsTimer);
-    }
-    activeDownloadsTimer = setTimeout(() => {
-      fetchActiveDownloads();
-    }, 200);
+
+    // 디바운싱 대신 플래그만 설정
+    needsActiveDownloadsUpdate = true;
   }
 
   function updateLocalStats(downloadsData) {
-    if (!downloadsData) return;
+    if (!downloadsData || !Array.isArray(downloadsData)) return;
 
     const localDownloads = downloadsData.filter((d) => !d.use_proxy);
 
@@ -696,7 +730,7 @@
 
     localStats.localDownloadCount = activeLocalDownloads.length;
     localStats.localCurrentFile =
-      currentDownloading?.file_name || activeLocalDownloads[0]?.file_name || "";
+      currentDownloading?.filename || activeLocalDownloads[0]?.filename || "";
 
     if (currentDownloading) {
       localStats.localStatus = "downloading";
@@ -731,7 +765,7 @@
     }
 
     localStats.activeLocalDownloads = activeLocalDownloads.map((d) => ({
-      file_name: d.file_name,
+      filename: d.filename,
       progress:
         d.total_size > 0
           ? Math.round((d.downloaded_size / d.total_size) * 100)
@@ -745,34 +779,7 @@
   async function addDownload(isAutoDownload = false, skipValidation = false) {
     if (!url) return;
     
-    // 자동 다운로드가 아닌 경우 URL 검증 수행
-    if (!isAutoDownload && !skipValidation) {
-      // 1fichier URL이 아닌 경우에만 검증
-      if (!/1fichier\.com/i.test(url)) {
-        try {
-          const response = await fetch("/api/validate-url/", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: url }),
-          });
-
-          if (response.ok) {
-            const result = await response.json();
-            
-            if (!result.valid) {
-              // 유효하지 않은 링크인 경우 사용자에게 확인
-              const proceed = confirm(`${result.message}\n\n그래도 다운로드를 시도하시겠습니까?`);
-              if (!proceed) {
-                return;
-              }
-            }
-          }
-        } catch (validationError) {
-          console.error("URL validation error:", validationError);
-          // 검증 실패 시 계속 진행
-        }
-      }
-    }
+    // URL 기본 검증만 수행 (validate-url API 제거)
     
     isAddingDownload = true;
     try {
@@ -830,17 +837,19 @@
         }
 
         // 성공 메시지 표시
-        const action = endpoint.includes("/pause/") ? "pause" : 
-                     endpoint.includes("/resume/") ? "resume" : 
-                     endpoint.includes("/retry/") ? "retry" : "action";
-        
+        const action = endpoint.includes("/start/") ? "download" :
+                     endpoint.includes("/pause/") ? "pause" :
+                     endpoint.includes("/resume/") ? "resume" :
+                     endpoint.includes("/retry/") ? "retry" :
+                     endpoint.includes("/stop/") ? "stop" : "download";
+
         const messageKey = `${action}_request_sent`;
         showToastMsg($t(messageKey), "success");
         
         console.log(`API 호출 성공: ${endpoint}`);
       } else {
         // 에러 메시지 표시
-        const action = endpoint.includes("/pause/") ? $t("action_stop") :
+        const action = endpoint.includes("/stop/") ? $t("action_stop") :
                      endpoint.includes("/resume/") ? $t("action_resume_action") :
                      endpoint.includes("/retry/") ? $t("action_retry_action") : $t("action_work");
         
@@ -848,7 +857,7 @@
         console.error(`API 호출 실패: ${endpoint}, 상태: ${response.status}`);
       }
     } catch (error) {
-      const action = endpoint.includes("/pause/") ? $t("action_stop") :
+      const action = endpoint.includes("/stop/") ? $t("action_stop") :
                    endpoint.includes("/resume/") ? $t("action_resume_action") :
                    endpoint.includes("/retry/") ? $t("action_retry_action") : $t("action_work");
       
@@ -876,7 +885,7 @@
           });
           if (response.ok) {
             showToastMsg($t("download_deleted_success"));
-            downloads = downloads.filter((download) => download.id !== id);
+            downloads = Array.isArray(downloads) ? downloads.filter((download) => download.id !== id) : [];
           } else {
             const errorData = await response.json();
             showToastMsg(
@@ -925,21 +934,21 @@
     // 1fichier 자동 재시도 상태 체크
     if (
       download.status.toLowerCase() === "pending" &&
-      download.error &&
-      download.error.includes($t("auto_retry_in_progress"))
+      download.error_message &&
+      download.error_message.includes($t("auto_retry_in_progress"))
     ) {
-      return download.error + "\n3분마다 자동 재시도됩니다.";
+      return download.error_message + "\n3분마다 자동 재시도됩니다.";
     }
 
-    if (download.status.toLowerCase() === "failed" && download.error) {
+    if (download.status.toLowerCase() === "failed" && download.error_message) {
       if (proxyInfo && proxyInfo.error) {
         return $t("status_tooltip_failed_with_proxy", {
-          error: download.error,
+          error: download.error_message,
           proxy: proxyInfo.proxy,
           proxy_error: proxyInfo.error,
         });
       }
-      return download.error;
+      return download.error_message;
     }
 
     if (proxyInfo) {
@@ -1067,36 +1076,9 @@
         return;
       }
 
-      // 서버에서 URL 검증
-      showToastMsg($t("url_validating"), "info");
-      
-      try {
-        const response = await fetch("/api/validate-url/", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: trimmedText }),
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          
-          if (result.valid) {
-            // 유효한 다운로드 링크인 경우 자동으로 다운로드 추가
-            showToastMsg($t("clipboard_url_auto_download"));
-            await addDownload(true);
-          } else {
-            // 유효하지 않은 링크인 경우 경고 메시지 표시
-            showToastMsg(result.message || "다운로드할 수 없는 URL입니다.", "warning");
-          }
-        } else {
-          // 검증 API 호출 실패 시 기본 동작
-          showToastMsg($t("clipboard_pasted"));
-        }
-      } catch (validationError) {
-        console.error("URL validation error:", validationError);
-        // 검증 실패 시 기본 동작 (URL은 붙여넣어짐)
-        showToastMsg($t("clipboard_pasted"));
-      }
+      // 기본 URL 검증 후 자동으로 다운로드 추가
+      showToastMsg($t("clipboard_url_auto_download"));
+      await addDownload(true, true); // skipValidation = true
     } catch (err) {
       console.error("Failed to read clipboard contents: ", err);
       showToastMsg($t("clipboard_read_failed"));
@@ -1202,7 +1184,7 @@
     }
   }
 
-  $: workingCount = downloads.filter((d) => {
+  $: workingCount = Array.isArray(downloads) ? downloads.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
     // 완료된 것만 제외하고 나머지는 모두 진행중으로 처리
     return !(
@@ -1210,9 +1192,9 @@
       (status === "stopped" &&
         (d.progress >= 100 || getDownloadProgress(d) >= 100))
     );
-  }).length;
+  }).length : 0;
 
-  $: completedCount = downloads.filter((d) => {
+  $: completedCount = Array.isArray(downloads) ? downloads.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
     // done 상태 또는 100% 완료인 stopped 상태만
     return (
@@ -1220,9 +1202,11 @@
       (status === "stopped" &&
         (d.progress >= 100 || getDownloadProgress(d) >= 100))
     );
-  }).length;
+  }).length : 0;
 
   $: filteredDownloads = (() => {
+    if (!Array.isArray(downloads)) return [];
+
     if (currentTab === "working") {
       return downloads.filter((d) => {
         const status = d.status?.toLowerCase?.() || "";
@@ -1279,11 +1263,11 @@
     currentPage = 1;
   }
 
-  $: activeProxyDownloadCount = downloads.filter(
+  $: activeProxyDownloadCount = Array.isArray(downloads) ? downloads.filter(
     (d) =>
       d.use_proxy &&
       ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
-  ).length;
+  ).length : 0;
 </script>
 
 <main>
@@ -1497,10 +1481,10 @@
                 <tr>
                   <td
                     class="filename"
-                    title={download.file_name || $t("file_name_na")}
+                    title={download.filename || $t("file_name_na")}
                   >
                     <span class="filename-text"
-                      >{download.file_name || $t("file_name_na")}</span
+                      >{download.filename || $t("file_name_na")}</span
                     >
                   </td>
                   <td class="center-align">
@@ -1551,10 +1535,9 @@
                     </span>
                   </td>
                   <td class="center-align">
-                    {download.file_size ||
-                      (download.total_size
-                        ? formatBytes(download.total_size)
-                        : "-")}
+                    {download.total_size
+                      ? formatBytes(download.total_size)
+                      : download.file_size || "-"}
                   </td>
                   <td class="center-align">
                     <div class="progress-container">
@@ -1596,9 +1579,9 @@
                   {/if}
                   <td
                     class="center-align"
-                    title={formatFullDateTime(download.requested_at)}
+                    title={formatFullDateTime(download.created_at)}
                   >
-                    {formatDate(download.requested_at)}
+                    {formatDate(download.created_at)}
                   </td>
                   <td class="proxy-toggle-cell">
                     <button
@@ -1691,7 +1674,7 @@
                           title={$t("action_pause")}
                           on:click={() => {
                             if (download.id && !isNaN(parseInt(download.id))) {
-                              callApi(`/api/pause/${download.id}`)
+                              callApi(`/api/downloads/stop/${download.id}`)
                             } else {
                               console.error("❌ 잘못된 다운로드 ID:", download.id, download)
                             }
@@ -1706,7 +1689,7 @@
                           title={download.progress > 0
                             ? $t("action_resume")
                             : $t("action_start")}
-                          on:click={() => callApi(`/api/resume/${download.id}?use_proxy=${download.use_proxy}`)}
+                          on:click={() => callApi(`/api/downloads/start/${download.id}`)}
                           aria-label={download.progress > 0
                             ? $t("action_resume")
                             : $t("action_start")}
