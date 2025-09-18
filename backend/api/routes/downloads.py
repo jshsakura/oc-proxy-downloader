@@ -10,6 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import asyncio
+import httpx
+import re
+from urllib.parse import urlparse, unquote
 
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
@@ -458,8 +461,6 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
 
         if is_1fichier:
             # 1fichier 파싱 - 간단한 HTTP 요청으로 파일 정보만 추출
-            import httpx
-
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
@@ -487,7 +488,6 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
                         size_str = file_info['size']
                         try:
                             # "1.5 GB" -> 바이트 변환
-                            import re
                             size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', size_str, re.IGNORECASE)
                             if size_match:
                                 size_value = float(size_match.group(1))
@@ -519,7 +519,6 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
         else:
             # 일반 다운로드 - URL에서 파일명 추출 시도
             print(f"[LOG] 일반 다운로드 파일명 추출 시작: {req.url}")
-            from urllib.parse import urlparse, unquote
             parsed_url = urlparse(req.url)
             path = unquote(parsed_url.path)
             filename = path.split('/')[-1] if '/' in path else path

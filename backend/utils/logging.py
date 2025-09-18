@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 import os
+import builtins
 
 
 def setup_logging():
@@ -49,7 +50,6 @@ def smart_print(*args, **kwargs):
 
 def replace_print():
     """기존 print를 smart_print로 대체"""
-    import builtins
     builtins.print = smart_print
 
 

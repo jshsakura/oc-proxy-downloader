@@ -9,10 +9,18 @@ import sys
 import os
 import signal
 import traceback
+import threading
+import time
+import uvicorn
+import atexit
+import httpx
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 from utils.logging import setup_logging, replace_print
 from core.app_factory import create_app
+
+# psutil 제거 - 불필요한 의존성
 
 # .env 파일 로드 (루트 디렉토리에서 찾기)
 project_root = Path(__file__).parent.parent
@@ -43,27 +51,9 @@ app = create_app()
 
 
 def monitor_process_health():
-    """프로세스 상태 모니터링 - 좀비 프로세스 방지"""
+    """기본 프로세스 상태 체크 - 단순화"""
     try:
-        import psutil
-        import os
-
-        current_pid = os.getpid()
-        process = psutil.Process(current_pid)
-
-        # 메모리 사용량 체크
-        memory_info = process.memory_info()
-        if memory_info.rss > 500 * 1024 * 1024:  # 500MB 초과시
-            print(f"[WARNING] High memory usage: {memory_info.rss / 1024 / 1024:.1f}MB")
-
-        # 자식 프로세스 체크
-        children = process.children(recursive=True)
-        if len(children) > 10:
-            print(f"[WARNING] Too many child processes: {len(children)}")
-
-        return True
-    except ImportError:
-        # psutil이 없어도 동작하도록
+        # 기본적인 상태만 체크
         return True
     except Exception as e:
         print(f"[LOG] Process monitoring error (ignored): {e}")
@@ -73,9 +63,6 @@ def monitor_process_health():
 def force_cleanup_threads():
     """모든 스레드 강제 정리 - reentrant call 방지"""
     try:
-        import threading
-        import time
-
         print("[LOG] Starting thread cleanup...")
 
         # 짧은 대기로 정상 종료 기회 제공
@@ -111,10 +98,6 @@ def force_cleanup_threads():
 
 
 if __name__ == "__main__":
-    import uvicorn
-    import atexit
-    import signal
-
     print("=" * 60)
     print("🚀 OC Proxy Downloader v2.0")
     print("   - SSE + asyncio ✅")
@@ -128,7 +111,6 @@ if __name__ == "__main__":
         print(f"\n[LOG] 종료 신호 수신 ({sig}) - 즉시 강제 종료...")
         try:
             # 빠른 정리
-            import sys
             sys.exit(0)
         except:
             os._exit(0)  # 강제 종료

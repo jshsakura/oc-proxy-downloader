@@ -13,6 +13,9 @@ import os
 import time
 import datetime
 import json
+import re
+import traceback
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncGenerator
 from sqlalchemy.orm import Session
@@ -21,6 +24,7 @@ from .models import DownloadRequest, StatusEnum
 from .config import get_download_path
 from .db import SessionLocal
 from services.sse_manager import sse_manager
+from services.notification_service import send_telegram_start_notification
 from utils.file_helpers import download_file_content, generate_file_path, get_final_file_path
 
 
@@ -55,7 +59,6 @@ class DownloadCore:
             print(f"[LOG] 사전파싱 시작: {req.id}")
 
             try:
-                import asyncio
                 loop = asyncio.get_event_loop()
                 preparse_info = await loop.run_in_executor(None, preparse_1fichier_standalone, parse_url)
 
@@ -70,7 +73,6 @@ class DownloadCore:
 
                         # file_size 문자열을 total_size 정수로 변환
                         try:
-                            import re
                             size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', req.file_size, re.IGNORECASE)
                             if size_match:
                                 size_value = float(size_match.group(1))
@@ -134,15 +136,6 @@ class DownloadCore:
                 "progress": 0,
                 "message": "파싱 시작 중..."
             })
-
-            # 텔레그램 시작 알림 전송
-            try:
-                from services.notification_service import send_telegram_start_notification
-                download_mode = "프록시 다운로드" if hasattr(self, '_download_with_proxy_async') else "로컬 다운로드"
-                send_telegram_start_notification(req.file_name, download_mode, "ko", req.file_size)
-                print(f"[LOG] 텔레그램 시작 알림 호출됨: {req.file_name}")
-            except Exception as telegram_error:
-                print(f"[WARNING] 텔레그램 시작 알림 실패: {telegram_error}")
 
             # 비동기 다운로드 태스크 생성
             task = asyncio.create_task(self._download_task(req.id))
@@ -297,7 +290,6 @@ class DownloadCore:
                 # 즉시 사전파싱으로 파일명/크기 추출
                 print(f"[LOG] 사전파싱 시작: {req.id}")
                 try:
-                    import asyncio
                     loop = asyncio.get_event_loop()
                     preparse_info = await loop.run_in_executor(None, preparse_1fichier_standalone, parse_url)
 
@@ -312,7 +304,6 @@ class DownloadCore:
 
                             # file_size 문자열을 total_size 정수로 변환
                             try:
-                                import re
                                 size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', req.file_size, re.IGNORECASE)
                                 if size_match:
                                     size_value = float(size_match.group(1))
@@ -439,6 +430,16 @@ class DownloadCore:
 
                 print(f"[DEBUG] 다운로드 상태를 downloading으로 변경: {req.id}")
 
+                # 실제 다운로드 시작 텔레그램 알림
+                try:
+                    file_name = req.file_name or "Unknown File"
+                    file_size = req.file_size
+                    download_mode = "proxy" if proxies else "local"
+                    send_telegram_start_notification(file_name, download_mode, "ko", file_size)
+                    print(f"[LOG] 텔레그램 다운로드 시작 알림 전송: {file_name}")
+                except Exception as telegram_error:
+                    print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
+
                 await self.send_download_update(req.id, {
                     "status": "downloading",
                     "progress": 0,
@@ -468,7 +469,6 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 1fichier 파싱 실패: {e}")
-            import traceback
             print(f"[ERROR] 파싱 오류 상세:\n{traceback.format_exc()}")
 
             # 파싱 실패 시 실패 처리
@@ -550,7 +550,6 @@ class DownloadCore:
                     final_path = get_final_file_path(req.save_path)
                     if req.save_path != final_path:
                         try:
-                            import shutil
                             shutil.move(req.save_path, final_path)
                             print(f"[DEBUG] 파일 리네임: {req.save_path} -> {final_path}")
                             req.save_path = final_path
@@ -656,7 +655,6 @@ class DownloadCore:
             print(f"[LOG] URL에서 파일명 추출 시도: {req.url}")
 
             from urllib.parse import urlparse, unquote
-            import re
 
             parsed_url = urlparse(req.url)
             path = unquote(parsed_url.path)
@@ -707,7 +705,6 @@ class DownloadCore:
 
             # Content-Disposition 헤더에서 파일명 추출 시도
             try:
-                import aiohttp
                 timeout = aiohttp.ClientTimeout(total=30, connect=10)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.head(req.url) as response:

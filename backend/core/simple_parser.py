@@ -58,17 +58,6 @@ async def parse_1fichier_simple(url, password=None, proxies=None, proxy_addr=Non
         if wait_seconds:
             print(f"[LOG] 대기시간: {wait_seconds}초")
 
-            # 텔레그램 대기시간 알림 (5분 이상인 경우)
-            if wait_seconds >= 300:  # 5분 이상
-                wait_minutes = wait_seconds // 60
-                try:
-                    from services.notification_service import send_telegram_wait_notification
-                    file_name = file_info.get('name', 'Unknown File') if file_info else 'Unknown File'
-                    file_size = file_info.get('size') if file_info else None
-                    send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size)
-                except Exception as telegram_error:
-                    print(f"[WARNING] 텔레그램 알림 실패: {telegram_error}")
-
             # 4단계: 정확히 대기 (SSE로 카운트다운 전송)
             print(f"[LOG] {wait_seconds}초 대기 시작...")
 
@@ -211,7 +200,6 @@ def extract_file_info_simple(html_content):
 def preparse_1fichier_standalone(url):
     """1fichier URL 사전파싱 - cloudscraper 사용, 단독 실행"""
     try:
-        import cloudscraper
 
         print(f"[LOG] 사전파싱 시작: {url}")
 
@@ -251,41 +239,38 @@ def preparse_1fichier_standalone(url):
 
 
 def extract_wait_time_from_button(html_content):
-    """버튼 텍스트에서 정확한 대기시간 추출"""
+    """HTML에서 실제 대기시간 추출 - 버튼에 초로 표시된 그대로 사용"""
     try:
-        # JavaScript var ct 변수에서 추출 (우선순위 높음)
+        print(f"[DEBUG] 대기시간 추출을 위한 HTML 검색 중...")
+
+        # JavaScript countdown 변수 (가장 정확함)
         ct_patterns = [
             r'var\s+ct\s*=\s*(\d+)',
             r'ct\s*=\s*(\d+)',
-            r'countdown\s*=\s*(\d+)',
         ]
 
         for pattern in ct_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 wait_time = int(match.group(1))
-                # 합리적인 범위 체크 (5초~7200초)
-                if 5 <= wait_time <= 7200:
-                    print(f"[LOG] JavaScript ct 변수에서 대기시간 추출: {wait_time}초")
+                # 1초~24시간(86400초) 범위면 그대로 사용
+                if 1 <= wait_time <= 86400:
+                    print(f"[LOG] JavaScript ct 변수에서 대기시간 추출: {wait_time}초 ({wait_time//3600}시간 {(wait_time%3600)//60}분 {wait_time%60}초)")
                     return wait_time
 
-        # dlw 버튼에서 대기시간 추출 (백업)
+        # 버튼 텍스트에서 숫자 추출
         button_patterns = [
-            # "Free download in ⏳ 888" 형태
-            r'Free\s+download\s+in\s+[^\d]*(\d+)',
-            # dlw 버튼 내부의 숫자
-            r'id="dlw"[^>]*>.*?(\d+)',
-            # disabled 버튼의 숫자
-            r'disabled[^>]*>.*?(\d+)',
+            r'Free\s+download\s+in\s+.*?(\d+)',
+            r'Please\s+wait\s+(\d+)',
+            r'Download\s+in\s+(\d+)',
         ]
 
         for pattern in button_patterns:
-            match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
+            match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 wait_time = int(match.group(1))
-                # 합리적인 범위 체크 (5초~7200초)
-                if 5 <= wait_time <= 7200:
-                    print(f"[LOG] 버튼에서 대기시간 추출: {wait_time}초")
+                if 1 <= wait_time <= 86400:
+                    print(f"[LOG] 버튼 텍스트에서 대기시간 추출: {wait_time}초")
                     return wait_time
 
         print(f"[LOG] 대기시간을 찾을 수 없음")
@@ -303,19 +288,19 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
         
         # 폼 찾기 (주로 id="f1")
         form = soup.find('form', {'id': 'f1'}) or soup.find('form')
-        
+
         if not form:
             raise Exception("다운로드 폼을 찾을 수 없음")
         
         # 폼 데이터 수집
         form_data = {}
-        
+
         # 모든 input 필드 수집
         for input_elem in form.find_all('input'):
             name = input_elem.get('name')
             value = input_elem.get('value', '')
             input_type = input_elem.get('type', 'text')
-            
+
             if name:
                 if input_type == 'password' and password:
                     form_data[name] = password
@@ -325,9 +310,9 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
         # submit 버튼이 없으면 기본값 추가
         if not any('submit' in key.lower() for key in form_data.keys()):
             form_data['submit'] = 'Download'
-        
+
         print(f"[LOG] 폼 데이터: {form_data}")
-        
+
         # POST 요청으로 다운로드 링크 획득
         post_headers = headers.copy()
         post_headers.update({
@@ -335,33 +320,63 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
             'Referer': url,
             'Origin': 'https://1fichier.com'
         })
-        
-        response = scraper.post(url, data=form_data, headers=post_headers, 
+
+        response = scraper.post(url, data=form_data, headers=post_headers,
                               proxies=proxies, timeout=(30, 60), allow_redirects=False)
-        
+
         # 리다이렉트 처리
         if response.status_code in [301, 302, 303, 307, 308]:
             location = response.headers.get('Location')
             if location and location.startswith('/'):
                 location = f"https://1fichier.com{location}"
-            
+
             if location and 'a-' in location:
                 print(f"[LOG] 다운로드 링크 획득: {location}")
                 return location
-        
+
         # HTML 응답에서 다운로드 링크 찾기
         if response.status_code == 200:
+            print(f"[DEBUG] POST 응답 내용 (처음 1000자):")
+            print(response.text[:1000])
+            print(f"[DEBUG] POST 응답 내용 끝")
+
             download_patterns = [
                 r'https://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
                 r'https://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
             ]
-            
+
             for pattern in download_patterns:
                 matches = re.findall(pattern, response.text)
                 if matches:
                     print(f"[LOG] HTML에서 다운로드 링크 발견: {matches[0]}")
                     return matches[0]
-        
+
+            print(f"[DEBUG] 다운로드 링크 패턴 매칭 실패")
+
+            # 응답에 실제 오류 메시지가 있는지 확인 (limit는 정상 상황이므로 제외)
+            error_keywords = ['error', 'expired', 'invalid', 'not found']
+            for keyword in error_keywords:
+                if keyword.lower() in response.text.lower():
+                    print(f"[DEBUG] 응답에서 오류 키워드 발견: {keyword}")
+
+            # limit는 대기 후 정상 다운로드 가능한 상황이므로 별도 처리
+            limit_keywords = ['limite', 'limit']
+            for keyword in limit_keywords:
+                if keyword.lower() in response.text.lower():
+                    print(f"[DEBUG] 응답에서 제한 키워드 발견 (정상): {keyword} - 대기시간 후 다운로드 가능")
+
+            # JavaScript 리다이렉트나 다른 패턴 확인
+            js_patterns = [
+                r'location\.href\s*=\s*["\']([^"\']+)["\']',
+                r'window\.location\s*=\s*["\']([^"\']+)["\']',
+                r'document\.location\s*=\s*["\']([^"\']+)["\']'
+            ]
+
+            for js_pattern in js_patterns:
+                js_matches = re.findall(js_pattern, response.text, re.IGNORECASE)
+                if js_matches:
+                    print(f"[DEBUG] JavaScript 리다이렉트 패턴 발견: {js_matches[0]}")
+
         raise Exception("다운로드 링크를 찾을 수 없음")
         
     except Exception as e:

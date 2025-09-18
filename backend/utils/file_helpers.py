@@ -3,6 +3,7 @@
 - 중복 제거를 위해 로컬/프록시 다운로드에서 공통으로 사용하는 함수들
 """
 
+import asyncio
 import time
 import re
 import os
@@ -11,6 +12,7 @@ from urllib.parse import unquote
 from core.models import StatusEnum
 from core.config import get_download_path
 from utils.sse import send_sse_message
+from services.sse_manager import sse_manager
 # 기존 동기 다운로드 매니저 제거됨
 
 
@@ -99,8 +101,6 @@ async def download_file_content(response, file_path, initial_size, total_size, r
 
                         # 정지 상태 SSE 전송
                         try:
-                            from services.sse_manager import sse_manager
-                            import asyncio
 
                             loop = asyncio.get_event_loop()
                             if loop.is_running():
@@ -151,7 +151,7 @@ def should_update_progress(downloaded, last_update_size, total_size, req):
         (time_since_last_update >= 3.0)  # 3초마다 업데이트 (너무 자주 변하지 않게)
     )
 
-    print(f"[DEBUG] should_update_progress: last_time={last_update_time}, time_diff={time_since_last_update:.2f}, should_update={should_update}")
+    # 진행률 업데이트 로그 제거 (너무 많음)
 
     return should_update
 
@@ -163,8 +163,7 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
     last_update_time = getattr(req, '_last_sse_send_time', 0)
     time_diff = current_time - last_update_time
 
-    # 속도 계산 디버깅
-    print(f"[DEBUG] 속도 계산 조건: time_diff={time_diff:.2f}, downloaded={downloaded}, last_update_size={last_update_size}")
+    # 속도 계산 조건 체크
 
     # 속도 계산 개선 (bytes per second로 계산)
     if time_diff > 0 and downloaded > last_update_size:
@@ -188,9 +187,9 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
             req._last_local_download_speed = download_speed
 
         req._last_sse_send_time = current_time
-        print(f"[DEBUG] 속도 계산: {size_diff} bytes in {time_diff:.2f}s, 원본={new_speed:.0f} B/s, 스무딩={download_speed:.0f} B/s")
+        # 속도 계산 완료
     else:
-        print(f"[DEBUG] 속도 계산 건너뜀 - 조건 불만족")
+        # 속도 계산 건너뜀
         # 첫 번째 업데이트이거나 이전 속도 사용
         if last_update_time == 0:
             # 첫 번째 업데이트: 속도를 추정해서 계산
@@ -199,29 +198,24 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
                 print(f"[DEBUG] 첫 번째 업데이트: 추정 속도 {download_speed:.0f} B/s")
             else:
                 download_speed = 0
-                print(f"[DEBUG] 첫 번째 업데이트: 속도 계산 불가 (시간부족 또는 데이터없음)")
+                # 첫 번째 업데이트: 속도 계산 불가
             req._last_sse_send_time = current_time
         else:
             # 이전 속도 그대로 유지 (정지 전까지 안정적으로 표시)
             speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
             download_speed = getattr(req, speed_attr, 0)
-            print(f"[DEBUG] 이전 속도 유지: {download_speed:.0f} B/s")
+            # 이전 속도 유지
 
     # 속도가 너무 작으면 0으로 표시 (10 B/s 이하)
     if download_speed < 10:
         download_speed = 0
-        print(f"[DEBUG] 속도가 너무 낮음 -> 0으로 설정")
-    else:
-        print(f"[DEBUG] 최종 속도: {download_speed:.0f} B/s")
 
     # 속도 변수 업데이트 (0이어도 저장)
     speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
     setattr(req, speed_attr, download_speed)
     
-    # sse_manager를 import 해서 사용
+    # sse_manager를 사용
     try:
-        from services.sse_manager import sse_manager
-        import asyncio
 
         # 비동기 SSE 전송
         sse_data = {
@@ -233,7 +227,7 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
             "status": "downloading"
         }
 
-        print(f"[DEBUG] SSE 전송 데이터: {sse_data}")
+        # SSE 전송 데이터 로그는 제거 (너무 많음)
 
         loop = asyncio.get_event_loop()
         if loop.is_running():

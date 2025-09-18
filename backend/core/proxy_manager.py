@@ -103,6 +103,15 @@ class ProxyManager:
         if re.match(ip_port_pattern, address):
             return "single"
 
+def detect_proxy_type(address: str) -> str:
+    """프록시 주소 형태를 감지 (공용 함수)"""
+    if address.startswith(('http://', 'https://')):
+        return "list"
+
+    ip_port_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$'
+    if re.match(ip_port_pattern, address):
+        return "single"
+
         domain_port_pattern = r'^[a-zA-Z0-9.-]+:\d+$'
         if re.match(domain_port_pattern, address):
             return "single"

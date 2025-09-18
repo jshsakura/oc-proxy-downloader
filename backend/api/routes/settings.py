@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
+import threading
+import queue
 from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -62,9 +64,6 @@ async def select_folder(request: Request):
         raise HTTPException(status_code=501, detail="GUI not available")
 
     try:
-        import threading
-        import queue
-
         result_queue = queue.Queue()
 
         def open_dialog():

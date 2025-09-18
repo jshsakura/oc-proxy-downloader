@@ -42,6 +42,13 @@
   --status-cooldown-bg: rgba(255, 152, 0, 0.2);
   --status-cooldown-border: #ff9800;
   --status-cooldown-text: #e65100;
+
+  /* 파싱 상태 전용 색상 - Light Theme (보라색 계열) */
+  --status-parsing-bg: rgba(156, 39, 176, 0.2);
+  --status-parsing-border: #9c27b0;
+  --status-parsing-text: #7b1fa2;
+
+  /* 웨이팅 상태는 기존 pending 색상 유지 (노란색 계열) */
   
   /* Theme selected background for light theme */
   --theme-selected-bg: #d0d0d0;
@@ -97,6 +104,11 @@ html.dark {
   --status-cooldown-bg: rgba(251, 146, 60, 0.25);
   --status-cooldown-border: #fb923c;
   --status-cooldown-text: #fdba74;
+
+  /* 파싱 상태 전용 색상 - Dark Theme (보라색 계열) */
+  --status-parsing-bg: rgba(168, 85, 247, 0.25);
+  --status-parsing-border: #a855f7;
+  --status-parsing-text: #c084fc;
   
   /* Theme selected background for dark theme */
   --theme-selected-bg: #444444;
@@ -152,6 +164,11 @@ html.dracula {
   --status-cooldown-bg: rgba(241, 250, 140, 0.3);
   --status-cooldown-border: #f1fa8c;
   --status-cooldown-text: #f1fa8c;
+
+  /* 파싱 상태 전용 색상 - Dracula Theme (보라색 계열) */
+  --status-parsing-bg: rgba(189, 147, 249, 0.3);
+  --status-parsing-border: #bd93f9;
+  --status-parsing-text: #bd93f9;
   
   /* Improved button colors for Dracula */
   --button-background: #6272a4;
@@ -2410,15 +2427,11 @@ span.status.status-downloading,
   animation: pulse-dot 1.5s infinite;
 }
 
-/* 대기/파싱/프록싱 중 */
+/* 대기/웨이팅 중 */
 span.status.status-pending,
 span.status.status-waiting,
-span.status.status-parsing,
-span.status.status-proxying,
 .status-pending.interactive-status,
-.status-waiting.interactive-status,
-.status-parsing.interactive-status,
-.status-proxying.interactive-status {
+.status-waiting.interactive-status {
   background-color: var(--status-pending-bg) !important;
   border-color: var(--status-pending-border) !important;
   color: var(--status-pending-text) !important;
@@ -2427,7 +2440,25 @@ span.status.status-proxying,
 .status-waiting::before {
   background-color: var(--status-pending-border);
 }
-.status-parsing::before,
+
+/* 파싱 중 */
+span.status.status-parsing,
+.status-parsing.interactive-status {
+  background-color: var(--status-parsing-bg) !important;
+  border-color: var(--status-parsing-border) !important;
+  color: var(--status-parsing-text) !important;
+}
+.status-parsing::before {
+  background-color: var(--status-parsing-border);
+}
+
+/* 프록싱 중 */
+span.status.status-proxying,
+.status-proxying.interactive-status {
+  background-color: var(--status-pending-bg) !important;
+  border-color: var(--status-pending-border) !important;
+  color: var(--status-pending-text) !important;
+}
 .status-proxying::before {
   background-color: var(--status-pending-border);
   animation: pulse-dot 1.5s infinite;

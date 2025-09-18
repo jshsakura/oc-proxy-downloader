@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import datetime
 from fastapi import APIRouter, Request, HTTPException, Depends, Body
 from sqlalchemy.orm import Session
 
@@ -6,7 +7,7 @@ from core.db import get_db
 from core.i18n import get_message
 from core.config import get_config
 from core.models import DownloadRequest, StatusEnum, ProxyStatus, UserProxy
-from core.proxy_manager import proxy_manager
+from core.proxy_manager import proxy_manager, detect_proxy_type
 # 호환성 함수들
 async def get_unused_proxies(db):
     """미사용 프록시 목록 반환"""
@@ -77,10 +78,6 @@ async def get_proxies(request: Request, db: Session = Depends(get_db)):
 async def add_proxy(request: Request, db: Session = Depends(get_db), data: dict = Body(...)):
     """프록시 추가"""
     try:
-        from core.models import UserProxy
-        from core.proxy_manager import detect_proxy_type
-        import datetime
-        
         address = data.get("address", "").strip()
         description = data.get("description", "").strip()
         
@@ -120,8 +117,6 @@ async def add_proxy(request: Request, db: Session = Depends(get_db), data: dict 
 async def delete_proxy(proxy_id: int, request: Request, db: Session = Depends(get_db)):
     """프록시 삭제"""
     try:
-        from core.models import UserProxy
-        
         proxy = db.query(UserProxy).filter(UserProxy.id == proxy_id).first()
         if not proxy:
             raise HTTPException(status_code=404, detail="프록시를 찾을 수 없습니다.")
@@ -141,8 +136,6 @@ async def delete_proxy(proxy_id: int, request: Request, db: Session = Depends(ge
 async def toggle_proxy(proxy_id: int, request: Request, db: Session = Depends(get_db)):
     """프록시 활성/비활성 토글"""
     try:
-        from core.models import UserProxy
-        
         proxy = db.query(UserProxy).filter(UserProxy.id == proxy_id).first()
         if not proxy:
             raise HTTPException(status_code=404, detail="프록시를 찾을 수 없습니다.")
@@ -260,6 +253,10 @@ async def reset_proxy_status(request: Request, db: Session = Depends(get_db)):
         # DB의 프록시 통계 삭제
         db.query(ProxyStatus).delete()
         db.commit()
+
+        # 프록시 매니저 캐시 삭제 (새로고침 시 프록시 목록 재로드)
+        proxy_manager.proxy_cache.clear()
+        print(f"[LOG] 프록시 캐시 삭제됨 - 다음 요청 시 프록시 목록을 다시 가져옴")
 
         return {"success": True, "message": "프록시 상태가 리셋되었습니다."}
 

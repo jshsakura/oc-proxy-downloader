@@ -6,6 +6,7 @@
 
 import re
 import lxml.html
+import json
 from urllib.parse import urljoin, urlparse
 import logging
 
@@ -638,7 +639,6 @@ class FichierParser:
                         # JSON-LD 데이터 처리
                         if 'json' in selector.lower():
                             try:
-                                import json
                                 data = json.loads(text)
                                 if isinstance(data, dict) and 'name' in data:
                                     text = data['name']
