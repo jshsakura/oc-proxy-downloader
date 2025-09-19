@@ -739,6 +739,7 @@ class DownloadCore:
                     })
 
                     # 텔레그램 성공 알림
+                    print(f"[DEBUG] 텔레그램 성공 알림 전송 시작 (경로1): {req.file_name}")
                     try:
                         # 처리 시간 계산
                         processing_time = None
@@ -782,6 +783,7 @@ class DownloadCore:
                     minutes, seconds = divmod(remainder, 60)
                     processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+                print(f"[DEBUG] 텔레그램 실패 알림 전송 시작: {req.file_name}")
                 send_telegram_notification(req.file_name, "failed", error=str(e), language="ko",
                                          file_size_str=req.file_size, requested_time=processing_time)
             except Exception as telegram_error:
@@ -1017,6 +1019,7 @@ class DownloadCore:
             print(f"[LOG] SSE 완료 메시지 전송 완료")
 
             # 텔레그램 성공 알림
+            print(f"[DEBUG] 텔레그램 성공 알림 전송 시작 (경로2): {req.file_name}")
             try:
                 # 처리 시간 계산
                 processing_time = None
@@ -1062,6 +1065,7 @@ class DownloadCore:
                     minutes, seconds = divmod(remainder, 60)
                     processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+                print(f"[DEBUG] 텔레그램 실패 알림 전송 시작: {req.file_name}")
                 send_telegram_notification(req.file_name, "failed", error=str(e), language="ko",
                                          file_size_str=req.file_size, requested_time=processing_time)
             except Exception as telegram_error:
