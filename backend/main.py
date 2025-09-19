@@ -7,6 +7,13 @@ OC Proxy Downloader - 새 아키텍처
 """
 import sys
 import os
+
+# Python 경로 설정 (Docker 환경 대응)
+# 이 코드는 다른 모듈보다 먼저 실행되어야 합니다.
+backend_path = os.path.dirname(os.path.abspath(__file__))
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
+
 import signal
 import traceback
 import threading
@@ -17,8 +24,8 @@ import httpx
 import json
 from pathlib import Path
 from dotenv import load_dotenv
-from .utils.logging import setup_logging, replace_print
-from .core.app_factory import create_app
+from utils.logging import setup_logging, replace_print
+from core.app_factory import create_app
 
 # psutil 제거 - 불필요한 의존성
 
@@ -36,11 +43,6 @@ else:
         print(f"[LOG] Loaded .env from: {backend_env}")
     else:
         print("[WARNING] No .env file found")
-
-# Python 경로 설정 (Docker 환경 대응)
-backend_path = os.path.dirname(os.path.abspath(__file__))
-if backend_path not in sys.path:
-    sys.path.insert(0, backend_path)
 
 # 로깅 설정 (.env 로딩 후에)
 setup_logging()
