@@ -123,11 +123,12 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
             print(f"[LOG] 다운로드 링크 획득 성공: {download_link}")
         except Exception as download_error:
             print(f"[ERROR] 다운로드 링크 추출 실패: {download_error}")
-            # 프록시 관련 에러면 재시도 가능, 다른 에러면 완전 실패
-            if any(keyword in str(download_error).lower() for keyword in ['proxy', 'timeout', 'connection']):
-                raise download_error  # 프록시 에러는 재시도 가능
+            # 프록시/네트워크 관련 에러나 일시적 오류면 재시도 가능
+            retry_keywords = ['proxy', 'timeout', 'connection', 'read timed out', 'network', 'http', 'ssl', 'certificate']
+            if any(keyword in str(download_error).lower() for keyword in retry_keywords):
+                raise download_error  # 재시도 가능한 오류
             else:
-                # 파싱 오류 등은 완전 실패로 처리
+                # 명확한 파싱 실패만 재시도 불가로 처리
                 raise Exception(f"파싱 실패 (재시도 불가): {download_error}")
 
         # 다운로드 링크가 없으면 실패

@@ -797,8 +797,8 @@ class DownloadCore:
                 total_proxy_list = await proxy_manager.get_user_proxy_list(db)
                 total_proxies = len(total_proxy_list) if total_proxy_list else 0
 
-            # 일반 다운로드는 재시도 없음 (1회만), 프록시 다운로드만 재시도
-            MAX_DOWNLOAD_RETRIES = min(20, total_proxies) if req.use_proxy else 1
+            # 프록시 다운로드: 프록시 수만큼, 일반 다운로드: 3회 재시도
+            MAX_DOWNLOAD_RETRIES = min(20, total_proxies) if req.use_proxy else 3
             while not download_success and retry_count < MAX_DOWNLOAD_RETRIES:
                 if req.use_proxy:
                     # 첫 시도는 파싱에 성공한 프록시 사용
