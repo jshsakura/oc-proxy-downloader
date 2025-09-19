@@ -1883,10 +1883,13 @@ table th:first-child {
   border-top: 2px solid var(--status-downloading-border);
   border-right: 2px solid var(--status-downloading-border);
 }
-.proxy-indicator-parsing,
+.proxy-indicator-parsing {
+  border-top: 2px solid var(--status-parsing-border);
+  border-right: 2px solid var(--status-parsing-border);
+}
 .proxy-indicator-proxying {
-  border-top: 2px solid var(--status-pending-border);
-  border-right: 2px solid var(--status-pending-border);
+  border-top: 2px solid var(--warning-color);
+  border-right: 2px solid var(--warning-color);
 }
 
 @keyframes spin {
@@ -2460,7 +2463,8 @@ span.status.status-proxying,
   color: var(--status-pending-text) !important;
 }
 .status-proxying::before {
-  background-color: var(--status-pending-border);
+  content: "";
+  background-color: var(--warning-color);
   animation: pulse-dot 1.5s infinite;
 }
 
@@ -2621,21 +2625,20 @@ span.status.status-cooldown,
 }
 
 .parsing-indicator.proxy-loading {
-  color: var(--warning-color); /* 프록시/파싱 상태는 warning 색상 */
 }
 
 .parsing-indicator.local-loading {
-  color: var(--primary-color); /* 다운로드/대기 상태는 속도 색상과 동일 */
+  color: var(--primary-color);
 }
 
 /* 속도 텍스트 색상 */
 .speed-text.proxy-speed {
-  color: var(--warning-color); /* 프록시 속도는 warning 색상 */
+  color: var(--warning-color);
   font-weight: 500;
 }
 
 .speed-text.local-speed {
-  color: var(--primary-color); /* 로컬 속도는 primary 색상 */
+  color: var(--primary-color);
   font-weight: 500;
 }
 

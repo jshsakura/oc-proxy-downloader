@@ -8,14 +8,17 @@
 
 import re
 import time
-import asyncio
 import httpx
 import cloudscraper
+import asyncio
+import datetime
 from bs4 import BeautifulSoup
 from services.sse_manager import sse_manager
+from core.db import SessionLocal
+from core.models import DownloadRequest, StatusEnum
 
 
-async def parse_1fichier_simple(url, password=None, proxies=None, proxy_addr=None, download_id=None):
+def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None, download_id=None, sse_callback=None):
     """
     1fichier 단순 파싱 로직
     1. 파일정보 추출
@@ -61,10 +64,20 @@ async def parse_1fichier_simple(url, password=None, proxies=None, proxy_addr=Non
             # 4단계: 정확히 대기 (SSE로 카운트다운 전송)
             print(f"[LOG] {wait_seconds}초 대기 시작...")
 
+            # 대기 상태로 변경
+            if sse_callback:
+                try:
+                    sse_callback("status_update", {
+                        "id": download_id,
+                        "status": "waiting",
+                        "progress": 0,
+                        "message": f"1fichier 대기 중... {wait_seconds}초"
+                    })
+                except Exception as sse_error:
+                    print(f"[WARNING] SSE 대기 상태 전송 실패: {sse_error}")
+
             # SSE로 대기시간 카운트다운 전송
             if download_id:
-                from core.db import SessionLocal
-                from core.models import DownloadRequest, StatusEnum
 
                 for remaining in range(wait_seconds, 0, -1):
                     # 다운로드 상태 확인 (정지되었는지 체크)
@@ -74,41 +87,32 @@ async def parse_1fichier_simple(url, password=None, proxies=None, proxy_addr=Non
                             if req and req.status == StatusEnum.stopped:
                                 print(f"[LOG] 대기 중 정지 감지, 카운트다운 중단")
 
-                                # 정지 상태 SSE 전송
-                                try:
-                                    await sse_manager.broadcast_message("download_stopped", {
-                                        "id": download_id,
-                                        "status": "stopped",
-                                        "message": "download_stopped"
-                                    })
-                                except Exception as sse_error:
-                                    print(f"[WARNING] 정지 SSE 전송 실패: {sse_error}")
+                                # 정지 상태 확인
+                                print(f"[LOG] 다운로드 중지 확인: download_id={download_id}")
 
                                 return None  # 정지된 경우 파싱 중단
                     except Exception as e:
                         print(f"[WARNING] 상태 확인 실패: {e}")
 
-                    try:
-                        await sse_manager.broadcast_message("wait_countdown", {
-                            "id": download_id,
-                            "remaining_time": remaining,
-                            "wait_message": "parsing_wait"
-                        })
-                    except Exception as e:
-                        print(f"[WARNING] SSE 전송 실패: {e}")
+                    # SSE 콜백으로 대기시간 전송
+                    if sse_callback and remaining % 5 == 0:  # 5초마다만 전송
+                        try:
+                            sse_callback("waiting", {
+                                "id": download_id,
+                                "remaining": remaining,
+                                "total": wait_seconds,
+                                "message": f"1fichier 대기 중... {remaining}초 남음"
+                            })
+                        except Exception as sse_error:
+                            print(f"[WARNING] SSE 대기시간 전송 실패: {sse_error}")
 
-                    await asyncio.sleep(1)
+                    print(f"[DEBUG] 대기 중: {remaining}초 남음")
+                    time.sleep(1)
 
-                # 대기 완료 메시지
-                try:
-                    await sse_manager.broadcast_message("wait_countdown_complete", {
-                        "id": download_id,
-                        "message": "parsing_wait_complete"
-                    })
-                except Exception as e:
-                    print(f"[WARNING] SSE 전송 실패: {e}")
+                # 대기 완료
+                print(f"[LOG] 대기 완료: download_id={download_id}")
             else:
-                await asyncio.sleep(wait_seconds)
+                time.sleep(wait_seconds)
 
             print(f"[LOG] 대기 완료!")
         
@@ -119,13 +123,24 @@ async def parse_1fichier_simple(url, password=None, proxies=None, proxy_addr=Non
             print(f"[LOG] 다운로드 링크 획득 성공: {download_link}")
         except Exception as download_error:
             print(f"[ERROR] 다운로드 링크 추출 실패: {download_error}")
-            # 파일 정보와 대기시간은 성공했으므로 계속 진행
+            # 프록시 관련 에러면 재시도 가능, 다른 에러면 완전 실패
+            if any(keyword in str(download_error).lower() for keyword in ['proxy', 'timeout', 'connection']):
+                raise download_error  # 프록시 에러는 재시도 가능
+            else:
+                # 파싱 오류 등은 완전 실패로 처리
+                raise Exception(f"파싱 실패 (재시도 불가): {download_error}")
 
-        return {
+        # 다운로드 링크가 없으면 실패
+        if not download_link:
+            raise Exception("다운로드 링크를 찾을 수 없음")
+
+        result = {
             'download_link': download_link,
             'file_info': file_info,
             'wait_time': wait_seconds
         }
+        print(f"[DEBUG] 파싱 결과 반환: download_link={download_link is not None}, file_info={file_info is not None}, wait_time={wait_seconds}")
+        return result
         
     except Exception as e:
         print(f"[ERROR] 1fichier 파싱 실패: {e}")
@@ -322,7 +337,7 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
         })
 
         response = scraper.post(url, data=form_data, headers=post_headers,
-                              proxies=proxies, timeout=(30, 60), allow_redirects=False)
+                              proxies=proxies, timeout=(10, 30), allow_redirects=False)
 
         # 리다이렉트 처리
         if response.status_code in [301, 302, 303, 307, 308]:

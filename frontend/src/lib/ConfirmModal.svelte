@@ -84,7 +84,7 @@
   }
 
   .modal-header {
-    padding: 1.5rem 2rem 1rem 2rem;
+    padding: 1rem 1rem 1rem 1.5rem;
     border-bottom: 1px solid var(--card-border);
     display: flex;
     justify-content: space-between;

@@ -8,30 +8,45 @@ from core.i18n import get_message
 from core.config import get_config
 from core.models import DownloadRequest, StatusEnum, ProxyStatus, UserProxy
 from core.proxy_manager import proxy_manager, detect_proxy_type
+
 # 호환성 함수들
 async def get_unused_proxies(db):
     """미사용 프록시 목록 반환"""
     try:
-        # 사용자 프록시 목록 가져오기
-        user_proxy_list = await proxy_manager.get_user_proxy_list(db)
+        # 활성화된 사용자 프록시 목록 가져오기 (proxy_manager와 동일한 방식 사용)
+        cached_proxy_list = await proxy_manager.get_user_proxy_list(db)
+        active_proxies = db.query(UserProxy).filter(UserProxy.is_active == True).all()
 
-        # 이미 사용된 프록시 주소들
-        used_proxies = db.query(ProxyStatus).filter(
+        # 실제 사용된 프록시 주소들 (ProxyStatus에서 확인)
+        used_proxy_statuses = db.query(ProxyStatus).filter(
             ProxyStatus.ip.isnot(None),
             ProxyStatus.port.isnot(None)
         ).all()
-        used_proxy_addresses = {f"{p.ip}:{p.port}" for p in used_proxies}
+        used_proxy_addresses = {f"{status.ip}:{status.port}" for status in used_proxy_statuses}
 
-        # 미사용 프록시 필터링
-        unused_proxies = [p for p in user_proxy_list if p not in used_proxy_addresses]
+        # 미사용 프록시 필터링 - cached_proxy_list를 사용해서 일관성 보장
+        unused_proxies = []
+        for individual_proxy in cached_proxy_list:
+            if individual_proxy not in used_proxy_addresses:
+                unused_proxies.append(individual_proxy)
 
+        print(f"[DEBUG] get_unused_proxies: cached_total={len(cached_proxy_list)}, used={len(used_proxy_addresses)}, unused={len(unused_proxies)}")
         return unused_proxies
     except Exception as e:
         print(f"[ERROR] get_unused_proxies failed: {e}")
         return []
 
 def get_user_proxy_list(db):
-    return db.query(UserProxy).filter(UserProxy.is_active == True).all()
+    """활성화된 사용자 프록시 목록을 개별 프록시 주소로 파싱해서 반환"""
+    proxies = db.query(UserProxy).filter(UserProxy.is_active == True).all()
+    individual_proxies = []
+
+    for proxy in proxies:
+        # 콤마로 구분된 프록시 주소들을 개별적으로 파싱
+        proxy_addresses = [addr.strip() for addr in proxy.address.split(',') if addr.strip()]
+        individual_proxies.extend(proxy_addresses)
+
+    return individual_proxies
 
 def reset_proxy_usage(db):
     db.query(ProxyStatus).delete()
@@ -155,19 +170,27 @@ async def toggle_proxy(proxy_id: int, request: Request, db: Session = Depends(ge
 async def get_proxy_status(request: Request, db: Session = Depends(get_db)):
     """프록시 상태 조회"""
     try:
-        proxies = get_user_proxy_list(db)
+        # proxy_manager의 캐시된 프록시 목록 사용
+        cached_proxy_list = await proxy_manager.get_user_proxy_list(db)
 
-        # 최근 프록시 통계 조회
-        recent_stats = db.query(ProxyStatus).order_by(
-            desc(ProxyStatus.last_used_at)).limit(100).all()
-
-        total_proxies = len(proxies)
+        # 전체 프록시 통계 조회 (limit 제거)
+        total_proxies = len(cached_proxy_list)
         unused_proxies_list = await get_unused_proxies(db)
         available_proxies = len(unused_proxies_list)
-        used_proxies = total_proxies - available_proxies
 
-        success_count = len([s for s in recent_stats if s.success])
-        fail_count = len([s for s in recent_stats if not s.success])
+        print(f"[DEBUG] proxy_status: total={total_proxies}, available={available_proxies}, unused_list={len(unused_proxies_list)}")
+        print(f"[DEBUG] cached_proxy_list: {cached_proxy_list[:3] if cached_proxy_list else 'None'}...")  # 처음 3개만 표시
+
+        # 실제 사용된 프록시 개수 (ProxyStatus 테이블에서 확인)
+        used_proxy_count = db.query(ProxyStatus).filter(
+            ProxyStatus.ip.isnot(None),
+            ProxyStatus.port.isnot(None)
+        ).count()
+        used_proxies = used_proxy_count
+
+        # 전체 성공/실패 개수 (실제 DB 쿼리)
+        success_count = db.query(ProxyStatus).filter(ProxyStatus.success == True).count()
+        fail_count = db.query(ProxyStatus).filter(ProxyStatus.success == False).count()
 
         # 현재 프록시 다운로드 개수
         active_proxy_downloads = db.query(DownloadRequest).filter(

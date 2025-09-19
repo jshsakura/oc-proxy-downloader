@@ -35,7 +35,9 @@
   $: availableDisplayPercentage =
     totalProxies > 0 ? (availableProxies / totalProxies) * 100 : 0;
   $: failDisplayPercentage =
-    totalProxies > 0 ? (failCount / totalProxies) * 100 : 0;
+    totalProxies > 0 && failCount > 0
+      ? Math.max((failCount / totalProxies) * 100, 3) // 최소 3% 보장
+      : 0;
 
   let isRefreshing = false;
 
@@ -147,14 +149,14 @@
       <span class="status-text">
         {currentStep === "parsing"
           ? $t("proxy_link_parsing")
-          : $t("proxy_downloading")}... ({currentIndex}/{totalAttempting}) {currentProxy}
+          : $t("proxy_attempting")}... ({currentIndex}/{totalAttempting}) {currentProxy}
       </span>
     {:else if status === "success" && currentProxy}
       <span class="status-icon success-icon"></span>
       <span class="status-text">
         {currentStep === "parsing"
           ? $t("proxy_link_parsing")
-          : $t("proxy_downloading")}
+          : $t("proxy_attempting")}
         {$t("proxy_success_msg")}! {currentProxy}
       </span>
     {:else if status === "failed" && currentProxy}
@@ -162,7 +164,7 @@
       <span class="status-text">
         {currentStep === "parsing"
           ? $t("proxy_link_parsing")
-          : $t("proxy_downloading")}
+          : $t("proxy_attempting")}
         {$t("proxy_failed_msg")}: {currentProxy}
       </span>
     {:else}

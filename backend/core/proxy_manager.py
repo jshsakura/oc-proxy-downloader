@@ -26,6 +26,8 @@ class ProxyManager:
     def __init__(self):
         self.proxy_cache = {}
         self.cache_timeout = 300  # 5분
+        self.current_proxy_index = 0
+        self.failed_count = 0
 
     async def get_user_proxy_list(self, db: Session) -> List[str]:
         """사용자 프록시 목록을 비동기로 가져오기"""
@@ -53,6 +55,96 @@ class ProxyManager:
                     print(f"[LOG] 프록시 URL 처리 실패: {result}")
 
         return proxy_list
+
+    async def get_next_available_proxy(self, db: Session) -> str:
+        """사용 가능한 다음 프록시 가져오기"""
+        try:
+            proxy_list = await self.get_user_proxy_list(db)
+            if not proxy_list:
+                return None
+
+            # 이미 실패한 프록시들 조회 (success가 False인 것들)
+            from core.models import ProxyStatus
+            failed_proxies = db.query(ProxyStatus).filter(
+                ProxyStatus.success == False
+            ).all()
+            failed_proxy_addresses = {f"{p.ip}:{p.port}" for p in failed_proxies}
+
+            print(f"[DEBUG] 전체 프록시: {len(proxy_list)}, 실패한 프록시: {len(failed_proxy_addresses)}")
+
+            # 실패하지 않은 프록시들만 필터링
+            available_proxies = [proxy for proxy in proxy_list if proxy not in failed_proxy_addresses]
+
+            if not available_proxies:
+                print(f"[WARNING] 사용 가능한 프록시가 없음. 전체: {len(proxy_list)}, 실패: {len(failed_proxy_addresses)}")
+                return None
+
+            # 현재 인덱스에서 다음 프록시 선택
+            if self.current_proxy_index >= len(available_proxies):
+                self.current_proxy_index = 0
+
+            selected_proxy = available_proxies[self.current_proxy_index]
+            self.current_proxy_index += 1
+
+            print(f"[LOG] 프록시 선택: {selected_proxy} (인덱스: {self.current_proxy_index-1}/{len(available_proxies)})")
+            return selected_proxy
+        except Exception as e:
+            print(f"[ERROR] get_next_available_proxy 실패: {e}")
+            return None
+
+    async def mark_proxy_failed(self, db: Session, proxy_addr: str):
+        """프록시 실패 기록"""
+        try:
+            from core.models import ProxyStatus
+            import datetime
+
+            # IP:Port 분리
+            if ':' in proxy_addr:
+                ip, port = proxy_addr.split(':', 1)
+                port = int(port) if port.isdigit() else None
+            else:
+                ip, port = proxy_addr, None
+
+            print(f"[DEBUG] 프록시 파싱: {proxy_addr} -> IP: {ip}, Port: {port}")
+
+            # 기존 기록이 있는지 확인
+            existing = db.query(ProxyStatus).filter(
+                ProxyStatus.ip == ip,
+                ProxyStatus.port == port
+            ).first()
+
+            if existing:
+                existing.success = False
+                existing.last_used_at = datetime.datetime.now()
+                print(f"[LOG] 프록시 실패 업데이트: {proxy_addr}")
+            else:
+                proxy_status = ProxyStatus(
+                    ip=ip,
+                    port=port,
+                    success=False,
+                    last_used_at=datetime.datetime.now()
+                )
+                db.add(proxy_status)
+                print(f"[LOG] 프록시 실패 새로 기록: {proxy_addr}")
+
+            db.commit()
+
+            # 실패 카운트 증가
+            self.failed_count += 1
+
+            # 실패 후 총 실패한 프록시 수 출력
+            print(f"[LOG] 현재 실패한 프록시 총 개수: {self.failed_count}")
+        except Exception as e:
+            print(f"[ERROR] mark_proxy_failed 실패: {e}")
+
+    async def get_total_failed_count(self, db: Session) -> int:
+        """전체 실패한 프록시 개수 반환 (DB에서 조회)"""
+        try:
+            from core.models import ProxyStatus
+            return db.query(ProxyStatus).filter(ProxyStatus.success == False).count()
+        except Exception as e:
+            print(f"[ERROR] get_total_failed_count 실패: {e}")
+            return 0
 
     async def _fetch_proxy_list(self, url: str) -> List[str]:
         """URL에서 프록시 목록을 비동기로 가져오기"""

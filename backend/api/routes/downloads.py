@@ -18,7 +18,7 @@ from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
 from core.download_core import download_core
 from core.parser import fichier_parser
-from core.simple_parser import parse_1fichier_simple
+from core.simple_parser import parse_1fichier_simple_sync
 from services.sse_manager import sse_manager
 
 router = APIRouter(prefix="/api", tags=["downloads"])
@@ -419,6 +419,43 @@ async def force_refresh_downloads():
     except Exception as e:
         print(f"[ERROR] 강제 새로고침 오류: {e}")
         raise HTTPException(status_code=500, detail=f"새로고침 실패: {str(e)}")
+
+
+@router.put("/downloads/{download_id}/proxy-toggle")
+async def toggle_proxy_mode(download_id: int, db: Session = Depends(get_db)):
+    """다운로드 프록시 모드 토글"""
+    try:
+        # 다운로드 요청 조회
+        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        if not req:
+            raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
+
+        # 실행 중인 다운로드는 토글 불가
+        if req.status in [StatusEnum.parsing, StatusEnum.downloading, StatusEnum.waiting]:
+            raise HTTPException(status_code=400, detail="실행 중인 다운로드는 프록시 모드를 변경할 수 없습니다")
+
+        # 프록시 모드 토글
+        req.use_proxy = not req.use_proxy
+        db.commit()
+
+        # SSE로 상태 변경 알림
+        await sse_manager.broadcast_message("proxy_toggled", {
+            "id": download_id,
+            "use_proxy": req.use_proxy,
+            "message": f"프록시 모드가 {'활성화' if req.use_proxy else '비활성화'}되었습니다"
+        })
+
+        return {
+            "success": True,
+            "use_proxy": req.use_proxy,
+            "message": f"프록시 모드가 {'활성화' if req.use_proxy else '비활성화'}되었습니다"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] 프록시 토글 API 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 
 @router.get("/downloads/health-check")

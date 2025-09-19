@@ -108,6 +108,10 @@
   // 디바운싱을 위한 타이머
   let activeDownloadsTimer = null;
 
+  // 대기시간 실시간 업데이트를 위한 타이머
+  let waitTimeUpdateTimer = null;
+  let currentTime = Date.now();
+
   let showConfirm = false;
   let confirmMessage = "";
   let confirmAction = null;
@@ -173,6 +177,14 @@
       fetchProxyStatus();
       checkProxyAvailability();
     }
+
+    // 대기시간 실시간 업데이트 타이머 시작
+    function startWaitTimeUpdateTimer() {
+      waitTimeUpdateTimer = setInterval(() => {
+        currentTime = Date.now();
+      }, 1000);
+    }
+    startWaitTimeUpdateTimer();
 
     // 프록시 새로고침 이벤트 리스너 추가
     const handleProxyRefresh = () => {
@@ -320,6 +332,9 @@
     if (activeDownloadsTimer) {
       clearTimeout(activeDownloadsTimer);
     }
+    if (waitTimeUpdateTimer) {
+      clearInterval(waitTimeUpdateTimer);
+    }
   });
 
   function handleLoginSuccess() {
@@ -351,6 +366,7 @@
       const response = await fetch("/api/proxy-status");
       if (response.ok) {
         const data = await response.json();
+        console.log("[DEBUG] fetchProxyStatus API response:", data);
         proxyStats = {
           ...proxyStats,
           totalProxies: data.total_proxies,
@@ -360,6 +376,7 @@
           failCount: data.fail_count,
           status_message: data.status_message,
         };
+        console.log("[DEBUG] proxyStats updated:", proxyStats);
       }
     } catch (error) {
       console.error($t("proxy_status_fetch_failed"), error);
@@ -406,11 +423,11 @@
             console.log("📁 다운로드 경로 업데이트:", updatedDownload.id, updatedDownload.save_path);
           }
 
-          // 상태가 stopped로 변경되면 대기 정보 제거
-          if (updatedDownload.status === "stopped" && downloadWaitInfo[downloadId]) {
+          // 상태가 대기(waiting)가 아닌 다른 상태로 변경되면 대기 정보 제거
+          if (updatedDownload.status !== "waiting" && downloadWaitInfo[downloadId]) {
             delete downloadWaitInfo[downloadId];
             downloadWaitInfo = { ...downloadWaitInfo };
-            console.log(`🛑 상태 변경으로 인한 대기 정보 제거: ${downloadId}`);
+            console.log(`🛑 상태 변경으로 인한 대기 정보 제거: ${downloadId} (${updatedDownload.status})`);
           }
         } else {
           // 중복 추가 방지: 유효한 ID와 URL이 있을 때만 추가
@@ -439,17 +456,31 @@
             newDownloads[index] = { ...newDownloads[index], ...updatedDownload };
             hasChanges = true;
             
-            // 프록시 다운로드의 상태가 stopped, failed, done으로 변경되면 프록시 상태 초기화
-            if (oldDownload.use_proxy && 
+            // 프록시 다운로드의 상태가 stopped, failed, done으로 변경되면 다른 진행 중인 프록시 다운로드가 없을 때만 프록시 상태 초기화
+            if (oldDownload.use_proxy &&
                 oldDownload.status !== updatedDownload.status &&
                 ['stopped', 'failed', 'done'].includes(updatedDownload.status?.toLowerCase())) {
               console.log(`[LOG] 프록시 다운로드 ${updatedDownload.id} 상태 변경: ${oldDownload.status} -> ${updatedDownload.status}`);
-              proxyStats.status = "";
-              proxyStats.currentProxy = "";
-              proxyStats.currentStep = "";
-              proxyStats.currentIndex = 0;
-              proxyStats.totalAttempting = 0;
-              proxyStats = { ...proxyStats };
+
+              // 다른 활성 프록시 다운로드가 있는지 확인
+              const otherActiveProxyDownloads = newDownloads.filter(d =>
+                d.use_proxy &&
+                d.id !== updatedDownload.id &&
+                ['pending', 'proxying', 'parsing', 'downloading'].includes(d.status?.toLowerCase())
+              );
+
+              // 다른 활성 프록시 다운로드가 없을 때만 프록시 상태 초기화
+              if (otherActiveProxyDownloads.length === 0) {
+                proxyStats.status = "";
+                proxyStats.currentProxy = "";
+                proxyStats.currentStep = "";
+                proxyStats.currentIndex = 0;
+                proxyStats.totalAttempting = 0;
+                proxyStats = { ...proxyStats };
+                console.log(`[LOG] 마지막 프록시 다운로드 종료, 프록시 상태 초기화`);
+              } else {
+                console.log(`[LOG] 다른 프록시 다운로드 진행 중 (${otherActiveProxyDownloads.length}개), 프록시 상태 유지`);
+              }
             }
           } else {
             newDownloads.unshift(updatedDownload);
@@ -466,20 +497,31 @@
 
       // 프록시 메시지 처리
       if (message.type === "proxy_trying") {
-        const { id, proxy, step, current, total } = message.data;
+        const { id, proxy, step, current, total, failed } = message.data;
         proxyStats.currentProxy = proxy;
         proxyStats.currentStep = step;
         proxyStats.currentIndex = current;
         proxyStats.totalAttempting = total;
+        // totalProxies는 전체 프록시 수이므로 변경하지 않음 (total은 현재 배치의 크기)
+        proxyStats.failCount = failed || 0; // 실패한 프록시 수 업데이트
+        // availableProxies는 API에서 받은 초기값 유지 (SSE에서 변경하지 않음)
         proxyStats.status = "trying";
         proxyStats = { ...proxyStats };
-        
+
         // 메인 그리드에서 해당 다운로드 상태도 업데이트 (빠지지 않도록)
         if (id) {
           const download = downloads.find(d => d.id === id);
           if (download) {
-            download.proxy_message = `${step} - ${proxy} (${current}/${total})`;
+            const failedText = failed > 0 ? ` (실패: ${failed})` : '';
+            download.proxy_message = `${step} - ${proxy} (${current}/${total})${failedText}`;
             downloads = [...downloads];
+          }
+
+          // 프록시 작업이 시작되면 대기 정보 제거
+          if (downloadWaitInfo[id]) {
+            delete downloadWaitInfo[id];
+            downloadWaitInfo = { ...downloadWaitInfo };
+            console.log(`🛑 프록시 작업 시작으로 인한 대기 정보 제거: ${id} (${step})`);
           }
         }
       }
@@ -503,7 +545,29 @@
         proxyStats = { ...proxyStats };
       }
 
-      // 대기시간 카운트다운 처리
+      // 1fichier 대기시간 처리 (파싱 후 대기)
+      if (message.type === "waiting") {
+        console.log("🕐 1fichier waiting 메시지 수신:", message.data);
+        const { id, remaining, total, message: waitMsg } = message.data;
+        downloadWaitInfo[id] = {
+          remaining_time: remaining,
+          total_time: total,
+          wait_message: waitMsg || `1fichier 대기 중... ${remaining}초 남음`
+        };
+
+        // 해당 다운로드 상태를 waiting으로 업데이트
+        const download = downloads.find(d => d.id === id);
+        if (download) {
+          download.status = "waiting";
+          download.wait_message = waitMsg || `1fichier 대기 중... ${remaining}초 남음`;
+          downloads = [...downloads];
+        }
+
+        downloadWaitInfo = { ...downloadWaitInfo };
+        updateStats(downloads);
+      }
+
+      // 대기시간 카운트다운 처리 (로컬 다운로드용)
       if (message.type === "wait_countdown") {
         console.log("🕐 wait_countdown 메시지 수신:", message.data);
         const { id, remaining_time, wait_message } = message.data;
@@ -580,7 +644,6 @@
               i === index ? { ...d, status: newStatus } : d
             );
           }
-          fetchProxyStatus();
           updateStats(downloads);
         }
       }
@@ -1501,17 +1564,19 @@
                           )})
                           <span class="cooldown-indicator"></span>
                         </span>
-                      {:else if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
+                      {:else if download.status.toLowerCase() === "waiting" && downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
                         <span class="wait-countdown">
                           {#if downloadWaitInfo[download.id].remaining_time >= 60}
                             {$t("download_waiting_time")} ({Math.floor(
                               downloadWaitInfo[download.id].remaining_time /
                                 60
                             )}{$t("time_minutes")})
-                          {:else}
+                          {:else if downloadWaitInfo[download.id].remaining_time > 10}
                             {$t("download_waiting_time")} ({downloadWaitInfo[
                               download.id
                             ].remaining_time}{$t("time_seconds")})
+                          {:else}
+                            {$t("download_waiting_time")} ({Math.max(1, Math.floor((downloadWaitInfo[download.id].remaining_time * 1000 - (Date.now() - (downloadWaitInfo[download.id].timestamp || 0))) / 1000))}{$t("time_seconds")})
                           {/if}
                           <span
                             class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
