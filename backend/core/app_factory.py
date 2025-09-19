@@ -207,29 +207,55 @@ def create_app() -> FastAPI:
             content={"error": "Validation Error", "details": exc.errors()}
         )
 
-    # 정적 파일 서빙
-    frontend_path = os.path.join(os.path.dirname(
-        os.path.dirname(__file__)), "static")
-    if os.path.exists(frontend_path):
-        app.mount(
-            "/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
+    # 정적 파일 서빙 (Docker 및 로컬 환경 자동 감지)
+    docker_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+    local_dev_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
+
+    frontend_path = None
+    if os.path.exists(docker_path):
+        frontend_path = docker_path
+        print(f"[LOG] Serving frontend from Docker path: {frontend_path}")
+    elif os.path.exists(local_dev_path):
+        frontend_path = local_dev_path
+        print(f"[LOG] Serving frontend from Local Dev path: {frontend_path}")
+
+    if frontend_path and os.path.exists(frontend_path):
+        # Vite 빌드 에셋 디렉토리 이름이 'assets'인지 확인
+        assets_dir = os.path.join(frontend_path, "assets")
+        if os.path.exists(assets_dir):
+            app.mount(
+                "/assets", StaticFiles(directory=assets_dir), name="assets")
+        else:
+            print(f"[WARNING] 'assets' directory not found in {frontend_path}")
 
         @app.get("/{full_path:path}")
         async def serve_frontend(full_path: str):
             """프론트엔드 파일 서빙"""
+            # API 요청은 제외
             if full_path.startswith("api/"):
-                return {"error": "API endpoint not found"}
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "This is an API route, not a frontend asset."}
+                )
 
-            if full_path in ["", "index.html"] or not "." in full_path:
+            # 요청된 파일 경로
+            requested_file_path = os.path.join(frontend_path, full_path)
+
+            # 경로에 파일 이름이 없거나, 루트를 요청하면 index.html 반환
+            if not os.path.basename(full_path) or not "." in os.path.basename(full_path):
                 return FileResponse(os.path.join(frontend_path, "index.html"))
+            
+            # 파일이 존재하면 해당 파일 반환
+            if os.path.exists(requested_file_path) and os.path.isfile(requested_file_path):
+                return FileResponse(requested_file_path)
+            
+            # 파일이 없으면 SPA 라우팅을 위해 index.html 반환
             else:
-                file_path = os.path.join(frontend_path, full_path)
-                if os.path.exists(file_path):
-                    return FileResponse(file_path)
-                else:
-                    return FileResponse(os.path.join(frontend_path, "index.html"))
+                return FileResponse(os.path.join(frontend_path, "index.html"))
     else:
-        print(f"[WARNING] Frontend not found at {frontend_path}")
+        # 두 경로 모두에서 프론트엔드를 찾지 못한 경우
+        warning_message = f"[WARNING] Frontend not found. Looked in {docker_path} (for Docker) and {local_dev_path} (for Local Dev)."
+        print(warning_message)
 
         @app.get("/")
         async def root():
