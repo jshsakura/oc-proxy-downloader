@@ -76,12 +76,13 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         if wait_seconds:
             print(f"[LOG] 대기시간: {wait_seconds}초")
 
-            # 텔레그램 대기시간 알림 전송
+            # 텔레그램 대기시간 알림 전송 (5분 이상일 때만)
             if file_info:
                 wait_minutes = wait_seconds // 60
-                file_name = file_info.get('name', 'Unknown')
-                file_size_str = file_info.get('size', 'Unknown')
-                send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size_str)
+                if wait_minutes >= 5:
+                    file_name = file_info.get('name', 'Unknown')
+                    file_size_str = file_info.get('size', 'Unknown')
+                    send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size_str)
 
             # 4단계: 정확히 대기 (SSE로 카운트다운 전송)
             print(f"[LOG] {wait_seconds}초 대기 시작...")
