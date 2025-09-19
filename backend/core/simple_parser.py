@@ -43,9 +43,19 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
     try:
         # 1단계: 페이지 로드
         print(f"[LOG] 1fichier 페이지 로드: {url}")
-        response = scraper.get(url, headers=headers, proxies=proxies, timeout=(10, 30))
-        
+        print(f"[DEBUG] 사용 중인 프록시: {proxies}")
+        print(f"[DEBUG] 헤더: {headers}")
+
+        try:
+            response = scraper.get(url, headers=headers, proxies=proxies, timeout=(10, 30))
+            print(f"[DEBUG] 응답 코드: {response.status_code}")
+            print(f"[DEBUG] 응답 헤더: {dict(response.headers)}")
+        except Exception as e:
+            print(f"[ERROR] 페이지 로드 중 예외 발생: {e}")
+            raise e
+
         if response.status_code != 200:
+            print(f"[ERROR] 페이지 로드 실패 - 응답 내용: {response.text[:500]}")
             raise Exception(f"페이지 로드 실패: HTTP {response.status_code}")
         
         # 2단계: 파일 정보 추출
@@ -269,20 +279,50 @@ def extract_wait_time_from_button(html_content):
     try:
         print(f"[DEBUG] 대기시간 추출을 위한 HTML 검색 중...")
 
-        # JavaScript countdown 변수 (가장 정확함) - ASCII 숫자만
-        ct_patterns = [
-            r'var\s+ct\s*=\s*([0-9]+)',
+        # JavaScript ct 변수 체크 (가장 정확함)
+        # 1. 계산식 패턴 (ct = 3*60)
+        ct_calc_patterns = [
+            r'var\s+ct\s*=\s*([0-9]+)\s*\*\s*([0-9]+)',  # ct = 3*60
+            r'ct\s*=\s*([0-9]+)\s*\*\s*([0-9]+)',
+        ]
+
+        for pattern in ct_calc_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE)
+            if match:
+                num1, num2 = int(match.group(1)), int(match.group(2))
+                wait_time = num1 * num2
+                print(f"[LOG] JavaScript 계산식에서 대기시간 추출: {num1}*{num2} = {wait_time}초")
+                return wait_time
+
+        # 2. 단순 값 패턴 (ct = 60, ct = 180 등)
+        ct_simple_patterns = [
+            r'var\s+ct\s*=\s*([0-9]+)',  # ct = 60
             r'ct\s*=\s*([0-9]+)',
         ]
 
-        for pattern in ct_patterns:
+        for pattern in ct_simple_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 wait_time = int(match.group(1))
-                # 1초~24시간(86400초) 범위면 그대로 사용
-                if 1 <= wait_time <= 86400:
-                    print(f"[LOG] JavaScript ct 변수에서 대기시간 추출: {wait_time}초 ({wait_time//3600}시간 {(wait_time%3600)//60}분 {wait_time%60}초)")
+                # 60초 이상인 경우만 신뢰 (작은 값은 카운트다운용일 수 있음)
+                if wait_time >= 60:
+                    print(f"[LOG] JavaScript 단순값에서 대기시간 추출: {wait_time}초")
                     return wait_time
+
+        # 분(minutes) 단위 대기시간 체크
+        minute_patterns = [
+            r'You\s+must\s+wait\s+([0-9]+)\s+minutes?',
+            r'wait\s+([0-9]+)\s+minutes?',
+            r'([0-9]+)\s+minutes?\s+wait',
+        ]
+
+        for pattern in minute_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE)
+            if match:
+                wait_minutes = int(match.group(1))
+                wait_time = wait_minutes * 60  # 분을 초로 변환
+                print(f"[LOG] 분 단위 대기시간 발견: {wait_minutes}분 = {wait_time}초")
+                return wait_time
 
         # 버튼 텍스트에서 ASCII 숫자만 추출 (이모지 숫자 제외)
         button_patterns = [
@@ -355,8 +395,18 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
             'Origin': 'https://1fichier.com'
         })
 
-        response = scraper.post(url, data=form_data, headers=post_headers,
-                              proxies=proxies, timeout=(10, 30), allow_redirects=False)
+        print(f"[DEBUG] POST 요청 URL: {url}")
+        print(f"[DEBUG] POST 헤더: {post_headers}")
+        print(f"[DEBUG] POST 프록시: {proxies}")
+
+        try:
+            response = scraper.post(url, data=form_data, headers=post_headers,
+                                  proxies=proxies, timeout=(10, 30), allow_redirects=False)
+            print(f"[DEBUG] POST 응답 코드: {response.status_code}")
+            print(f"[DEBUG] POST 응답 URL: {response.url}")
+        except Exception as post_error:
+            print(f"[ERROR] POST 요청 중 예외 발생: {post_error}")
+            raise post_error
 
         # 리다이렉트 처리
         if response.status_code in [301, 302, 303, 307, 308]:
@@ -405,11 +455,13 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
             general_pattern = r'https://[a-zA-Z0-9\-]+\.1fichier\.com/[a-zA-Z0-9_\-/]+'
             matches = re.findall(general_pattern, response.text)
             if matches:
-                # CSS, JS 파일 제외
+                # CSS, JS, 이미지 파일 및 favicon 제외
                 for match in matches:
-                    if not any(ext in match for ext in ['.css', '.js', '.png', '.jpg', '.ico']):
-                        print(f"[LOG] 일반 패턴으로 다운로드 링크 발견: {match}")
-                        return match
+                    if not any(ext in match for ext in ['.css', '.js', '.png', '.jpg', '.ico', 'favicon', 'logo']):
+                        # 실제 다운로드 링크인지 확인 (최소 길이 체크)
+                        if len(match.split('/')[-1]) > 5:  # 파일 식별자가 충분히 긴지
+                            print(f"[LOG] 일반 패턴으로 다운로드 링크 발견: {match}")
+                            return match
 
             print(f"[DEBUG] 다운로드 링크 패턴 매칭 실패")
 
@@ -417,7 +469,40 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
             additional_wait_time = extract_wait_time_from_button(response.text)
             if additional_wait_time:
                 print(f"[LOG] POST 응답에서 추가 대기시간 발견: {additional_wait_time}초")
-                raise Exception(f"추가 대기시간 필요: {additional_wait_time}초")
+                print(f"[LOG] 추가 대기시간 시작...")
+
+                # 추가 대기 처리
+                time.sleep(additional_wait_time)
+                print(f"[LOG] 추가 대기 완료!")
+
+                # 추가 대기 후 다시 POST 요청
+                print(f"[LOG] 추가 대기 후 재시도...")
+                retry_response = scraper.post(url, data=form_data, headers=post_headers,
+                                            proxies=proxies, timeout=(10, 30), allow_redirects=False)
+
+                # 리다이렉트 처리
+                if retry_response.status_code in [301, 302, 303, 307, 308]:
+                    location = retry_response.headers.get('Location')
+                    if location and location.startswith('/'):
+                        location = f"https://1fichier.com{location}"
+
+                    if location and 'a-' in location:
+                        print(f"[LOG] 재시도 후 다운로드 링크 획득: {location}")
+                        return location
+
+                # 재시도 응답에서 다운로드 링크 찾기
+                if retry_response.status_code == 200:
+                    soup_retry = BeautifulSoup(retry_response.text, 'html.parser')
+                    for link in soup_retry.find_all('a', href=True):
+                        href = link.get('href')
+                        text = link.get_text(strip=True).lower()
+
+                        if (href and '1fichier.com' in href and
+                            any(keyword in text for keyword in ['download', 'click here', 'télécharger'])):
+                            if href.startswith('/'):
+                                href = f"https://1fichier.com{href}"
+                            print(f"[LOG] 재시도 후 다운로드 링크 발견: {href}")
+                            return href
 
             # 응답에 실제 오류 메시지가 있는지 확인 (limit는 정상 상황이므로 제외)
             error_keywords = ['error', 'expired', 'invalid', 'not found']

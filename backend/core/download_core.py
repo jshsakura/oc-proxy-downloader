@@ -740,8 +740,17 @@ class DownloadCore:
 
                     # 텔레그램 성공 알림
                     try:
+                        # 처리 시간 계산
+                        processing_time = None
+                        if req.started_at and req.finished_at:
+                            time_diff = req.finished_at - req.started_at
+                            hours, remainder = divmod(int(time_diff.total_seconds()), 3600)
+                            minutes, seconds = divmod(remainder, 60)
+                            processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
                         send_telegram_notification(req.file_name, "success", language="ko",
-                                                 file_size_str=req.file_size, save_path=req.save_path)
+                                                 file_size_str=req.file_size, save_path=req.save_path,
+                                                 requested_time=processing_time)
                     except Exception as telegram_error:
                         print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
 
@@ -765,8 +774,16 @@ class DownloadCore:
 
             # 텔레그램 실패 알림
             try:
+                # 처리 시간 계산 (실패 시에도)
+                processing_time = None
+                if req.started_at and req.finished_at:
+                    time_diff = req.finished_at - req.started_at
+                    hours, remainder = divmod(int(time_diff.total_seconds()), 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
                 send_telegram_notification(req.file_name, "failed", error=str(e), language="ko",
-                                         file_size_str=req.file_size)
+                                         file_size_str=req.file_size, requested_time=processing_time)
             except Exception as telegram_error:
                 print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")
 
@@ -1001,8 +1018,17 @@ class DownloadCore:
 
             # 텔레그램 성공 알림
             try:
+                # 처리 시간 계산
+                processing_time = None
+                if req.started_at and req.finished_at:
+                    time_diff = req.finished_at - req.started_at
+                    hours, remainder = divmod(int(time_diff.total_seconds()), 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
                 send_telegram_notification(req.file_name, "success", language="ko",
-                                         file_size_str=req.file_size, save_path=req.save_path)
+                                         file_size_str=req.file_size, save_path=req.save_path,
+                                         requested_time=processing_time)
             except Exception as telegram_error:
                 print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
 
@@ -1028,8 +1054,16 @@ class DownloadCore:
 
             # 텔레그램 실패 알림
             try:
+                # 처리 시간 계산 (실패 시에도)
+                processing_time = None
+                if req.started_at and req.finished_at:
+                    time_diff = req.finished_at - req.started_at
+                    hours, remainder = divmod(int(time_diff.total_seconds()), 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
                 send_telegram_notification(req.file_name, "failed", error=str(e), language="ko",
-                                         file_size_str=req.file_size)
+                                         file_size_str=req.file_size, requested_time=processing_time)
             except Exception as telegram_error:
                 print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")
 
