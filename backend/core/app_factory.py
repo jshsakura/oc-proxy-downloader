@@ -209,7 +209,7 @@ def create_app() -> FastAPI:
 
     # 정적 파일 서빙
     frontend_path = os.path.join(os.path.dirname(
-        os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
+        os.path.dirname(__file__)), "static")
     if os.path.exists(frontend_path):
         app.mount(
             "/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
