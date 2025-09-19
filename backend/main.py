@@ -17,8 +17,8 @@ import httpx
 import json
 from pathlib import Path
 from dotenv import load_dotenv
-from utils.logging import setup_logging, replace_print
-from core.app_factory import create_app
+from .utils.logging import setup_logging, replace_print
+from .core.app_factory import create_app
 
 # psutil 제거 - 불필요한 의존성
 
