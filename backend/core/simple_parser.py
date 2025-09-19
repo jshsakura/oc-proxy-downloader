@@ -115,21 +115,20 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                 time.sleep(wait_seconds)
 
             print(f"[LOG] 대기 완료!")
-        
-        # 5단계: 다운로드 버튼 클릭 시뮬레이션 (POST 요청)
+
+        # JavaScript 실행 시간을 위한 추가 지연
+        print(f"[LOG] JavaScript 버튼 활성화를 위해 2초 추가 대기...")
+        time.sleep(2)
+
+        # 5단계: 다운로드 버튼 클릭 시뮬레이션 (대기 완료 후 기존 페이지에서)
         download_link = None
         try:
             download_link = simulate_download_click(scraper, url, response.text, password, headers, proxies)
             print(f"[LOG] 다운로드 링크 획득 성공: {download_link}")
         except Exception as download_error:
             print(f"[ERROR] 다운로드 링크 추출 실패: {download_error}")
-            # 프록시/네트워크 관련 에러나 일시적 오류면 재시도 가능
-            retry_keywords = ['proxy', 'timeout', 'connection', 'read timed out', 'network', 'http', 'ssl', 'certificate']
-            if any(keyword in str(download_error).lower() for keyword in retry_keywords):
-                raise download_error  # 재시도 가능한 오류
-            else:
-                # 명확한 파싱 실패만 재시도 불가로 처리
-                raise Exception(f"파싱 실패 (재시도 불가): {download_error}")
+            # 모든 에러를 그대로 재시도 가능하게 처리
+            raise download_error
 
         # 다운로드 링크가 없으면 실패
         if not download_link:
@@ -259,10 +258,10 @@ def extract_wait_time_from_button(html_content):
     try:
         print(f"[DEBUG] 대기시간 추출을 위한 HTML 검색 중...")
 
-        # JavaScript countdown 변수 (가장 정확함)
+        # JavaScript countdown 변수 (가장 정확함) - ASCII 숫자만
         ct_patterns = [
-            r'var\s+ct\s*=\s*(\d+)',
-            r'ct\s*=\s*(\d+)',
+            r'var\s+ct\s*=\s*([0-9]+)',
+            r'ct\s*=\s*([0-9]+)',
         ]
 
         for pattern in ct_patterns:
@@ -274,11 +273,11 @@ def extract_wait_time_from_button(html_content):
                     print(f"[LOG] JavaScript ct 변수에서 대기시간 추출: {wait_time}초 ({wait_time//3600}시간 {(wait_time%3600)//60}분 {wait_time%60}초)")
                     return wait_time
 
-        # 버튼 텍스트에서 숫자 추출
+        # 버튼 텍스트에서 ASCII 숫자만 추출 (이모지 숫자 제외)
         button_patterns = [
-            r'Free\s+download\s+in\s+.*?(\d+)',
-            r'Please\s+wait\s+(\d+)',
-            r'Download\s+in\s+(\d+)',
+            r'Free\s+download\s+in\s+.*?([0-9]+)',
+            r'Please\s+wait\s+([0-9]+)',
+            r'Download\s+in\s+([0-9]+)',
         ]
 
         for pattern in button_patterns:
@@ -301,13 +300,21 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
     """다운로드 버튼 클릭 시뮬레이션"""
     try:
         soup = BeautifulSoup(html_content, 'html.parser')
-        
+
+        # 다운로드 버튼 상태 확인 (정보용, disabled 상태는 무시)
+        download_button = soup.find('button', {'id': 'dlw'})
+        if download_button:
+            is_disabled = download_button.get('disabled') is not None
+            button_text = download_button.get_text(strip=True)
+            print(f"[LOG] 다운로드 버튼 상태: disabled={is_disabled}, text='{button_text}'")
+            print(f"[LOG] 대기시간 완료 후이므로 disabled 상태 무시하고 POST 요청 진행")
+
         # 폼 찾기 (주로 id="f1")
         form = soup.find('form', {'id': 'f1'}) or soup.find('form')
 
         if not form:
             raise Exception("다운로드 폼을 찾을 수 없음")
-        
+
         # 폼 데이터 수집
         form_data = {}
 
@@ -322,7 +329,7 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
                     form_data[name] = password
                 elif input_type in ['submit', 'hidden'] or value:
                     form_data[name] = value
-        
+
         # submit 버튼이 없으면 기본값 추가
         if not any('submit' in key.lower() for key in form_data.keys()):
             form_data['submit'] = 'Download'
@@ -368,6 +375,12 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
                     return matches[0]
 
             print(f"[DEBUG] 다운로드 링크 패턴 매칭 실패")
+
+            # POST 응답에서 추가 대기시간 체크 (1fichier 다중 대기 처리)
+            additional_wait_time = extract_wait_time_from_button(response.text)
+            if additional_wait_time:
+                print(f"[LOG] POST 응답에서 추가 대기시간 발견: {additional_wait_time}초")
+                raise Exception(f"추가 대기시간 필요: {additional_wait_time}초")
 
             # 응답에 실제 오류 메시지가 있는지 확인 (limit는 정상 상황이므로 제외)
             error_keywords = ['error', 'expired', 'invalid', 'not found']
