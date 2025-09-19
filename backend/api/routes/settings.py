@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.config import get_config, save_config, get_download_path
 from core.db import get_db
+from services.notification_service import send_telegram_notification
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -105,5 +106,59 @@ async def select_folder(request: Request):
     except Exception as e:
         print(f"[ERROR] Select folder failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/telegram/test")
+async def test_telegram_notification(request: Request):
+    """텔레그램 알림 테스트"""
+    try:
+        print(f"[LOG] 텔레그램 테스트 알림 시작")
+
+        # 설정 확인
+        config = get_config()
+        bot_token = config.get("telegram_bot_token", "").strip()
+        chat_id = config.get("telegram_chat_id", "").strip()
+        notify_success = config.get("telegram_notify_success", False)
+
+        # 번역된 텍스트 가져오기
+        from core.i18n import get_translations
+        user_language = config.get("language", "ko")
+        translations = get_translations(user_language)
+
+        if not bot_token:
+            error_msg = "텔레그램 봇 토큰이 설정되지 않았습니다." if user_language == "ko" else "Telegram bot token is not configured."
+            return {"success": False, "message": error_msg}
+
+        if not chat_id:
+            error_msg = "텔레그램 채팅 ID가 설정되지 않았습니다." if user_language == "ko" else "Telegram chat ID is not configured."
+            return {"success": False, "message": error_msg}
+
+        if not notify_success:
+            error_msg = "텔레그램 성공 알림이 비활성화되어 있습니다. 설정에서 활성화해주세요." if user_language == "ko" else "Telegram success notifications are disabled. Please enable them in settings."
+            return {"success": False, "message": error_msg}
+
+        # 번역된 테스트 메시지 사용
+
+        test_file_name = f"🧪 {translations.get('telegram_test', 'Telegram Test')}"
+        test_size = translations.get('telegram_test_message', 'Test message from OC Proxy Downloader')
+        test_path = translations.get('telegram_test', 'Test Path') if user_language == 'ko' else 'Test Path'
+
+        # 간단한 테스트 메시지 전송
+        send_telegram_notification(
+            file_name=test_file_name,
+            status="success",
+            language=user_language,
+            file_size_str=test_size,
+            save_path=test_path,
+            requested_time="00:00:01"
+        )
+
+        success_message = translations.get('telegram_test_success', 'Telegram test message sent successfully')
+        return {"success": True, "message": success_message}
+
+    except Exception as e:
+        print(f"[ERROR] 텔레그램 테스트 실패: {e}")
+        error_msg = f"텔레그램 테스트 실패: {str(e)}" if config.get("language", "ko") == "ko" else f"Telegram test failed: {str(e)}"
+        return {"success": False, "message": error_msg}
 
 

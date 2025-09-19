@@ -174,6 +174,7 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
                               save_path: str = None, requested_time: str = None):
     """텔레그램 완료/실패 알림"""
     try:
+        print(f"[DEBUG] send_telegram_notification 호출됨: file_name={file_name}, status={status}")
         config = get_config()
 
         bot_token = config.get("telegram_bot_token", "").strip()
@@ -181,13 +182,19 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
         notify_success = config.get("telegram_notify_success", False)
         notify_failure = config.get("telegram_notify_failure", True)
 
+        print(f"[DEBUG] 텔레그램 설정: bot_token={'있음' if bot_token else '없음'}, chat_id={'있음' if chat_id else '없음'}")
+
         if not bot_token or not chat_id:
+            print(f"[DEBUG] 텔레그램 설정 부족으로 알림 건너뜀")
             return
 
         # 상태에 따른 알림 설정 확인
+        print(f"[DEBUG] 텔레그램 알림 설정 체크: status={status}, notify_success={notify_success}, notify_failure={notify_failure}")
         if status == "success" and not notify_success:
+            print(f"[DEBUG] 성공 알림이 비활성화되어 있어 알림 건너뜀")
             return
         if status == "failed" and not notify_failure:
+            print(f"[DEBUG] 실패 알림이 비활성화되어 있어 알림 건너뜀")
             return
 
         translations = get_translations(language)
@@ -241,6 +248,7 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
 
         def send_notification():
             try:
+                print(f"[DEBUG] 텔레그램 메시지 전송 시작: {status}")
                 url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
                 payload = {
                     "chat_id": chat_id,
@@ -248,11 +256,17 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
                     "parse_mode": "HTML"
                 }
 
+                print(f"[DEBUG] 텔레그램 요청 URL: {url}")
+                print(f"[DEBUG] 텔레그램 메시지 내용: {message[:100]}...")
+
                 response = requests.post(url, json=payload, timeout=10)
+                print(f"[DEBUG] 텔레그램 응답 코드: {response.status_code}")
+                print(f"[DEBUG] 텔레그램 응답 내용: {response.text}")
+
                 if response.status_code == 200:
                     print(f"[TELEGRAM] {status} 알림 전송 성공: {file_name}")
                 else:
-                    print(f"[WARNING] 텔레그램 전송 실패 - HTTP {response.status_code}")
+                    print(f"[WARNING] 텔레그램 전송 실패 - HTTP {response.status_code}: {response.text}")
             except Exception as e:
                 print(f"[WARNING] 텔레그램 전송 실패: {e}")
 
