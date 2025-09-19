@@ -24,7 +24,7 @@ from .models import DownloadRequest, StatusEnum
 from .config import get_download_path
 from .db import SessionLocal
 from services.sse_manager import sse_manager
-from services.notification_service import send_telegram_start_notification
+from services.notification_service import send_telegram_start_notification, send_telegram_notification
 from utils.file_helpers import download_file_content, generate_file_path, get_final_file_path
 from core.proxy_manager import proxy_manager
 from core.simple_parser import parse_1fichier_simple_sync, preparse_1fichier_standalone
@@ -698,7 +698,7 @@ class DownloadCore:
                     try:
                         file_name = req.file_name or "Unknown File"
                         file_size = req.file_size
-                        from services.notification_service import send_telegram_start_notification
+                        from services.notification_service import send_telegram_start_notification, send_telegram_notification
                         send_telegram_start_notification(file_name, "direct", "ko", file_size)
                         print(f"[LOG] 텔레그램 다운로드 시작 알림 전송: {file_name}")
                     except Exception as telegram_error:
@@ -738,6 +738,19 @@ class DownloadCore:
                         "message": "다운로드 완료"
                     })
 
+                    # 텔레그램 성공 알림
+                    try:
+                        send_telegram_notification(req.file_name, "success", language="ko",
+                                                 file_size_str=req.file_size, save_path=req.save_path)
+                    except Exception as telegram_error:
+                        print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
+
+                    # 1fichier 연속 요청 방지를 위한 쿨다운
+                    if "1fichier" in req.url.lower():
+                        print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
+                        await asyncio.sleep(5)
+                        print(f"[LOG] 1fichier 쿨다운 완료")
+
         except Exception as e:
             print(f"[ERROR] 직접 다운로드 실패: {e}")
             req.status = StatusEnum.failed
@@ -749,6 +762,14 @@ class DownloadCore:
                 "status": "failed",
                 "message": f"다운로드 실패: {str(e)}"
             })
+
+            # 텔레그램 실패 알림
+            try:
+                send_telegram_notification(req.file_name, "failed", error=str(e), language="ko",
+                                         file_size_str=req.file_size)
+            except Exception as telegram_error:
+                print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")
+
             raise e
 
     async def _download_local_async(self, req: DownloadRequest, db: Session):
@@ -978,7 +999,20 @@ class DownloadCore:
             })
             print(f"[LOG] SSE 완료 메시지 전송 완료")
 
+            # 텔레그램 성공 알림
+            try:
+                send_telegram_notification(req.file_name, "success", language="ko",
+                                         file_size_str=req.file_size, save_path=req.save_path)
+            except Exception as telegram_error:
+                print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
+
             print(f"[LOG] 다운로드 완료 처리 전체 완료: {req.save_path}")
+
+            # 1fichier 연속 요청 방지를 위한 쿨다운
+            if "1fichier" in req.url.lower():
+                print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
+                await asyncio.sleep(5)
+                print(f"[LOG] 1fichier 쿨다운 완료")
 
         except Exception as e:
             print(f"[ERROR] 파일 다운로드 실패: {e}")
@@ -991,6 +1025,14 @@ class DownloadCore:
                 "status": "failed",
                 "message": f"다운로드 실패: {str(e)}"
             })
+
+            # 텔레그램 실패 알림
+            try:
+                send_telegram_notification(req.file_name, "failed", error=str(e), language="ko",
+                                         file_size_str=req.file_size)
+            except Exception as telegram_error:
+                print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")
+
         finally:
             # 강제 상태 확인 및 로그
             try:

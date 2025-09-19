@@ -25,11 +25,15 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
     2. 대기시간 추출
     3. 대기 후 다운로드 링크 획득
     """
-    
-    # CloudScraper 설정
-    scraper = cloudscraper.create_scraper(
-        browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
-    )
+
+    def create_fresh_scraper():
+        """매번 새로운 CloudScraper 인스턴스 생성"""
+        return cloudscraper.create_scraper(
+            browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+        )
+
+    # 첫 페이지 로드용 스크래퍼
+    scraper = create_fresh_scraper()
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -124,10 +128,12 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
             print(f"[LOG] 대기 완료!")
 
 
-        # 5단계: 다운로드 버튼 클릭 시뮬레이션 (대기 완료 후 기존 페이지에서)
+        # 5단계: 다운로드 버튼 클릭 시뮬레이션 (대기 완료 후 새 스크래퍼로)
         download_link = None
         try:
-            download_link = simulate_download_click(scraper, url, response.text, password, headers, proxies)
+            # POST 요청용 새 스크래퍼 생성
+            post_scraper = create_fresh_scraper()
+            download_link = simulate_download_click(post_scraper, url, response.text, password, headers, proxies)
             print(f"[LOG] 다운로드 링크 획득 성공: {download_link}")
         except Exception as download_error:
             print(f"[ERROR] 다운로드 링크 추출 실패: {download_error}")
@@ -222,6 +228,7 @@ def preparse_1fichier_standalone(url):
 
         print(f"[LOG] 사전파싱 시작: {url}")
 
+        # 사전파싱용 새 스크래퍼 생성
         scraper = cloudscraper.create_scraper(
             browser={
                 'browser': 'chrome',
