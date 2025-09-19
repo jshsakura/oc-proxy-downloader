@@ -363,20 +363,46 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
 
         # HTML 응답에서 다운로드 링크 찾기
         if response.status_code == 200:
-            print(f"[DEBUG] POST 응답 내용 (처음 1000자):")
-            print(response.text[:1000])
+            print(f"[DEBUG] POST 응답 상태: {response.status_code}")
+            print(f"[DEBUG] POST 응답 헤더: {dict(response.headers)}")
+            print(f"[DEBUG] POST 응답 내용 (전체):")
+            print(response.text)
             print(f"[DEBUG] POST 응답 내용 끝")
 
-            download_patterns = [
-                r'https://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
-                r'https://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',
-            ]
+            # 1. 먼저 특정 다운로드 링크 텍스트가 있는 <a> 태그 찾기
+            soup_response = BeautifulSoup(response.text, 'html.parser')
 
-            for pattern in download_patterns:
-                matches = re.findall(pattern, response.text)
-                if matches:
-                    print(f"[LOG] HTML에서 다운로드 링크 발견: {matches[0]}")
-                    return matches[0]
+            # "Click here to download" 또는 "Download" 텍스트가 있는 링크 찾기
+            download_link_candidates = []
+
+            for link in soup_response.find_all('a', href=True):
+                href = link.get('href')
+                text = link.get_text(strip=True).lower()
+
+                # 1fichier.com 도메인이고 다운로드 관련 텍스트가 있는 링크
+                if (href and '1fichier.com' in href and
+                    any(keyword in text for keyword in ['download', 'click here', 'télécharger'])):
+                    download_link_candidates.append(href)
+                    print(f"[DEBUG] 다운로드 후보 링크 발견: {href} (텍스트: '{text}')")
+
+            # 후보가 있으면 첫 번째 반환
+            if download_link_candidates:
+                final_link = download_link_candidates[0]
+                # 상대 경로면 절대 경로로 변환
+                if final_link.startswith('/'):
+                    final_link = f"https://1fichier.com{final_link}"
+                print(f"[LOG] 다운로드 링크 발견: {final_link}")
+                return final_link
+
+            # 2. 백업: 1fichier.com 도메인의 모든 링크 패턴 매칭
+            general_pattern = r'https://[a-zA-Z0-9\-]+\.1fichier\.com/[a-zA-Z0-9_\-/]+'
+            matches = re.findall(general_pattern, response.text)
+            if matches:
+                # CSS, JS 파일 제외
+                for match in matches:
+                    if not any(ext in match for ext in ['.css', '.js', '.png', '.jpg', '.ico']):
+                        print(f"[LOG] 일반 패턴으로 다운로드 링크 발견: {match}")
+                        return match
 
             print(f"[DEBUG] 다운로드 링크 패턴 매칭 실패")
 
