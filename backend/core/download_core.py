@@ -315,9 +315,11 @@ class DownloadCore:
                         # 사용 가능한 프록시 선택 (실패한 프록시 제외)
                         proxy_addr = await proxy_manager.get_next_available_proxy(db, req.id)
                         if proxy_addr:
+                            # 다양한 프록시 타입 지원: HTTP/HTTPS 프록시 모두 시도
+                            # 대부분의 프록시는 HTTP 프록시이므로 HTTPS 터널링 사용
                             proxies = {
                                 "http": f"http://{proxy_addr}",
-                                "https": f"http://{proxy_addr}"
+                                "https": f"http://{proxy_addr}"  # HTTP 프록시를 통한 HTTPS 터널링
                             }
                             print(f"[LOG] 프록시 사용: {proxy_addr}")
                         else:
@@ -565,7 +567,7 @@ class DownloadCore:
                                 if proxy_addr:
                                     proxies = {
                                         "http": f"http://{proxy_addr}",
-                                        "https": f"http://{proxy_addr}"
+                                        "https": f"http://{proxy_addr}"  # HTTP 프록시를 통한 HTTPS 터널링
                                     }
                                     print(f"[LOG] 다음 프록시로 재시도: {proxy_addr}")
                                     continue
