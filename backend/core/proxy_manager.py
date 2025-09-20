@@ -56,7 +56,7 @@ class ProxyManager:
 
         return proxy_list
 
-    async def get_next_available_proxy(self, db: Session) -> str:
+    async def get_next_available_proxy(self, db: Session, download_id: int = None) -> str:
         """사용 가능한 다음 프록시 가져오기"""
         try:
             proxy_list = await self.get_user_proxy_list(db)
@@ -79,14 +79,21 @@ class ProxyManager:
                 print(f"[WARNING] 사용 가능한 프록시가 없음. 전체: {len(proxy_list)}, 실패: {len(failed_proxy_addresses)}")
                 return None
 
-            # 현재 인덱스에서 다음 프록시 선택
-            if self.current_proxy_index >= len(available_proxies):
-                self.current_proxy_index = 0
+            # 다운로드 ID 기반으로 고유한 프록시 선택
+            if download_id is not None:
+                # 다운로드 ID를 시드로 사용하여 고유한 프록시 선택
+                import random
+                random.seed(download_id)
+                selected_proxy = random.choice(available_proxies)
+                print(f"[LOG] 프록시 선택 (다운로드 {download_id}): {selected_proxy}")
+            else:
+                # 기존 순차 선택 방식 (호환성 유지)
+                if self.current_proxy_index >= len(available_proxies):
+                    self.current_proxy_index = 0
 
-            selected_proxy = available_proxies[self.current_proxy_index]
-            self.current_proxy_index += 1
-
-            print(f"[LOG] 프록시 선택: {selected_proxy} (인덱스: {self.current_proxy_index-1}/{len(available_proxies)})")
+                selected_proxy = available_proxies[self.current_proxy_index]
+                self.current_proxy_index += 1
+                print(f"[LOG] 프록시 선택: {selected_proxy} (인덱스: {self.current_proxy_index-1}/{len(available_proxies)})")
             return selected_proxy
         except Exception as e:
             print(f"[ERROR] get_next_available_proxy 실패: {e}")

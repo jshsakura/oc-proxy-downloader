@@ -48,7 +48,10 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         print(f"[DEBUG] 헤더: {headers}")
 
         try:
-            response = scraper.get(url, headers=headers, proxies=proxies, timeout=(10, 30))
+            # 프록시 사용 시 더 긴 타임아웃 적용
+            timeout_val = (30, 60) if proxies else (10, 30)
+            print(f"[DEBUG] 타임아웃 설정: {timeout_val} (연결, 읽기)")
+            response = scraper.get(url, headers=headers, proxies=proxies, timeout=timeout_val)
             print(f"[DEBUG] 응답 코드: {response.status_code}")
             print(f"[DEBUG] 응답 헤더: {dict(response.headers)}")
         except Exception as e:
@@ -409,8 +412,10 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
         print(f"[DEBUG] POST 프록시: {proxies}")
 
         try:
+            # 프록시 사용 시 더 긴 타임아웃 적용
+            timeout_val = (30, 60) if proxies else (10, 30)
             response = scraper.post(url, data=form_data, headers=post_headers,
-                                  proxies=proxies, timeout=(10, 30), allow_redirects=False)
+                                  proxies=proxies, timeout=timeout_val, allow_redirects=False)
             print(f"[DEBUG] POST 응답 코드: {response.status_code}")
             print(f"[DEBUG] POST 응답 URL: {response.url}")
         except Exception as post_error:
@@ -486,8 +491,10 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
 
                 # 추가 대기 후 다시 POST 요청
                 print(f"[LOG] 추가 대기 후 재시도...")
+                # 프록시 사용 시 더 긴 타임아웃 적용
+                timeout_val = (30, 60) if proxies else (10, 30)
                 retry_response = scraper.post(url, data=form_data, headers=post_headers,
-                                            proxies=proxies, timeout=(10, 30), allow_redirects=False)
+                                            proxies=proxies, timeout=timeout_val, allow_redirects=False)
 
                 # 리다이렉트 처리
                 if retry_response.status_code in [301, 302, 303, 307, 308]:

@@ -526,21 +526,41 @@
         }
       }
 
+
+
       if (message.type === "proxy_success") {
-        const { proxy, step } = message.data;
+        const { id, proxy, step, message: msg } = message.data;
         proxyStats.currentProxy = proxy;
-        proxyStats.currentStep = step;
+        proxyStats.currentStep = msg || step;
         proxyStats.status = "success";
         proxyStats.successCount++;
         proxyStats = { ...proxyStats };
+
+        // 메인 그리드에서 해당 다운로드 상태도 업데이트
+        if (id) {
+          const download = downloads.find(d => d.id === id);
+          if (download) {
+            download.proxy_message = `${proxy} - ${msg || step}`;
+            downloads = [...downloads];
+          }
+        }
       }
 
       if (message.type === "proxy_failed") {
-        const { proxy, step, error } = message.data;
-        proxyStats.currentProxy = proxy;
-        proxyStats.currentStep = step;
+        const { id, proxy, step, error, message: msg } = message.data;
+        proxyStats.currentProxy = proxy || "";
+        proxyStats.currentStep = msg || step;
         proxyStats.status = "failed";
         proxyStats.lastError = error || "";
+
+        // 메인 그리드에서 해당 다운로드 상태도 업데이트
+        if (id) {
+          const download = downloads.find(d => d.id === id);
+          if (download) {
+            download.proxy_message = msg || step;
+            downloads = [...downloads];
+          }
+        }
         proxyStats.failCount++;
         proxyStats = { ...proxyStats };
       }

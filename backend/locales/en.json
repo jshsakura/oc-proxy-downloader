@@ -280,6 +280,9 @@
   "proxy_mode_change_error": "An error occurred while changing proxy mode.",
   "sse_connection_normal": "SSE connection normal",
   "proxy_status_parsing": "Parsing ({count} items)",
+  "proxy_parsing_success": "Parsing successful, waiting",
+  "proxy_parsing_complete": "Parsing complete",
+  "proxy_all_failed": "All proxy attempts failed",
   "proxy_status_downloading": "Downloading ({count} items)",
   "proxy_status_pending": "Pending ({count} items)",
   "proxy_status_waiting": "Waiting..."

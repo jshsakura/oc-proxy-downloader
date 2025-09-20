@@ -25,6 +25,7 @@ class DownloadRequest(Base):
     file_size = Column(String, nullable=True)  # 파일 크기 (예: "6.98 GB")
     status = Column(Enum(StatusEnum), default=StatusEnum.pending)
     requested_at = Column(DateTime, default=datetime.datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)  # 실제 다운로드 시작 시간
     finished_at = Column(DateTime, nullable=True)
     error = Column(Text, nullable=True)
     downloaded_size = Column(Integer, default=0)

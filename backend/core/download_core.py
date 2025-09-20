@@ -313,7 +313,7 @@ class DownloadCore:
                     proxy_list = await proxy_manager.get_user_proxy_list(db)
                     if proxy_list:
                         # 사용 가능한 프록시 선택 (실패한 프록시 제외)
-                        proxy_addr = await proxy_manager.get_next_available_proxy(db)
+                        proxy_addr = await proxy_manager.get_next_available_proxy(db, req.id)
                         if proxy_addr:
                             proxies = {
                                 "http": f"http://{proxy_addr}",
@@ -513,6 +513,26 @@ class DownloadCore:
                             # 성공하면 즉시 루프 종료 (다른 프록시 시도 중단)
                             if parse_result:
                                 print(f"[LOG] 프록시 파싱 성공: {proxy_addr} - 다른 프록시 시도 중단")
+
+                                # 프록시 파싱 성공 시 프록시 상태 창 업데이트 (대기중으로 변경)
+                                try:
+                                    from core.config import get_config
+                                    from core.i18n import get_translations
+
+                                    config = get_config()
+                                    user_language = config.get("language", "ko")
+                                    translations = get_translations(user_language)
+
+                                    success_msg = translations.get("proxy_parsing_success", "파싱 성공, 대기 중")
+
+                                    await sse_manager.broadcast_message("proxy_success", {
+                                        "id": req.id,
+                                        "proxy": proxy_addr,
+                                        "message": success_msg
+                                    })
+                                except Exception as sse_error:
+                                    print(f"[WARNING] 프록시 성공 SSE 전송 실패: {sse_error}")
+
                                 break
 
                         except Exception as proxy_parse_error:
@@ -541,7 +561,7 @@ class DownloadCore:
                                     print(f"[LOG] SSE 파싱실패 스킵: {retry_count + 1}/{total_proxies} (실패: {total_failed_count})")
 
                                 # 다음 프록시 가져오기
-                                proxy_addr = await proxy_manager.get_next_available_proxy(db)
+                                proxy_addr = await proxy_manager.get_next_available_proxy(db, req.id)
                                 if proxy_addr:
                                     proxies = {
                                         "http": f"http://{proxy_addr}",
@@ -563,7 +583,25 @@ class DownloadCore:
                             break
 
                 if not parse_result:
+                    # 프록시 파싱 실패 시 프록시 상태 초기화
                     if req.use_proxy:
+                        try:
+                            from core.config import get_config
+                            from core.i18n import get_translations
+
+                            config = get_config()
+                            user_language = config.get("language", "ko")
+                            translations = get_translations(user_language)
+
+                            failed_msg = translations.get("proxy_all_failed", "모든 프록시 시도 실패")
+
+                            await sse_manager.broadcast_message("proxy_failed", {
+                                "id": req.id,
+                                "message": failed_msg
+                            })
+                        except Exception as sse_error:
+                            print(f"[WARNING] 프록시 실패 SSE 전송 실패: {sse_error}")
+
                         if retry_count >= MAX_PROXY_PARSE_RETRIES:
                             raise Exception(f"프록시 파싱 실패 - 최대 재시도 횟수({MAX_PROXY_PARSE_RETRIES}) 초과")
                         else:
@@ -645,6 +683,11 @@ class DownloadCore:
                 req.save_path = generate_file_path(filename_to_use, is_temporary=True)
                 db.commit()
 
+            # 다운로드 시작 시간 설정
+            if not req.started_at:
+                req.started_at = datetime.datetime.now()
+                db.commit()
+
             # 로컬 다운로드 방식으로 직접 다운로드
             await self._download_file_directly(req, db, download_url)
             print(f"[DEBUG] 직접 다운로드 완료: {req.id}")
@@ -670,6 +713,11 @@ class DownloadCore:
         """직접 다운로드 (로컬 방식과 동일)"""
         try:
             print(f"[LOG] 직접 다운로드 시작: {download_url}")
+
+            # 다운로드 시작 시간 설정 (중복 방지)
+            if not req.started_at:
+                req.started_at = datetime.datetime.now()
+                db.commit()
 
             timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=300)
 
@@ -698,8 +746,9 @@ class DownloadCore:
                     try:
                         file_name = req.file_name or "Unknown File"
                         file_size = req.file_size
+                        download_mode = "proxy" if req.use_proxy else "local"
                         from services.notification_service import send_telegram_start_notification, send_telegram_notification
-                        send_telegram_start_notification(file_name, "direct", "ko", file_size)
+                        send_telegram_start_notification(file_name, download_mode, "ko", file_size)
                         print(f"[LOG] 텔레그램 다운로드 시작 알림 전송: {file_name}")
                     except Exception as telegram_error:
                         print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
@@ -846,7 +895,7 @@ class DownloadCore:
                         proxy_addr = success_proxy
                         print(f"[LOG] 파싱 성공 프록시 재사용: {proxy_addr}")
                     else:
-                        proxy_addr = await proxy_manager.get_next_available_proxy(db)
+                        proxy_addr = await proxy_manager.get_next_available_proxy(db, req.id)
                         if not proxy_addr:
                             print(f"[ERROR] 더 이상 사용 가능한 프록시가 없음")
                             raise Exception("모든 프록시 시도 실패")

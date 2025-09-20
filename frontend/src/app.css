@@ -757,7 +757,7 @@ tbody tr:hover {
 }
 
 .speed-text.proxy-speed {
-  color: var(--proxy-color);
+  color: var(--warning-color);
 }
 
 .speed-text.local-speed {
@@ -2625,6 +2625,7 @@ span.status.status-cooldown,
 }
 
 .parsing-indicator.proxy-loading {
+  color: var(--warning-color);
 }
 
 .parsing-indicator.local-loading {

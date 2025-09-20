@@ -280,6 +280,9 @@
   "proxy_mode_change_error": "프록시 모드 변경 중 오류가 발생했습니다.",
   "sse_connection_normal": "SSE 연결 정상",
   "proxy_status_parsing": "파싱 중 ({count}개)",
+  "proxy_parsing_success": "파싱 성공, 대기 중",
+  "proxy_parsing_complete": "파싱 완료",
+  "proxy_all_failed": "모든 프록시 시도 실패",
   "proxy_status_downloading": "다운로드 중 ({count}개)",
   "proxy_status_pending": "대기 중 ({count}개)",
   "proxy_status_waiting": "대기 중..."

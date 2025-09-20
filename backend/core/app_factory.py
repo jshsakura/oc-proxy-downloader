@@ -17,6 +17,8 @@ from api.routes.history import router as history_router
 from core.db import engine
 from core.models import Base
 from core.i18n import load_all_translations
+from core.db import get_db
+from sqlalchemy import text
 
 # 인증 설정
 import os
@@ -36,6 +38,9 @@ async def lifespan(app: FastAPI):
     # DB 테이블 생성
     Base.metadata.create_all(bind=engine)
     print("[LOG] Database tables created")
+
+    # 데이터베이스 마이그레이션 실행
+    await _run_migrations()
 
     # 서비스들 시작
     await sse_manager.start()
@@ -263,3 +268,32 @@ def create_app() -> FastAPI:
 
     print(f"[LOG] FastAPI app created - Auth: {AUTHENTICATION_ENABLED}")
     return app
+
+
+async def _run_migrations():
+    """데이터베이스 마이그레이션 실행"""
+    try:
+        db = next(get_db())
+
+        # started_at 컬럼이 없는 경우 추가
+        try:
+            # 컬럼 존재 여부 확인
+            result = db.execute(text("PRAGMA table_info(download_requests)"))
+            columns = [row[1] for row in result.fetchall()]
+
+            if 'started_at' not in columns:
+                print("[LOG] Adding started_at column to download_requests table")
+                db.execute(text("ALTER TABLE download_requests ADD COLUMN started_at DATETIME"))
+                db.commit()
+                print("[LOG] Migration completed: started_at column added")
+            else:
+                print("[LOG] started_at column already exists")
+
+        except Exception as e:
+            print(f"[ERROR] Migration failed: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"[ERROR] Migration setup failed: {e}")
