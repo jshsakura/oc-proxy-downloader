@@ -498,13 +498,27 @@
       // 프록시 메시지 처리
       if (message.type === "proxy_trying") {
         const { id, proxy, step, current, total, failed } = message.data;
+        console.log(`[DEBUG] SSE proxy_trying 수신:`, message.data);
         proxyStats.currentProxy = proxy;
         proxyStats.currentStep = step;
         proxyStats.currentIndex = current;
         proxyStats.totalAttempting = total;
         // totalProxies는 전체 프록시 수이므로 변경하지 않음 (total은 현재 배치의 크기)
-        proxyStats.failCount = failed || 0; // 실패한 프록시 수 업데이트
-        // availableProxies는 API에서 받은 초기값 유지 (SSE에서 변경하지 않음)
+        // 실패 카운트 실시간 업데이트와 함께 사용 가능한 프록시도 차감 (1초 디바운싱)
+        const prevFailCount = proxyStats.failCount || 0;
+        const newFailCount = failed || 0;
+        const failedDiff = newFailCount - prevFailCount;
+
+        console.log(`[DEBUG] proxy_trying - 이전: ${prevFailCount}, 현재: ${newFailCount}, 차이: ${failedDiff}, 현재 잔여: ${proxyStats.availableProxies}`);
+
+        proxyStats.failCount = newFailCount;
+
+        // 실패 카운트 증가와 동시에 사용 가능한 프록시도 바로 차감
+        if (failedDiff > 0 && proxyStats.availableProxies > 0) {
+          const beforeAvailable = proxyStats.availableProxies;
+          proxyStats.availableProxies = Math.max(0, proxyStats.availableProxies - failedDiff);
+          console.log(`[DEBUG] 프록시 즉시 차감: ${failedDiff}개, ${beforeAvailable} -> ${proxyStats.availableProxies}`);
+        }
         proxyStats.status = "trying";
         proxyStats = { ...proxyStats };
 
@@ -553,12 +567,7 @@
         proxyStats.status = "failed";
         proxyStats.lastError = error || "";
 
-        // 프록시 실패 시 최신 프록시 상태 가져오기 (정확한 available_proxies 반영)
-        // 디바운싱 적용하여 과도한 요청 방지 (화면 업데이트 주기와 맞춤)
-        clearTimeout(window.proxyStatusUpdateTimeout);
-        window.proxyStatusUpdateTimeout = setTimeout(() => {
-          fetchProxyStatus();
-        }, 5000); // 5초 후 업데이트
+        // 개별 프록시 실패는 이미 proxy_trying에서 실시간 차감됨
 
         // 메인 그리드에서 해당 다운로드 상태도 업데이트
         if (id) {
