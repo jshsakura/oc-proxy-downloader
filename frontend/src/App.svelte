@@ -553,6 +553,13 @@
         proxyStats.status = "failed";
         proxyStats.lastError = error || "";
 
+        // 프록시 실패 시 최신 프록시 상태 가져오기 (정확한 available_proxies 반영)
+        // 디바운싱 적용하여 과도한 요청 방지 (화면 업데이트 주기와 맞춤)
+        clearTimeout(window.proxyStatusUpdateTimeout);
+        window.proxyStatusUpdateTimeout = setTimeout(() => {
+          fetchProxyStatus();
+        }, 5000); // 5초 후 업데이트
+
         // 메인 그리드에서 해당 다운로드 상태도 업데이트
         if (id) {
           const download = downloads.find(d => d.id === id);

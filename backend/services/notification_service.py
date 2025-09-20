@@ -51,10 +51,13 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
         translations = get_translations(language)
 
         # HTML 형식으로 메시지 작성
+        # 시스템 로컬 시간 사용 (서버 환경의 시간대 반영)
+        local_time = datetime.datetime.now()
         if language == "ko":
-            current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+            current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
         else:
-            current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            # 영문의 경우 시간대 정보 포함
+            current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
 
         wait_text = translations.get("telegram_wait_detected", "Wait Time Detected")
         filename_text = translations.get("telegram_filename", "Filename")
@@ -119,10 +122,13 @@ def send_telegram_start_notification(file_name: str, download_mode: str, languag
 
         translations = get_translations(language)
 
+        # 시스템 로컬 시간 사용 (서버 환경의 시간대 반영)
+        local_time = datetime.datetime.now()
         if language == "ko":
-            current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+            current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
         else:
-            current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            # 영문의 경우 시간대 정보 포함
+            current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
 
         start_text = translations.get("telegram_download_started", "Download Started")
         filename_text = translations.get("telegram_filename", "Filename")
@@ -199,10 +205,13 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
 
         translations = get_translations(language)
 
+        # 시스템 로컬 시간 사용 (서버 환경의 시간대 반영)
+        local_time = datetime.datetime.now()
         if language == "ko":
-            current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+            current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
         else:
-            current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            # 영문의 경우 시간대 정보 포함
+            current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
 
         if status == "success":
             success_text = translations.get("telegram_download_success", "Download Complete")
