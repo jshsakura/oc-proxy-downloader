@@ -150,12 +150,11 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
             print(f"[LOG] 대기 완료!")
 
 
-        # 5단계: 다운로드 버튼 클릭 시뮬레이션 (대기 완료 후 새 스크래퍼로)
+        # 5단계: 다운로드 버튼 클릭 시뮬레이션 (대기 완료 후 같은 세션 유지)
         download_link = None
         try:
-            # POST 요청용 새 스크래퍼 생성
-            post_scraper = create_fresh_scraper()
-            download_link = simulate_download_click(post_scraper, url, response.text, password, headers, proxies)
+            # 같은 스크래퍼로 세션 유지하며 POST 요청
+            download_link = simulate_download_click(scraper, url, response.text, password, headers, proxies)
             print(f"[LOG] 다운로드 링크 획득 성공: {download_link}")
         except Exception as download_error:
             print(f"[ERROR] 다운로드 링크 추출 실패: {download_error}")
