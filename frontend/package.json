@@ -13,8 +13,11 @@
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.1.0",
+    "concurrently": "^8.2.2",
     "svelte": "^5.34.7",
-    "vite": "^6.0.0",
-    "concurrently": "^8.2.2"
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "svelte-sonner": "^1.0.5"
   }
 }

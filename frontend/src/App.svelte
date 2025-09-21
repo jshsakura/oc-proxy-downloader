@@ -39,7 +39,7 @@
   import CloseIcon from "./icons/CloseIcon.svelte";
   import ChevronLeftIcon from "./icons/ChevronLeftIcon.svelte";
   import ChevronRightIcon from "./icons/ChevronRightIcon.svelte";
-  import { toastMessage, showToast, showToastMsg } from "./lib/toast.js";
+  import { Toaster, toast } from 'svelte-sonner';
   import ConfirmModal from "./lib/ConfirmModal.svelte";
   import ProxyGauge from "./lib/ProxyGauge.svelte";
   import LocalGauge from "./lib/LocalGauge.svelte";
@@ -875,9 +875,9 @@
       if (response.ok) {
         const newDownload = await response.json();
         if (newDownload.status === "waiting" && newDownload.message_key) {
-          showToastMsg($t(newDownload.message_key, newDownload.message_args));
+          toast.info($t(newDownload.message_key, newDownload.message_args));
         } else if (!isAutoDownload) {
-          showToastMsg($t("download_added_successfully"));
+          toast.success($t("download_added_successfully"));
         }
         url = "";
         password = "";
@@ -885,11 +885,11 @@
         fetchDownloads(); // 목록 즉시 새로고침
       } else {
         const errorData = await response.json();
-        showToastMsg($t("add_download_failed", { detail: errorData.detail }));
+        toast.error($t("add_download_failed", { detail: errorData.detail }));
       }
     } catch (error) {
       console.error("Error adding download:", error);
-      showToastMsg($t("add_download_error"));
+      toast.error($t("add_download_error"));
     } finally {
       isAddingDownload = false;
     }
@@ -916,7 +916,7 @@
 
         // 대기 상태 메시지 처리
         if (responseData.status === "waiting" && responseData.message_key) {
-          showToastMsg($t(responseData.message_key, responseData.message_args));
+          toast.info($t(responseData.message_key, responseData.message_args));
           return;
         }
 
@@ -928,7 +928,7 @@
                      endpoint.includes("/stop/") ? "stop" : "download";
 
         const messageKey = `${action}_request_sent`;
-        showToastMsg($t(messageKey), "success");
+        toast.success($t(messageKey));
         
         console.log(`API 호출 성공: ${endpoint}`);
       } else {
@@ -937,7 +937,7 @@
                      endpoint.includes("/resume/") ? $t("action_resume_action") :
                      endpoint.includes("/retry/") ? $t("action_retry_action") : $t("action_work");
         
-        showToastMsg(`${action} 요청에 실패했습니다.`, "error");
+        toast.error(`${action} 요청에 실패했습니다.`);
         console.error(`API 호출 실패: ${endpoint}, 상태: ${response.status}`);
       }
     } catch (error) {
@@ -945,7 +945,7 @@
                    endpoint.includes("/resume/") ? $t("action_resume_action") :
                    endpoint.includes("/retry/") ? $t("action_retry_action") : $t("action_work");
       
-      showToastMsg($t("request_processing_error", {action}), "error");
+      toast.error($t("request_processing_error", {action}));
       console.error(`Error calling ${endpoint}:`, error);
     }
     
@@ -956,7 +956,7 @@
     // ID 유효성 검사
     if (!id || isNaN(parseInt(id))) {
       console.error("❌ 잘못된 다운로드 ID:", id);
-      showToastMsg($t("invalid_download_id"), "error");
+      toast.error($t("invalid_download_id"));
       return;
     }
     
@@ -968,17 +968,17 @@
             method: "DELETE",
           });
           if (response.ok) {
-            showToastMsg($t("download_deleted_success"));
+            toast.success($t("download_deleted_success"));
             downloads = Array.isArray(downloads) ? downloads.filter((download) => download.id !== id) : [];
           } else {
             const errorData = await response.json();
-            showToastMsg(
+            toast.error(
               $t("delete_failed_with_detail", { detail: errorData.detail })
             );
           }
         } catch (error) {
           console.error("Error deleting download:", error);
-          showToastMsg($t("delete_error"));
+          toast.error($t("delete_error"));
         }
       },
       title: $t("confirm_delete_title"),
@@ -1147,7 +1147,7 @@
     try {
       const text = await navigator.clipboard.readText();
       if (!text || text.trim() === "") {
-        showToastMsg($t("clipboard_empty"));
+        toast.warning($t("clipboard_empty"));
         return;
       }
 
@@ -1156,16 +1156,16 @@
 
       // URL 형식이 유효한지 먼저 검사
       if (!isValidUrl(trimmedText)) {
-        showToastMsg($t("clipboard_pasted"));
+        toast.info($t("clipboard_pasted"));
         return;
       }
 
       // 기본 URL 검증 후 자동으로 다운로드 추가
-      showToastMsg($t("clipboard_url_auto_download"));
+      toast.info($t("clipboard_url_auto_download"));
       await addDownload(true, true); // skipValidation = true
     } catch (err) {
       console.error("Failed to read clipboard contents: ", err);
-      showToastMsg($t("clipboard_read_failed"));
+      toast.error($t("clipboard_read_failed"));
     }
   }
 
@@ -1209,9 +1209,9 @@
     const link = download.url;
     try {
       await navigator.clipboard.writeText(link);
-      showToastMsg($t("clipboard_copy_success_with_link", { link }));
+      toast.success($t("clipboard_copy_success_with_link", { link }));
     } catch (e) {
-      showToastMsg($t("clipboard_copy_failed"));
+      toast.error($t("clipboard_copy_failed"));
     }
   }
 
@@ -1227,18 +1227,18 @@
         }),
       });
       if (response.ok) {
-        showToastMsg($t("redownload_requested"));
+        toast.success($t("redownload_requested"));
         syncDownloadsSilently(); // 다시 다운로드 요청 시 조용한 업데이트
         currentTab = "working";
       } else {
         const errorData = await response.json();
-        showToastMsg(
+        toast.error(
           $t("redownload_failed_with_detail", { detail: errorData.detail })
         );
       }
     } catch (error) {
       console.error("Error redownloading:", error);
-      showToastMsg($t("redownload_error"));
+      toast.error($t("redownload_error"));
     }
   }
 
@@ -1460,14 +1460,13 @@
               on:click={() => {
                 if (proxyAvailable) {
                   useProxy = !useProxy;
-                  showToastMsg(
+                  toast.success(
                     useProxy
                       ? $t("mode_switched_to_proxy")
-                      : $t("mode_switched_to_local"),
-                    "success"
+                      : $t("mode_switched_to_local")
                   );
                 } else {
-                  showToastMsg($t("proxy_unavailable_tooltip"), "warning");
+                  toast.warning($t("proxy_unavailable_tooltip"));
                 }
               }}
               title={!proxyAvailable
@@ -1755,16 +1754,14 @@
                                 : d
                             );
                           } else {
-                            showToastMsg(
-                              "프록시 모드 변경에 실패했습니다.",
-                              "error"
+                            toast.error(
+                              "프록시 모드 변경에 실패했습니다."
                             );
                           }
                         } catch (error) {
                           console.error("프록시 토글 오류:", error);
-                          showToastMsg(
-                            $t("proxy_mode_change_error"),
-                            "error"
+                          toast.error(
+                            $t("proxy_mode_change_error")
                           );
                         }
                       }}
@@ -2014,6 +2011,11 @@
   />
 </main>
 
-{#if $showToast}
-  <div class="toast">{$toastMessage}</div>
-{/if}
+<Toaster
+  richColors
+  position="bottom-center"
+  expand={true}
+  visibleToasts={3}
+  closeButton={true}
+  duration={3000}
+/>

@@ -7,7 +7,7 @@
   import SettingsIcon from "../icons/SettingsIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
   import ConfirmModal from "./ConfirmModal.svelte";
-  import { toastMessage, showToast, showToastMsg } from "./toast.js";
+  import { toast } from 'svelte-sonner';
   import { onMount, onDestroy } from "svelte";
   import {
     authRequired,
@@ -72,7 +72,7 @@
 
   async function addProxy() {
     if (!newProxyAddress.trim()) {
-      showToastMsg($t("proxy_address_placeholder"), "error");
+      toast.error($t("proxy_address_placeholder"));
       return;
     }
 
@@ -88,17 +88,17 @@
       });
 
       if (response.ok) {
-        showToastMsg($t("proxy_added_success"), "success");
+        toast.success($t("proxy_added_success"));
         newProxyAddress = "";
         newProxyDescription = "";
         await loadUserProxies();
         dispatch("proxyChanged");
       } else {
         const error = await response.text();
-        showToastMsg($t("proxy_add_failed", { error }), "error");
+        toast.error($t("proxy_add_failed", { error }));
       }
     } catch (error) {
-      showToastMsg($t("proxy_add_error"), "error");
+      toast.error($t("proxy_add_error"));
     } finally {
       isAddingProxy = false;
     }
@@ -111,14 +111,14 @@
       });
 
       if (response.ok) {
-        showToastMsg($t("proxy_deleted_success"), "success");
+        toast.success($t("proxy_deleted_success"));
         await loadUserProxies();
         dispatch("proxyChanged");
       } else {
-        showToastMsg($t("proxy_delete_failed"), "error");
+        toast.error($t("proxy_delete_failed"));
       }
     } catch (error) {
-      showToastMsg($t("proxy_delete_error"), "error");
+      toast.error($t("proxy_delete_error"));
     }
   }
 
@@ -132,10 +132,10 @@
         await loadUserProxies();
         dispatch("proxyChanged");
       } else {
-        showToastMsg($t("proxy_toggle_failed"), "error");
+        toast.error($t("proxy_toggle_failed"));
       }
     } catch (error) {
-      showToastMsg($t("proxy_toggle_error"), "error");
+      toast.error($t("proxy_toggle_error"));
     }
   }
 
@@ -176,16 +176,16 @@
         document.execCommand("copy");
         textArea.remove();
       }
-      showToastMsg($t("copy_success"), "success");
+      toast.success($t("copy_success"));
     } catch (error) {
       console.error("Clipboard copy failed:", error);
-      showToastMsg($t("copy_failed"), "error");
+      toast.error($t("copy_failed"));
     }
   }
 
   async function testTelegramNotification() {
     if (!settings.telegram_bot_token || !settings.telegram_chat_id) {
-      showToastMsg($t("telegram_test_missing_config"), "error");
+      toast.error($t("telegram_test_missing_config"));
       return;
     }
 
@@ -203,17 +203,16 @@
       });
 
       if (response.ok) {
-        showToastMsg($t("telegram_test_success"), "success");
+        toast.success($t("telegram_test_success"));
       } else {
         const errorData = await response.json();
-        showToastMsg(
-          $t("telegram_test_failed") + ": " + errorData.detail,
-          "error"
+        toast.error(
+          $t("telegram_test_failed") + ": " + errorData.detail
         );
       }
     } catch (error) {
       console.error("Telegram test error:", error);
-      showToastMsg($t("telegram_test_error"), "error");
+      toast.error($t("telegram_test_error"));
     }
   }
 

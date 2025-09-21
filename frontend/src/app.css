@@ -1399,25 +1399,7 @@ html.dracula .system-theme-card {
   color: var(--button-secondary-text, #333);
 }
 
-.toast {
-  position: fixed !important;
-  bottom: 2rem !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  background: var(--toast-bg, var(--primary-color)) !important;
-  color: var(--toast-text, #fff) !important;
-  padding: 1rem 2rem;
-  border-radius: 10px;
-  font-size: 1rem;
-  z-index: 99999 !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  animation: fadein 0.3s ease-out;
-  opacity: 0.8;
-}
-
-.toast.fadeout {
-  animation: fadeout 0.3s ease-in;
-}
+/* 기존 토스트 스타일 제거됨 - svelte-sonner 사용 */
 
 @keyframes fadein {
   from {

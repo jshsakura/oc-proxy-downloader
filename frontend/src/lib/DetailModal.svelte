@@ -5,7 +5,7 @@
   import XIcon from "../icons/XIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
   import { onMount, onDestroy } from "svelte";
-  import { showToastMsg } from "./toast.js";
+  import { toast } from 'svelte-sonner';
 
   export let showModal = false;
   export let download = {};
@@ -43,10 +43,10 @@
         document.execCommand("copy");
         textArea.remove();
       }
-      showToastMsg($t("copy_success"));
+      toast.success($t("copy_success"));
     } catch (err) {
       console.error($t("clipboard_copy_failed"), err);
-      showToastMsg($t("copy_failed"));
+      toast.error($t("copy_failed"));
     }
   }
 
