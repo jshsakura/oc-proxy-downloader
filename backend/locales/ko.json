@@ -285,5 +285,8 @@
   "proxy_all_failed": "모든 프록시 시도 실패",
   "proxy_status_downloading": "다운로드 중 ({count}개)",
   "proxy_status_pending": "대기 중 ({count}개)",
-  "proxy_status_waiting": "대기 중..."
+  "proxy_status_waiting": "대기 중...",
+  "search_placeholder": "검색",
+  "pagination_prev": "이전",
+  "pagination_next": "다음"
 }

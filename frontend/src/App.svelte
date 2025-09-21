@@ -35,6 +35,10 @@
   import LinkCopyIcon from "./icons/LinkCopyIcon.svelte";
   import DownloadIcon from "./icons/DownloadIcon.svelte";
   import SettingsIcon from "./icons/SettingsIcon.svelte";
+  import SearchIcon from "./icons/SearchIcon.svelte";
+  import CloseIcon from "./icons/CloseIcon.svelte";
+  import ChevronLeftIcon from "./icons/ChevronLeftIcon.svelte";
+  import ChevronRightIcon from "./icons/ChevronRightIcon.svelte";
   import { toastMessage, showToast, showToastMsg } from "./lib/toast.js";
   import ConfirmModal from "./lib/ConfirmModal.svelte";
   import ProxyGauge from "./lib/ProxyGauge.svelte";
@@ -124,6 +128,8 @@
     typeof document !== "undefined" && document.body.classList.contains("dark");
 
   let currentTab = "working";
+  let searchQuery = "";
+  let searchTimeout;
 
   function openConfirm({
     message,
@@ -366,7 +372,6 @@
       const response = await fetch("/api/proxy-status");
       if (response.ok) {
         const data = await response.json();
-        console.log("[DEBUG] fetchProxyStatus API response:", data);
         proxyStats = {
           ...proxyStats,
           totalProxies: data.total_proxies,
@@ -376,7 +381,6 @@
           failCount: data.fail_count,
           status_message: data.status_message,
         };
-        console.log("[DEBUG] proxyStats updated:", proxyStats);
       }
     } catch (error) {
       console.error($t("proxy_status_fetch_failed"), error);
@@ -404,9 +408,7 @@
       eventSourceManager = new EventSourceManager();
     }
 
-    console.log("🔌 SSE 연결 시도 중...");
     eventSourceManager.connect((message) => {
-      console.log("📡 SSE 메시지 수신:", message.type, message.data);
 
       if (message.type === "status_update") {
         const updatedDownload = message.data;
@@ -420,19 +422,16 @@
           );
           // save_path 업데이트 로그
           if (updatedDownload.save_path) {
-            console.log("📁 다운로드 경로 업데이트:", updatedDownload.id, updatedDownload.save_path);
           }
 
           // 상태가 대기(waiting)가 아닌 다른 상태로 변경되면 대기 정보 제거
           if (updatedDownload.status !== "waiting" && downloadWaitInfo[downloadId]) {
             delete downloadWaitInfo[downloadId];
             downloadWaitInfo = { ...downloadWaitInfo };
-            console.log(`🛑 상태 변경으로 인한 대기 정보 제거: ${downloadId} (${updatedDownload.status})`);
           }
         } else {
           // 중복 추가 방지: 유효한 ID와 URL이 있을 때만 추가
           if (downloadId && !isNaN(downloadId) && updatedDownload.url) {
-            console.log("⚠️ 새 다운로드 추가:", downloadId, updatedDownload.url);
             downloads = [updatedDownload, ...downloads];
           } else {
             console.warn("❌ 잘못된 다운로드 데이터 무시:", updatedDownload);
@@ -444,7 +443,6 @@
 
       // 배치 업데이트 처리
       if (message.type === "batch_status_update") {
-        console.log(`📦 Processing batch update with ${message.data.length} items`);
         
         let hasChanges = false;
         const newDownloads = [...downloads];
@@ -460,7 +458,6 @@
             if (oldDownload.use_proxy &&
                 oldDownload.status !== updatedDownload.status &&
                 ['stopped', 'failed', 'done'].includes(updatedDownload.status?.toLowerCase())) {
-              console.log(`[LOG] 프록시 다운로드 ${updatedDownload.id} 상태 변경: ${oldDownload.status} -> ${updatedDownload.status}`);
 
               // 다른 활성 프록시 다운로드가 있는지 확인
               const otherActiveProxyDownloads = newDownloads.filter(d =>
@@ -692,13 +689,15 @@
     }
   }
 
-  // 조용한 백그라운드 동기화 (깜빡거림 없음)
+  // 조용한 백그라운드 동기화 (깜빡거림 없음) - 기존 fetchDownloads 사용
   async function syncDownloadsSilently() {
     try {
-      const response = await fetch(`/api/history/`);
+      const response = await fetch(`/api/history/`, { timeout: 10000 });
+
       if (response.ok) {
         const data = await response.json();
-        downloads = data.history || [];
+        const historyData = data.history || [];
+        downloads = historyData;
 
         // 완료되거나 정지된 다운로드의 대기 정보 정리
         Object.keys(downloadWaitInfo).forEach(downloadId => {
@@ -716,25 +715,14 @@
   }
 
   async function fetchDownloads(page = 1, retryCount = 0) {
-    console.log("=== fetchDownloads called ===");
     isDownloadsLoading = true;
-    console.log("isDownloadsLoading set to:", isDownloadsLoading);
 
     try {
       const response = await fetch(`/api/history/`, { timeout: 10000 });
-      console.log("History API response status:", response.status);
 
       if (response.ok) {
         const data = await response.json();
-        console.log("History API response:", data);
         const historyData = data.history || [];
-        if (Array.isArray(historyData) && historyData.length > 0) {
-          console.log("First download status:", historyData[0].status);
-          console.log(
-            "All download statuses:",
-            historyData.map((d) => d.status)
-          );
-        }
         downloads = historyData;
         currentPage = 1;
         totalPages = 1;
@@ -769,9 +757,6 @@
     } finally {
       if (retryCount === 0 || retryCount >= 2) {
         isDownloadsLoading = false;
-        console.log("isDownloadsLoading set to:", isDownloadsLoading);
-        console.log("Final downloads state:", downloads);
-        console.log("=== fetchDownloads completed ===");
       }
     }
   }
@@ -1278,38 +1263,69 @@
   function onTabChange(newTab) {
     if (currentTab !== newTab) {
       currentTab = newTab;
+      // 검색어는 탭 전환 시에도 유지
+      currentPage = 1; // 탭 전환 시 첫 페이지로 이동
       // 탭 전환 시 조용한 데이터 새로고침
       syncDownloadsSilently();
     }
   }
 
-  $: workingCount = Array.isArray(downloads) ? downloads.filter((d) => {
+  // 검색 입력 핸들러 (클라이언트 사이드 필터링만)
+  function handleSearchInput() {
+    // 검색어가 변경되면 filteredDownloads가 자동으로 업데이트됨
+    // API 호출 없이 클라이언트 사이드에서만 필터링
+    currentPage = 1; // 검색 시 첫 페이지로 이동
+  }
+
+  // 검색어 지우기
+  function clearSearch() {
+    searchQuery = "";
+    currentPage = 1;
+  }
+
+  // 검색 필터 적용된 다운로드 목록 (한번만 필터링)
+  $: searchFiltered = (() => {
+    if (!Array.isArray(downloads)) return [];
+
+    let filtered = downloads;
+
+    // 검색 필터 적용
+    if (searchQuery && searchQuery.trim()) {
+      const query = searchQuery.trim().toLowerCase();
+      filtered = filtered.filter((d) => {
+        const filename = d.filename?.toLowerCase() || "";
+        const url = d.url?.toLowerCase() || "";
+        return filename.includes(query) || url.includes(query);
+      });
+    }
+
+    return filtered;
+  })();
+
+  // 검색 필터가 적용된 카운트
+  $: workingCount = searchFiltered.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
-    // 완료된 것만 제외하고 나머지는 모두 진행중으로 처리
     return !(
       status === "done" ||
       (status === "stopped" &&
         (d.progress >= 100 || getDownloadProgress(d) >= 100))
     );
-  }).length : 0;
+  }).length;
 
-  $: completedCount = Array.isArray(downloads) ? downloads.filter((d) => {
+  $: completedCount = searchFiltered.filter((d) => {
     const status = d.status?.toLowerCase?.() || "";
-    // done 상태 또는 100% 완료인 stopped 상태만
     return (
       status === "done" ||
       (status === "stopped" &&
         (d.progress >= 100 || getDownloadProgress(d) >= 100))
     );
-  }).length : 0;
+  }).length;
 
   $: filteredDownloads = (() => {
-    if (!Array.isArray(downloads)) return [];
-
     if (currentTab === "working") {
-      return downloads.filter((d) => {
+      return searchFiltered.filter((d) => {
         const status = d.status?.toLowerCase?.() || "";
-        // 완료된 것만 제외하고 나머지는 모두 진행중으로 처리 (workingCount와 동일한 로직)
+        // 완료된 것만 제외하고 나머지는 모두 진행중으로 처리
         return !(
           status === "done" ||
           (status === "stopped" &&
@@ -1317,8 +1333,8 @@
         );
       });
     } else {
-      // 완료 탭: done 상태 또는 100% 완료인 stopped 상태만 (completedCount와 동일한 로직)
-      return downloads
+      // 완료 탭: done 상태 또는 100% 완료인 stopped 상태만
+      return searchFiltered
         .filter((d) => {
           const status = d.status?.toLowerCase?.() || "";
           return (
@@ -1328,9 +1344,9 @@
           );
         })
         .sort((a, b) => {
-          // completed_at이 있으면 그걸로, 없으면 updated_at로 정렬 (최신 순)
-          const aTime = new Date(a.completed_at || a.updated_at || 0);
-          const bTime = new Date(b.completed_at || b.updated_at || 0);
+          // finished_at을 우선으로 하고, 없으면 created_at, 없으면 updated_at으로 정렬 (최신 순)
+          const aTime = new Date(a.finished_at || a.created_at || a.updated_at || 0);
+          const bTime = new Date(b.finished_at || b.created_at || b.updated_at || 0);
           return bTime.getTime() - aTime.getTime(); // 내림차순 정렬 (최신 순 먼저)
         });
     }
@@ -1530,6 +1546,32 @@
           >
             {$t("tab_completed")} ({completedCount})
           </button>
+        </div>
+
+        <!-- 검색 필터 -->
+        <div class="search-container">
+          <input
+            type="text"
+            class="search-input"
+            placeholder={$t("search_placeholder")}
+            bind:value={searchQuery}
+            on:input={handleSearchInput}
+          />
+          {#if searchQuery && searchQuery.trim()}
+            <button
+              type="button"
+              class="search-clear-btn"
+              on:click={clearSearch}
+              title="검색어 지우기"
+              aria-label="검색어 지우기"
+            >
+              <CloseIcon />
+            </button>
+          {:else}
+            <div class="search-icon">
+              <SearchIcon />
+            </div>
+          {/if}
         </div>
       </div>
 
@@ -1863,35 +1905,75 @@
       </div>
       {#if totalPages > 1}
         <div class="pagination-buttons">
-          <button
-            class="page-number-btn prev-next-btn"
-            on:click={() => goToPage(currentPage - 1)}
-            disabled={currentPage <= 1}
-          >
-            ←
-          </button>
+          <!-- 데스크톱용 기존 레이아웃 -->
+          <div class="pagination-desktop">
+            <button
+              class="page-number-btn prev-next-btn"
+              on:click={() => goToPage(currentPage - 1)}
+              disabled={currentPage <= 1}
+            >
+              <ChevronLeftIcon />
+            </button>
 
-          <!-- 페이지 번호 버튼들 - 최대 5개 표시 -->
-          {#each Array(Math.min(totalPages, 5)) as _, i}
-            {@const pageNum = Math.max(1, currentPage - 2) + i}
-            {#if pageNum <= totalPages}
+            <!-- 페이지 번호 버튼들 - 최대 5개 표시 -->
+            {#each Array(Math.min(totalPages, 5)) as _, i}
+              {@const pageNum = Math.max(1, currentPage - 2) + i}
+              {#if pageNum <= totalPages}
+                <button
+                  class="page-number-btn"
+                  class:active={currentPage === pageNum}
+                  on:click={() => goToPage(pageNum)}
+                >
+                  {pageNum}
+                </button>
+              {/if}
+            {/each}
+
+            <button
+              class="page-number-btn prev-next-btn"
+              on:click={() => goToPage(currentPage + 1)}
+              disabled={currentPage >= totalPages}
+            >
+              <ChevronRightIcon />
+            </button>
+          </div>
+
+          <!-- 모바일용 세로 레이아웃 -->
+          <div class="pagination-mobile">
+            <div class="page-nav-container">
               <button
-                class="page-number-btn"
-                class:active={currentPage === pageNum}
-                on:click={() => goToPage(pageNum)}
+                class="page-nav-btn prev-btn"
+                on:click={() => goToPage(currentPage - 1)}
+                disabled={currentPage <= 1}
               >
-                {pageNum}
+                <ChevronLeftIcon />
+                {$t("pagination_prev")}
               </button>
-            {/if}
-          {/each}
+              <button
+                class="page-nav-btn next-btn"
+                on:click={() => goToPage(currentPage + 1)}
+                disabled={currentPage >= totalPages}
+              >
+                {$t("pagination_next")}
+                <ChevronRightIcon />
+              </button>
+            </div>
 
-          <button
-            class="page-number-btn prev-next-btn"
-            on:click={() => goToPage(currentPage + 1)}
-            disabled={currentPage >= totalPages}
-          >
-            →
-          </button>
+            <div class="page-numbers-mobile">
+              {#each Array(Math.min(totalPages, 5)) as _, i}
+                {@const pageNum = Math.max(1, currentPage - 2) + i}
+                {#if pageNum <= totalPages}
+                  <button
+                    class="page-number-btn-mobile"
+                    class:active={currentPage === pageNum}
+                    on:click={() => goToPage(pageNum)}
+                  >
+                    {pageNum}
+                  </button>
+                {/if}
+              {/each}
+            </div>
+          </div>
         </div>
       {/if}
     </div>

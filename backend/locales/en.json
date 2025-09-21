@@ -285,5 +285,8 @@
   "proxy_all_failed": "All proxy attempts failed",
   "proxy_status_downloading": "Downloading ({count} items)",
   "proxy_status_pending": "Pending ({count} items)",
-  "proxy_status_waiting": "Waiting..."
+  "proxy_status_waiting": "Waiting...",
+  "search_placeholder": "Search",
+  "pagination_prev": "Previous",
+  "pagination_next": "Next"
 }
