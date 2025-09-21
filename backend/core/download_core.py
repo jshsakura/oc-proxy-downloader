@@ -836,8 +836,8 @@ class DownloadCore:
 
                     # 1fichier 연속 요청 방지를 위한 쿨다운
                     if "1fichier" in req.url.lower():
-                        print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
-                        await asyncio.sleep(5)
+                        print(f"[LOG] 1fichier 다운로드 완료 - 30초 쿨다운 시작")
+                        await asyncio.sleep(30)
                         print(f"[LOG] 1fichier 쿨다운 완료")
 
         except Exception as e:
@@ -978,7 +978,25 @@ class DownloadCore:
 
                             actual_url = download_url if download_url else req.url
                             async with session.get(actual_url, headers=headers, proxy=proxy_url) as response:
-                                if response.status not in [200, 206]:
+                                if response.status == 404:
+                                    # HTTP 404: 파일을 찾을 수 없음 - 재파싱 또는 링크 확인 필요
+                                    print(f"[ERROR] HTTP 404: 파일을 찾을 수 없음 - {actual_url}")
+                                    raise Exception(f"REPARSE_NEEDED: HTTP 404 - 파일을 찾을 수 없음")
+                                elif response.status == 410:
+                                    # HTTP 410: 파일이 영구적으로 제거됨 - 재파싱 필요
+                                    print(f"[ERROR] HTTP 410: 파일이 영구적으로 제거됨 - {actual_url}")
+                                    raise Exception(f"REPARSE_NEEDED: HTTP 410 - 링크 만료")
+                                elif response.status == 403:
+                                    # HTTP 403: 접근 금지 - 권한 문제 또는 차단
+                                    print(f"[ERROR] HTTP 403: 접근 금지 - {actual_url}")
+                                    raise Exception(f"HTTP 403: 접근이 차단되었습니다")
+                                elif response.status == 429:
+                                    # HTTP 429: 요청 제한 - 너무 많은 요청
+                                    print(f"[ERROR] HTTP 429: 요청 제한 초과 - {actual_url}")
+                                    raise Exception(f"HTTP 429: 요청이 너무 많습니다. 잠시 후 다시 시도하세요")
+                                elif response.status not in [200, 206]:
+                                    # 기타 HTTP 에러
+                                    print(f"[ERROR] HTTP {response.status}: {response.reason} - {actual_url}")
                                     raise Exception(f"HTTP {response.status}: {response.reason}")
 
                     # Content-Length 가져오기 (사전파싱에서 얻은 total_size가 있으면 덮어쓰지 않음)
@@ -1032,9 +1050,16 @@ class DownloadCore:
                     error_messages.append(error_msg)
                     print(f"[ERROR] 다운로드 실패 ({retry_count + 1}): {download_error}")
 
-                    # 410 Gone 에러면 링크 만료 - 재파싱 시도
-                    if "410" in str(download_error) or "Gone" in str(download_error):
-                        print(f"[WARNING] 다운로드 링크 만료 감지 - 재파싱 시도")
+                    # HTTP 429 에러 처리 - 요청 제한 초과
+                    if "429" in str(download_error):
+                        print(f"[WARNING] HTTP 429 요청 제한 초과 - 60초 대기 후 재시도")
+                        await asyncio.sleep(60)  # 1분 대기
+                        continue  # 재시도
+
+                    # 404, 410 에러면 링크 만료 또는 파일 없음 - 재파싱 시도
+                    if ("404" in str(download_error) or "410" in str(download_error) or
+                        "Gone" in str(download_error) or "REPARSE_NEEDED" in str(download_error)):
+                        print(f"[WARNING] 다운로드 링크 문제 감지 - 재파싱 시도: {download_error}")
                         try:
                             # 재파싱
                             parse_url = req.original_url if req.original_url else req.url
@@ -1142,8 +1167,8 @@ class DownloadCore:
 
             # 1fichier 연속 요청 방지를 위한 쿨다운
             if "1fichier" in req.url.lower():
-                print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
-                await asyncio.sleep(5)
+                print(f"[LOG] 1fichier 다운로드 완료 - 30초 쿨다운 시작")
+                await asyncio.sleep(30)
                 print(f"[LOG] 1fichier 쿨다운 완료")
 
         except Exception as e:
