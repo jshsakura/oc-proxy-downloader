@@ -92,10 +92,59 @@ class DownloadService:
                     "count": reset_count
                 })
 
+            # 서버 재시작 후 대기중인 다운로드들 자동 시작
+            await self._start_pending_downloads_after_restart(db)
+
         except Exception as e:
             print(f"[ERROR] 다운로드 상태 초기화 실패: {e}")
         finally:
             db.close()
+
+    async def _start_pending_downloads_after_restart(self, db: Session):
+        """서버 재시작 후 대기중인 다운로드들을 자동으로 시작"""
+        try:
+            # 대기중인 모든 다운로드 조회 (요청시간 오름차순으로 정렬)
+            pending_downloads = db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.pending
+            ).order_by(DownloadRequest.requested_at.asc()).all()
+
+            if not pending_downloads:
+                print("[LOG] 서버 재시작 후 대기중인 다운로드 없음")
+                return
+
+            print(f"[LOG] 서버 재시작 후 {len(pending_downloads)}개 대기중인 다운로드 발견")
+
+            # download_core를 통해 자동 시작
+            from core.download_core import download_core
+            started_count = 0
+
+            for req in pending_downloads:
+                is_1fichier = "1fichier.com" in req.url
+
+                if is_1fichier and not req.use_proxy:
+                    # 1fichier 로컬 다운로드 (최대 1개)
+                    if download_core.fichier_local_semaphore._value > 0:
+                        success = await download_core.start_download_async(req, db)
+                        if success:
+                            started_count += 1
+                            print(f"[LOG] 1fichier 로컬 자동 재시작: {req.id}")
+                            break  # 1fichier 로컬은 최대 1개이므로 시작하면 중단
+                else:
+                    # 일반 다운로드 (1fichier 프록시 포함, 최대 5개)
+                    if download_core.general_download_semaphore._value > 0:
+                        success = await download_core.start_download_async(req, db)
+                        if success:
+                            started_count += 1
+                            print(f"[LOG] 일반/프록시 다운로드 자동 재시작: {req.id}")
+
+                            # 일반 다운로드 세마포어가 모두 사용되면 중단
+                            if download_core.general_download_semaphore._value == 0:
+                                break
+
+            print(f"[LOG] 서버 재시작 후 총 {started_count}개 다운로드 자동 시작됨")
+
+        except Exception as e:
+            print(f"[ERROR] 서버 재시작 후 자동 시작 실패: {e}")
 
     async def _monitor_wait_timeouts(self):
         """대기시간 타임아웃 모니터링"""

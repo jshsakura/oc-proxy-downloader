@@ -1290,7 +1290,7 @@ class DownloadCore:
         try:
             db = SessionLocal()
 
-            # 대기중인 다운로드 조회 (요청시간 오름차순으로 정렬)
+            # 대기중인 모든 다운로드 조회 (요청시간 오름차순으로 정렬)
             pending_downloads = db.query(DownloadRequest).filter(
                 DownloadRequest.status == StatusEnum.pending
             ).order_by(DownloadRequest.requested_at.asc()).all()
@@ -1299,21 +1299,33 @@ class DownloadCore:
                 print("[LOG] 대기중인 다운로드 없음")
                 return
 
+            started_count = 0
+
             for req in pending_downloads:
-                # 1fichier 로컬 다운로드 체크
                 is_1fichier = "1fichier.com" in req.url
+
                 if is_1fichier and not req.use_proxy:
-                    # 1fichier 로컬 세마포어 확인
+                    # 1fichier 로컬 다운로드 (최대 1개)
                     if self.fichier_local_semaphore._value > 0:
-                        print(f"[LOG] 1fichier 로컬 자동 시작: {req.id}")
-                        await self.start_download_async(req, db)
-                        break
+                        success = await self.start_download_async(req, db)
+                        if success:
+                            started_count += 1
+                            print(f"[LOG] 1fichier 로컬 자동 시작: {req.id}")
+                            break  # 1fichier 로컬은 최대 1개이므로 시작하면 중단
                 else:
-                    # 일반 다운로드 세마포어 확인
+                    # 일반 다운로드 (1fichier 프록시 포함, 최대 5개)
                     if self.general_download_semaphore._value > 0:
-                        print(f"[LOG] 일반 다운로드 자동 시작: {req.id}")
-                        await self.start_download_async(req, db)
-                        break
+                        success = await self.start_download_async(req, db)
+                        if success:
+                            started_count += 1
+                            print(f"[LOG] 일반/프록시 다운로드 자동 시작: {req.id}")
+
+                            # 일반 다운로드 세마포어가 모두 사용되면 중단
+                            if self.general_download_semaphore._value == 0:
+                                break
+
+            if started_count > 0:
+                print(f"[LOG] 총 {started_count}개 다운로드 자동 시작됨")
 
         except Exception as e:
             print(f"[ERROR] 자동 다운로드 시작 실패: {e}")
