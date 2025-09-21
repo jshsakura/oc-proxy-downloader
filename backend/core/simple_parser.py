@@ -120,8 +120,8 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                     except Exception as e:
                         print(f"[WARNING] 상태 확인 실패: {e}")
 
-                    # 10초 이하는 1초 단위 타이머 건너뛰기
-                    if remaining > 10:
+                    # 5초 이하는 1초 단위 타이머 건너뛰기
+                    if remaining > 5:
                         # SSE 콜백으로 대기시간 전송
                         if sse_callback and remaining % 5 == 0:  # 5초마다만 전송
                             try:
@@ -137,7 +137,7 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                         print(f"[DEBUG] 대기 중: {remaining}초 남음")
                         time.sleep(1)
                     else:
-                        # 10초 이하는 바로 남은 시간만큼 대기
+                        # 5초 이하는 바로 남은 시간만큼 대기
                         print(f"[LOG] 남은 {remaining}초 한번에 대기")
                         time.sleep(remaining)
                         break

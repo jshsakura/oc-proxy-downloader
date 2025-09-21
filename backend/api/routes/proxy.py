@@ -192,48 +192,50 @@ async def get_proxy_status(request: Request, db: Session = Depends(get_db)):
         success_count = db.query(ProxyStatus).filter(ProxyStatus.success == True).count()
         fail_count = db.query(ProxyStatus).filter(ProxyStatus.success == False).count()
 
-        # 현재 프록시 다운로드 개수
+        # 현재 프록시 다운로드 개수 (실제 활성 상태만)
         active_proxy_downloads = db.query(DownloadRequest).filter(
             DownloadRequest.use_proxy == True,
             DownloadRequest.status.in_(
                 [StatusEnum.downloading, StatusEnum.proxying])
         ).count()
-        
+
         # 대기 중인 프록시 다운로드 개수
         pending_proxy_downloads = db.query(DownloadRequest).filter(
             DownloadRequest.use_proxy == True,
             DownloadRequest.status == StatusEnum.pending
         ).count()
-        
+
         # 프록시 파싱 중인 다운로드 개수
         parsing_proxy_downloads = db.query(DownloadRequest).filter(
             DownloadRequest.use_proxy == True,
             DownloadRequest.status == StatusEnum.parsing
+        ).count()
+
+        # 프록시 대기 중인 다운로드 개수 (waiting 상태)
+        waiting_proxy_downloads = db.query(DownloadRequest).filter(
+            DownloadRequest.use_proxy == True,
+            DownloadRequest.status == StatusEnum.waiting
         ).count()
         
         # 프록시 상태 메시지 결정 (i18n 지원)
         config = get_config()
         lang = config.get("language", "ko")
 
-        if active_proxy_downloads > 0:
+        # 전체 진행중인 프록시 다운로드 개수 (parsing, active, waiting 포함)
+        total_active_proxy = parsing_proxy_downloads + active_proxy_downloads + waiting_proxy_downloads
+
+        if total_active_proxy > 0:
             if parsing_proxy_downloads > 0:
                 proxy_status = get_message("proxy_status_parsing", lang).format(count=parsing_proxy_downloads)
-            else:
+            elif active_proxy_downloads > 0:
                 proxy_status = get_message("proxy_status_downloading", lang).format(count=active_proxy_downloads)
+            elif waiting_proxy_downloads > 0:
+                proxy_status = get_message("proxy_status_waiting", lang)
         elif pending_proxy_downloads > 0:
             proxy_status = get_message("proxy_status_pending", lang).format(count=pending_proxy_downloads)
         else:
-            # Check if there are any proxy downloads at all (including stopped/failed)
-            total_proxy_downloads = db.query(DownloadRequest).filter(
-                DownloadRequest.use_proxy == True
-            ).count()
-
-            if total_proxy_downloads > 0:
-                # There are proxy downloads but none are actively progressing - show idle
-                proxy_status = ""
-            else:
-                # No proxy downloads at all - show waiting
-                proxy_status = get_message("proxy_status_waiting", lang)
+            # 프록시 다운로드가 전혀 없거나 모두 완료/실패/정지 상태
+            proxy_status = get_message("proxy_idle", lang)
 
         return {
             "total_proxies": total_proxies,
@@ -244,6 +246,7 @@ async def get_proxy_status(request: Request, db: Session = Depends(get_db)):
             "active_downloads": active_proxy_downloads,
             "pending_downloads": pending_proxy_downloads,
             "parsing_downloads": parsing_proxy_downloads,
+            "waiting_downloads": waiting_proxy_downloads,
             "status_message": proxy_status
         }
 

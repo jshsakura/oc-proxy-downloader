@@ -578,6 +578,18 @@
         proxyStats = { ...proxyStats };
       }
 
+      // 프록시 상태 초기화 처리
+      if (message.type === "proxy_reset") {
+        console.log("🔄 프록시 상태 초기화 메시지 수신:", message.data);
+        proxyStats.status = "";
+        proxyStats.currentProxy = "";
+        proxyStats.currentStep = "";
+        proxyStats.currentIndex = 0;
+        proxyStats.totalAttempting = 0;
+        proxyStats = { ...proxyStats };
+        console.log("[LOG] 프록시 상태 강제 초기화 완료");
+      }
+
       // 1fichier 대기시간 처리 (파싱 후 대기)
       if (message.type === "waiting") {
         console.log("🕐 1fichier waiting 메시지 수신:", message.data);
