@@ -1282,6 +1282,44 @@ class DownloadCore:
             del self.download_tasks[req_id]
             print(f"[LOG] 다운로드 태스크 정리: {req_id}")
 
+            # 다운로드 완료 후 대기중인 다운로드 자동 시작
+            asyncio.create_task(self._start_next_pending_download())
+
+    async def _start_next_pending_download(self):
+        """대기중인 다운로드를 자동으로 시작 (요청시간 순서대로)"""
+        try:
+            db = SessionLocal()
+
+            # 대기중인 다운로드 조회 (요청시간 오름차순으로 정렬)
+            pending_downloads = db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.pending
+            ).order_by(DownloadRequest.requested_at.asc()).all()
+
+            if not pending_downloads:
+                print("[LOG] 대기중인 다운로드 없음")
+                return
+
+            for req in pending_downloads:
+                # 1fichier 로컬 다운로드 체크
+                is_1fichier = "1fichier.com" in req.url
+                if is_1fichier and not req.use_proxy:
+                    # 1fichier 로컬 세마포어 확인
+                    if self.fichier_local_semaphore._value > 0:
+                        print(f"[LOG] 1fichier 로컬 자동 시작: {req.id}")
+                        await self.start_download_async(req, db)
+                        break
+                else:
+                    # 일반 다운로드 세마포어 확인
+                    if self.general_download_semaphore._value > 0:
+                        print(f"[LOG] 일반 다운로드 자동 시작: {req.id}")
+                        await self.start_download_async(req, db)
+                        break
+
+        except Exception as e:
+            print(f"[ERROR] 자동 다운로드 시작 실패: {e}")
+        finally:
+            db.close()
+
     async def get_download_status(self, req_id: int) -> Dict[str, Any]:
         """다운로드 상태 조회"""
         try:
