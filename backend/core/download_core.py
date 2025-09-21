@@ -279,7 +279,7 @@ class DownloadCore:
         finally:
             db.close()
 
-    async def _download_with_proxy_async(self, req: DownloadRequest, db: Session, skip_preparse: bool = False, retry_count: int = 0):
+    async def _download_with_proxy_async(self, req: DownloadRequest, db: Session, skip_preparse: bool = False):
         """1fichier 프록시 다운로드 (원래 함수명)"""
         print(f"[DEBUG] _download_with_proxy_async 시작: {req.id}")
         await self.send_download_log(req.id, "1fichier 다운로드 시작")
@@ -676,62 +676,38 @@ class DownloadCore:
             req.status = StatusEnum.downloading
             db.commit()
 
-            print(f"[DEBUG] 프록시 파싱 성공 후 다운로드 시작: {req.id}")
+            print(f"[DEBUG] 로컬 방식으로 직접 다운로드 시작: {req.id}")
+
+            # 파일 저장 경로 설정
+            if not req.save_path:
+                filename_to_use = req.file_name or f"download_{req.id}"
+                from utils.file_helpers import generate_file_path
+                req.save_path = generate_file_path(filename_to_use, is_temporary=True)
+                db.commit()
 
             # 다운로드 시작 시간 설정
             if not req.started_at:
                 req.started_at = datetime.datetime.now()
                 db.commit()
 
-            # 파싱에 성공한 프록시 주소 추출
-            success_proxy = None
-            if req.use_proxy and proxy_addr:
-                success_proxy = proxy_addr
-                print(f"[DEBUG] 파싱 성공 프록시를 다운로드에 사용: {success_proxy}")
-
-            # 프록시 고려한 다운로드 수행
-            await self._perform_file_download_async(req, db, download_url, success_proxy)
+            # 로컬 다운로드 방식으로 직접 다운로드
+            await self._download_file_directly(req, db, download_url)
             print(f"[DEBUG] 직접 다운로드 완료: {req.id}")
             return True
 
         except Exception as e:
-            error_message = str(e)
-
-            # 링크 만료로 인한 재파싱 필요한 경우 (최대 1회만 재시도)
-            if "REPARSE_NEEDED" in error_message and retry_count < 1:
-                print(f"[LOG] 다운로드 링크 만료 감지 - 재파싱 시도: {req.id} (재시도 {retry_count + 1}/1)")
-
-                # 재파싱 시도
-                try:
-                    await self.send_download_update(req.id, {
-                        "status": "parsing",
-                        "message": "다운로드 링크 만료 - 재파싱 중..."
-                    })
-
-                    # 재파싱 수행
-                    req.status = StatusEnum.parsing
-                    db.commit()
-
-                    # 재파싱 호출 (재시도 카운트 증가)
-                    print(f"[LOG] 재파싱 시작: {req.id}")
-                    return await self._download_with_proxy_async(req, db, skip_preparse=True, retry_count=retry_count + 1)
-
-                except Exception as reparse_error:
-                    print(f"[ERROR] 재파싱 실패: {reparse_error}")
-                    error_message = f"재파싱 실패: {str(reparse_error)}"
-
-            print(f"[ERROR] 1fichier 파싱 실패: {error_message}")
+            print(f"[ERROR] 1fichier 파싱 실패: {e}")
             print(f"[ERROR] 파싱 오류 상세:\n{traceback.format_exc()}")
 
             # 파싱 실패 시 실패 처리
             req.status = StatusEnum.failed
-            req.error = f"파싱 실패: {error_message}"
+            req.error = f"파싱 실패: {str(e)}"
             req.finished_at = datetime.datetime.now()
             db.commit()
 
             await self.send_download_update(req.id, {
                 "status": "failed",
-                "message": f"파싱 실패: {error_message}"
+                "message": f"파싱 실패: {str(e)}"
             })
             return False
 
@@ -758,11 +734,7 @@ class DownloadCore:
                     print(f"[DEBUG] 이어받기: {initial_size} bytes")
 
                 async with session.get(download_url, headers=headers) as response:
-                    if response.status == 410:
-                        # 1fichier 링크 만료 - 재파싱 필요
-                        print(f"[LOG] 다운로드 링크 만료 (HTTP 410) - 재파싱 시도")
-                        raise Exception("REPARSE_NEEDED")
-                    elif response.status not in [200, 206]:
+                    if response.status not in [200, 206]:
                         raise Exception(f"HTTP {response.status}: {response.reason}")
 
                     # Content-Length 가져오기
@@ -836,8 +808,8 @@ class DownloadCore:
 
                     # 1fichier 연속 요청 방지를 위한 쿨다운
                     if "1fichier" in req.url.lower():
-                        print(f"[LOG] 1fichier 다운로드 완료 - 30초 쿨다운 시작")
-                        await asyncio.sleep(30)
+                        print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
+                        await asyncio.sleep(5)
                         print(f"[LOG] 1fichier 쿨다운 완료")
 
         except Exception as e:
@@ -851,16 +823,6 @@ class DownloadCore:
                 "status": "failed",
                 "message": f"다운로드 실패: {str(e)}"
             })
-
-            # 프록시 다운로드 실패 시 프록시 상태 초기화
-            if req.use_proxy:
-                try:
-                    await sse_manager.broadcast_message("proxy_reset", {
-                        "message": "다운로드 실패 - 프록시 상태 초기화"
-                    })
-                    print(f"[LOG] 프록시 상태 초기화 SSE 전송 (직접 다운로드 실패)")
-                except Exception as sse_error:
-                    print(f"[WARNING] 프록시 상태 초기화 SSE 전송 실패 (직접 다운로드 실패): {sse_error}")
 
             # 텔레그램 실패 알림
             try:
@@ -921,15 +883,14 @@ class DownloadCore:
             # 프록시 모드일 때 총 개수와 실패 건수 추적
             total_proxies = 0
             failed_count = 0
-            error_messages = []  # 에러 메시지 수집
             if req.use_proxy:
                 from core.proxy_manager import proxy_manager
                 total_proxy_list = await proxy_manager.get_user_proxy_list(db)
                 total_proxies = len(total_proxy_list) if total_proxy_list else 0
 
-            # 프록시 다운로드: 사용가능한 프록시가 있는 한 계속 시도, 일반 다운로드: 3회 재시도
-            MAX_DOWNLOAD_RETRIES = 3 if not req.use_proxy else float('inf')  # 프록시는 무제한 시도
-            while not download_success and (retry_count < MAX_DOWNLOAD_RETRIES if not req.use_proxy else True):
+            # 프록시 다운로드: 프록시 수만큼, 일반 다운로드: 3회 재시도
+            MAX_DOWNLOAD_RETRIES = min(20, total_proxies) if req.use_proxy else 3
+            while not download_success and retry_count < MAX_DOWNLOAD_RETRIES:
                 if req.use_proxy:
                     # 첫 시도는 파싱에 성공한 프록시 사용
                     if retry_count == 0 and success_proxy:
@@ -978,34 +939,7 @@ class DownloadCore:
 
                             actual_url = download_url if download_url else req.url
                             async with session.get(actual_url, headers=headers, proxy=proxy_url) as response:
-                                # 1fichier 파일만 재파싱 시도, 일반 URL은 직접 에러 처리
-                                is_1fichier_url = "1fichier.com" in actual_url
-
-                                if response.status == 404:
-                                    # HTTP 404: 파일을 찾을 수 없음
-                                    print(f"[ERROR] HTTP 404: 파일을 찾을 수 없음 - {actual_url}")
-                                    if is_1fichier_url:
-                                        raise Exception(f"REPARSE_NEEDED: HTTP 404 - 파일을 찾을 수 없음")
-                                    else:
-                                        raise Exception(f"HTTP 404: 파일을 찾을 수 없습니다")
-                                elif response.status == 410:
-                                    # HTTP 410: 파일이 영구적으로 제거됨
-                                    print(f"[ERROR] HTTP 410: 파일이 영구적으로 제거됨 - {actual_url}")
-                                    if is_1fichier_url:
-                                        raise Exception(f"REPARSE_NEEDED: HTTP 410 - 링크 만료")
-                                    else:
-                                        raise Exception(f"HTTP 410: 파일이 영구적으로 제거되었습니다")
-                                elif response.status == 403:
-                                    # HTTP 403: 접근 금지 - 권한 문제 또는 차단
-                                    print(f"[ERROR] HTTP 403: 접근 금지 - {actual_url}")
-                                    raise Exception(f"HTTP 403: 접근이 차단되었습니다")
-                                elif response.status == 429:
-                                    # HTTP 429: 요청 제한 - 너무 많은 요청
-                                    print(f"[ERROR] HTTP 429: 요청 제한 초과 - {actual_url}")
-                                    raise Exception(f"HTTP 429: 요청이 너무 많습니다. 잠시 후 다시 시도하세요")
-                                elif response.status not in [200, 206]:
-                                    # 기타 HTTP 에러
-                                    print(f"[ERROR] HTTP {response.status}: {response.reason} - {actual_url}")
+                                if response.status not in [200, 206]:
                                     raise Exception(f"HTTP {response.status}: {response.reason}")
 
                     # Content-Length 가져오기 (사전파싱에서 얻은 total_size가 있으면 덮어쓰지 않음)
@@ -1055,20 +989,11 @@ class DownloadCore:
                     break  # 성공하면 재시도 루프 종료
 
                 except Exception as download_error:
-                    error_msg = f"프록시 {proxy_addr if proxy_addr else 'N/A'}: {str(download_error)}"
-                    error_messages.append(error_msg)
                     print(f"[ERROR] 다운로드 실패 ({retry_count + 1}): {download_error}")
 
-                    # HTTP 429 에러 처리 - 요청 제한 초과
-                    if "429" in str(download_error):
-                        print(f"[WARNING] HTTP 429 요청 제한 초과 - 60초 대기 후 재시도")
-                        await asyncio.sleep(60)  # 1분 대기
-                        continue  # 재시도
-
-                    # 404, 410 에러면 링크 만료 또는 파일 없음 - 재파싱 시도
-                    if ("404" in str(download_error) or "410" in str(download_error) or
-                        "Gone" in str(download_error) or "REPARSE_NEEDED" in str(download_error)):
-                        print(f"[WARNING] 다운로드 링크 문제 감지 - 재파싱 시도: {download_error}")
+                    # 410 Gone 에러면 링크 만료 - 재파싱 시도
+                    if "410" in str(download_error) or "Gone" in str(download_error):
+                        print(f"[WARNING] 다운로드 링크 만료 감지 - 재파싱 시도")
                         try:
                             # 재파싱
                             parse_url = req.original_url if req.original_url else req.url
@@ -1101,7 +1026,7 @@ class DownloadCore:
                         await proxy_manager.mark_proxy_failed(db, proxy_addr)
                         failed_count += 1
                         retry_count += 1
-                        print(f"[LOG] 다음 프록시로 재시도... ({retry_count}번째 시도)")
+                        print(f"[LOG] 다음 프록시로 재시도... ({retry_count}/{MAX_DOWNLOAD_RETRIES})")
 
                         # SSE 전송 빈도 제한 (50개마다 또는 10초마다)
                         if self.should_send_sse(req.id, retry_count):
@@ -1119,8 +1044,8 @@ class DownloadCore:
                             total_failed_count = await proxy_manager.get_total_failed_count(db)
                             print(f"[LOG] SSE 다운로드실패 스킵: {retry_count}/{total_proxies} (실패: {total_failed_count})")
 
-                        # 일반 다운로드만 재시도 횟수 체크 (프록시는 무제한)
-                        if not req.use_proxy and retry_count >= MAX_DOWNLOAD_RETRIES:
+                        # 최대 재시도 횟수 체크
+                        if retry_count >= MAX_DOWNLOAD_RETRIES:
                             print(f"[ERROR] 최대 다운로드 재시도 횟수({MAX_DOWNLOAD_RETRIES}) 초과")
                             break
 
@@ -1130,9 +1055,8 @@ class DownloadCore:
 
             if not download_success:
                 if req.use_proxy:
-                    if error_messages:
-                        detailed_error = f"다운로드 실패 - 사용 가능한 프록시가 없음. 시도된 에러들: {'; '.join(error_messages[-10:])}"  # 마지막 10개만
-                        raise Exception(detailed_error)
+                    if retry_count >= MAX_DOWNLOAD_RETRIES:
+                        raise Exception(f"다운로드 실패 - 최대 재시도 횟수({MAX_DOWNLOAD_RETRIES}) 초과")
                     else:
                         raise Exception("다운로드 실패 - 사용 가능한 프록시가 없음")
                 else:
@@ -1144,16 +1068,6 @@ class DownloadCore:
                 "message": f"다운로드 완료! 저장 위치: {req.save_path}"
             })
             print(f"[LOG] SSE 완료 메시지 전송 완료")
-
-            # 프록시 다운로드 완료 시 프록시 상태 초기화
-            if req.use_proxy:
-                try:
-                    await sse_manager.broadcast_message("proxy_reset", {
-                        "message": "다운로드 완료 - 프록시 상태 초기화"
-                    })
-                    print(f"[LOG] 프록시 상태 초기화 SSE 전송")
-                except Exception as sse_error:
-                    print(f"[WARNING] 프록시 상태 초기화 SSE 전송 실패: {sse_error}")
 
             # 텔레그램 성공 알림
             print(f"[DEBUG] 텔레그램 성공 알림 전송 시작 (경로2): {req.file_name}")
@@ -1176,8 +1090,8 @@ class DownloadCore:
 
             # 1fichier 연속 요청 방지를 위한 쿨다운
             if "1fichier" in req.url.lower():
-                print(f"[LOG] 1fichier 다운로드 완료 - 30초 쿨다운 시작")
-                await asyncio.sleep(30)
+                print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
+                await asyncio.sleep(5)
                 print(f"[LOG] 1fichier 쿨다운 완료")
 
         except Exception as e:
@@ -1191,16 +1105,6 @@ class DownloadCore:
                 "status": "failed",
                 "message": f"다운로드 실패: {str(e)}"
             })
-
-            # 프록시 다운로드 실패 시 프록시 상태 초기화
-            if req.use_proxy:
-                try:
-                    await sse_manager.broadcast_message("proxy_reset", {
-                        "message": "다운로드 실패 - 프록시 상태 초기화"
-                    })
-                    print(f"[LOG] 프록시 상태 초기화 SSE 전송 (실패)")
-                except Exception as sse_error:
-                    print(f"[WARNING] 프록시 상태 초기화 SSE 전송 실패 (실패): {sse_error}")
 
             # 텔레그램 실패 알림
             try:
@@ -1274,16 +1178,6 @@ class DownloadCore:
                     "status": "stopped",
                     "message": "다운로드가 중지되었습니다."
                 })
-
-                # 프록시 다운로드 정지 시 프록시 상태 초기화
-                if req.use_proxy:
-                    try:
-                        await sse_manager.broadcast_message("proxy_reset", {
-                            "message": "다운로드 정지 - 프록시 상태 초기화"
-                        })
-                        print(f"[LOG] 프록시 상태 초기화 SSE 전송 (정지)")
-                    except Exception as sse_error:
-                        print(f"[WARNING] 프록시 상태 초기화 SSE 전송 실패 (정지): {sse_error}")
 
             return True
 
@@ -1387,56 +1281,6 @@ class DownloadCore:
         if req_id in self.download_tasks:
             del self.download_tasks[req_id]
             print(f"[LOG] 다운로드 태스크 정리: {req_id}")
-
-            # 다운로드 완료 후 대기중인 다운로드 자동 시작
-            asyncio.create_task(self._start_next_pending_download())
-
-    async def _start_next_pending_download(self):
-        """대기중인 다운로드를 자동으로 시작 (요청시간 순서대로)"""
-        try:
-            db = SessionLocal()
-
-            # 대기중인 모든 다운로드 조회 (요청시간 오름차순으로 정렬)
-            pending_downloads = db.query(DownloadRequest).filter(
-                DownloadRequest.status == StatusEnum.pending
-            ).order_by(DownloadRequest.requested_at.asc()).all()
-
-            if not pending_downloads:
-                print("[LOG] 대기중인 다운로드 없음")
-                return
-
-            started_count = 0
-
-            for req in pending_downloads:
-                is_1fichier = "1fichier.com" in req.url
-
-                if is_1fichier and not req.use_proxy:
-                    # 1fichier 로컬 다운로드 (최대 1개)
-                    if self.fichier_local_semaphore._value > 0:
-                        success = await self.start_download_async(req, db)
-                        if success:
-                            started_count += 1
-                            print(f"[LOG] 1fichier 로컬 자동 시작: {req.id}")
-                            break  # 1fichier 로컬은 최대 1개이므로 시작하면 중단
-                else:
-                    # 일반 다운로드 (1fichier 프록시 포함, 최대 5개)
-                    if self.general_download_semaphore._value > 0:
-                        success = await self.start_download_async(req, db)
-                        if success:
-                            started_count += 1
-                            print(f"[LOG] 일반/프록시 다운로드 자동 시작: {req.id}")
-
-                            # 일반 다운로드 세마포어가 모두 사용되면 중단
-                            if self.general_download_semaphore._value == 0:
-                                break
-
-            if started_count > 0:
-                print(f"[LOG] 총 {started_count}개 다운로드 자동 시작됨")
-
-        except Exception as e:
-            print(f"[ERROR] 자동 다운로드 시작 실패: {e}")
-        finally:
-            db.close()
 
     async def get_download_status(self, req_id: int) -> Dict[str, Any]:
         """다운로드 상태 조회"""
