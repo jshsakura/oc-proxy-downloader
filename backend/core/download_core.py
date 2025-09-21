@@ -978,14 +978,23 @@ class DownloadCore:
 
                             actual_url = download_url if download_url else req.url
                             async with session.get(actual_url, headers=headers, proxy=proxy_url) as response:
+                                # 1fichier 파일만 재파싱 시도, 일반 URL은 직접 에러 처리
+                                is_1fichier_url = "1fichier.com" in actual_url
+
                                 if response.status == 404:
-                                    # HTTP 404: 파일을 찾을 수 없음 - 재파싱 또는 링크 확인 필요
+                                    # HTTP 404: 파일을 찾을 수 없음
                                     print(f"[ERROR] HTTP 404: 파일을 찾을 수 없음 - {actual_url}")
-                                    raise Exception(f"REPARSE_NEEDED: HTTP 404 - 파일을 찾을 수 없음")
+                                    if is_1fichier_url:
+                                        raise Exception(f"REPARSE_NEEDED: HTTP 404 - 파일을 찾을 수 없음")
+                                    else:
+                                        raise Exception(f"HTTP 404: 파일을 찾을 수 없습니다")
                                 elif response.status == 410:
-                                    # HTTP 410: 파일이 영구적으로 제거됨 - 재파싱 필요
+                                    # HTTP 410: 파일이 영구적으로 제거됨
                                     print(f"[ERROR] HTTP 410: 파일이 영구적으로 제거됨 - {actual_url}")
-                                    raise Exception(f"REPARSE_NEEDED: HTTP 410 - 링크 만료")
+                                    if is_1fichier_url:
+                                        raise Exception(f"REPARSE_NEEDED: HTTP 410 - 링크 만료")
+                                    else:
+                                        raise Exception(f"HTTP 410: 파일이 영구적으로 제거되었습니다")
                                 elif response.status == 403:
                                     # HTTP 403: 접근 금지 - 권한 문제 또는 차단
                                     print(f"[ERROR] HTTP 403: 접근 금지 - {actual_url}")
