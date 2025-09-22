@@ -172,10 +172,13 @@ def main():
 
     try:
         # 개발 서버 실행 - 빠른 종료 설정
+        # 환경별 포트 설정
+        port = 8888 if getattr(sys, 'frozen', False) else 8000
+
         config = uvicorn.Config(
             app,  # PyInstaller 환경에서는 직접 app 객체 전달
             host="0.0.0.0",
-            port=8000,
+            port=port,
             reload=False,
             log_level="critical",
             loop="asyncio",
@@ -199,12 +202,12 @@ def main():
                 """서버 시작 후 브라우저 열기"""
                 time.sleep(2)  # 서버 시작 대기
                 try:
-                    url = f"http://localhost:8000"
+                    url = f"http://localhost:{port}"
                     print(f"[LOG] 브라우저 열기: {url}")
                     webbrowser.open(url)
                 except Exception as e:
                     print(f"[WARNING] 브라우저 열기 실패: {e}")
-                    print(f"[INFO] 수동으로 브라우저에서 http://localhost:8000 에 접속하세요")
+                    print(f"[INFO] 수동으로 브라우저에서 http://localhost:{port} 에 접속하세요")
 
             # 브라우저 열기를 별도 스레드에서 실행
             browser_thread = threading.Thread(target=open_browser, daemon=True)

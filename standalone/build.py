@@ -26,7 +26,15 @@ def main():
     # 1. 프론트엔드 빌드
     print("\n1️⃣ 프론트엔드 빌드")
     frontend_dir = root_dir / "frontend"
-    run_cmd("npm ci", cwd=frontend_dir)
+
+    # 권한 문제 회피: node_modules 삭제 후 재설치
+    node_modules = frontend_dir / "node_modules"
+    if node_modules.exists():
+        print("🗑️ node_modules 삭제 (권한 문제 회피)")
+        import shutil
+        shutil.rmtree(node_modules, ignore_errors=True)
+
+    run_cmd("npm install", cwd=frontend_dir)
     run_cmd("npm run build", cwd=frontend_dir)
 
     # 2. EXE 빌드

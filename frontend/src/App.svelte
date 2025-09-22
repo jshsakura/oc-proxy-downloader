@@ -415,7 +415,7 @@
         // ID 타입 통일 (숫자로 변환)
         const downloadId = parseInt(updatedDownload.id);
         const index = downloads.findIndex((d) => parseInt(d.id) === downloadId);
-        
+
         if (index !== -1) {
           downloads = downloads.map((d, i) =>
             i === index ? { ...d, ...updatedDownload } : d
@@ -428,6 +428,22 @@
           if (updatedDownload.status !== "waiting" && downloadWaitInfo[downloadId]) {
             delete downloadWaitInfo[downloadId];
             downloadWaitInfo = { ...downloadWaitInfo };
+          }
+
+          // 프록시 상태 리셋 처리 (stopped, failed, done 상태일 때)
+          if (proxyStats.status === "trying" &&
+              ['stopped', 'failed', 'done'].includes(updatedDownload.status?.toLowerCase())) {
+            const otherProxyDownloads = downloads.filter(d =>
+              d.id !== downloadId &&
+              (d.status === "parsing" || d.status === "downloading")
+            );
+
+            if (otherProxyDownloads.length === 0) {
+              proxyStats.status = "idle";
+              proxyStats.currentProxy = null;
+              proxyStats.tryStartTime = null;
+              console.log(`🔄 다운로드 ${downloadId} 상태 변경으로 인한 프록시 상태 리셋`);
+            }
           }
         } else {
           // 중복 추가 방지: 유효한 ID와 URL이 있을 때만 추가

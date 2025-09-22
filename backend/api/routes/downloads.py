@@ -265,6 +265,7 @@ async def stop_download(download_id: int, db: Session = Depends(get_db)):
                     "message": updated_req.message or "다운로드가 중지되었습니다"
                 })
 
+
             return {
                 "success": True,
                 "message": "stop_request_sent",
