@@ -2884,3 +2884,17 @@ span.status.status-cooldown,
   font-size: 1rem;
 }
 
+/* Toast notification styling */
+[data-sonner-toaster] [data-sonner-toast] {
+  min-width: 400px !important;
+  max-width: 600px !important;
+}
+
+/* Mobile responsive toast width */
+@media (max-width: 480px) {
+  [data-sonner-toaster] [data-sonner-toast] {
+    min-width: 320px !important;
+    max-width: 90vw !important;
+  }
+}
+
