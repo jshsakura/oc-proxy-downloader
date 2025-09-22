@@ -8,6 +8,10 @@ OC Proxy Downloader - 새 아키텍처
 import sys
 import os
 
+# EXE 환경에서 즉시 로딩 메시지 표시
+if getattr(sys, 'frozen', False):
+    print("Loading OC Proxy Downloader...")
+
 # Python 경로 설정 (Docker 환경 대응)
 # 이 코드는 다른 모듈보다 먼저 실행되어야 합니다.
 backend_path = os.path.dirname(os.path.abspath(__file__))
@@ -22,34 +26,75 @@ import uvicorn
 import atexit
 import httpx
 import json
+import webbrowser
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 from utils.logging import setup_logging, replace_print
 from core.app_factory import create_app
 
-# psutil 제거 - 불필요한 의존성
+# 스탠드얼론 환경 설정 (PyInstaller)
+if getattr(sys, 'frozen', False):
+    # 실행 파일과 같은 디렉토리에 config 폴더 생성
+    exe_dir = Path(sys.executable).parent
+    config_dir = exe_dir / "config"
+    config_dir.mkdir(exist_ok=True)
+    os.environ['OC_CONFIG_DIR'] = str(config_dir)
+    print(f"[LOG] 스탠드얼론 config 디렉토리: {config_dir}")
 
-# .env 파일 로드 (루트 디렉토리에서 찾기)
-project_root = Path(__file__).parent.parent
-env_path = project_root / ".env"
+# .env 파일 로드
+if getattr(sys, 'frozen', False):
+    # 스탠드얼론: exe 디렉토리에서 찾기
+    env_path = Path(sys.executable).parent / ".env"
+else:
+    # 개발환경: 루트 디렉토리에서 찾기
+    project_root = Path(__file__).parent.parent
+    env_path = project_root / ".env"
+
 if env_path.exists():
     load_dotenv(env_path)
     print(f"[LOG] Loaded .env from: {env_path}")
 else:
-    # 백엔드 디렉토리에서도 찾아보기
-    backend_env = Path(__file__).parent / ".env"
-    if backend_env.exists():
-        load_dotenv(backend_env)
-        print(f"[LOG] Loaded .env from: {backend_env}")
-    else:
-        print("[WARNING] No .env file found")
+    print("[INFO] No .env file found")
 
 # 로깅 설정 (.env 로딩 후에)
 setup_logging()
 replace_print()
 
+# 스탠드얼론 환경에서 로딩 표시
+def show_loading():
+    """로딩 애니메이션 표시"""
+    if not getattr(sys, 'frozen', False):
+        return  # 개발 환경에서는 스킵
+
+    import threading
+    import time
+
+    loading_chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    stop_loading = threading.Event()
+
+    def loading_animation():
+        i = 0
+        while not stop_loading.is_set():
+            char = loading_chars[i % len(loading_chars)]
+            print(f"\r{char} OC Proxy Downloader 시작 중...", end="", flush=True)
+            time.sleep(0.1)
+            i += 1
+
+    thread = threading.Thread(target=loading_animation, daemon=True)
+    thread.start()
+    return stop_loading
+
+# 로딩 시작
+loading_stop = show_loading()
+
 # 메인 애플리케이션 생성 (.env 로딩 후에)
 app = create_app()
+
+# 로딩 완료
+if loading_stop:
+    loading_stop.set()
+    print("\r✅ OC Proxy Downloader 준비 완료!     ")  # 공백으로 이전 텍스트 지우기
 
 
 def monitor_process_health():
@@ -99,7 +144,8 @@ def force_cleanup_threads():
         pass
 
 
-if __name__ == "__main__":
+def main():
+    """메인 서버 시작 함수"""
     print("=" * 60)
     print("🚀 OC Proxy Downloader v2.0")
     print("   - SSE + asyncio ✅")
@@ -127,7 +173,7 @@ if __name__ == "__main__":
     try:
         # 개발 서버 실행 - 빠른 종료 설정
         config = uvicorn.Config(
-            "main:app",
+            app,  # PyInstaller 환경에서는 직접 app 객체 전달
             host="0.0.0.0",
             port=8000,
             reload=False,
@@ -141,7 +187,30 @@ if __name__ == "__main__":
         )
         server = uvicorn.Server(config)
 
-        print("[LOG] 서버 시작 - 기본 설정")
+        # 스탠드얼론에서만 추가 로딩 메시지
+        if getattr(sys, 'frozen', False):
+            print("🌐 웹 서버 시작 중...")
+        else:
+            print("[LOG] 서버 시작 - 기본 설정")
+
+        # 브라우저 자동 열기 (도커가 아닌 환경에서만)
+        if not os.getenv('DOCKER_CONTAINER'):
+            def open_browser():
+                """서버 시작 후 브라우저 열기"""
+                time.sleep(2)  # 서버 시작 대기
+                try:
+                    url = f"http://localhost:8000"
+                    print(f"[LOG] 브라우저 열기: {url}")
+                    webbrowser.open(url)
+                except Exception as e:
+                    print(f"[WARNING] 브라우저 열기 실패: {e}")
+                    print(f"[INFO] 수동으로 브라우저에서 http://localhost:8000 에 접속하세요")
+
+            # 브라우저 열기를 별도 스레드에서 실행
+            browser_thread = threading.Thread(target=open_browser, daemon=True)
+            browser_thread.start()
+        else:
+            print("[INFO] 도커/스탠드얼론 환경 - 브라우저 자동 열기 비활성화")
 
         server.run()
     except KeyboardInterrupt:
@@ -152,3 +221,7 @@ if __name__ == "__main__":
         traceback.print_exc()
     finally:
         force_cleanup_threads()
+
+
+if __name__ == "__main__":
+    main()

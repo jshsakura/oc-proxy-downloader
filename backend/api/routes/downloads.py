@@ -245,12 +245,25 @@ async def stop_download(download_id: int, db: Session = Depends(get_db)):
         success = await download_core.stop_download_async(download_id, db)
 
         if success:
+            # 최신 다운로드 상태 조회
+            updated_req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+
             # SSE로 즉시 상태 알림
             await sse_manager.broadcast_message("download_stopped", {
                 "id": download_id,
                 "status": "stopped",
+                "progress": 0,
                 "message": "다운로드가 중지되었습니다"
             })
+
+            # 추가로 download_updated 메시지도 전송하여 UI 즉시 갱신
+            if updated_req:
+                await sse_manager.broadcast_message("download_updated", {
+                    "id": download_id,
+                    "status": updated_req.status.value,
+                    "progress": updated_req.progress or 0,
+                    "message": updated_req.message or "다운로드가 중지되었습니다"
+                })
 
             return {
                 "success": True,

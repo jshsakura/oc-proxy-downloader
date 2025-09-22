@@ -650,6 +650,23 @@
           downloadWaitInfo = { ...downloadWaitInfo };
           console.log(`🛑 정지로 인한 대기 정보 제거: ${id}`);
         }
+
+        // 프록시 상태 리셋 (다른 프록시 사용 중인 다운로드가 없을 때만)
+        if (proxyStats.status === "trying") {
+          const otherProxyDownloads = downloads.filter(d =>
+            d.id !== id &&
+            (d.status === "parsing" || d.status === "downloading")
+          );
+
+          if (otherProxyDownloads.length === 0) {
+            proxyStats.status = "idle";
+            proxyStats.currentProxy = null;
+            proxyStats.tryStartTime = null;
+            console.log(`🔄 마지막 프록시 다운로드 ${id} 중지로 인한 프록시 상태 리셋`);
+          } else {
+            console.log(`🔄 다른 프록시 다운로드 ${otherProxyDownloads.length}개 진행 중, 프록시 상태 유지`);
+          }
+        }
       }
 
       // 파일명 업데이트 처리

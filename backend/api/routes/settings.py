@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-from core.config import get_config, save_config, get_download_path
+from core.config import get_config, save_config, get_download_path, get_default_download_path, IS_STANDALONE
 from core.db import get_db
 from services.notification_service import send_telegram_notification
 
@@ -48,11 +48,15 @@ async def update_settings_endpoint(settings: dict, request: Request):
 
 
 @router.get("/default_download_path")
-async def get_default_download_path(request: Request):
-    """기본 다운로드 경로 조회"""
+async def get_default_download_path_endpoint(request: Request):
+    """환경별 기본 다운로드 경로 조회"""
     try:
-        default_path = str(Path.home() / "Downloads")
-        return {"default_download_path": default_path}
+        default_path = get_default_download_path()
+        return {
+            "default_download_path": default_path,
+            "is_standalone": IS_STANDALONE,
+            "is_docker": bool(os.environ.get("CONFIG_PATH"))
+        }
     except Exception as e:
         print(f"[ERROR] Get default download path failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -60,7 +64,11 @@ async def get_default_download_path(request: Request):
 
 @router.post("/select_folder")
 async def select_folder(request: Request):
-    """폴더 선택 다이얼로그"""
+    """폴더 선택 다이얼로그 (스탠드얼론 환경에서만 지원)"""
+    # 도커 환경에서는 폴더 선택 다이얼로그 비활성화
+    if os.environ.get("CONFIG_PATH"):
+        raise HTTPException(status_code=501, detail="폴더 선택은 도커 환경에서 지원되지 않습니다")
+
     if not GUI_AVAILABLE:
         raise HTTPException(status_code=501, detail="GUI not available")
 

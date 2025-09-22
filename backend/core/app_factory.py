@@ -212,17 +212,28 @@ def create_app() -> FastAPI:
             content={"error": "Validation Error", "details": exc.errors()}
         )
 
-    # 정적 파일 서빙 (Docker 및 로컬 환경 자동 감지)
-    docker_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
-    local_dev_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
+    # 정적 파일 서빙 (PyInstaller, Docker 및 로컬 환경 자동 감지)
+    import sys
 
-    frontend_path = None
-    if os.path.exists(docker_path):
-        frontend_path = docker_path
-        print(f"[LOG] Serving frontend from Docker path: {frontend_path}")
-    elif os.path.exists(local_dev_path):
-        frontend_path = local_dev_path
-        print(f"[LOG] Serving frontend from Local Dev path: {frontend_path}")
+    # 프론트엔드 정적 파일 경로 설정 (EXE/도커 통합)
+    if getattr(sys, 'frozen', False):
+        # PyInstaller로 번들된 환경 (EXE) - static 폴더 사용
+        bundle_dir = sys._MEIPASS
+        frontend_path = os.path.join(bundle_dir, "static")
+        print(f"[LOG] PyInstaller detected, serving from: {frontend_path}")
+    elif os.environ.get("CONFIG_PATH"):
+        # 도커 환경 - static 폴더 사용
+        frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+        print(f"[LOG] Docker environment, serving from: {frontend_path}")
+    else:
+        # 로컬 개발 환경 - dist 폴더 사용 (통합 테스트용)
+        frontend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
+        print(f"[LOG] Local development, serving from: {frontend_path}")
+
+    # 경로 존재 확인
+    if not frontend_path or not os.path.exists(frontend_path):
+        print(f"[WARNING] Frontend path not found: {frontend_path}")
+        frontend_path = None
 
     if frontend_path and os.path.exists(frontend_path):
         # Vite 빌드 에셋 디렉토리 이름이 'assets'인지 확인

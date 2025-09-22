@@ -1158,24 +1158,34 @@ class DownloadCore:
     async def stop_download_async(self, req_id: int, db: Session) -> bool:
         """비동기 다운로드 중지"""
         try:
-            # 실행 중인 태스크 취소
+            # 실행 중인 태스크 즉시 취소
             if req_id in self.download_tasks:
                 task = self.download_tasks[req_id]
                 task.cancel()
 
+                # 짧은 타임아웃으로 빠른 취소
                 try:
-                    await asyncio.wait_for(task, timeout=5.0)
+                    await asyncio.wait_for(task, timeout=1.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
+                    # 태스크가 응답하지 않으면 강제로 정리
                     pass
+
+                # 태스크 즉시 제거
+                del self.download_tasks[req_id]
+                print(f"[LOG] 다운로드 태스크 즉시 취소 및 정리: {req_id}")
 
             # DB 상태 업데이트
             req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
             if req:
                 req.status = StatusEnum.stopped
+                req.progress = 0  # 진행률 리셋
+                req.message = "다운로드가 중지되었습니다."
                 db.commit()
 
+                # 상태 업데이트 전송
                 await self.send_download_update(req_id, {
                     "status": "stopped",
+                    "progress": 0,
                     "message": "다운로드가 중지되었습니다."
                 })
 

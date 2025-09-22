@@ -281,6 +281,8 @@
     }
   }
 
+  let environmentInfo = { is_standalone: false, is_docker: false };
+
   async function resetToDefault() {
     try {
       console.log("[DEBUG] Calling API to get default path");
@@ -290,9 +292,16 @@
       if (response.ok) {
         const data = await response.json();
         console.log("[DEBUG] Default path data:", data);
-        if (data.path) {
-          settings = { ...settings, download_path: data.path };
-          console.log("[DEBUG] Reset to default path:", data.path);
+
+        // 환경 정보 저장
+        environmentInfo = {
+          is_standalone: data.is_standalone || false,
+          is_docker: data.is_docker || false
+        };
+
+        if (data.default_download_path) {
+          settings = { ...settings, download_path: data.default_download_path };
+          console.log("[DEBUG] Reset to default path:", data.default_download_path);
         } else {
           settings = { ...settings, download_path: "/downloads" };
           console.log("[DEBUG] Reset to default: /downloads");
@@ -307,6 +316,33 @@
     } catch (e) {
       console.warn("[WARN] Default path API error, using fallback:", e.message);
       settings = { ...settings, download_path: "/downloads" };
+    }
+  }
+
+  async function selectFolder() {
+    if (environmentInfo.is_docker) {
+      toast.error("폴더 선택은 도커 환경에서 지원되지 않습니다");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/select_folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.path) {
+          settings = { ...settings, download_path: data.path };
+        }
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.detail || "폴더 선택에 실패했습니다");
+      }
+    } catch (error) {
+      console.error("Folder selection error:", error);
+      toast.error("폴더 선택 중 오류가 발생했습니다");
     }
   }
 
@@ -335,8 +371,23 @@
     showLogoutConfirm = false;
   }
 
-  onMount(() => {
+  onMount(async () => {
     document.body.style.overflow = "hidden";
+
+    // 환경 정보 로드
+    try {
+      const response = await fetch("/api/default_download_path");
+      if (response.ok) {
+        const data = await response.json();
+        environmentInfo = {
+          is_standalone: data.is_standalone || false,
+          is_docker: data.is_docker || false
+        };
+      }
+    } catch (error) {
+      console.warn("[WARN] Failed to load environment info:", error);
+      // 기본값 유지
+    }
   });
   onDestroy(() => {
     document.body.style.overflow = "";
@@ -435,7 +486,7 @@
 
           <div class="form-group">
             <label for="download-path">{$t("settings_download_path")}</label>
-            <div class="input-group">
+            <div class="input-group path-input-group">
               <input
                 id="download-path"
                 type="text"
@@ -443,15 +494,30 @@
                 bind:value={settings.download_path}
                 placeholder={$t("download_path_placeholder_long")}
               />
-              <button
-                type="button"
-                class="input-icon-button reset-button"
-                on:click={resetToDefault}
-                title={$t("reset_to_default_tooltip")}
-                aria-label={$t("reset_to_default_tooltip")}
-              >
-                <HomeIcon />
-              </button>
+              <div class="path-buttons">
+                {#if !environmentInfo.is_docker}
+                  <button
+                    type="button"
+                    class="input-icon-button folder-button"
+                    on:click={selectFolder}
+                    title="폴더 선택"
+                    aria-label="폴더 선택"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/>
+                    </svg>
+                  </button>
+                {/if}
+                <button
+                  type="button"
+                  class="input-icon-button reset-button"
+                  on:click={resetToDefault}
+                  title={$t("reset_to_default_tooltip")}
+                  aria-label={$t("reset_to_default_tooltip")}
+                >
+                  <HomeIcon />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1460,6 +1526,18 @@
     padding-right: 48px;
   }
 
+  .path-input-group .input {
+    padding-right: 88px;
+  }
+
+  .path-buttons {
+    position: absolute;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+
   .input:focus {
     outline: none;
     border-color: var(--primary-color);
@@ -1487,6 +1565,16 @@
 
   .input-icon-button.reset-button {
     right: 8px;
+  }
+
+  .folder-button {
+    background-color: var(--primary-color);
+    color: white;
+  }
+
+  .folder-button:hover {
+    background-color: var(--primary-hover);
+    color: white;
   }
 
   .input-icon-button:hover {
