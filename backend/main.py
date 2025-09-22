@@ -8,9 +8,16 @@ OC Proxy Downloader - 새 아키텍처
 import sys
 import os
 
-# EXE 환경에서 즉시 로딩 메시지 표시
+# 스탠드얼론 환경 설정 (최우선 - 모든 임포트보다 먼저!)
 if getattr(sys, 'frozen', False):
-    print("Loading OC Proxy Downloader...")
+    from pathlib import Path
+    # 실행 파일과 같은 디렉토리에 config 폴더 생성
+    exe_dir = Path(sys.executable).parent
+    config_dir = exe_dir / "config"
+    config_dir.mkdir(exist_ok=True)
+    os.environ['OC_CONFIG_DIR'] = str(config_dir)
+    print(f"Loading OC Proxy Downloader...")
+    print(f"[LOG] Standalone config directory: {config_dir}")
 
 # Python 경로 설정 (Docker 환경 대응)
 # 이 코드는 다른 모듈보다 먼저 실행되어야 합니다.
@@ -33,15 +40,6 @@ from dotenv import load_dotenv
 from utils.logging import setup_logging, replace_print
 from core.app_factory import create_app
 
-# 스탠드얼론 환경 설정 (PyInstaller)
-if getattr(sys, 'frozen', False):
-    # 실행 파일과 같은 디렉토리에 config 폴더 생성
-    exe_dir = Path(sys.executable).parent
-    config_dir = exe_dir / "config"
-    config_dir.mkdir(exist_ok=True)
-    os.environ['OC_CONFIG_DIR'] = str(config_dir)
-    print(f"[LOG] 스탠드얼론 config 디렉토리: {config_dir}")
-
 # .env 파일 로드
 if getattr(sys, 'frozen', False):
     # 스탠드얼론: exe 디렉토리에서 찾기
@@ -63,9 +61,9 @@ replace_print()
 
 # 스탠드얼론 환경에서 로딩 표시
 def show_loading():
-    """로딩 애니메이션 표시"""
+    """Display loading animation"""
     if not getattr(sys, 'frozen', False):
-        return  # 개발 환경에서는 스킵
+        return  # Skip in development environment
 
     import threading
     import time
@@ -77,7 +75,7 @@ def show_loading():
         i = 0
         while not stop_loading.is_set():
             char = loading_chars[i % len(loading_chars)]
-            print(f"\r{char} OC Proxy Downloader 시작 중...", end="", flush=True)
+            print(f"\r{char} Starting OC Proxy Downloader...", end="", flush=True)
             time.sleep(0.1)
             i += 1
 
@@ -94,7 +92,7 @@ app = create_app()
 # 로딩 완료
 if loading_stop:
     loading_stop.set()
-    print("\r✅ OC Proxy Downloader 준비 완료!     ")  # 공백으로 이전 텍스트 지우기
+    print("\r✅ OC Proxy Downloader Ready!          ")  # Clear previous text with spaces
 
 
 def monitor_process_health():
@@ -190,37 +188,37 @@ def main():
         )
         server = uvicorn.Server(config)
 
-        # 스탠드얼론에서만 추가 로딩 메시지
+        # Additional loading message for standalone only
         if getattr(sys, 'frozen', False):
-            print("🌐 웹 서버 시작 중...")
+            print("🌐 Starting web server...")
         else:
-            print("[LOG] 서버 시작 - 기본 설정")
+            print("[LOG] Starting server - default configuration")
 
         # 브라우저 자동 열기 (도커가 아닌 환경에서만)
         if not os.getenv('DOCKER_CONTAINER'):
             def open_browser():
-                """서버 시작 후 브라우저 열기"""
-                time.sleep(2)  # 서버 시작 대기
+                """Open browser after server starts"""
+                time.sleep(2)  # Wait for server start
                 try:
                     url = f"http://localhost:{port}"
-                    print(f"[LOG] 브라우저 열기: {url}")
+                    print(f"[LOG] Opening browser: {url}")
                     webbrowser.open(url)
                 except Exception as e:
-                    print(f"[WARNING] 브라우저 열기 실패: {e}")
-                    print(f"[INFO] 수동으로 브라우저에서 http://localhost:{port} 에 접속하세요")
+                    print(f"[WARNING] Failed to open browser: {e}")
+                    print(f"[INFO] Please manually access http://localhost:{port} in your browser")
 
             # 브라우저 열기를 별도 스레드에서 실행
             browser_thread = threading.Thread(target=open_browser, daemon=True)
             browser_thread.start()
         else:
-            print("[INFO] 도커/스탠드얼론 환경 - 브라우저 자동 열기 비활성화")
+            print("[INFO] Docker/Standalone environment - Browser auto-open disabled")
 
         server.run()
     except KeyboardInterrupt:
-        print("[LOG] KeyboardInterrupt - 정상 종료")
+        print("[LOG] KeyboardInterrupt - Normal shutdown")
     except Exception as fatal_error:
-        print(f"[FATAL] 치명적 오류 발생: {fatal_error}")
-        print(f"[FATAL] 서버를 다시 시작해주세요")
+        print(f"[FATAL] Fatal error occurred: {fatal_error}")
+        print(f"[FATAL] Please restart the server")
         traceback.print_exc()
     finally:
         force_cleanup_threads()

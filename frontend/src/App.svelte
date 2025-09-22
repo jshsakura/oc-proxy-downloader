@@ -1188,29 +1188,59 @@
     }
   }
 
+  // 모바일 기기 감지
+  function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  }
+
   async function pasteFromClipboard() {
     try {
-      const text = await navigator.clipboard.readText();
-      if (!text || text.trim() === "") {
-        toast.warning($t("clipboard_empty"));
+      // 먼저 현대적인 clipboard API 시도
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText();
+        if (!text || text.trim() === "") {
+          toast.warning($t("clipboard_empty"));
+          return;
+        }
+
+        const trimmedText = text.trim();
+        url = trimmedText;
+
+        // URL 형식이 유효한지 먼저 검사
+        if (!isValidUrl(trimmedText)) {
+          toast.info($t("clipboard_pasted"));
+          return;
+        }
+
+        // 기본 URL 검증 후 자동으로 다운로드 추가
+        toast.info($t("clipboard_url_auto_download"));
+        await addDownload(true, true); // skipValidation = true
         return;
       }
 
-      const trimmedText = text.trim();
-      url = trimmedText;
-
-      // URL 형식이 유효한지 먼저 검사
-      if (!isValidUrl(trimmedText)) {
-        toast.info($t("clipboard_pasted"));
-        return;
+      // clipboard API가 없으면 사용자에게 수동 붙여넣기 안내
+      const isMobile = isMobileDevice();
+      if (isMobile) {
+        toast.info($t("clipboard_mobile_paste_guide"));
+      } else {
+        toast.info($t("clipboard_desktop_paste_guide"));
       }
 
-      // 기본 URL 검증 후 자동으로 다운로드 추가
-      toast.info($t("clipboard_url_auto_download"));
-      await addDownload(true, true); // skipValidation = true
     } catch (err) {
       console.error("Failed to read clipboard contents: ", err);
-      toast.error($t("clipboard_read_failed"));
+
+      const isMobile = isMobileDevice();
+
+      // 권한 거부나 기타 오류 시 fallback
+      if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
+        if (isMobile) {
+          toast.info($t("clipboard_access_denied_mobile"));
+        } else {
+          toast.info($t("clipboard_access_denied_desktop"));
+        }
+      } else {
+        toast.error($t("clipboard_read_failed"));
+      }
     }
   }
 
@@ -2061,6 +2091,15 @@
   position="bottom-center"
   expand={true}
   visibleToasts={3}
-  closeButton={true}
+  closeButton={false}
   duration={3000}
+  theme={$theme === 'light' ? 'light' : 'dark'}
+  toastOptions={{
+    class: `toast-${$theme}`,
+    style: $theme === 'dracula' ?
+      'background: var(--card-background); color: var(--text-primary); border: 1px solid var(--card-border);' :
+      $theme === 'dark' ?
+      'background: var(--card-background); color: var(--text-primary); border: 1px solid var(--card-border);' :
+      ''
+  }}
 />

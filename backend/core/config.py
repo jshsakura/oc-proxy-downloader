@@ -4,45 +4,65 @@ import sys
 from pathlib import Path
 import json
 
-# 환경별 config 디렉토리 설정
-# 1. OC_CONFIG_DIR 환경변수 (스탠드얼론 실행 시 설정됨)
-# 2. CONFIG_PATH 환경변수 (도커 환경에서 설정됨)
-# 3. 기본값: backend/config (로컬 개발)
+# Environment-specific config directory setup
+# 1. OC_CONFIG_DIR environment variable (set when running standalone)
+# 2. CONFIG_PATH environment variable (set in Docker environment)
+# 3. Default: backend/config (local development)
 if os.environ.get("OC_CONFIG_DIR"):
     CONFIG_DIR = Path(os.environ["OC_CONFIG_DIR"])
     IS_STANDALONE = True
+    print(f"[DEBUG] Standalone CONFIG_DIR: {CONFIG_DIR}")
 elif os.environ.get("CONFIG_PATH"):
     CONFIG_DIR = Path(os.environ["CONFIG_PATH"])
     IS_STANDALONE = False
+    print(f"[DEBUG] Docker CONFIG_DIR: {CONFIG_DIR}")
 else:
     CONFIG_DIR = Path(__file__).parent.parent / "config"
     IS_STANDALONE = False
+    print(f"[DEBUG] Local CONFIG_DIR: {CONFIG_DIR}")
 
+# CONFIG_DIR 생성 확보
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_FILE = CONFIG_DIR / "config.json"
+print(f"[DEBUG] CONFIG_FILE path: {CONFIG_FILE}")
 
 def get_default_download_path():
-    """환경별 기본 다운로드 경로 반환"""
+    """Return default download path by environment"""
     if IS_STANDALONE:
-        # 스탠드얼론: 사용자 다운로드 폴더
+        # Standalone: User downloads folder
+        # Use standard downloads folder path
         try:
-            # Windows 환경에서만 winreg 사용
             if sys.platform.startswith('win'):
-                import winreg
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders") as key:
-                    downloads_path = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")[0]
-                    return downloads_path
+                # Windows user downloads folder
+                home_downloads = str(Path.home() / "Downloads")
+                print(f"[DEBUG] Windows download path: {home_downloads}")
+
+                # Create folder if it doesn't exist
+                downloads_path = Path(home_downloads)
+                downloads_path.mkdir(exist_ok=True)
+
+                return home_downloads
             else:
-                # Linux/Mac의 경우 일반적인 다운로드 폴더
-                return str(Path.home() / "Downloads")
-        except:
-            # 오류 발생시 기본 경로
-            return str(Path.home() / "Downloads")
+                # Linux/Mac downloads folder
+                home_downloads = str(Path.home() / "Downloads")
+                print(f"[DEBUG] Linux/Mac download path: {home_downloads}")
+
+                # Create folder if it doesn't exist
+                downloads_path = Path(home_downloads)
+                downloads_path.mkdir(exist_ok=True)
+
+                return home_downloads
+        except Exception as e:
+            # Final fallback: downloads folder in current directory
+            fallback_path = str(Path.cwd() / "downloads")
+            print(f"[ERROR] Download path setup failed, using fallback: {fallback_path}, error: {e}")
+            Path(fallback_path).mkdir(exist_ok=True)
+            return fallback_path
     elif os.environ.get("CONFIG_PATH"):
-        # 도커 환경: /downloads
+        # Docker environment: /downloads
         return "/downloads"
     else:
-        # 로컬 개발: 프로젝트 내 downloads 폴더
+        # Local development: downloads folder in project
         project_root = Path(__file__).parent.parent.parent
         return str(project_root / "downloads")
 

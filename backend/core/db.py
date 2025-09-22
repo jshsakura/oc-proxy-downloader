@@ -3,19 +3,23 @@ from sqlalchemy.orm import sessionmaker
 import os
 from pathlib import Path
 
-# 환경별 config 디렉토리 설정 (config.py와 동일)
-# 1. OC_CONFIG_DIR 환경변수 (스탠드얼론 실행 시 설정됨)
-# 2. CONFIG_PATH 환경변수 (도커 환경에서 설정됨)
-# 3. 기본값: backend/config (로컬 개발)
+# Environment-specific config directory setup (same as config.py)
+# 1. OC_CONFIG_DIR environment variable (set when running standalone)
+# 2. CONFIG_PATH environment variable (set in Docker environment)
+# 3. Default: backend/config (local development)
 if os.environ.get("OC_CONFIG_DIR"):
     CONFIG_DIR = Path(os.environ["OC_CONFIG_DIR"])
+    print(f"[DEBUG] DB Standalone CONFIG_DIR: {CONFIG_DIR}")
 elif os.environ.get("CONFIG_PATH"):
     CONFIG_DIR = Path(os.environ["CONFIG_PATH"])
+    print(f"[DEBUG] DB Docker CONFIG_DIR: {CONFIG_DIR}")
 else:
     CONFIG_DIR = Path(os.path.dirname(__file__)) / '..' / 'config'
+    print(f"[DEBUG] DB Local CONFIG_DIR: {CONFIG_DIR}")
 
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = CONFIG_DIR / 'downloads.db'
+print(f"[DEBUG] DB_PATH: {DB_PATH}")
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(
