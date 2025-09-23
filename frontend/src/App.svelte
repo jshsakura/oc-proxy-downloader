@@ -1723,12 +1723,10 @@
                               downloadWaitInfo[download.id].remaining_time /
                                 60
                             )}{$t("time_minutes")})
-                          {:else if downloadWaitInfo[download.id].remaining_time > 10}
+                          {:else}
                             {$t("download_waiting_time")} ({downloadWaitInfo[
                               download.id
                             ].remaining_time}{$t("time_seconds")})
-                          {:else}
-                            {$t("download_waiting_time")} ({Math.max(1, Math.floor((downloadWaitInfo[download.id].remaining_time * 1000 - (Date.now() - (downloadWaitInfo[download.id].timestamp || 0))) / 1000))}{$t("time_seconds")})
                           {/if}
                           <span
                             class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
