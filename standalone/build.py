@@ -40,7 +40,7 @@ def main():
     # 2. EXE 빌드
     print("\n2. EXE 빌드")
     os.chdir(standalone_dir)
-    run_cmd(f"{sys.executable} -m PyInstaller --clean --noupx --onedir oc-proxy-downloader.spec")
+    run_cmd(f"{sys.executable} -m PyInstaller --clean oc-proxy-downloader.spec")
 
     print("\n빌드 완료!")
     print(f"실행 파일: {standalone_dir / 'dist' / 'oc-proxy-downloader.exe'}")
