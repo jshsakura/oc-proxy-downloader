@@ -2885,9 +2885,16 @@ span.status.status-cooldown,
 }
 
 /* Toast notification styling */
+[data-sonner-toaster] {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
 [data-sonner-toaster] [data-sonner-toast] {
   min-width: 400px !important;
   max-width: 600px !important;
+  margin: 0 auto !important;
 }
 
 /* Mobile responsive toast width */
@@ -2895,6 +2902,7 @@ span.status.status-cooldown,
   [data-sonner-toaster] [data-sonner-toast] {
     min-width: 320px !important;
     max-width: 90vw !important;
+    margin: 0 auto !important;
   }
 }
 

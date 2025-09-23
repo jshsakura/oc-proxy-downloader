@@ -2094,10 +2094,6 @@
   theme={$theme === 'light' ? 'light' : 'dark'}
   toastOptions={{
     class: `toast-${$theme}`,
-    style: $theme === 'dracula' ?
-      'background: var(--card-background); color: var(--text-primary); border: 1px solid var(--card-border);' :
-      $theme === 'dark' ?
-      'background: var(--card-background); color: var(--text-primary); border: 1px solid var(--card-border);' :
-      ''
+    style: 'background: var(--card-background); color: var(--text-primary); border: 1px solid var(--card-border);'
   }}
 />
