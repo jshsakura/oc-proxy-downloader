@@ -112,7 +112,7 @@ async def add_proxy(request: Request, db: Session = Depends(get_db), data: dict 
             address=address,
             proxy_type=proxy_type,
             is_active=True,
-            added_at=datetime.datetime.utcnow(),
+            added_at=datetime.datetime.now(),
             description=description
         )
         

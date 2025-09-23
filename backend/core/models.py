@@ -24,7 +24,7 @@ class DownloadRequest(Base):
     file_name = Column(String)
     file_size = Column(String, nullable=True)  # 파일 크기 (예: "6.98 GB")
     status = Column(Enum(StatusEnum), default=StatusEnum.pending)
-    requested_at = Column(DateTime, default=datetime.datetime.utcnow)
+    requested_at = Column(DateTime, default=datetime.datetime.now)
     started_at = Column(DateTime, nullable=True)  # 실제 다운로드 시작 시간
     finished_at = Column(DateTime, nullable=True)
     error = Column(Text, nullable=True)
@@ -82,7 +82,7 @@ class UserProxy(Base):
     address = Column(String, nullable=False)  # 프록시 주소 (URL 또는 IP:PORT)
     proxy_type = Column(String, default="list")  # "list" 또는 "single"
     is_active = Column(Boolean, default=True)  # 활성 상태
-    added_at = Column(DateTime, default=datetime.datetime.utcnow)
+    added_at = Column(DateTime, default=datetime.datetime.now)
     last_used = Column(DateTime, nullable=True)
     description = Column(String, nullable=True)  # 사용자 설명
 
