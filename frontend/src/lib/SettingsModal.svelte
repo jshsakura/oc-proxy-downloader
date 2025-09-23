@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onMount, onDestroy } from "svelte";
   import { theme } from "./theme.js";
   import { t, loadTranslations } from "./i18n.js";
   import HomeIcon from "../icons/HomeIcon.svelte";
@@ -8,7 +8,6 @@
   import CopyIcon from "../icons/CopyIcon.svelte";
   import ConfirmModal from "./ConfirmModal.svelte";
   import { toast } from "svelte-sonner";
-  import { onMount, onDestroy } from "svelte";
   import {
     authRequired,
     isAuthenticated,
