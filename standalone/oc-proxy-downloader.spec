@@ -85,11 +85,20 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'tkinter',
+        'matplotlib',
+        'scipy',
+        'numpy.distutils',
+        'distutils',
+        'setuptools',
+        'wheel',
+        'pip',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=None,
-    noarchive=False,
+    noarchive=True,  # 아카이브 비활성화
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
@@ -97,8 +106,10 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='oc-proxy-downloader',
     debug=False,
     bootloader_ignore_signals=False,
@@ -106,22 +117,12 @@ exe = EXE(
     upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,  # 터미널 창 유지
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     icon='app_icon.ico',
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name='oc-proxy-downloader',
+    contents_directory='.',
 )
