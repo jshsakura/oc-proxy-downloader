@@ -120,10 +120,10 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                     except Exception as e:
                         print(f"[WARNING] 상태 확인 실패: {e}")
 
-                    # 5초 이하는 1초 단위 타이머 건너뛰기
-                    if remaining > 5:
-                        # SSE 콜백으로 대기시간 전송
-                        if sse_callback and remaining % 5 == 0:  # 5초마다만 전송
+                    # 10초 이하는 1초 단위로 카운트다운 표시
+                    if remaining <= 10:
+                        # SSE 콜백으로 대기시간 전송 (1초마다)
+                        if sse_callback:
                             try:
                                 sse_callback("waiting", {
                                     "id": download_id,
@@ -135,12 +135,22 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                                 print(f"[WARNING] SSE 대기시간 전송 실패: {sse_error}")
 
                         print(f"[DEBUG] 대기 중: {remaining}초 남음")
-                        time.sleep(1)
                     else:
-                        # 5초 이하는 바로 남은 시간만큼 대기
-                        print(f"[LOG] 남은 {remaining}초 한번에 대기")
-                        time.sleep(remaining)
-                        break
+                        # 10초 초과는 5초마다만 전송
+                        if sse_callback and remaining % 5 == 0:
+                            try:
+                                sse_callback("waiting", {
+                                    "id": download_id,
+                                    "remaining": remaining,
+                                    "total": wait_seconds,
+                                    "message": f"1fichier 대기 중... {remaining}초 남음"
+                                })
+                            except Exception as sse_error:
+                                print(f"[WARNING] SSE 대기시간 전송 실패: {sse_error}")
+
+                        print(f"[DEBUG] 대기 중: {remaining}초 남음")
+
+                    time.sleep(1)
 
                 # 대기 완료
                 print(f"[LOG] 대기 완료: download_id={download_id}")

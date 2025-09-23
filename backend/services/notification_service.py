@@ -177,7 +177,7 @@ def send_telegram_start_notification(file_name: str, download_mode: str, languag
 
 def send_telegram_notification(file_name: str, status: str, error: str = None, language: str = "ko",
                               file_size_str: str = None, download_time: str = None,
-                              save_path: str = None, requested_time: str = None):
+                              save_path: str = None, requested_time: str = None, download_mode: str = None):
     """텔레그램 완료/실패 알림"""
     try:
         print(f"[DEBUG] send_telegram_notification 호출됨: file_name={file_name}, status={status}")
@@ -217,9 +217,12 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
             success_text = translations.get("telegram_download_success", "Download Complete")
             filename_text = translations.get("telegram_filename", "Filename")
             filesize_text = translations.get("telegram_filesize", "파일크기")
+            mode_text = translations.get("telegram_download_mode", "Download Mode")
             requested_time_text = translations.get("telegram_requested_time", "요청시간")
             completed_time_text = translations.get("telegram_completed_time", "완료시간")
             save_path_text = translations.get("telegram_save_path", "저장경로")
+
+            mode_display = "프록시" if download_mode == "proxy" else "로컬" if language == "ko" else (download_mode.title() if download_mode else 'N/A')
 
             message = f"""✅ <b>OC-Proxy: {success_text}</b> 🎉
 
@@ -228,6 +231,9 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
 
 📊 <b>{filesize_text}</b>
 <code>{file_size_str or ('알 수 없음' if language == 'ko' else 'Unknown')}</code>
+
+🔧 <b>{mode_text}</b>
+<code>{mode_display}</code>
 
 📅 <b>{requested_time_text}</b>
 <code>{requested_time or 'N/A'}</code>

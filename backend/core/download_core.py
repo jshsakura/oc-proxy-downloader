@@ -800,9 +800,10 @@ class DownloadCore:
                             minutes, seconds = divmod(remainder, 60)
                             processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+                        download_mode = "proxy" if req.use_proxy else "local"
                         send_telegram_notification(req.file_name, "success", language="ko",
                                                  file_size_str=req.file_size, save_path=req.save_path,
-                                                 requested_time=processing_time)
+                                                 requested_time=processing_time, download_mode=download_mode)
                     except Exception as telegram_error:
                         print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
 
@@ -1080,9 +1081,10 @@ class DownloadCore:
                     minutes, seconds = divmod(remainder, 60)
                     processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+                download_mode = "proxy" if req.use_proxy else "local"
                 send_telegram_notification(req.file_name, "success", language="ko",
                                          file_size_str=req.file_size, save_path=req.save_path,
-                                         requested_time=processing_time)
+                                         requested_time=processing_time, download_mode=download_mode)
             except Exception as telegram_error:
                 print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
 
