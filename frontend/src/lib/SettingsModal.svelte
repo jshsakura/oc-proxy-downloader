@@ -7,7 +7,7 @@
   import SettingsIcon from "../icons/SettingsIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
   import ConfirmModal from "./ConfirmModal.svelte";
-  import { toast } from 'svelte-sonner';
+  import { toast } from "svelte-sonner";
   import { onMount, onDestroy } from "svelte";
   import {
     authRequired,
@@ -36,20 +36,19 @@
   let newProxyAddress = "";
   let newProxyDescription = "";
   let isAddingProxy = false;
-  
+
   // 페이징 변수들
   let currentPage = 1;
   let itemsPerPage = 50; // 페이지당 50개만 표시
   $: totalPages = Math.ceil(userProxies.length / itemsPerPage);
   $: paginatedProxies = userProxies.slice(
-    (currentPage - 1) * itemsPerPage, 
+    (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
   let telegramGuideExpanded = false;
   let telegramSettingsExpanded = false;
   let detailedGuideExpanded = false;
   let showLogoutConfirm = false;
-
 
   $: isLoading = !settings || Object.keys(settings).length === 0;
 
@@ -206,9 +205,7 @@
         toast.success($t("telegram_test_success"));
       } else {
         const errorData = await response.json();
-        toast.error(
-          $t("telegram_test_failed") + ": " + errorData.detail
-        );
+        toast.error($t("telegram_test_failed") + ": " + errorData.detail);
       }
     } catch (error) {
       console.error("Telegram test error:", error);
@@ -216,18 +213,29 @@
     }
   }
 
-  $: if (showModal && currentSettings && Object.keys(currentSettings).length > 0) {
+  let isInitialized = false;
+
+  // Initialize settings only once when the modal is opened with valid data
+  $: if (showModal && currentSettings && !isInitialized) {
     settings = {
       ...currentSettings,
       telegram_bot_token: currentSettings.telegram_bot_token || "",
       telegram_chat_id: currentSettings.telegram_chat_id || "",
-      telegram_notify_success: currentSettings.telegram_notify_success || false,
-      telegram_notify_failure: currentSettings.telegram_notify_failure !== false,
+      telegram_notify_success: currentSettings.telegram_notify_success === true,
+      telegram_notify_failure:
+        currentSettings.telegram_notify_failure !== false,
       telegram_notify_wait: currentSettings.telegram_notify_wait !== false,
-      telegram_notify_start: currentSettings.telegram_notify_start || false,
+      telegram_notify_start: currentSettings.telegram_notify_start === true,
     };
     selectedTheme = settings.theme || $theme;
     selectedLocale = localStorage.getItem("lang") || "ko";
+    isInitialized = true;
+  }
+
+  // Reset settings when modal is closed to allow re-initialization next time
+  $: if (!showModal) {
+    settings = {};
+    isInitialized = false;
   }
 
   $: if (showModal) {
@@ -237,16 +245,19 @@
   async function saveSettings() {
     theme.set(selectedTheme);
 
-    settings.theme = selectedTheme;
-    settings.language = selectedLocale;
+    const settingsToSave = {
+      ...settings,
+      theme: selectedTheme,
+      language: selectedLocale,
+    };
 
-    console.log("[DEBUG] Saving settings:", settings);
+    console.log("[DEBUG] Saving settings:", settingsToSave);
 
     try {
       const response = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(settingsToSave),
       });
 
       console.log("[DEBUG] Save API response:", response.status);
@@ -296,12 +307,15 @@
         // 환경 정보 저장
         environmentInfo = {
           is_standalone: data.is_standalone || false,
-          is_docker: data.is_docker || false
+          is_docker: data.is_docker || false,
         };
 
         if (data.default_download_path) {
           settings = { ...settings, download_path: data.default_download_path };
-          console.log("[DEBUG] Reset to default path:", data.default_download_path);
+          console.log(
+            "[DEBUG] Reset to default path:",
+            data.default_download_path
+          );
         } else {
           settings = { ...settings, download_path: "/downloads" };
           console.log("[DEBUG] Reset to default: /downloads");
@@ -328,7 +342,7 @@
     try {
       const response = await fetch("/api/select_folder", {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
 
       if (response.ok) {
@@ -381,7 +395,7 @@
         const data = await response.json();
         environmentInfo = {
           is_standalone: data.is_standalone || false,
-          is_docker: data.is_docker || false
+          is_docker: data.is_docker || false,
         };
       }
     } catch (error) {
@@ -498,25 +512,38 @@
                 {#if !environmentInfo.is_docker}
                   <button
                     type="button"
-                    class="input-icon-button folder-button"
+                    class="input-icon-button"
                     on:click={selectFolder}
                     title="폴더 선택"
                     aria-label="폴더 선택"
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/>
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path
+                        d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"
+                      />
                     </svg>
                   </button>
                 {/if}
-                <button
-                  type="button"
-                  class="input-icon-button reset-button"
-                  on:click={resetToDefault}
-                  title={$t("reset_to_default_tooltip")}
-                  aria-label={$t("reset_to_default_tooltip")}
-                >
-                  <HomeIcon />
-                </button>
+                {#if environmentInfo.is_docker}
+                  <button
+                    type="button"
+                    class="input-icon-button reset-button"
+                    on:click={resetToDefault}
+                    title={$t("reset_to_default_tooltip")}
+                    aria-label={$t("reset_to_default_tooltip")}
+                  >
+                    <HomeIcon />
+                  </button>
+                {/if}
               </div>
             </div>
           </div>
@@ -655,7 +682,8 @@
                               <span class="proxy-url">{proxy.address}</span>
                               <button
                                 class="copy-proxy-button"
-                                on:click={() => navigator.clipboard?.writeText(proxy.address)}
+                                on:click={() =>
+                                  navigator.clipboard?.writeText(proxy.address)}
                                 title="Copy address"
                                 type="button"
                               >
@@ -687,7 +715,9 @@
                             </span>
                           </td>
                           <td class="proxy-date text-center">
-                            {proxy.added_at ? new Date(proxy.added_at).toLocaleDateString() : "-"}
+                            {proxy.added_at
+                              ? new Date(proxy.added_at).toLocaleDateString()
+                              : "-"}
                           </td>
                           <td class="proxy-actions">
                             <div class="proxy-action-buttons">
@@ -768,25 +798,28 @@
                   </table>
                 </div>
               </div>
-              
+
               <!-- 프록시 테이블 푸터 -->
               <div class="proxy-table-footer">
                 <div class="proxy-footer-info">
                   <div class="proxy-count-info">
-{$t("total_proxies", {count: userProxies.length})}
+                    {$t("total_proxies", { count: userProxies.length })}
                   </div>
                   {#if totalPages > 1}
                     <div class="proxy-page-info">
-                      {(currentPage - 1) * itemsPerPage + 1}~{Math.min(currentPage * itemsPerPage, userProxies.length)} 표시
+                      {(currentPage - 1) * itemsPerPage + 1}~{Math.min(
+                        currentPage * itemsPerPage,
+                        userProxies.length
+                      )} 표시
                     </div>
                   {/if}
                 </div>
-                
+
                 {#if totalPages > 1}
                   <div class="proxy-pagination-buttons">
                     <button
                       class="proxy-page-number-btn proxy-prev-next-btn"
-                      on:click={() => currentPage = currentPage - 1}
+                      on:click={() => (currentPage = currentPage - 1)}
                       disabled={currentPage <= 1}
                     >
                       ←
@@ -799,7 +832,7 @@
                         <button
                           class="proxy-page-number-btn"
                           class:active={currentPage === pageNum}
-                          on:click={() => currentPage = pageNum}
+                          on:click={() => (currentPage = pageNum)}
                         >
                           {pageNum}
                         </button>
@@ -808,7 +841,7 @@
 
                     <button
                       class="proxy-page-number-btn proxy-prev-next-btn"
-                      on:click={() => currentPage = currentPage + 1}
+                      on:click={() => (currentPage = currentPage + 1)}
                       disabled={currentPage >= totalPages}
                     >
                       →
@@ -1031,7 +1064,13 @@
                       <label class="telegram-checkbox-label">
                         <input
                           type="checkbox"
-                          bind:checked={settings.telegram_notify_success}
+                          checked={settings.telegram_notify_success || false}
+                          on:change={(e) => {
+                            settings = {
+                              ...settings,
+                              telegram_notify_success: e.currentTarget.checked,
+                            };
+                          }}
                         />
                         <span class="telegram-checkbox-text"
                           >✅ {$t("telegram_notify_success")}</span
@@ -1041,7 +1080,13 @@
                       <label class="telegram-checkbox-label">
                         <input
                           type="checkbox"
-                          bind:checked={settings.telegram_notify_failure}
+                          checked={settings.telegram_notify_failure !== false}
+                          on:change={(e) => {
+                            settings = {
+                              ...settings,
+                              telegram_notify_failure: e.currentTarget.checked,
+                            };
+                          }}
                         />
                         <span class="telegram-checkbox-text"
                           >❌ {$t("telegram_notify_failure")}</span
@@ -1051,7 +1096,13 @@
                       <label class="telegram-checkbox-label">
                         <input
                           type="checkbox"
-                          bind:checked={settings.telegram_notify_wait}
+                          checked={settings.telegram_notify_wait !== false}
+                          on:change={(e) => {
+                            settings = {
+                              ...settings,
+                              telegram_notify_wait: e.currentTarget.checked,
+                            };
+                          }}
                         />
                         <span class="telegram-checkbox-text"
                           >⏳ {$t("telegram_notify_wait")}</span
@@ -1064,7 +1115,13 @@
                       <label class="telegram-checkbox-label">
                         <input
                           type="checkbox"
-                          bind:checked={settings.telegram_notify_start}
+                          checked={settings.telegram_notify_start || false}
+                          on:change={(e) => {
+                            settings = {
+                              ...settings,
+                              telegram_notify_start: e.currentTarget.checked,
+                            };
+                          }}
                         />
                         <span class="telegram-checkbox-text"
                           >⬇️ {$t("telegram_notify_start")}</span
@@ -1428,7 +1485,7 @@
       padding: 1rem;
       align-items: center;
     }
-    
+
     .proxy-footer-info {
       width: 100%;
       text-align: center;
@@ -1550,7 +1607,7 @@
     width: 2.5rem;
     height: 2.5rem;
     padding: 0;
-    border: none;
+    border: none !important;
     background-color: var(--input-bg);
     color: var(--text-secondary);
     border-radius: 10px;
@@ -1565,16 +1622,6 @@
 
   .input-icon-button.reset-button {
     right: 8px;
-  }
-
-  .folder-button {
-    background-color: var(--primary-color);
-    color: white;
-  }
-
-  .folder-button:hover {
-    background-color: var(--primary-hover);
-    color: white;
   }
 
   .input-icon-button:hover {
