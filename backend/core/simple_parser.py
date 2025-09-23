@@ -105,52 +105,31 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
             # SSE로 대기시간 카운트다운 전송
             if download_id:
 
-                for remaining in range(wait_seconds, 0, -1):
+                for remaining in range(wait_seconds, 0, -5):
                     # 다운로드 상태 확인 (정지되었는지 체크)
                     try:
                         with SessionLocal() as db:
                             req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
                             if req and req.status == StatusEnum.stopped:
                                 print(f"[LOG] 대기 중 정지 감지, 카운트다운 중단")
-
-                                # 정지 상태 확인
-                                print(f"[LOG] 다운로드 중지 확인: download_id={download_id}")
-
                                 return None  # 정지된 경우 파싱 중단
                     except Exception as e:
                         print(f"[WARNING] 상태 확인 실패: {e}")
 
-                    # 10초 이하는 1초 단위로 카운트다운 표시
-                    if remaining <= 10:
-                        # SSE 콜백으로 대기시간 전송 (1초마다)
-                        if sse_callback:
-                            try:
-                                sse_callback("waiting", {
-                                    "id": download_id,
-                                    "remaining": remaining,
-                                    "total": wait_seconds,
-                                    "message": f"1fichier 대기 중... {remaining}초 남음"
-                                })
-                            except Exception as sse_error:
-                                print(f"[WARNING] SSE 대기시간 전송 실패: {sse_error}")
+                    # SSE 콜백으로 대기시간 전송 (5초마다)
+                    if sse_callback:
+                        try:
+                            sse_callback("waiting", {
+                                "id": download_id,
+                                "remaining": remaining,
+                                "total": wait_seconds,
+                                "message": f"1fichier 대기 중... {remaining}초 남음"
+                            })
+                        except Exception as sse_error:
+                            print(f"[WARNING] SSE 대기시간 전송 실패: {sse_error}")
 
-                        print(f"[DEBUG] 대기 중: {remaining}초 남음")
-                    else:
-                        # 10초 초과는 5초마다만 전송
-                        if sse_callback and remaining % 5 == 0:
-                            try:
-                                sse_callback("waiting", {
-                                    "id": download_id,
-                                    "remaining": remaining,
-                                    "total": wait_seconds,
-                                    "message": f"1fichier 대기 중... {remaining}초 남음"
-                                })
-                            except Exception as sse_error:
-                                print(f"[WARNING] SSE 대기시간 전송 실패: {sse_error}")
-
-                        print(f"[DEBUG] 대기 중: {remaining}초 남음")
-
-                    time.sleep(1)
+                    print(f"[DEBUG] 대기 중: {remaining}초 남음")
+                    time.sleep(5)
 
                 # 대기 완료
                 print(f"[LOG] 대기 완료: download_id={download_id}")
