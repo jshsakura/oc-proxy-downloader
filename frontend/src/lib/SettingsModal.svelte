@@ -1,7 +1,7 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from "svelte";
   import { theme } from "./theme.js";
-  import { t, loadTranslations } from "./i18n.js";
+  import { t, loadTranslations, isLoading } from "./i18n.js";
   import HomeIcon from "../icons/HomeIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
@@ -49,7 +49,7 @@
   let detailedGuideExpanded = false;
   let showLogoutConfirm = false;
 
-  $: isLoading = !settings || Object.keys(settings).length === 0;
+  $: isSettingsLoading = !settings || Object.keys(settings).length === 0;
 
   function closeModal() {
     dispatch("close");
@@ -425,7 +425,7 @@
       role="dialog"
       tabindex="-1"
     >
-      {#if isLoading}
+      {#if isSettingsLoading}
         <div class="modal-loading-container">
           <div class="modal-spinner"></div>
           <div class="modal-loading-text">{$t("loading_message")}</div>
@@ -1164,16 +1164,18 @@
   </div>
 {/if}
 
-<ConfirmModal
-  bind:showModal={showLogoutConfirm}
-  title={$t("logout_confirm_title")}
-  message={$t("logout_confirm_message")}
-  confirmText={$t("logout_confirm_yes")}
-  cancelText={$t("logout_confirm_no")}
-  isDeleteAction={true}
-  on:confirm={confirmLogout}
-  on:cancel={cancelLogout}
-/>
+{#if !$isLoading}
+  <ConfirmModal
+    bind:showModal={showLogoutConfirm}
+    title={$t("logout_confirm_title")}
+    message={$t("logout_confirm_message")}
+    confirmText={$t("logout_confirm_yes")}
+    cancelText={$t("logout_confirm_no")}
+    isDeleteAction={true}
+    on:confirm={confirmLogout}
+    on:cancel={cancelLogout}
+  />
+{/if}
 
 <style>
   .modern-backdrop {

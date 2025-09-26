@@ -159,13 +159,14 @@
           : $t("proxy_attempting")}
         {$t("proxy_success_msg")}! {currentProxy}
       </span>
-    {:else if status === "failed" && currentProxy}
-      <span class="status-icon failed-icon"></span>
+    {:else if status === "failed"}
+      <span class="status-icon idle-icon"></span>
       <span class="status-text">
-        {currentStep === "parsing"
-          ? $t("proxy_link_parsing")
-          : $t("proxy_attempting")}
-        {$t("proxy_failed_msg")}: {currentProxy}
+        {#if statusMessage && statusMessage.trim() !== ""}
+          {statusMessage}
+        {:else}
+          {$t("proxy_idle")}
+        {/if}
       </span>
     {:else}
       <span class="status-icon idle-icon"></span>
@@ -454,27 +455,6 @@
     transform: rotate(45deg);
   }
 
-  .failed-icon {
-    position: relative;
-    border-radius: 50%;
-    background: currentColor;
-  }
-
-  .failed-icon::before,
-  .failed-icon::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 8px;
-    height: 2px;
-    background: white;
-    transform: translate(-50%, -50%) rotate(45deg);
-  }
-
-  .failed-icon::after {
-    transform: translate(-50%, -50%) rotate(-45deg);
-  }
 
   .warning-icon {
     display: inline-block;

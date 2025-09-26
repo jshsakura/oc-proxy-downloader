@@ -12,9 +12,10 @@ async function loadTranslations(lang) {
             throw new Error(`Could not load ${lang}.json (Status: ${response.status})`);
         }
         const data = await response.json();
+
+
         translations.set(data);
         locale.set(lang);
-        console.log(`[i18n] Loaded translations from API for: ${lang}`);
     } catch (error) {
         console.error('[i18n] Failed to load translations:', error);
         translations.set({}); // Clear translations on error

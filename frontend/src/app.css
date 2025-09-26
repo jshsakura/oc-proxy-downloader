@@ -465,11 +465,13 @@ select.input option {
 /* Styles from App.svelte */
 .loading-container {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   height: 80vh;
   font-size: 1.8rem;
   color: var(--text-secondary);
+  gap: 1rem;
 }
 .header {
   display: flex;

@@ -66,7 +66,7 @@
   let eventSourceManager;
   let currentPage = 1;
   let totalPages = 1;
-  const itemsPerPage = 10;
+  let itemsPerPage = 10; // 기본값, 화면 크기에 따라 동적으로 변경
   let isDownloadsLoading = false;
   let isAddingDownload = false;
   let activeDownloads = [];
@@ -159,20 +159,24 @@
   };
 
   onMount(async () => {
+    // 초기 화면 크기에 따한 항목 수 설정
+    itemsPerPage = calculateItemsPerPage();
+
+    // 먼저 언어 설정부터 처리
+    const lang = localStorage.getItem("lang");
+    if (lang) {
+      await loadTranslations(lang);
+      prevLang = lang;
+    } else {
+      await initializeLocale();
+      prevLang = localStorage.getItem("lang");
+    }
+
     await fetchSettings();
-    if (currentSettings.language) {
+    if (currentSettings.language && currentSettings.language !== prevLang) {
       localStorage.setItem("lang", currentSettings.language);
       await loadTranslations(currentSettings.language);
       prevLang = currentSettings.language;
-    } else {
-      const lang = localStorage.getItem("lang");
-      if (lang) {
-        await loadTranslations(lang);
-        prevLang = lang;
-      } else {
-        await initializeLocale();
-        prevLang = localStorage.getItem("lang");
-      }
     }
 
     // 로그인이 필요하지 않거나 이미 인증된 경우에만 EventSource 연결
@@ -198,6 +202,9 @@
       checkProxyAvailability();
     };
     document.addEventListener("proxy-refreshed", handleProxyRefresh);
+
+    // 윈도우 리사이즈 이벤트 리스너 추가
+    window.addEventListener("resize", handleResize);
 
     // 모바일에서의 페이지 백그라운드 복귀 시 조용한 업데이트 로직
     let lastVisibilityTime = Date.now();
@@ -233,6 +240,7 @@
       cleanupResize && cleanupResize();
       document.removeEventListener("proxy-refreshed", handleProxyRefresh);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("resize", handleResize);
     };
   });
 
@@ -1193,6 +1201,40 @@
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   }
 
+  // 화면 크기에 따른 페이지 항목 수 계산
+  function calculateItemsPerPage() {
+    if (typeof window === 'undefined') return 10;
+
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    // 모바일
+    if (width < 768) {
+      return Math.max(5, Math.floor(height / 80)); // 모바일은 항목 높이를 80px로 가정
+    }
+    // 태블릿
+    else if (width < 1024) {
+      return Math.max(8, Math.floor(height / 70)); // 태블릿은 항목 높이를 70px로 가정
+    }
+    // 데스크톱
+    else {
+      return Math.max(10, Math.floor(height / 60)); // 데스크톱은 항목 높이를 60px로 가정
+    }
+  }
+
+  // 윈도우 리사이즈 핸들러
+  function handleResize() {
+    const newItemsPerPage = calculateItemsPerPage();
+    if (newItemsPerPage !== itemsPerPage) {
+      itemsPerPage = newItemsPerPage;
+      // 현재 페이지가 유효한 범위를 벗어나면 조정
+      totalPages = Math.ceil(filteredDownloads.length / itemsPerPage);
+      if (currentPage > totalPages && totalPages > 0) {
+        currentPage = totalPages;
+      }
+    }
+  }
+
   async function pasteFromClipboard() {
     try {
       // 먼저 현대적인 clipboard API 시도
@@ -1463,6 +1505,7 @@
 <main>
   {#if $authLoading || $isLoading}
     <div class="loading-container">
+      <div class="modal-spinner"></div>
       <p>Loading...</p>
     </div>
   {:else if $needsLogin}
@@ -1975,7 +2018,7 @@
       </div>
       {#if totalPages > 1}
         <div class="pagination-buttons">
-          <!-- 데스크톱용 기존 레이아웃 -->
+          <!-- 데스크톱용 스마트 페이지네이션 -->
           <div class="pagination-desktop">
             <button
               class="page-number-btn prev-next-btn"
@@ -1985,10 +2028,11 @@
               <ChevronLeftIcon />
             </button>
 
-            <!-- 페이지 번호 버튼들 - 최대 5개 표시 -->
-            {#each Array(Math.min(totalPages, 5)) as _, i}
-              {@const pageNum = Math.max(1, currentPage - 2) + i}
-              {#if pageNum <= totalPages}
+            <!-- 스마트 페이지 번호 버튼들 -->
+            {#if totalPages <= 7}
+              <!-- 총 페이지가 7개 이하면 모두 표시 -->
+              {#each Array(totalPages) as _, i}
+                {@const pageNum = i + 1}
                 <button
                   class="page-number-btn"
                   class:active={currentPage === pageNum}
@@ -1996,8 +2040,72 @@
                 >
                   {pageNum}
                 </button>
+              {/each}
+            {:else}
+              <!-- 복잡한 페이지네이션 로직 -->
+              {#if currentPage <= 4}
+                <!-- 현재 페이지가 앞쪽에 있을 때: 1,2,3,4,5 ... 14 -->
+                {#each [1,2,3,4,5] as pageNum}
+                  <button
+                    class="page-number-btn"
+                    class:active={currentPage === pageNum}
+                    on:click={() => goToPage(pageNum)}
+                  >
+                    {pageNum}
+                  </button>
+                {/each}
+                <span class="page-dots">...</span>
+                <button
+                  class="page-number-btn"
+                  on:click={() => goToPage(totalPages)}
+                >
+                  {totalPages}
+                </button>
+              {:else if currentPage >= totalPages - 3}
+                <!-- 현재 페이지가 뒤쪽에 있을 때: 1 ... 10,11,12,13,14 -->
+                <button
+                  class="page-number-btn"
+                  on:click={() => goToPage(1)}
+                >
+                  1
+                </button>
+                <span class="page-dots">...</span>
+                {#each [totalPages-4, totalPages-3, totalPages-2, totalPages-1, totalPages] as pageNum}
+                  <button
+                    class="page-number-btn"
+                    class:active={currentPage === pageNum}
+                    on:click={() => goToPage(pageNum)}
+                  >
+                    {pageNum}
+                  </button>
+                {/each}
+              {:else}
+                <!-- 현재 페이지가 중간에 있을 때: 1 ... 7,8,9,10,11 ... 14 -->
+                <button
+                  class="page-number-btn"
+                  on:click={() => goToPage(1)}
+                >
+                  1
+                </button>
+                <span class="page-dots">...</span>
+                {#each [currentPage-2, currentPage-1, currentPage, currentPage+1, currentPage+2] as pageNum}
+                  <button
+                    class="page-number-btn"
+                    class:active={currentPage === pageNum}
+                    on:click={() => goToPage(pageNum)}
+                  >
+                    {pageNum}
+                  </button>
+                {/each}
+                <span class="page-dots">...</span>
+                <button
+                  class="page-number-btn"
+                  on:click={() => goToPage(totalPages)}
+                >
+                  {totalPages}
+                </button>
               {/if}
-            {/each}
+            {/if}
 
             <button
               class="page-number-btn prev-next-btn"
@@ -2008,7 +2116,7 @@
             </button>
           </div>
 
-          <!-- 모바일용 세로 레이아웃 -->
+          <!-- 모바일용 스마트 페이지네이션 -->
           <div class="pagination-mobile">
             <div class="page-nav-container">
               <button
@@ -2030,9 +2138,10 @@
             </div>
 
             <div class="page-numbers-mobile">
-              {#each Array(Math.min(totalPages, 5)) as _, i}
-                {@const pageNum = Math.max(1, currentPage - 2) + i}
-                {#if pageNum <= totalPages}
+              {#if totalPages <= 7}
+                <!-- 총 페이지가 7개 이하면 모두 표시 -->
+                {#each Array(totalPages) as _, i}
+                  {@const pageNum = i + 1}
                   <button
                     class="page-number-btn-mobile"
                     class:active={currentPage === pageNum}
@@ -2040,8 +2149,72 @@
                   >
                     {pageNum}
                   </button>
+                {/each}
+              {:else}
+                <!-- 복잡한 페이지네이션 로직 -->
+                {#if currentPage <= 4}
+                  <!-- 현재 페이지가 앞쪽에 있을 때: 1,2,3,4,5 ... 14 -->
+                  {#each [1,2,3,4,5] as pageNum}
+                    <button
+                      class="page-number-btn-mobile"
+                      class:active={currentPage === pageNum}
+                      on:click={() => goToPage(pageNum)}
+                    >
+                      {pageNum}
+                    </button>
+                  {/each}
+                  <span class="page-dots-mobile">...</span>
+                  <button
+                    class="page-number-btn-mobile"
+                    on:click={() => goToPage(totalPages)}
+                  >
+                    {totalPages}
+                  </button>
+                {:else if currentPage >= totalPages - 3}
+                  <!-- 현재 페이지가 뒤쪽에 있을 때: 1 ... 10,11,12,13,14 -->
+                  <button
+                    class="page-number-btn-mobile"
+                    on:click={() => goToPage(1)}
+                  >
+                    1
+                  </button>
+                  <span class="page-dots-mobile">...</span>
+                  {#each [totalPages-4, totalPages-3, totalPages-2, totalPages-1, totalPages] as pageNum}
+                    <button
+                      class="page-number-btn-mobile"
+                      class:active={currentPage === pageNum}
+                      on:click={() => goToPage(pageNum)}
+                    >
+                      {pageNum}
+                    </button>
+                  {/each}
+                {:else}
+                  <!-- 현재 페이지가 중간에 있을 때: 1 ... 7,8,9,10,11 ... 14 -->
+                  <button
+                    class="page-number-btn-mobile"
+                    on:click={() => goToPage(1)}
+                  >
+                    1
+                  </button>
+                  <span class="page-dots-mobile">...</span>
+                  {#each [currentPage-2, currentPage-1, currentPage, currentPage+1, currentPage+2] as pageNum}
+                    <button
+                      class="page-number-btn-mobile"
+                      class:active={currentPage === pageNum}
+                      on:click={() => goToPage(pageNum)}
+                    >
+                      {pageNum}
+                    </button>
+                  {/each}
+                  <span class="page-dots-mobile">...</span>
+                  <button
+                    class="page-number-btn-mobile"
+                    on:click={() => goToPage(totalPages)}
+                  >
+                    {totalPages}
+                  </button>
                 {/if}
-              {/each}
+              {/if}
             </div>
           </div>
         </div>
@@ -2049,15 +2222,17 @@
     </div>
   {/if}
 
-  <SettingsModal
-    showModal={showSettingsModal}
-    {currentSettings}
-    on:settingsChanged={handleSettingsChanged}
-    on:proxyChanged={checkProxyAvailability}
-    on:close={() => (showSettingsModal = false)}
-  />
+  {#if !$isLoading}
+    <SettingsModal
+      showModal={showSettingsModal}
+      {currentSettings}
+      on:settingsChanged={handleSettingsChanged}
+      on:proxyChanged={checkProxyAvailability}
+      on:close={() => (showSettingsModal = false)}
+    />
+  {/if}
 
-  {#if showPasswordModal}
+  {#if showPasswordModal && !$isLoading}
     <PasswordModal
       bind:showModal={showPasswordModal}
       on:passwordSet={handlePasswordSet}
@@ -2065,7 +2240,7 @@
     />
   {/if}
 
-  {#if showDetailModal}
+  {#if showDetailModal && !$isLoading}
     <DetailModal
       bind:showModal={showDetailModal}
       download={selectedDownload}
@@ -2073,15 +2248,17 @@
     />
   {/if}
 
-  <ConfirmModal
-    bind:showModal={showConfirm}
-    message={confirmMessage}
-    title={confirmTitle}
-    icon={confirmIcon}
-    confirmText={confirmButtonText}
-    cancelText={cancelButtonText}
-    on:confirm={confirmAction}
-  />
+  {#if !$isLoading}
+    <ConfirmModal
+      bind:showModal={showConfirm}
+      message={confirmMessage}
+      title={confirmTitle}
+      icon={confirmIcon}
+      confirmText={confirmButtonText}
+      cancelText={cancelButtonText}
+      on:confirm={confirmAction}
+    />
+  {/if}
 </main>
 
 <Toaster

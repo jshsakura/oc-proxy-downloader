@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from core.config import get_config, save_config, get_download_path
@@ -19,7 +20,11 @@ async def get_locale(lang: str, request: Request):
         if not translations:
             raise HTTPException(status_code=404, detail="Language not found")
 
-        return translations
+
+        return JSONResponse(
+            content=translations,
+            headers={"Content-Type": "application/json; charset=utf-8"}
+        )
 
     except Exception as e:
         print(f"[ERROR] Get locale failed: {e}")

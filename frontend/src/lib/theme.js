@@ -11,7 +11,6 @@ const createThemeStore = () => {
   // Function to apply the theme class to the document element
   const applyThemeClass = (currentTheme) => {
     if (typeof document !== 'undefined') {
-      console.log(`[Theme] Applying theme: ${currentTheme}`);
       
       // Remove all theme classes first
       document.documentElement.classList.remove('dark', 'dracula');
@@ -25,15 +24,12 @@ const createThemeStore = () => {
         document.body.classList.add('dracula');
       } else if (currentTheme === 'system') {
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          console.log('[Theme] System preference detected as dark');
           document.documentElement.classList.add('dark');
           document.body.classList.add('dark');
         } else {
-          console.log('[Theme] System preference detected as light or no media query support');
           // Default to light if system is not dark
         }
       } else {
-        console.log(`[Theme] Light theme applied (theme: ${currentTheme})`);
         // Light theme - no classes needed
       }
     }
@@ -42,7 +38,6 @@ const createThemeStore = () => {
   // Subscribe to changes in the store
   subscribe(value => {
     if (typeof window !== 'undefined') {
-      console.log(`[Theme] Theme changed to: ${value}`);
       localStorage.setItem('theme', value); // Save to localStorage
       applyThemeClass(value); // Apply the class
     }
