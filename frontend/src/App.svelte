@@ -360,6 +360,20 @@
     checkProxyAvailability();
   }
 
+  function handleResetProxyStatus() {
+    // 프록시 상태를 idle로 리셋
+    proxyStats = {
+      ...proxyStats,
+      status: "idle",
+      currentProxy: "",
+      currentStep: "",
+      currentIndex: 0,
+      totalAttempting: 0,
+      status_message: ""
+    };
+    console.log("🔄 프록시 상태 리셋됨 (일괄 정지)");
+  }
+
   async function fetchSettings() {
     try {
       const response = await fetch("/api/settings");
@@ -722,16 +736,9 @@
       }
 
       if (message.type === "force_refresh") {
-        const { id, status: newStatus, action } = message.data;
-        if (action === "pause_confirmed") {
-          const index = downloads.findIndex((d) => d.id === id);
-          if (index !== -1 && downloads[index].status !== newStatus) {
-            downloads = downloads.map((d, i) =>
-              i === index ? { ...d, status: newStatus } : d
-            );
-          }
-          updateStats(downloads);
-        }
+        console.log("🔄 Force refresh 요청 수신:", message.data);
+        // 전체 다운로드 목록을 다시 불러오기
+        fetchDownloads();
       }
     });
   }
@@ -1635,6 +1642,7 @@
           lastError={proxyStats.lastError || ""}
           activeDownloadCount={activeProxyDownloadCount}
           statusMessage={proxyStats.status_message || ""}
+          on:resetProxyStatus={handleResetProxyStatus}
         />
       </div>
 

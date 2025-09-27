@@ -595,3 +595,312 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
     except Exception as e:
         print(f"[ERROR] 사전 파싱 실패: {e}")
         raise e
+
+
+@router.post("/downloads/stop-all")
+async def stop_all_downloads(db: Session = Depends(get_db)):
+    """모든 다운로드 정지"""
+    try:
+        # 진행 중인 모든 다운로드 찾기 (pending, downloading, parsing)
+        active_downloads = db.query(DownloadRequest).filter(
+            DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing])
+        ).all()
+
+        stopped_count = 0
+        for download in active_downloads:
+            download.status = StatusEnum.stopped
+            download.error_message = "사용자에 의해 일괄 정지됨"
+            stopped_count += 1
+
+            # SSE로 정지 상태 전송
+            await sse_manager.broadcast_message("status_update", {
+                "id": download.id,
+                "status": "stopped",
+                "message": "일괄 정지됨"
+            })
+
+        if stopped_count > 0:
+            db.commit()
+            print(f"[LOG] {stopped_count}개 다운로드 일괄 정지 완료")
+
+        # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
+        await sse_manager.broadcast_message("force_refresh", {
+            "message": f"{stopped_count}개 다운로드가 정지되었습니다.",
+            "timestamp": asyncio.get_event_loop().time()
+        })
+
+        return {
+            "success": True,
+            "message": f"{stopped_count}개 다운로드가 정지되었습니다.",
+            "stopped_count": stopped_count
+        }
+
+    except Exception as e:
+        print(f"[ERROR] 일괄 정지 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"일괄 정지 실패: {str(e)}")
+
+
+@router.post("/downloads/restart-failed")
+async def restart_failed_downloads(db: Session = Depends(get_db)):
+    """실패/정지된 다운로드 재시작"""
+    try:
+        # 실패 또는 정지 상태인 다운로드 찾기
+        failed_downloads = db.query(DownloadRequest).filter(
+            DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped])
+        ).all()
+
+        restarted_count = 0
+        # 배치 처리로 DB 연결 절약 (10개씩 처리)
+        batch_size = 10
+        for i in range(0, len(failed_downloads), batch_size):
+            batch = failed_downloads[i:i + batch_size]
+            for download in batch:
+                # 상태를 pending으로 변경
+                download.status = StatusEnum.pending
+                download.error_message = None
+                download.downloaded_size = 0  # 다운로드 크기 초기화
+
+            # 배치 단위로 커밋
+            db.commit()
+            print(f"[LOG] {len(batch)}개 다운로드 상태 업데이트 완료")
+
+            # 배치 내 다운로드들 시작
+            for download in batch:
+                success = await download_core.start_download_async(download, db)
+                if success:
+                    restarted_count += 1
+                    print(f"[LOG] 다운로드 재시작 성공: {download.id}")
+                else:
+                    print(f"[WARNING] 다운로드 재시작 실패: {download.id}")
+
+            # 배치 간 잠깐 대기 (DB 부하 분산)
+            if i + batch_size < len(failed_downloads):
+                await asyncio.sleep(0.1)
+
+        if restarted_count > 0:
+            print(f"[LOG] {restarted_count}개 다운로드 재시작 완료")
+
+        return {
+            "success": True,
+            "message": f"{restarted_count}개 다운로드가 재시작되었습니다.",
+            "restarted_count": restarted_count
+        }
+
+    except Exception as e:
+        print(f"[ERROR] 일괄 재시작 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"일괄 재시작 실패: {str(e)}")
+
+
+@router.post("/downloads/stop-all-local")
+async def stop_all_local_downloads(db: Session = Depends(get_db)):
+    """모든 로컬 다운로드 정지"""
+    try:
+        # 진행 중인 로컬 다운로드 찾기 (use_proxy=False)
+        active_local_downloads = db.query(DownloadRequest).filter(
+            DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
+            DownloadRequest.use_proxy == False
+        ).all()
+
+        print(f"[DEBUG] stop-all-local: 진행 중인 로컬 다운로드 {len(active_local_downloads)}개 발견")
+        for download in active_local_downloads:
+            print(f"[DEBUG] stop-all-local: 다운로드 ID {download.id}, 상태: {download.status}, 프록시 사용: {download.use_proxy}")
+
+        stopped_count = 0
+        for download in active_local_downloads:
+            old_status = download.status
+            download.status = StatusEnum.stopped
+            download.error_message = "사용자에 의해 로컬 다운로드 일괄 정지됨"
+            stopped_count += 1
+
+            print(f"[DEBUG] stop-all-local: 다운로드 ID {download.id} 상태 변경: {old_status} → {StatusEnum.stopped}")
+
+            # 실행 중인 태스크 강제 취소 (DB 업데이트는 이미 위에서 했으므로 태스크만 취소)
+            if download.id in download_core.download_tasks:
+                task = download_core.download_tasks[download.id]
+                task.cancel()
+                del download_core.download_tasks[download.id]
+                print(f"[DEBUG] 태스크 강제 취소: {download.id}")
+
+            # SSE로 정지 상태 전송
+            await sse_manager.broadcast_message("status_update", {
+                "id": download.id,
+                "status": "stopped",
+                "message": "로컬 다운로드 일괄 정지됨"
+            })
+
+        if stopped_count > 0:
+            db.commit()
+            print(f"[LOG] {stopped_count}개 로컬 다운로드 일괄 정지 완료")
+
+        # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
+        await sse_manager.broadcast_message("force_refresh", {
+            "message": f"{stopped_count}개 로컬 다운로드가 정지되었습니다.",
+            "timestamp": asyncio.get_event_loop().time()
+        })
+
+        return {
+            "success": True,
+            "message": f"{stopped_count}개 로컬 다운로드가 정지되었습니다.",
+            "stopped_count": stopped_count
+        }
+
+    except Exception as e:
+        print(f"[ERROR] 로컬 다운로드 일괄 정지 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"로컬 다운로드 일괄 정지 실패: {str(e)}")
+
+
+@router.post("/downloads/restart-failed-local")
+async def restart_failed_local_downloads(db: Session = Depends(get_db)):
+    """실패/정지된 로컬 다운로드 재시작"""
+    try:
+        # 실패 또는 정지 상태인 로컬 다운로드 찾기 (use_proxy=False)
+        failed_local_downloads = db.query(DownloadRequest).filter(
+            DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
+            DownloadRequest.use_proxy == False
+        ).all()
+
+        # 모든 다운로드를 pending 상태로 변경 (한 번에 처리)
+        for download in failed_local_downloads:
+            download.status = StatusEnum.pending
+            download.error_message = None
+            download.downloaded_size = 0  # 다운로드 크기 초기화
+
+        # 한 번에 커밋
+        db.commit()
+        print(f"[LOG] {len(failed_local_downloads)}개 로컬 다운로드 상태 업데이트 완료")
+
+        # 전체 중에서 가장 오래된 다운로드 하나만 시작
+        restarted_count = 0
+        if failed_local_downloads:
+            oldest_download = min(failed_local_downloads, key=lambda d: d.requested_at)
+            success = await download_core.start_download_async(oldest_download, db)
+            if success:
+                restarted_count = 1
+                print(f"[LOG] 가장 오래된 로컬 다운로드 시작: {oldest_download.id}")
+            else:
+                print(f"[WARNING] 가장 오래된 로컬 다운로드 시작 실패: {oldest_download.id}")
+
+            # 나머지 다운로드들은 pending 상태로 유지 (세마포어로 자동 관리됨)
+            pending_count = len(failed_local_downloads) - 1
+            if pending_count > 0:
+                print(f"[LOG] {pending_count}개 로컬 다운로드가 대기 상태로 설정됨")
+
+        if restarted_count > 0:
+            print(f"[LOG] {restarted_count}개 로컬 다운로드 재시작 완료")
+
+        # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
+        await sse_manager.broadcast_message("force_refresh", {
+            "message": f"{len(failed_local_downloads)}개 로컬 다운로드가 대기상태로 변경되었습니다.",
+            "timestamp": asyncio.get_event_loop().time()
+        })
+
+        # 나머지 대기중인 다운로드들을 자동으로 시작
+        if len(failed_local_downloads) > 1:  # 2개 이상인 경우만
+            print(f"[LOG] 나머지 {len(failed_local_downloads) - 1}개 대기중인 다운로드 자동 시작 트리거")
+            await download_core.auto_start_pending_downloads()
+
+        return {
+            "success": True,
+            "message": f"{restarted_count}개 로컬 다운로드가 재시작되었습니다.",
+            "restarted_count": restarted_count
+        }
+
+    except Exception as e:
+        print(f"[ERROR] 로컬 다운로드 일괄 재시작 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"로컬 다운로드 일괄 재시작 실패: {str(e)}")
+
+
+@router.post("/downloads/stop-all-proxy")
+async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
+    """모든 프록시 다운로드 정지"""
+    try:
+        # 진행 중인 프록시 다운로드 찾기 (use_proxy=True)
+        active_proxy_downloads = db.query(DownloadRequest).filter(
+            DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
+            DownloadRequest.use_proxy == True
+        ).all()
+
+        stopped_count = 0
+        for download in active_proxy_downloads:
+            download.status = StatusEnum.stopped
+            download.error_message = "사용자에 의해 프록시 다운로드 일괄 정지됨"
+            stopped_count += 1
+
+            # SSE로 정지 상태 전송
+            await sse_manager.broadcast_message("status_update", {
+                "id": download.id,
+                "status": "stopped",
+                "message": "프록시 다운로드 일괄 정지됨"
+            })
+
+        if stopped_count > 0:
+            db.commit()
+            print(f"[LOG] {stopped_count}개 프록시 다운로드 일괄 정지 완료")
+
+        # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
+        await sse_manager.broadcast_message("force_refresh", {
+            "message": f"{stopped_count}개 프록시 다운로드가 정지되었습니다.",
+            "timestamp": asyncio.get_event_loop().time()
+        })
+
+        return {
+            "success": True,
+            "message": f"{stopped_count}개 프록시 다운로드가 정지되었습니다.",
+            "stopped_count": stopped_count
+        }
+
+    except Exception as e:
+        print(f"[ERROR] 프록시 다운로드 일괄 정지 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"프록시 다운로드 일괄 정지 실패: {str(e)}")
+
+
+@router.post("/downloads/restart-failed-proxy")
+async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
+    """실패/정지된 프록시 다운로드 재시작"""
+    try:
+        # 실패 또는 정지 상태인 프록시 다운로드 찾기 (use_proxy=True)
+        failed_proxy_downloads = db.query(DownloadRequest).filter(
+            DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
+            DownloadRequest.use_proxy == True
+        ).all()
+
+        restarted_count = 0
+        # 배치 처리로 DB 연결 절약 (10개씩 처리)
+        batch_size = 10
+        for i in range(0, len(failed_proxy_downloads), batch_size):
+            batch = failed_proxy_downloads[i:i + batch_size]
+            for download in batch:
+                # 상태를 pending으로 변경
+                download.status = StatusEnum.pending
+                download.error_message = None
+                download.downloaded_size = 0  # 다운로드 크기 초기화
+
+            # 배치 단위로 커밋
+            db.commit()
+            print(f"[LOG] {len(batch)}개 프록시 다운로드 상태 업데이트 완료")
+
+            # 배치 내 다운로드들 시작
+            for download in batch:
+                success = await download_core.start_download_async(download, db)
+                if success:
+                    restarted_count += 1
+                    print(f"[LOG] 프록시 다운로드 재시작 성공: {download.id}")
+                else:
+                    print(f"[WARNING] 프록시 다운로드 재시작 실패: {download.id}")
+
+            # 배치 간 잠깐 대기 (DB 부하 분산)
+            if i + batch_size < len(failed_proxy_downloads):
+                await asyncio.sleep(0.1)
+
+        if restarted_count > 0:
+            print(f"[LOG] {restarted_count}개 프록시 다운로드 재시작 완료")
+
+        return {
+            "success": True,
+            "message": f"{restarted_count}개 프록시 다운로드가 재시작되었습니다.",
+            "restarted_count": restarted_count
+        }
+
+    except Exception as e:
+        print(f"[ERROR] 프록시 다운로드 일괄 재시작 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"프록시 다운로드 일괄 재시작 실패: {str(e)}")

@@ -29,6 +29,7 @@ class ProxyManager:
         self.current_proxy_index = 0
         self.failed_count = 0
         self.download_proxy_index = {}  # 다운로드별 프록시 인덱스 관리
+        self._proxy_lock = asyncio.Lock()  # 프록시 선택 시 동시 접근 보호
 
     async def get_user_proxy_list(self, db: Session) -> List[str]:
         """사용자 프록시 목록을 비동기로 가져오기"""
@@ -80,27 +81,30 @@ class ProxyManager:
                 print(f"[WARNING] 사용 가능한 프록시가 없음. 전체: {len(proxy_list)}, 실패: {len(failed_proxy_addresses)}")
                 return None
 
-            # 다운로드 ID 기반으로 순차적 프록시 선택
-            if download_id is not None:
-                # 다운로드별 프록시 인덱스 관리
-                if download_id not in self.download_proxy_index:
-                    self.download_proxy_index[download_id] = 0
+            # 동시 접근 보호를 위한 락 사용
+            async with self._proxy_lock:
+                # 다운로드 ID 기반으로 순차적 프록시 선택
+                if download_id is not None:
+                    # 다운로드별 프록시 인덱스 관리
+                    if download_id not in self.download_proxy_index:
+                        # 초기 인덱스를 현재 시간 기반으로 분산 (중복 방지)
+                        self.download_proxy_index[download_id] = (download_id + int(time.time())) % len(available_proxies)
 
-                # 현재 인덱스가 사용 가능한 프록시 개수를 초과하면 처음부터
-                if self.download_proxy_index[download_id] >= len(available_proxies):
-                    self.download_proxy_index[download_id] = 0
+                    # 현재 인덱스가 사용 가능한 프록시 개수를 초과하면 처음부터
+                    if self.download_proxy_index[download_id] >= len(available_proxies):
+                        self.download_proxy_index[download_id] = 0
 
-                selected_proxy = available_proxies[self.download_proxy_index[download_id]]
-                print(f"[LOG] 프록시 선택 (다운로드 {download_id}): {selected_proxy} (인덱스: {self.download_proxy_index[download_id]}/{len(available_proxies)})")
-                self.download_proxy_index[download_id] += 1
-            else:
-                # 기존 순차 선택 방식 (호환성 유지)
-                if self.current_proxy_index >= len(available_proxies):
-                    self.current_proxy_index = 0
+                    selected_proxy = available_proxies[self.download_proxy_index[download_id]]
+                    print(f"[LOG] 프록시 선택 (다운로드 {download_id}): {selected_proxy} (인덱스: {self.download_proxy_index[download_id]}/{len(available_proxies)})")
+                    self.download_proxy_index[download_id] += 1
+                else:
+                    # 기존 순차 선택 방식 (호환성 유지)
+                    if self.current_proxy_index >= len(available_proxies):
+                        self.current_proxy_index = 0
 
-                selected_proxy = available_proxies[self.current_proxy_index]
-                self.current_proxy_index += 1
-                print(f"[LOG] 프록시 선택: {selected_proxy} (인덱스: {self.current_proxy_index-1}/{len(available_proxies)})")
+                    selected_proxy = available_proxies[self.current_proxy_index]
+                    print(f"[LOG] 프록시 선택: {selected_proxy} (인덱스: {self.current_proxy_index}/{len(available_proxies)})")
+                    self.current_proxy_index += 1
             return selected_proxy
         except Exception as e:
             print(f"[ERROR] get_next_available_proxy 실패: {e}")

@@ -1,22 +1,102 @@
 <script>
   import { t } from "./i18n.js";
   import FolderIcon from "../icons/FolderIcon.svelte";
+  import StopIcon from "../icons/StopIcon.svelte";
+  import ResumeIcon from "../icons/ResumeIcon.svelte";
 
   export let localDownloadCount = 0;
   export let localStatus = ""; // "downloading", "waiting", "completed", "failed"
+
+  let isStoppingAll = false;
+  let isRestartingAll = false;
+
+  async function stopAllDownloads() {
+    if (isStoppingAll) return;
+
+    try {
+      isStoppingAll = true;
+      const response = await fetch("/api/downloads/stop-all-local", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
+      });
+      if (response.ok) {
+        const result = await response.json();
+        console.log("로컬 다운로드 정지 완료:", result.message);
+      } else {
+        console.error("로컬 다운로드 일괄 정지 실패");
+      }
+    } catch (error) {
+      console.error("로컬 다운로드 일괄 정지 오류:", error);
+    } finally {
+      isStoppingAll = false;
+    }
+  }
+
+  async function restartAllDownloads() {
+    if (isRestartingAll) return;
+
+    try {
+      isRestartingAll = true;
+      const response = await fetch("/api/downloads/restart-failed-local", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
+      });
+      if (response.ok) {
+        const result = await response.json();
+        console.log("로컬 다운로드 재시작 완료:", result.message);
+      } else {
+        console.error("로컬 다운로드 일괄 재시작 실패");
+      }
+    } catch (error) {
+      console.error("로컬 다운로드 일괄 재시작 오류:", error);
+    } finally {
+      isRestartingAll = false;
+    }
+  }
 </script>
 
 <div class="local-gauge">
   <div class="local-info">
-    <div class="local-label">
-      <span class="label-icon"><FolderIcon /></span>
-      <span class="label-text">{$t("local_title")}</span>
+    <div class="local-left">
+      <div class="local-label">
+        <span class="label-icon"><FolderIcon /></span>
+        <span class="label-text">{$t("local_title")}</span>
+      </div>
+      <span class="local-count"
+        >{$t("local_progress_text", { count: localDownloadCount })}</span
+      >
     </div>
-    <span class="local-count"
-      >{$t("local_progress_text", { count: localDownloadCount })}</span
-    >
-    <div class="local-indicator">
-      <div class="local-dot {localStatus}"></div>
+    <div class="local-right">
+      <div class="local-indicator">
+        <div class="local-dot {localStatus}"></div>
+      </div>
+      <button
+        class="control-button stop-all-button"
+        class:processing={isStoppingAll}
+        on:click={stopAllDownloads}
+        disabled={isStoppingAll}
+        title={isStoppingAll ? $t("stopping_all") : $t("stop_all_downloads")}
+        aria-label={isStoppingAll ? $t("stopping_all") : $t("stop_all_downloads")}
+      >
+        <StopIcon />
+      </button>
+
+      <button
+        class="control-button restart-all-button"
+        class:processing={isRestartingAll}
+        on:click={restartAllDownloads}
+        disabled={isRestartingAll}
+        title={isRestartingAll ? $t("restarting_all") : $t("restart_failed_downloads")}
+        aria-label={isRestartingAll ? $t("restarting_all") : $t("restart_failed_downloads")}
+      >
+        <ResumeIcon />
+      </button>
     </div>
   </div>
 
@@ -78,8 +158,24 @@
     min-height: 30px;
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 1rem;
-    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .local-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .local-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
   }
 
   .local-label {
@@ -112,6 +208,7 @@
 
   .local-indicator {
     margin-left: auto;
+    margin-right: 8px;
   }
 
   .local-dot {
@@ -268,6 +365,58 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .control-button {
+    background: none;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 0.4rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    margin-left: 0.25rem;
+  }
+
+  .control-button:hover {
+    background: var(--bg-secondary, #f8f9fa);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+  }
+
+  .control-button:active {
+    transform: scale(0.95);
+  }
+
+  .control-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .control-button:disabled:hover {
+    background: none;
+    border-color: var(--card-border);
+    color: var(--text-secondary);
+  }
+
+  .control-button.processing {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+  }
+
+  .stop-all-button:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--danger-color);
+    color: var(--danger-color);
+  }
+
+  .restart-all-button:hover {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: var(--success-color);
+    color: var(--success-color);
   }
 
   .active-downloads {

@@ -104,9 +104,9 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
 
             # SSE로 대기시간 카운트다운 전송
             if download_id:
-
-                for remaining in range(wait_seconds, 0, -5):
-                    # 다운로드 상태 확인 (정지되었는지 체크)
+                # 1초마다 정지 상태 체크, 5초마다 SSE 업데이트 (더 빠른 응답)
+                for remaining in range(wait_seconds, 0, -1):  # 1초씩 감소
+                    # 다운로드 상태 확인 (정지되었는지 체크) - 1초마다 체크
                     try:
                         with SessionLocal() as db:
                             req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
@@ -116,8 +116,8 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                     except Exception as e:
                         print(f"[WARNING] 상태 확인 실패: {e}")
 
-                    # SSE 콜백으로 대기시간 전송 (5초마다)
-                    if sse_callback:
+                    # SSE 콜백으로 대기시간 전송 (5초마다만)
+                    if remaining % 5 == 0 and sse_callback:
                         try:
                             sse_callback("waiting", {
                                 "id": download_id,
@@ -128,8 +128,9 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                         except Exception as sse_error:
                             print(f"[WARNING] SSE 대기시간 전송 실패: {sse_error}")
 
-                    print(f"[DEBUG] 대기 중: {remaining}초 남음")
-                    time.sleep(5)
+                    if remaining % 5 == 0:
+                        print(f"[DEBUG] 대기 중: {remaining}초 남음")
+                    time.sleep(1)  # 1초씩 대기
 
                 # 대기 완료
                 print(f"[LOG] 대기 완료: download_id={download_id}")
@@ -138,6 +139,17 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
 
             print(f"[LOG] 대기 완료!")
 
+
+        # 다운로드 링크 획득 전 정지 상태 재확인 (DB 연결 최소화)
+        if download_id:
+            try:
+                with SessionLocal() as db:
+                    req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+                    if req and req.status == StatusEnum.stopped:
+                        print(f"[LOG] 다운로드 링크 획득 전 정지 감지, 파싱 중단")
+                        return None
+            except Exception as e:
+                print(f"[WARNING] 링크 획득 전 상태 확인 실패: {e}")
 
         # 5단계: 다운로드 버튼 클릭 시뮬레이션 (대기 완료 후 같은 세션 유지)
         download_link = None

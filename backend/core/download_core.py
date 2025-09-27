@@ -73,6 +73,11 @@ class DownloadCore:
 
     async def _perform_preparse(self, req: DownloadRequest, db: Session):
         """사전파싱 수행 (세마포어 밖에서 실행)"""
+        # 이미 파일 정보가 있으면 사전파싱 건너뜀
+        if req.file_name and req.file_size and req.total_size and req.total_size > 0:
+            print(f"[LOG] 파일 정보가 이미 있음, 사전파싱 건너뜀: {req.id} - {req.file_name} ({req.file_size})")
+            return
+
         if "1fichier.com" in req.url:
 
             parse_url = req.original_url if req.original_url else req.url
@@ -140,8 +145,46 @@ class DownloadCore:
     async def start_download_async(self, req: DownloadRequest, db: Session) -> bool:
         """비동기 다운로드 시작"""
         try:
-            # 상태를 parsing으로 변경
-            req.status = StatusEnum.parsing
+            # 파일 정보가 이미 있으면 파싱 건너뛰고 바로 다운로드 시작
+            # 단, 1fichier의 경우 대기시간 확인과 새 다운로드 링크 획득을 위해 사전파싱 필요
+            is_1fichier = "1fichier.com" in req.url
+            has_file_info = req.file_name and req.file_size and req.total_size and req.total_size > 0
+
+            # 최초 추가시 (파일명 없음) → 무조건 사전파싱 필요
+            # 재시작시 (파일명 있음) → 일반파일은 건너뛰기, 1fichier는 사전파싱 필요
+            skip_parsing = has_file_info and not is_1fichier
+
+            # 1fichier 로컬 다운로드이고 파일명이 있는 경우 (재시작) 세마포어 확인
+            if is_1fichier and not req.use_proxy and has_file_info:
+                if self.fichier_local_semaphore._value == 0:
+                    # 세마포어가 없으면 pending 상태로 대기
+                    req.status = StatusEnum.pending
+                    await self.send_download_update(req.id, {
+                        "status": "pending",
+                        "progress": 0,
+                        "message": "대기중..."
+                    })
+                    db.commit()
+                    print(f"[LOG] 1fichier 로컬 세마포어 대기: {req.id}")
+                    return True
+
+            if skip_parsing:
+                print(f"[LOG] 파일 정보가 이미 있음, 파싱 건너뛰고 바로 다운로드 시작: {req.id} - {req.file_name} ({req.file_size})")
+                req.status = StatusEnum.downloading
+                await self.send_download_update(req.id, {
+                    "status": "downloading",
+                    "progress": 0,
+                    "message": "다운로드 시작 중..."
+                })
+            else:
+                # 상태를 parsing으로 변경
+                req.status = StatusEnum.parsing
+                await self.send_download_update(req.id, {
+                    "status": "parsing",
+                    "progress": 0,
+                    "message": "파싱 시작 중..."
+                })
+
             # downloaded_size는 이어받기가 아닌 경우에만 초기화
             # 기존에 total_size나 downloaded_size가 있으면 보존
             if (not req.total_size or req.total_size == 0) and (not req.downloaded_size or req.downloaded_size == 0):
@@ -151,18 +194,12 @@ class DownloadCore:
                 print(f"[LOG] 기존 다운로드 정보 보존: total_size={req.total_size}, downloaded_size={req.downloaded_size}")
             db.commit()
 
-            await self.send_download_update(req.id, {
-                "status": "parsing",
-                "progress": 0,
-                "message": "파싱 시작 중..."
-            })
-
             # 비동기 다운로드 태스크 생성
-            task = asyncio.create_task(self._download_task(req.id))
+            task = asyncio.create_task(self._download_task(req.id, skip_parsing))
             self.download_tasks[req.id] = task
 
             # 태스크 완료 콜백 등록
-            task.add_done_callback(lambda t: self._task_cleanup(req.id))
+            task.add_done_callback(lambda t, req_id=req.id: self._task_cleanup(req_id))
 
             return True
 
@@ -174,7 +211,7 @@ class DownloadCore:
             })
             return False
 
-    async def _download_task(self, req_id: int):
+    async def _download_task(self, req_id: int, skip_parsing: bool = False):
         """실제 다운로드 수행 태스크"""
         db = SessionLocal()
         try:
@@ -192,8 +229,11 @@ class DownloadCore:
                 # 1fichier 로컬 다운로드 (무료 제한 회피용 - 최대 1개)
                 print(f"[DEBUG] 1fichier 로컬 다운로드 시작: {req_id}")
 
-                # 먼저 사전파싱을 세마포어 밖에서 실행
-                await self._perform_preparse(req, db)
+                # 파싱 건너뛰기 조건 확인 후 사전파싱 실행
+                if not skip_parsing:
+                    await self._perform_preparse(req, db)
+                else:
+                    print(f"[LOG] 파일 정보 존재로 사전파싱 건너뜀: {req_id}")
 
                 # 1fichier 로컬 다운로드 동시실행 제한 적용
                 # 세마포어 대기 여부 확인
@@ -209,15 +249,24 @@ class DownloadCore:
 
                 async with self.fichier_local_semaphore:
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 획득: {req_id}")
-                    # 대기가 끝나면 다시 파싱 상태로 변경
-                    await self.send_download_update(req_id, {
-                        "status": "parsing",
-                        "message": "대기 완료, 1fichier 로컬 다운로드 시작 중..."
-                    })
-                    req.status = StatusEnum.parsing
+
+                    if skip_parsing:
+                        # 파일 정보가 있어서 파싱을 건너뛰는 경우 바로 다운로드 시작
+                        await self.send_download_update(req_id, {
+                            "status": "downloading",
+                            "message": "다운로드 시작 중..."
+                        })
+                        req.status = StatusEnum.downloading
+                    else:
+                        # 파싱이 필요한 경우
+                        await self.send_download_update(req_id, {
+                            "status": "parsing",
+                            "message": "대기 완료, 1fichier 로컬 다운로드 시작 중..."
+                        })
+                        req.status = StatusEnum.parsing
                     db.commit()
 
-                    await self._download_with_proxy_async(req, db, skip_preparse=True)  # 사전파싱 이미 완료
+                    await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 파싱 건너뛰기 여부에 따라
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
             else:
                 # 일반 다운로드 (1fichier 프록시 포함, 일반 URL 포함 - 최대 5개)
@@ -241,16 +290,25 @@ class DownloadCore:
 
                 async with self.general_download_semaphore:
                     print(f"[DEBUG] {download_type} 다운로드 세마포어 획득: {req_id}")
-                    # 대기가 끝나면 다시 파싱 상태로 변경
-                    await self.send_download_update(req_id, {
-                        "status": "parsing",
-                        "message": f"대기 완료, {download_type} 다운로드 시작 중..."
-                    })
-                    req.status = StatusEnum.parsing
+
+                    if skip_parsing:
+                        # 파일 정보가 있어서 파싱을 건너뛰는 경우 바로 다운로드 시작
+                        await self.send_download_update(req_id, {
+                            "status": "downloading",
+                            "message": f"{download_type} 다운로드 시작 중..."
+                        })
+                        req.status = StatusEnum.downloading
+                    else:
+                        # 파싱이 필요한 경우
+                        await self.send_download_update(req_id, {
+                            "status": "parsing",
+                            "message": f"대기 완료, {download_type} 다운로드 시작 중..."
+                        })
+                        req.status = StatusEnum.parsing
                     db.commit()
 
                     if is_1fichier:
-                        await self._download_with_proxy_async(req, db)  # 1fichier 프록시 다운로드
+                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 1fichier 프록시 다운로드
                     else:
                         await self._download_local_async(req, db)  # 일반 URL 다운로드
                     print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
@@ -330,8 +388,32 @@ class DownloadCore:
                     print(f"[ERROR] 프록시 설정 실패: {e}")
 
             # 1fichier 파싱 실행 (이미 비동기 함수)
-            # 1fichier인 경우에만 original_url 사용, 일반 다운로드는 현재 url 사용 - skip_preparse가 True면 건너뜀
-            if "1fichier.com" in (req.original_url or req.url) and not skip_preparse:
+            # 1fichier인 경우에만 original_url 사용, 일반 다운로드는 현재 url 사용
+            # 1fichier 로컬의 경우 재시작 시에도 대기시간 확인을 위해 파싱 필요
+            is_1fichier = "1fichier.com" in (req.original_url or req.url)
+            is_local_1fichier = is_1fichier and not req.use_proxy
+
+            # 로컬 1fichier는 항상 파싱 필요, 프록시 1fichier는 파일 정보가 있으면 건너뛰기 가능
+            should_skip_preparse = skip_preparse and not is_local_1fichier
+
+            if should_skip_preparse and "1fichier.com" in (req.original_url or req.url):
+                print(f"[LOG] 파일 정보가 이미 있음, 전체 파싱 건너뛰고 바로 다운로드: {req.id} - {req.file_name} ({req.file_size})")
+
+                # 파싱을 건너뛰고 바로 다운로드 시작
+                await self.send_download_update(req.id, {
+                    "status": "downloading",
+                    "progress": 0,
+                    "message": "downloading_in_progress"
+                })
+                req.status = StatusEnum.downloading
+                db.commit()
+
+                # 기존 다운로드 URL이 있으면 사용, 없으면 원본 URL 사용
+                download_url = req.original_url if req.original_url else req.url
+                await self._perform_file_download_async(req, db, download_url, proxy_addr)
+                return
+
+            elif "1fichier.com" in (req.original_url or req.url) and not should_skip_preparse:
                 parse_url = req.original_url if req.original_url else req.url
                 print(f"[DEBUG] 1fichier 파싱 URL: {parse_url}")
 
@@ -463,6 +545,12 @@ class DownloadCore:
                     MAX_PROXY_PARSE_RETRIES = min(100, total_proxies)  # 파싱은 최대 100개까지
 
                     while parse_result is None and proxy_addr and retry_count < MAX_PROXY_PARSE_RETRIES:
+                        # 다운로드 정지 상태 체크
+                        db.refresh(req)
+                        if req.status == StatusEnum.stopped:
+                            print(f"[LOG] 다운로드 정지됨, 프록시 파싱 중단: {req.id}")
+                            return
+
                         try:
                             print(f"[LOG] 프록시 파싱 시도 {retry_count + 1}: {proxy_addr}")
 
@@ -699,7 +787,13 @@ class DownloadCore:
             print(f"[ERROR] 1fichier 파싱 실패: {e}")
             print(f"[ERROR] 파싱 오류 상세:\n{traceback.format_exc()}")
 
-            # 파싱 실패 시 실패 처리
+            # 현재 상태 확인 - 정지된 경우 상태 유지
+            db.refresh(req)
+            if req.status == StatusEnum.stopped:
+                print(f"[LOG] 다운로드 {req.id}가 이미 정지됨, 상태 유지")
+                return False
+
+            # 파싱 실패 시 실패 처리 (정지가 아닌 경우에만)
             req.status = StatusEnum.failed
             req.error = f"파싱 실패: {str(e)}"
             req.finished_at = datetime.datetime.now()
@@ -892,6 +986,12 @@ class DownloadCore:
             # 프록시 다운로드: 프록시 수만큼, 일반 다운로드: 3회 재시도
             MAX_DOWNLOAD_RETRIES = min(20, total_proxies) if req.use_proxy else 3
             while not download_success and retry_count < MAX_DOWNLOAD_RETRIES:
+                # 다운로드 정지 상태 체크
+                db.refresh(req)
+                if req.status == StatusEnum.stopped:
+                    print(f"[LOG] 다운로드 정지됨, 다운로드 중단: {req.id}")
+                    return
+
                 if req.use_proxy:
                     # 첫 시도는 파싱에 성공한 프록시 사용
                     if retry_count == 0 and success_proxy:
@@ -1314,6 +1414,18 @@ class DownloadCore:
             del self.download_tasks[req_id]
             print(f"[LOG] 다운로드 태스크 정리: {req_id}")
 
+            # 정지된 다운로드인지 확인 후 자동시작 여부 결정
+            try:
+                db = SessionLocal()
+                req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
+                if req and req.status == StatusEnum.stopped:
+                    print(f"[LOG] 정지된 다운로드이므로 자동시작 건너뜀: {req_id}")
+                    db.close()
+                    return
+                db.close()
+            except Exception as e:
+                print(f"[WARNING] 상태 확인 실패, 자동시작 진행: {e}")
+
             # 다운로드 완료 후 대기중인 다운로드 자동 시작 (약간의 지연을 두어 세마포어 해제 대기)
             asyncio.create_task(self._delayed_start_next_pending())
 
@@ -1377,6 +1489,10 @@ class DownloadCore:
             print(f"[ERROR] 자동 다운로드 시작 실패: {e}")
         finally:
             db.close()
+
+    async def auto_start_pending_downloads(self):
+        """대기중인 다운로드들을 자동으로 시작 (공개 메서드)"""
+        await self._start_next_pending_download()
 
     async def get_download_status(self, req_id: int) -> Dict[str, Any]:
         """다운로드 상태 조회"""

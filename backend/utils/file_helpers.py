@@ -9,7 +9,8 @@ import re
 import os
 from pathlib import Path
 from urllib.parse import unquote
-from core.models import StatusEnum
+from sqlalchemy import and_
+from core.models import StatusEnum, DownloadRequest
 from core.config import get_download_path
 from utils.sse import send_sse_message
 from services.sse_manager import sse_manager
@@ -88,9 +89,70 @@ async def download_file_content(response, file_path, initial_size, total_size, r
         with open(file_path, 'ab' if initial_size > 0 else 'wb') as f:
             async for chunk in response.content.iter_chunked(8192):
                 if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    chunk_count += 1
+                    try:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        chunk_count += 1
+                    except OSError as write_error:
+                        # 디스크 용량 부족 등의 파일 쓰기 오류 감지
+                        error_msg = str(write_error).lower()
+                        if any(keyword in error_msg for keyword in ['disk full', 'no space', 'not enough space', 'insufficient disk space', 'space remaining', '28']):
+                            print(f"[ERROR] 디스크 용량 부족: {write_error}")
+
+                            # 모든 대기중인 다운로드를 정지시키기
+                            try:
+
+                                # 대기중 및 다운로드중인 모든 요청을 정지로 변경
+                                pending_downloads = db.query(DownloadRequest).filter(
+                                    and_(
+                                        DownloadRequest.id != req.id,  # 현재 실패한 다운로드 제외
+                                        DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing])
+                                    )
+                                ).all()
+
+                                stopped_count = 0
+                                for download in pending_downloads:
+                                    download.status = StatusEnum.stopped
+                                    download.error_message = "디스크 용량 부족으로 인한 자동 정지"
+                                    stopped_count += 1
+
+                                if stopped_count > 0:
+                                    db.commit()
+                                    print(f"[LOG] 디스크 용량 부족으로 {stopped_count}개 다운로드 자동 정지")
+
+                                    # SSE로 정지된 다운로드들에 대한 업데이트 전송
+                                    from services.sse_manager import sse_manager
+                                    import asyncio
+                                    loop = asyncio.get_event_loop()
+                                    if loop.is_running():
+                                        for download in pending_downloads:
+                                            loop.create_task(sse_manager.broadcast_message("status_update", {
+                                                "id": download.id,
+                                                "status": "stopped",
+                                                "message": "디스크 용량 부족으로 인한 자동 정지"
+                                            }))
+
+                            except Exception as stop_error:
+                                print(f"[WARNING] 대기중 다운로드 정지 실패: {stop_error}")
+
+                            # 사용자 언어에 맞는 에러 메시지 가져오기
+                            try:
+                                from core.config import get_config
+                                from core.i18n import get_translations
+                                config = get_config()
+                                user_language = config.get("language", "ko")
+                                translations = get_translations(user_language)
+                                disk_full_msg = translations.get("disk_full_error", "디스크 용량이 부족합니다. 저장 공간을 확보한 후 다시 시도해주세요.")
+                                raise Exception(disk_full_msg)
+                            except Exception:
+                                # 번역 로드 실패 시 기본 메시지
+                                raise Exception("디스크 용량이 부족합니다. 저장 공간을 확보한 후 다시 시도해주세요.")
+                        else:
+                            print(f"[ERROR] 파일 쓰기 오류: {write_error}")
+                            raise Exception(f"파일 쓰기 실패: {str(write_error)}")
+                    except Exception as write_error:
+                        print(f"[ERROR] 파일 쓰기 중 알 수 없는 오류: {write_error}")
+                        raise
                 
                 # 성능 개선: 체크 간격을 늘림 (128개 청크마다 = 1MB마다)
                 if chunk_count % 128 == 0:

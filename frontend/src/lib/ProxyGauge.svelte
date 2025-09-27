@@ -1,7 +1,11 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, createEventDispatcher } from "svelte";
   import { t } from "./i18n.js";
   import NetworkIcon from "../icons/NetworkIcon.svelte";
+  import StopIcon from "../icons/StopIcon.svelte";
+  import ResumeIcon from "../icons/ResumeIcon.svelte";
+
+  const dispatch = createEventDispatcher();
 
   export let totalProxies = 0;
   export let availableProxies = 0;
@@ -40,6 +44,61 @@
       : 0;
 
   let isRefreshing = false;
+  let isStoppingAll = false;
+  let isRestartingAll = false;
+
+  async function stopAllDownloads() {
+    if (isStoppingAll) return;
+
+    try {
+      isStoppingAll = true;
+      const response = await fetch("/api/downloads/stop-all-proxy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
+      });
+      if (response.ok) {
+        const result = await response.json();
+        console.log("프록시 다운로드 정지 완료:", result.message);
+
+        // 프록시 상태 리셋 이벤트 전송
+        dispatch("resetProxyStatus");
+      } else {
+        console.error("프록시 다운로드 일괄 정지 실패");
+      }
+    } catch (error) {
+      console.error("프록시 다운로드 일괄 정지 오류:", error);
+    } finally {
+      isStoppingAll = false;
+    }
+  }
+
+  async function restartAllDownloads() {
+    if (isRestartingAll) return;
+
+    try {
+      isRestartingAll = true;
+      const response = await fetch("/api/downloads/restart-failed-proxy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
+      });
+      if (response.ok) {
+        const result = await response.json();
+        console.log("프록시 다운로드 재시작 완료:", result.message);
+      } else {
+        console.error("프록시 다운로드 일괄 재시작 실패");
+      }
+    } catch (error) {
+      console.error("프록시 다운로드 일괄 재시작 오류:", error);
+    } finally {
+      isRestartingAll = false;
+    }
+  }
 
   async function refreshProxies() {
     if (isRefreshing) return;
@@ -99,8 +158,8 @@
         </div>
       </div>
       <button
-        class="refresh-button"
-        class:refreshing={isRefreshing}
+        class="control-button refresh-button"
+        class:processing={isRefreshing}
         on:click={refreshProxies}
         disabled={isRefreshing}
         title={isRefreshing ? $t("proxy_refreshing") : $t("proxy_refresh")}
@@ -124,6 +183,28 @@
           ></path>
         </svg>
       </button>
+
+      <button
+        class="control-button stop-all-button"
+        class:processing={isStoppingAll}
+        on:click={stopAllDownloads}
+        disabled={isStoppingAll}
+        title={isStoppingAll ? $t("stopping_all") : $t("stop_all_downloads")}
+        aria-label={isStoppingAll ? $t("stopping_all") : $t("stop_all_downloads")}
+      >
+        <StopIcon />
+      </button>
+
+      <button
+        class="control-button restart-all-button"
+        class:processing={isRestartingAll}
+        on:click={restartAllDownloads}
+        disabled={isRestartingAll}
+        title={isRestartingAll ? $t("restarting_all") : $t("restart_failed_downloads")}
+        aria-label={isRestartingAll ? $t("restarting_all") : $t("restart_failed_downloads")}
+      >
+        <ResumeIcon />
+      </button>
     </div>
   </div>
 
@@ -133,7 +214,7 @@
     class:trying={status === "trying"}
     class:success={status === "success"}
     class:failed={status === "failed"}
-    class:idle={!status || !currentProxy}
+    class:idle={status === "idle" || status === "" || (!status && activeDownloadCount === 0)}
   >
     {#if activeDownloadCount > 1}
       <!-- 다중 다운로드 진행 중일 때 -->
@@ -167,6 +248,11 @@
         {:else}
           {$t("proxy_idle")}
         {/if}
+      </span>
+    {:else if status === "idle"}
+      <span class="status-icon idle-icon"></span>
+      <span class="status-text">
+        {$t("proxy_idle")}
       </span>
     {:else}
       <span class="status-icon idle-icon"></span>
@@ -255,7 +341,7 @@
     min-width: 0;
   }
 
-  .refresh-button {
+  .control-button {
     background: none;
     border: 1px solid var(--card-border);
     border-radius: 6px;
@@ -266,35 +352,48 @@
     align-items: center;
     justify-content: center;
     transition: all 0.2s ease;
+    margin-left: 0.25rem;
   }
 
-  .refresh-button:hover {
+  .control-button:hover {
     background: var(--bg-secondary, #f8f9fa);
     border-color: var(--primary-color);
     color: var(--primary-color);
   }
 
-  .refresh-button:active {
+  .control-button:active {
     transform: scale(0.95);
   }
 
-  .refresh-button:disabled {
+  .control-button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }
 
-  .refresh-button:disabled:hover {
+  .control-button:disabled:hover {
     background: none;
     border-color: var(--card-border);
     color: var(--text-secondary);
   }
 
-  .refresh-button.refreshing {
+  .control-button.processing {
     color: var(--primary-color);
     border-color: var(--primary-color);
   }
 
-  .refresh-button svg {
+  .stop-all-button:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--danger-color);
+    color: var(--danger-color);
+  }
+
+  .restart-all-button:hover {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: var(--success-color);
+    color: var(--success-color);
+  }
+
+  .control-button svg {
     width: 16px;
     height: 16px;
   }
