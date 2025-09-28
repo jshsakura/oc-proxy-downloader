@@ -624,8 +624,17 @@ async def stop_all_downloads(db: Session = Depends(get_db)):
             print(f"[LOG] {stopped_count}개 다운로드 일괄 정지 완료")
 
         # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
+        # i18n 지원
+        from core.config import get_config
+        from core.i18n import get_translations
+        config = get_config()
+        user_language = config.get("language", "ko")
+        translations = get_translations(user_language)
+
+        message = translations.get("batch_downloads_stopped", "{count}개 다운로드가 정지되었습니다.").format(count=stopped_count)
+
         await sse_manager.broadcast_message("force_refresh", {
-            "message": f"{stopped_count}개 다운로드가 정지되었습니다.",
+            "message": message,
             "timestamp": asyncio.get_event_loop().time()
         })
 
@@ -733,8 +742,17 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
             print(f"[LOG] {stopped_count}개 로컬 다운로드 일괄 정지 완료")
 
         # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
+        # i18n 지원
+        from core.config import get_config
+        from core.i18n import get_translations
+        config = get_config()
+        user_language = config.get("language", "ko")
+        translations = get_translations(user_language)
+
+        message = translations.get("batch_local_downloads_stopped", "{count}개 로컬 다운로드가 정지되었습니다.").format(count=stopped_count)
+
         await sse_manager.broadcast_message("force_refresh", {
-            "message": f"{stopped_count}개 로컬 다운로드가 정지되었습니다.",
+            "message": message,
             "timestamp": asyncio.get_event_loop().time()
         })
 
@@ -789,8 +807,17 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
             print(f"[LOG] {restarted_count}개 로컬 다운로드 재시작 완료")
 
         # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
+        # i18n 지원
+        from core.config import get_config
+        from core.i18n import get_translations
+        config = get_config()
+        user_language = config.get("language", "ko")
+        translations = get_translations(user_language)
+
+        message = translations.get("batch_local_downloads_set_to_pending", "{count}개 로컬 다운로드가 대기상태로 변경되었습니다.").format(count=len(failed_local_downloads))
+
         await sse_manager.broadcast_message("force_refresh", {
-            "message": f"{len(failed_local_downloads)}개 로컬 다운로드가 대기상태로 변경되었습니다.",
+            "message": message,
             "timestamp": asyncio.get_event_loop().time()
         })
 
@@ -838,8 +865,17 @@ async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
             print(f"[LOG] {stopped_count}개 프록시 다운로드 일괄 정지 완료")
 
         # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
+        # i18n 지원
+        from core.config import get_config
+        from core.i18n import get_translations
+        config = get_config()
+        user_language = config.get("language", "ko")
+        translations = get_translations(user_language)
+
+        message = translations.get("batch_proxy_downloads_stopped", "{count}개 프록시 다운로드가 정지되었습니다.").format(count=stopped_count)
+
         await sse_manager.broadcast_message("force_refresh", {
-            "message": f"{stopped_count}개 프록시 다운로드가 정지되었습니다.",
+            "message": message,
             "timestamp": asyncio.get_event_loop().time()
         })
 

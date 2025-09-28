@@ -125,7 +125,7 @@
   "copy_error": "에러 복사",
   "close": "닫기",
   "local_title": "로컬",
-  "local_progress_text": "{count}개의 다운로드",
+  "local_progress_text": "{count}개 로컬",
   "local_waiting": "대기중",
   "local_downloading": "다운로드중",
   "local_completed": "완료",
@@ -149,7 +149,7 @@
   "proxy_failed_tooltip": "{count}개의 프록시 실패",
   "proxy_refreshing": "새로고침 중...",
   "proxy_refresh": "새로고침",
-  "proxy_multi_download": "{count}개 동시 다운로드",
+  "proxy_multi_download": "{count}개 프록시",
   "proxy_link_parsing": "링크 파싱",
   "proxy_attempting": "프록시 시도중",
   "proxy_downloading": "다운로드 진행중",
@@ -297,5 +297,13 @@
   "proxy_status_waiting": "대기 중...",
   "search_placeholder": "검색",
   "pagination_prev": "이전",
-  "pagination_next": "다음"
+  "pagination_next": "다음",
+  "batch_local_downloads_set_to_pending": "{count}개 로컬 다운로드가 대기상태로 변경되었습니다.",
+  "batch_proxy_downloads_set_to_pending": "{count}개 프록시 다운로드가 대기상태로 변경되었습니다.",
+  "batch_downloads_stopped": "{count}개 다운로드가 정지되었습니다.",
+  "batch_local_downloads_stopped": "{count}개 로컬 다운로드가 정지되었습니다.",
+  "batch_proxy_downloads_stopped": "{count}개 프록시 다운로드가 정지되었습니다.",
+  "local_downloads_short": "{count}개 로컬",
+  "proxy_downloads_short": "{count}개 프록시",
+  "all_downloads_short": "{count}개 전체"
 }

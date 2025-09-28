@@ -128,7 +128,7 @@
   "copy_error": "Copy Error",
   "close": "Close",
   "local_title": "Local",
-  "local_progress_text": "{count} local downloads in progress",
+  "local_progress_text": "{count} Local",
   "local_waiting": "Waiting",
   "local_downloading": "Downloading",
   "local_completed": "Completed",
@@ -152,7 +152,7 @@
   "proxy_failed_tooltip": "{count} proxies failed",
   "proxy_refreshing": "Refreshing...",
   "proxy_refresh": "Refresh",
-  "proxy_multi_download": "{count} concurrent downloads",
+  "proxy_multi_download": "{count} Proxy",
   "proxy_link_parsing": "Parsing link",
   "proxy_attempting": "Attempting proxy",
   "proxy_downloading": "Downloading",
@@ -297,5 +297,13 @@
   "proxy_status_waiting": "Waiting...",
   "search_placeholder": "Search",
   "pagination_prev": "Previous",
-  "pagination_next": "Next"
+  "pagination_next": "Next",
+  "batch_local_downloads_set_to_pending": "{count} local downloads set to pending.",
+  "batch_proxy_downloads_set_to_pending": "{count} proxy downloads set to pending.",
+  "batch_downloads_stopped": "{count} downloads stopped.",
+  "batch_local_downloads_stopped": "{count} local downloads stopped.",
+  "batch_proxy_downloads_stopped": "{count} proxy downloads stopped.",
+  "local_downloads_short": "{count} Local",
+  "proxy_downloads_short": "{count} Proxy",
+  "all_downloads_short": "{count} Total"
 }
