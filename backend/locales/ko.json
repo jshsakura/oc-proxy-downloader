@@ -305,5 +305,11 @@
   "batch_proxy_downloads_stopped": "{count}개 프록시 다운로드가 정지되었습니다.",
   "local_downloads_short": "{count}개 로컬",
   "proxy_downloads_short": "{count}개 프록시",
-  "all_downloads_short": "{count}개 전체"
+  "all_downloads_short": "{count}개 전체",
+  "version_info": "버전 정보",
+  "current_version": "현재 버전",
+  "update_available": "업데이트 있음",
+  "latest_version": "최신 버전",
+  "checking_version": "버전 확인 중...",
+  "version_check_failed": "버전 확인 실패"
 }

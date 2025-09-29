@@ -2,12 +2,15 @@
 import os
 import threading
 import queue
+import httpx
+import asyncio
 from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 
 from core.config import get_config, save_config, get_download_path, get_default_download_path, IS_STANDALONE
 from core.db import get_db
+from core.version import CURRENT_VERSION
 from services.notification_service import send_telegram_notification
 
 router = APIRouter(prefix="/api", tags=["settings"])
@@ -169,4 +172,48 @@ async def test_telegram_notification(request: Request):
         error_msg = f"텔레그램 테스트 실패: {str(e)}" if config.get("language", "ko") == "ko" else f"Telegram test failed: {str(e)}"
         return {"success": False, "message": error_msg}
 
+
+@router.get("/version")
+async def get_version_info(request: Request):
+    """현재 버전과 최신 버전 정보 조회"""
+    try:
+        config = get_config()
+        user_language = config.get("language", "ko")
+
+        version_info = {
+            "current_version": CURRENT_VERSION,
+            "latest_version": None,
+            "update_available": False,
+            "error": None
+        }
+
+        try:
+            # GitHub API에서 최신 릴리즈 정보 가져오기
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    "https://api.github.com/repos/jshsakura/oc-proxy-downloader/releases/latest"
+                )
+
+                if response.status_code == 200:
+                    release_data = response.json()
+                    latest_version = release_data.get("tag_name", "")
+
+                    version_info["latest_version"] = latest_version
+
+                    # 버전 비교 (간단히 문자열 비교)
+                    if latest_version and latest_version != CURRENT_VERSION:
+                        version_info["update_available"] = True
+                else:
+                    version_info["error"] = "Failed to check latest version"
+
+        except asyncio.TimeoutError:
+            version_info["error"] = "Timeout checking latest version"
+        except Exception as e:
+            version_info["error"] = f"Error checking latest version: {str(e)}"
+
+        return version_info
+
+    except Exception as e:
+        print(f"[ERROR] Get version info failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 

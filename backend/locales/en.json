@@ -305,5 +305,11 @@
   "batch_proxy_downloads_stopped": "{count} proxy downloads stopped.",
   "local_downloads_short": "{count} Local",
   "proxy_downloads_short": "{count} Proxy",
-  "all_downloads_short": "{count} Total"
+  "all_downloads_short": "{count} Total",
+  "version_info": "Version Info",
+  "current_version": "Current",
+  "update_available": "Update Available",
+  "latest_version": "Latest",
+  "checking_version": "Checking version...",
+  "version_check_failed": "Version check failed"
 }
