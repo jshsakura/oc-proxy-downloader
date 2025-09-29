@@ -13,6 +13,28 @@ from core.db import get_db
 from core.version import CURRENT_VERSION
 from services.notification_service import send_telegram_notification
 
+
+def parse_version(version_str):
+    """버전 문자열을 파싱하여 비교 가능한 튜플로 변환"""
+    # v 접두사 제거
+    version = version_str.lstrip('v')
+    # . 으로 분할하여 정수 튜플로 변환
+    try:
+        parts = [int(x) for x in version.split('.')]
+        # 3자리 버전으로 맞춤 (예: 2.0 -> 2.0.0)
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:3])  # 처음 3자리만 사용
+    except ValueError:
+        return (0, 0, 0)
+
+
+def is_newer_version(latest_version, current_version):
+    """latest_version이 current_version보다 최신인지 확인"""
+    latest_tuple = parse_version(latest_version)
+    current_tuple = parse_version(current_version)
+    return latest_tuple > current_tuple
+
 router = APIRouter(prefix="/api", tags=["settings"])
 
 try:
@@ -200,8 +222,8 @@ async def get_version_info(request: Request):
 
                     version_info["latest_version"] = latest_version
 
-                    # 버전 비교 (간단히 문자열 비교)
-                    if latest_version and latest_version != CURRENT_VERSION:
+                    # 버전 비교 (의미론적 버전 비교)
+                    if latest_version and is_newer_version(latest_version, CURRENT_VERSION):
                         version_info["update_available"] = True
                 else:
                     version_info["error"] = "Failed to check latest version"
