@@ -151,10 +151,10 @@
           <span class="gauge-available"
             >{availableProxies.toLocaleString()}</span
           >
-          <span class="gauge-separator">/</span>
-          <span class="gauge-failed">{failCount.toLocaleString()}</span>
-          <span class="gauge-separator">/</span>
-          <span class="gauge-total">{totalProxies.toLocaleString()}</span>
+          <span class="gauge-separator desktop-show">/</span>
+          <span class="gauge-failed desktop-show">{failCount.toLocaleString()}</span>
+          <span class="gauge-separator mobile-hide">/</span>
+          <span class="gauge-total mobile-hide">{totalProxies.toLocaleString()}</span>
         </div>
       </div>
       <button
@@ -328,7 +328,7 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    flex: 0 0 30%;
+    flex: 0 0 auto;
     min-width: 0;
   }
 
@@ -337,8 +337,19 @@
     align-items: center;
     justify-content: flex-end;
     gap: 0.5rem;
-    flex: 0 0 65%;
+    flex: 1;
     min-width: 0;
+  }
+
+  /* 모바일에서 잔여 개수만 표시 */
+  @media (max-width: 768px) {
+    .mobile-hide {
+      display: none;
+    }
+
+    .desktop-show {
+      display: none;
+    }
   }
 
   .control-button {
