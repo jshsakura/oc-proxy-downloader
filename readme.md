@@ -2,78 +2,78 @@
 
 ![Project Banner](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docs/banner.png)
 
-**프록시 기반 1fichier 다운로드 관리 시스템**
+**Proxy-based 1fichier Download Management System**
 
-FastAPI + Svelte로 구성된 웹 애플리케이션으로, 프록시를 통한 안정적인 파일 다운로드를 지원합니다.
+A web application built with FastAPI + Svelte that provides stable file downloads through proxy servers.
 
-## ✨ 주요 기능
+## ✨ Key Features
 
-- 🚀 **1fichier 최적화**: 자동 대기시간 감지 및 쿨다운 관리 (최대 24시간 대기)
-- 🔄 **스마트 프록시**: 자동 순환, 실패 감지, 로컬/프록시 혼합 다운로드
-- 📊 **실시간 모니터링**: SSE 기반 실시간 상태 업데이트 및 진행률 표시
-- 🎯 **동시 다운로드 제한**: 시스템 안정성을 위한 세마포어 기반 제한
-- 📱 **텔레그램 알림**: 다운로드 완료/실패 알림 지원
-- 🌙 **테마 지원**: 다크/라이트/드라큘라 테마
-- 🌐 **다국어**: 한국어/영어 완전 지원
-- 📱 **반응형 UI**: 모바일/데스크톱 최적화
-- 🛡️ **선택적 인증**: JWT 기반 보안 (선택사항)
+- 🚀 **1fichier Optimized**: Automatic wait time detection and cooldown management (up to 24-hour wait)
+- 🔄 **Smart Proxy**: Auto-rotation, failure detection, mixed local/proxy downloads
+- 📊 **Real-time Monitoring**: SSE-based real-time status updates and progress display
+- 🎯 **Concurrent Download Limits**: Semaphore-based limits for system stability
+- 📱 **Telegram Notifications**: Download completion/failure notification support
+- 🌙 **Theme Support**: Dark/Light/Dracula themes
+- 🌐 **Multilingual**: Full Korean/English support
+- 📱 **Responsive UI**: Mobile/Desktop optimized
+- 🛡️ **Optional Authentication**: JWT-based security (optional)
 
 ---
 
 <div align="center">
   <img src="https://github.com/jshsakura/oc-proxy-downloader/blob/main/docs/preview/preview1.png?raw=true" alt="OC Proxy Downloader" style="max-width: 700px; border-radius: 12px; margin-bottom: 1rem;" />
   <br/>
-  <a href="https://www.opencourse.kr/1fichier-oc-proxy-downloader/">📚 자세한 설치 가이드</a>
+  <a href="https://www.opencourse.kr/1fichier-oc-proxy-downloader/">📚 Detailed Installation Guide</a> | <a href="README_KR.md">🇰🇷 한국어 문서</a>
 </div>
 
 ---
 
-## 🛠️ 기술 스택
+## 🛠️ Tech Stack
 
 ### Backend
-- **FastAPI**: 고성능 비동기 웹 프레임워크
-- **SQLAlchemy**: ORM 및 데이터베이스 관리
-- **PostgreSQL**: 메인 데이터베이스
-- **aiohttp**: 비동기 HTTP 클라이언트 (다운로드/프록시)
-- **SSE**: Server-Sent Events로 실시간 통신
+- **FastAPI**: High-performance async web framework
+- **SQLAlchemy**: ORM and database management
+- **SQLite**: Main database
+- **aiohttp**: Async HTTP client (download/proxy)
+- **SSE**: Server-Sent Events for real-time communication
 
 ### Frontend
-- **Svelte**: 컴파일 기반 반응형 프레임워크
-- **Vite**: 빠른 개발 서버 및 빌드 도구
-- **SSE**: 실시간 상태 업데이트 수신
+- **Svelte**: Compile-based reactive framework
+- **Vite**: Fast development server and build tool
+- **SSE**: Real-time status update reception
 
 ### Infrastructure
-- **Docker**: 컨테이너화 배포
-- **Docker Compose**: 개발/운영 환경 관리
+- **Docker**: Containerized deployment
+- **Docker Compose**: Development/production environment management
 
-## 🚀 설치 방법
+## 🚀 Installation
 
-### 🐳 Docker Compose 설치 (권장)
+### 🐳 Docker Compose Installation (Recommended)
 
 ```bash
-# 1. 프로젝트 다운로드
+# 1. Download project
 curl -O https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docker-compose.yml
 
-# 2. 디렉토리 생성
+# 2. Create directories
 mkdir -p downloads backend/config
 
-# 3. 실행
+# 3. Run
 docker-compose up -d
 ```
 
-### 🪟 Windows 실행 파일
+### 🪟 Windows Executable
 
-Windows 사용자를 위한 독립 실행 파일을 제공합니다:
+We provide a standalone executable for Windows users:
 
-1. **[Releases](https://github.com/jshsakura/oc-proxy-downloader/releases)** 페이지에서 최신 Windows 버전 다운로드
-2. `oc-proxy-downloader-windows.exe` 실행
-3. **http://localhost:8000** 접속하여 사용
+1. Download the latest Windows version from **[Releases](https://github.com/jshsakura/oc-proxy-downloader/releases)**
+2. Run `oc-proxy-downloader-windows.exe`
+3. Access **http://localhost:8000** to use
 
-> **참고**: Windows 버전은 모든 기능을 포함한 독립 실행 파일입니다. Docker 설치가 불필요합니다.
+> **Note**: The Windows version is a standalone executable with all features included. No Docker installation required.
 
-### 🔧 Docker Compose 설정 예시
+### 🔧 Docker Compose Configuration Examples
 
-#### 일반 Linux 환경
+#### General Linux Environment
 
 ```yaml
 # docker-compose.yml
@@ -86,7 +86,7 @@ services:
       - TZ=Asia/Seoul
       - PUID=1000
       - PGID=1000
-      # 보안 (선택사항)
+      # Security (optional)
       # - AUTH_USERNAME=admin
       # - AUTH_PASSWORD=secure123
       # - JWT_SECRET_KEY=your-random-secret-key
@@ -98,7 +98,7 @@ services:
     restart: unless-stopped
 ```
 
-#### 시놀로지 NAS 환경
+#### Synology NAS Environment
 
 ```yaml
 # docker-compose.yml (Synology)
@@ -109,9 +109,9 @@ services:
     container_name: oc-proxy-downloader
     environment:
       - TZ=Asia/Seoul
-      - PUID=1026    # 시놀로지 사용자 ID (id 명령어로 확인)
-      - PGID=100     # 시놀로지 users 그룹 ID
-      # 보안 (선택사항)
+      - PUID=1026    # Synology user ID (check with id command)
+      - PGID=100     # Synology users group ID
+      # Security (optional)
       # - AUTH_USERNAME=admin
       # - AUTH_PASSWORD=secure123
       # - JWT_SECRET_KEY=your-random-secret-key
@@ -123,66 +123,66 @@ services:
     restart: unless-stopped
 ```
 
-> **시놀로지 사용자 참고**: SSH로 접속 후 `id` 명령어로 본인의 PUID 확인 필요
+> **Synology Users Note**: SSH into your NAS and use the `id` command to check your PUID
 
-## ⚙️ 환경 변수
+## ⚙️ Environment Variables
 
-### 기본 설정
-| 변수명 | 기본값 | 설명 |
-|--------|--------|------|
-| `TZ` | `UTC` | 시스템 타임존 설정 |
-| `PUID` | `1000` | 파일 소유자 ID (권한 관리) |
-| `PGID` | `1000` | 파일 그룹 ID (권한 관리) |
+### Basic Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TZ` | `UTC` | System timezone setting |
+| `PUID` | `1000` | File owner ID (permission management) |
+| `PGID` | `1000` | File group ID (permission management) |
 
-### 보안 설정 (선택사항)
-| 변수명 | 기본값 | 설명 |
-|--------|--------|------|
-| `AUTH_USERNAME` | - | 웹 로그인 ID (미설정 시 인증 없음) |
-| `AUTH_PASSWORD` | - | 웹 로그인 비밀번호 |
-| `JWT_SECRET_KEY` | 기본값 | JWT 토큰 암호화 키 (운영 환경에서 필수 변경) |
+### Security Settings (Optional)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_USERNAME` | - | Web login ID (no auth if not set) |
+| `AUTH_PASSWORD` | - | Web login password |
+| `JWT_SECRET_KEY` | default | JWT token encryption key (must change in production) |
 
-> **⚠️ 보안 주의**: 운영 환경에서는 반드시 `JWT_SECRET_KEY`를 안전한 랜덤 문자열로 설정하세요.
+> **⚠️ Security Warning**: In production, always set `JWT_SECRET_KEY` to a secure random string.
 
-### 고급 설정 (선택사항)
-| 변수명 | 기본값 | 설명 |
-|--------|--------|------|
-| `MAX_TOTAL_DOWNLOADS` | `5` | 전체 최대 동시 다운로드 |
-| `MAX_LOCAL_DOWNLOADS` | `1` | 1fichier 로컬 최대 동시 다운로드 |
+### Advanced Settings (Optional)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAX_TOTAL_DOWNLOADS` | `5` | Maximum total concurrent downloads |
+| `MAX_LOCAL_DOWNLOADS` | `1` | Maximum concurrent 1fichier local downloads |
 
-## 📁 디렉토리 구조
+## 📁 Directory Structure
 
 ```
 oc-proxy-downloader/
-├── downloads/           # 다운로드된 파일 저장소
-├── backend/config/      # 설정 파일 및 데이터베이스
-│   ├── app.db          # SQLite 데이터베이스
-│   ├── config.json     # 앱 설정 파일
-│   └── proxies.txt     # 프록시 목록
-└── docker-compose.yml  # Docker Compose 설정
+├── downloads/           # Downloaded files storage
+├── backend/config/      # Configuration files and database
+│   ├── downloads.db    # SQLite database
+│   ├── config.json     # App configuration file
+│   └── proxies.txt     # Proxy list
+└── docker-compose.yml  # Docker Compose configuration
 ```
 
-## 🚀 사용법
+## 🚀 Usage
 
-1. **http://localhost:8000** 접속
-2. **설정** → **프록시 관리**에서 프록시 추가
-3. **1fichier URL** 입력 후 다운로드 시작
-4. **실시간 진행률** 및 **프록시 상태** 모니터링
+1. Access **http://localhost:8000**
+2. **Settings** → **Proxy Management** to add proxies
+3. Enter **1fichier URL** and start download
+4. Monitor **real-time progress** and **proxy status**
 
-## 🔧 개발 환경
+## 🔧 Development Environment
 
 ```bash
-# 저장소 클론
+# Clone repository
 git clone https://github.com/jshsakura/oc-proxy-downloader.git
 cd oc-proxy-downloader
 
-# 개발 환경 실행
+# Run development environment
 docker-compose -f docker-compose.dev.yml up -d --build
 
-# 로그 확인
+# Check logs
 docker-compose logs -f
 ```
 
-### 백엔드 개발
+### Backend Development
 ```bash
 cd backend
 python -m venv venv
@@ -191,63 +191,64 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### 프론트엔드 개발
+### Frontend Development
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-## 📊 모니터링
+## 📊 Monitoring
 
 ```bash
-# 컨테이너 상태 확인
+# Check container status
 docker ps
 
-# 리소스 사용량 확인
+# Check resource usage
 docker stats oc-proxy-downloader
 
-# 실시간 로그
+# Real-time logs
 docker-compose logs -f
 
-# 헬스체크 확인
+# Health check
 curl http://localhost:8000/api/settings
 ```
 
-## 🆘 문제 해결
+## 🆘 Troubleshooting
 
-### 컨테이너 시작 실패
+### Container Startup Failure
 ```bash
-# 로그 확인
+# Check logs
 docker-compose logs oc-proxy-downloader
 
-# 권한 문제 (Linux/macOS)
+# Permission issues (Linux/macOS)
 sudo chown -R 1000:1000 downloads backend/config
 ```
 
-### 포트 충돌
+### Port Conflicts
 ```bash
-# 다른 포트 사용 (예: 8080)
+# Use different port (e.g., 8080)
 docker-compose up -d -p 8080:8000
 ```
 
-### 캐시 문제
+### Cache Issues
 ```bash
-# 캐시 없이 재빌드
+# Rebuild without cache
 docker-compose build --no-cache
 docker-compose up -d
 ```
 
-## 📞 지원
+## 📞 Support
 
-- 📋 **이슈 보고**: [GitHub Issues](https://github.com/jshsakura/oc-proxy-downloader/issues)
-- 💬 **토론**: [GitHub Discussions](https://github.com/jshsakura/oc-proxy-downloader/discussions)
-- 📖 **상세 가이드**: [설치 가이드](https://www.opencourse.kr/1fichier-oc-proxy-downloader/)
+- 📋 **Report Issues**: [GitHub Issues](https://github.com/jshsakura/oc-proxy-downloader/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/jshsakura/oc-proxy-downloader/discussions)
+- 📖 **Detailed Guide**: [Installation Guide](https://www.opencourse.kr/1fichier-oc-proxy-downloader/)
+- 🇰🇷 **Korean Documentation**: [README_KR.md](README_KR.md)
 
-## 📄 라이선스
+## 📄 License
 
-이 프로젝트는 MIT 라이선스 하에 배포됩니다.
+This project is distributed under the MIT License.
 
 ---
 
-**⭐ 이 프로젝트가 도움이 되셨다면 Star를 눌러주세요!**
+**⭐ If this project helped you, please give it a Star!**
