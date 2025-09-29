@@ -609,7 +609,7 @@ async def stop_all_downloads(db: Session = Depends(get_db)):
         stopped_count = 0
         for download in active_downloads:
             download.status = StatusEnum.stopped
-            download.error_message = "사용자에 의해 일괄 정지됨"
+            download.error = "사용자에 의해 일괄 정지됨"
             stopped_count += 1
 
             # SSE로 정지 상태 전송
@@ -666,7 +666,7 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
             for download in batch:
                 # 상태를 pending으로 변경
                 download.status = StatusEnum.pending
-                download.error_message = None
+                download.error = None
                 download.downloaded_size = 0  # 다운로드 크기 초기화
 
             # 배치 단위로 커밋
@@ -718,7 +718,7 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
         for download in active_local_downloads:
             old_status = download.status
             download.status = StatusEnum.stopped
-            download.error_message = "사용자에 의해 로컬 다운로드 일괄 정지됨"
+            download.error = "사용자에 의해 로컬 다운로드 일괄 정지됨"
             stopped_count += 1
 
             print(f"[DEBUG] stop-all-local: 다운로드 ID {download.id} 상태 변경: {old_status} → {StatusEnum.stopped}")
@@ -850,7 +850,7 @@ async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
         stopped_count = 0
         for download in active_proxy_downloads:
             download.status = StatusEnum.stopped
-            download.error_message = "사용자에 의해 프록시 다운로드 일괄 정지됨"
+            download.error = "사용자에 의해 프록시 다운로드 일괄 정지됨"
             stopped_count += 1
 
             # SSE로 정지 상태 전송
@@ -908,7 +908,7 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
             for download in batch:
                 # 상태를 pending으로 변경
                 download.status = StatusEnum.pending
-                download.error_message = None
+                download.error = None
                 download.downloaded_size = 0  # 다운로드 크기 초기화
 
             # 배치 단위로 커밋

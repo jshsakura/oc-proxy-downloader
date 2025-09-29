@@ -328,7 +328,7 @@ class DownloadCore:
             req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
             if req:
                 req.status = StatusEnum.failed
-                req.error_message = str(e)
+                req.error = str(e)
                 db.commit()
                 await self.send_download_update(req_id, {
                     "status": "failed",

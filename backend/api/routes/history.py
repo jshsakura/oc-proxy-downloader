@@ -193,12 +193,14 @@ async def get_completed_downloads(
 async def get_active_downloads(db: Session = Depends(get_db)):
     """활성 다운로드 조회 (기존 호환성)"""
     try:
-        # 진행 중인 다운로드들
+        # 진행 중인 다운로드들 (실패한 것도 포함해서 표시)
         active_downloads = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([
                 StatusEnum.parsing,
                 StatusEnum.downloading,
-                StatusEnum.waiting
+                StatusEnum.waiting,
+                StatusEnum.failed,
+                StatusEnum.pending
             ])
         ).all()
 

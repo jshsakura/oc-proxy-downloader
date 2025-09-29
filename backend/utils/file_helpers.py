@@ -113,7 +113,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                                 stopped_count = 0
                                 for download in pending_downloads:
                                     download.status = StatusEnum.stopped
-                                    download.error_message = "디스크 용량 부족으로 인한 자동 정지"
+                                    download.error = "디스크 용량 부족으로 인한 자동 정지"
                                     stopped_count += 1
 
                                 if stopped_count > 0:
