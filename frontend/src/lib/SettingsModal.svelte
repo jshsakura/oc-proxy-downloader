@@ -6,6 +6,8 @@
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
+  import GitHubIcon from "./icons/GitHubIcon.svelte";
+  import DockerIcon from "./icons/DockerIcon.svelte";
   import ConfirmModal from "./ConfirmModal.svelte";
   import { toast } from "svelte-sonner";
   import {
