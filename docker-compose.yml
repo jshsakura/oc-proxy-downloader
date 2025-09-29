@@ -1,28 +1,23 @@
 version: '3.8'
 services:
   oc-proxy-downloader:
-    build: .
-    # image: <YOUR_DOCKERHUB_ID>/oc-proxy-downloader:latest  # 빌드 후 이미지 사용시 주석 해제
+    image: jshsakura/oc-proxy-downloader:latest
     container_name: oc-proxy-downloader
     environment:
+      # 기본 설정
       - TZ=Asia/Seoul
-      - PUID=1000
-      - PGID=1000
-      - DOWNLOAD_PATH=/downloads
-      - CONFIG_PATH=/config
-      # 인증 설정 (선택사항 - 설정 시 로그인 필요, 미설정 시 인증 없이 접근)
-      # - AUTH_USERNAME=admin                   # 로그인 사용자명
-      # - AUTH_PASSWORD=your-secure-password    # 로그인 비밀번호
-      # - JWT_SECRET_KEY=your-secret-key        # JWT 토큰 암호화 키 (선택사항)
-      # - JWT_EXPIRATION_HOURS=24               # JWT 토큰 만료 시간(시간) (선택사항, 기본: 24)
-      # 시스템 최적화 설정
-      - LOG_LEVEL=WARNING                     # 로그 레벨: DEBUG, INFO, WARNING, ERROR (기본: WARNING)
-      - PARENT_CHECK_INTERVAL=5               # 부모 프로세스 체크 간격(초) - CPU 최적화
-      - MAX_WEBSOCKET_CONNECTIONS=10          # WebSocket 최대 연결 수 (비정상 접근 차단용)
-      - MAX_TOTAL_DOWNLOADS=5                 # 최대 동시 다운로드 수
+      - PUID=1000  # 시놀로지 사용자 ID (ls -la downloads 로 확인)
+      - PGID=1000  # 시놀로지 그룹 ID (ls -la downloads 로 확인)
+
+      # 보안 설정 (선택사항 - 미설정 시 인증 없음)
+      # - AUTH_USERNAME=admin
+      # - AUTH_PASSWORD=secure123
+
+      # 성능 최적화 (선택사항)
+      # - MAX_TOTAL_DOWNLOADS=5
     volumes:
-      - ./downloads:/downloads  # 다운로드 파일 저장
-      - ./backend/config:/config  # 설정 및 데이터베이스 파일
+      - ./downloads:/downloads       # 다운로드 파일 저장소
+      - ./backend/config:/config     # 설정 파일 및 데이터베이스
     ports:
       - "8000:8000"
     restart: unless-stopped
