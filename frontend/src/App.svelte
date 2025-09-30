@@ -341,13 +341,16 @@
     if (eventSourceManager) {
       eventSourceManager.disconnect();
     }
-    
+
     // 타이머 정리
     if (activeDownloadsTimer) {
       clearTimeout(activeDownloadsTimer);
     }
     if (waitTimeUpdateTimer) {
       clearInterval(waitTimeUpdateTimer);
+    }
+    if (activeDownloadsInterval) {
+      clearInterval(activeDownloadsInterval);
     }
   });
 
@@ -836,14 +839,18 @@
 
   // 전역 디바운싱을 위한 플래그
   let needsActiveDownloadsUpdate = false;
+  let activeDownloadsInterval = null;
 
   // fetchActiveDownloads를 주기적으로 호출하는 인터벌 (5초마다 - 성능 최적화)
-  setInterval(() => {
-    if (needsActiveDownloadsUpdate) {
-      fetchActiveDownloads();
-      needsActiveDownloadsUpdate = false;
-    }
-  }, 5000);
+  onMount(() => {
+    activeDownloadsInterval = setInterval(() => {
+      if (needsActiveDownloadsUpdate) {
+        fetchActiveDownloads();
+        needsActiveDownloadsUpdate = false;
+      }
+    }, 5000);
+  });
+
 
   // 통합된 통계 업데이트 함수
   function updateStats(downloadsData) {
@@ -1407,74 +1414,58 @@
     currentPage = 1;
   }
 
-  // 검색 필터 적용된 다운로드 목록 (한번만 필터링)
-  $: searchFiltered = (() => {
-    if (!Array.isArray(downloads)) return [];
-
-    let filtered = downloads;
-
-    // 검색 필터 적용
-    if (searchQuery && searchQuery.trim()) {
-      const query = searchQuery.trim().toLowerCase();
-      filtered = filtered.filter((d) => {
-        const filename = d.filename?.toLowerCase() || "";
-        const url = d.url?.toLowerCase() || "";
-        return filename.includes(query) || url.includes(query);
-      });
-    }
-
-    return filtered;
-  })();
-
-  // 검색 필터가 적용된 카운트
-  $: workingCount = searchFiltered.filter((d) => {
-    const status = d.status?.toLowerCase?.() || "";
-    return !(
-      status === "done" ||
-      (status === "stopped" &&
-        (d.progress >= 100 || getDownloadProgress(d) >= 100))
-    );
-  }).length;
-
-  $: completedCount = searchFiltered.filter((d) => {
-    const status = d.status?.toLowerCase?.() || "";
-    return (
-      status === "done" ||
-      (status === "stopped" &&
-        (d.progress >= 100 || getDownloadProgress(d) >= 100))
-    );
-  }).length;
-
-  $: filteredDownloads = (() => {
-    if (currentTab === "working") {
-      return searchFiltered.filter((d) => {
-        const status = d.status?.toLowerCase?.() || "";
-        // 완료된 것만 제외하고 나머지는 모두 진행중으로 처리
-        return !(
-          status === "done" ||
-          (status === "stopped" &&
-            (d.progress >= 100 || getDownloadProgress(d) >= 100))
-        );
-      });
+  // 통합 필터링 및 카운팅 (한 번의 순회로 모든 계산 완료)
+  $: {
+    if (!Array.isArray(downloads)) {
+      searchFiltered = [];
+      workingCount = 0;
+      completedCount = 0;
+      filteredDownloads = [];
     } else {
-      // 완료 탭: done 상태 또는 100% 완료인 stopped 상태만
-      return searchFiltered
-        .filter((d) => {
-          const status = d.status?.toLowerCase?.() || "";
-          return (
-            status === "done" ||
-            (status === "stopped" &&
-              (d.progress >= 100 || getDownloadProgress(d) >= 100))
-          );
-        })
-        .sort((a, b) => {
-          // finished_at을 우선으로 하고, 없으면 created_at, 없으면 updated_at으로 정렬 (최신 순)
+      // 1단계: 검색 필터 적용
+      let filtered = downloads;
+      if (searchQuery && searchQuery.trim()) {
+        const query = searchQuery.trim().toLowerCase();
+        filtered = downloads.filter((d) => {
+          const filename = d.filename?.toLowerCase() || "";
+          const url = d.url?.toLowerCase() || "";
+          return filename.includes(query) || url.includes(query);
+        });
+      }
+      searchFiltered = filtered;
+
+      // 2단계: 한 번의 순회로 분류 (working/completed)
+      const working = [];
+      const completed = [];
+
+      for (const d of filtered) {
+        const status = d.status?.toLowerCase?.() || "";
+        const isCompleted = status === "done" ||
+          (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100));
+
+        if (isCompleted) {
+          completed.push(d);
+        } else {
+          working.push(d);
+        }
+      }
+
+      workingCount = working.length;
+      completedCount = completed.length;
+
+      // 3단계: 현재 탭에 따라 정렬
+      if (currentTab === "working") {
+        filteredDownloads = working;
+      } else {
+        // 완료 탭: 최신순 정렬
+        filteredDownloads = completed.sort((a, b) => {
           const aTime = new Date(a.finished_at || a.created_at || a.updated_at || 0);
           const bTime = new Date(b.finished_at || b.created_at || b.updated_at || 0);
-          return bTime.getTime() - aTime.getTime(); // 내림차순 정렬 (최신 순 먼저)
+          return bTime.getTime() - aTime.getTime();
         });
+      }
     }
-  })();
+  }
 
   // 페이지 계산
   $: {
