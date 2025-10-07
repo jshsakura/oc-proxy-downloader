@@ -1415,9 +1415,11 @@
   }
 
   // 통합 필터링 및 카운팅 (한 번의 순회로 모든 계산 완료)
+  let filteredDownloads = [];
+  let workingCount = 0;
+  let completedCount = 0;
   $: {
     if (!Array.isArray(downloads)) {
-      searchFiltered = [];
       workingCount = 0;
       completedCount = 0;
       filteredDownloads = [];
@@ -1432,7 +1434,6 @@
           return filename.includes(query) || url.includes(query);
         });
       }
-      searchFiltered = filtered;
 
       // 2단계: 한 번의 순회로 분류 (working/completed)
       const working = [];
