@@ -12,7 +12,7 @@ from typing import List, Optional
 import asyncio
 import httpx
 import re
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, urlunparse
 
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
@@ -38,6 +38,24 @@ async def add_download(
 
         if not url:
             raise HTTPException(status_code=400, detail="URL이 필요합니다")
+
+        # 1fichier URL에서 첫 번째 파라미터 외 모두 제거 (안전한 방식)
+        if "1fichier.com" in url:
+            try:
+                parsed_url = urlparse(url)
+                query_parts = parsed_url.query.split('&')
+                if len(query_parts) > 1:
+                    cleaned_query = query_parts[0]
+                    url = urlunparse((
+                        parsed_url.scheme,
+                        parsed_url.netloc,
+                        parsed_url.path,
+                        parsed_url.params,
+                        cleaned_query,
+                        parsed_url.fragment
+                    ))
+            except Exception as e:
+                print(f"[WARN] 1fichier URL 정리 실패: {e}")
 
         # 새 다운로드 요청 생성
         new_request = DownloadRequest(

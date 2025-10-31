@@ -13,6 +13,7 @@ import cloudscraper
 import asyncio
 import datetime
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urlunparse
 from services.sse_manager import sse_manager
 from services.notification_service import send_telegram_wait_notification
 from core.db import SessionLocal
@@ -44,6 +45,24 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
     try:
         # 1단계: 페이지 로드
         print(f"[LOG] 1fichier 페이지 로드: {url}")
+
+        # &af 등 불필요한 파라미터 제거 (파일 ID만 남김)
+        try:
+            parsed_url = urlparse(url)
+            # 1fichier는 쿼리스트링의 첫번째 값이 파일 ID임
+            file_id = parsed_url.query.split('&')[0]
+            
+            # 쿼리스트링을 파일 ID로만 재구성
+            parsed_url = parsed_url._replace(query=file_id)
+            cleaned_url = urlunparse(parsed_url)
+
+            if url != cleaned_url:
+                print(f"[LOG] 불필요한 URL 파라미터 제거 후: {cleaned_url}")
+                url = cleaned_url
+                
+        except Exception as e:
+            print(f"[WARNING] URL 파라미터 정리 중 오류: {e}")
+            
         print(f"[DEBUG] 사용 중인 프록시: {proxies}")
         print(f"[DEBUG] 헤더: {headers}")
 
@@ -185,26 +204,29 @@ def extract_file_info_simple(html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
         file_info = {}
 
-        # 1. premium table에서 파일명과 크기 추출
-        premium_table = soup.find('table', class_='premium')
-        if premium_table:
-            # 파일명: <span style="font-weight:bold">파일명</span>
-            filename_span = premium_table.find('span', style=lambda x: x and 'font-weight:bold' in x)
-            if filename_span:
-                filename = filename_span.get_text(strip=True)
-                if filename and not any(x in filename.lower() for x in ['1fichier', 'cloud storage', 'error']):
-                    file_info['name'] = filename
-                    print(f"[DEBUG] premium table에서 파일명 추출: {filename}")
+        # 1. QR 코드가 포함된 테이블을 먼저 찾음 (가장 확실한 기준)
+        qr_img = soup.find('img', src=lambda s: s and 'qr.pl' in s)
+        if qr_img:
+            info_table = qr_img.find_parent('table')
+            if info_table:
+                td_normal = info_table.find('td', class_='normal')
+                if td_normal:
+                    spans = td_normal.find_all('span')
+                    if len(spans) >= 2:
+                        # 첫번째 span이 파일명, 두번째 span이 크기
+                        filename = spans[0].get_text(strip=True)
+                        size = spans[1].get_text(strip=True)
 
-            # 파일크기: <span style="font-size:0.9em;font-style:italic">크기</span>
-            size_span = premium_table.find('span', style=lambda x: x and 'font-size:0.9em' in x and 'font-style:italic' in x)
-            if size_span:
-                size = size_span.get_text(strip=True)
-                if size:
-                    file_info['size'] = size
-                    print(f"[DEBUG] premium table에서 파일크기 추출: {size}")
+                        if filename and not any(x in filename.lower() for x in ['1fichier', 'cloud storage', 'error']):
+                            file_info['name'] = filename
+                            print(f"[DEBUG] QR 코드 테이블 구조에서 파일명 추출: {filename}")
+                        
+                        # 크기 문자열에 단위가 있는지 한번 더 확인
+                        if size and ('GB' in size or 'MB' in size or 'KB' in size or 'TB' in size):
+                            file_info['size'] = size
+                            print(f"[DEBUG] QR 코드 테이블 구조에서 파일크기 추출: {size}")
 
-        # 2. premium table이 없으면 기존 패턴 사용 (백업)
+        # 2. 위에서 정보를 못찾았으면 정규식 백업
         if not file_info.get('name'):
             filename_patterns = [
                 r'<h1[^>]*>([^<]+)</h1>',
@@ -217,6 +239,9 @@ def extract_file_info_simple(html_content):
                 match = re.search(pattern, html_content, re.IGNORECASE)
                 if match:
                     filename = match.group(1).strip()
+                    # title 태그 정리
+                    if 'title' in pattern:
+                        filename = re.sub(r'\s*-\s*1fichier\.com.*', '', filename, flags=re.I).strip()
                     if filename and not any(x in filename.lower() for x in ['1fichier', 'cloud storage', 'error']):
                         file_info['name'] = filename
                         print(f"[DEBUG] 정규식으로 파일명 추출: {filename}")
@@ -224,16 +249,18 @@ def extract_file_info_simple(html_content):
 
         if not file_info.get('size'):
             size_patterns = [
-                r'File size[^:]*:\s*([^\n\r<]+)',
-                r'Taille[^:]*:\s*([^\n\r<]+)',
-                r'Size[^:]*:\s*([^\n\r<]+)',
-                r'(\d+(?:\.\d+)?\s*[KMGT]?B)',
+                r'File size[^:]*:\s*<strong>([^<]+)</strong>', # File size: <strong>1.52 GB</strong>
+                r'Size[^:]*:\s*<strong>([^<]+)</strong>',
+                r'>\s*(\d+(?:\.\d+)?\s*[KMGT]B)\s*<', # > 1.52 GB <
+                r'\(\s*(\d+(?:\.\d+)?\s*[KMGT]B)\s*\)', # (1.52 GB)
             ]
 
             for pattern in size_patterns:
                 match = re.search(pattern, html_content, re.IGNORECASE)
                 if match:
-                    file_info['size'] = match.group(1).strip()
+                    # 괄호가 있는 패턴의 경우 그룹이 2개일 수 있음
+                    size_text = match.group(match.lastindex or 1).strip()
+                    file_info['size'] = size_text
                     print(f"[DEBUG] 정규식으로 파일크기 추출: {file_info['size']}")
                     break
 
@@ -246,9 +273,27 @@ def extract_file_info_simple(html_content):
 
 def preparse_1fichier_standalone(url):
     """1fichier URL 사전파싱 - cloudscraper 사용, 단독 실행"""
+
+    # 1fichier URL이 아니면 즉시 종료
+    if "1fichier.com" not in url:
+        print(f"[WARNING] 1fichier URL이 아니므로 사전파싱을 건너뜁니다: {url}")
+        return None
+
     try:
 
         print(f"[LOG] 사전파싱 시작: {url}")
+
+        # &af 등 불필요한 파라미터 제거 (파일 ID만 남김)
+        try:
+            parsed_url = urlparse(url)
+            file_id = parsed_url.query.split('&')[0]
+            parsed_url = parsed_url._replace(query=file_id)
+            cleaned_url = urlunparse(parsed_url)
+            if url != cleaned_url:
+                print(f"[LOG] 사전파싱 URL 정리: {cleaned_url}")
+                url = cleaned_url
+        except Exception as e:
+            print(f"[WARNING] 사전파싱 URL 정리 중 오류: {e}")
 
         # 사전파싱용 새 스크래퍼 생성
         scraper = cloudscraper.create_scraper(

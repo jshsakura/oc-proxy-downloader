@@ -27,8 +27,7 @@ from services.sse_manager import sse_manager
 from services.notification_service import send_telegram_start_notification, send_telegram_notification
 from utils.file_helpers import download_file_content, generate_file_path, get_final_file_path
 from core.proxy_manager import proxy_manager
-from core.simple_parser import parse_1fichier_simple_sync, preparse_1fichier_standalone
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, urlunparse
 from core.models import ProxyStatus
 
 
@@ -81,6 +80,23 @@ class DownloadCore:
         if "1fichier.com" in req.url:
 
             parse_url = req.original_url if req.original_url else req.url
+            # 1fichier URL에서 첫 번째 파라미터 외 모두 제거 (안전한 방식)
+            if "1fichier.com" in parse_url:
+                try:
+                    parsed_url = urlparse(parse_url)
+                    query_parts = parsed_url.query.split('&')
+                    if len(query_parts) > 1:
+                        cleaned_query = query_parts[0]
+                        parse_url = urlunparse((
+                            parsed_url.scheme,
+                            parsed_url.netloc,
+                            parsed_url.path,
+                            parsed_url.params,
+                            cleaned_query,
+                            parsed_url.fragment
+                        ))
+                except Exception as e:
+                    print(f"[WARN] 1fichier URL 정리 실패: {e}")
             print(f"[LOG] 사전파싱 시작: {req.id}")
 
             try:
