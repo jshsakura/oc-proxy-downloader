@@ -29,6 +29,7 @@ from utils.file_helpers import download_file_content, generate_file_path, get_fi
 from core.proxy_manager import proxy_manager
 from urllib.parse import urlparse, unquote, urlunparse
 from core.models import ProxyStatus
+from core.simple_parser import parse_1fichier_simple_sync, preparse_1fichier_standalone
 
 
 class DownloadCore:
@@ -375,8 +376,6 @@ class DownloadCore:
 
         # 실제 1fichier 파싱 로직 실행
         try:
-            from core.simple_parser import parse_1fichier_simple_sync, preparse_1fichier_standalone
-
             # 프록시 설정 - 실패한 프록시 제외하고 다음 프록시 선택
             proxies = None
             proxy_addr = None
@@ -410,7 +409,7 @@ class DownloadCore:
             is_local_1fichier = is_1fichier and not req.use_proxy
 
             # 로컬 1fichier는 항상 파싱 필요, 프록시 1fichier는 파일 정보가 있으면 건너뛰기 가능
-            should_skip_preparse = skip_preparse and not is_local_1fichier
+            should_skip_preparse = skip_preparse
 
             if should_skip_preparse and "1fichier.com" in (req.original_url or req.url):
                 print(f"[LOG] 파일 정보가 이미 있음, 전체 파싱 건너뛰고 바로 다운로드: {req.id} - {req.file_name} ({req.file_size})")
