@@ -421,6 +421,10 @@
     width: 100%;
     resize: none;
     position: relative;
+    /* 스크롤바가 등장/사라질 때 컨텐츠 우측이 1px 흔들리는 문제 방지.
+       헤더/푸터는 스크롤바 영역이 없는데 본문만 스크롤바 폭만큼 안쪽으로
+       들어가서 우측이 어긋나 보였음. */
+    scrollbar-gutter: stable;
   }
 
   .modal-body * {
