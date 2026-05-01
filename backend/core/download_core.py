@@ -35,12 +35,34 @@ from core.simple_parser import (
     clean_1fichier_url,
 )
 from core.error_messages import format_error
+from core import fichier_auth
 
 
 DEFAULT_DOWNLOAD_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+
+def get_fichier_account_cookies() -> Dict[str, str]:
+    """설정에 저장된 1fichier 자격증명으로 로그인해 세션 쿠키 dict 를 반환.
+
+    자격증명이 없거나 로그인 실패 시 빈 dict 반환 (호출자는 게스트로 진행).
+    """
+    try:
+        from core.config import get_config
+        cfg = get_config()
+        email = (cfg.get("fichier_email") or "").strip()
+        password = cfg.get("fichier_password") or ""
+        if not email or not password:
+            return {}
+        return fichier_auth.get_session_cookies(email, password)
+    except fichier_auth.FichierLoginError as exc:
+        print(f"[WARNING] 1fichier 로그인 실패 (게스트로 진행): {exc}")
+        return {}
+    except Exception as exc:
+        print(f"[WARNING] 1fichier 자격증명 처리 중 예외 (게스트로 진행): {exc}")
+        return {}
 
 
 def build_download_headers(user_agent: Optional[str] = None, referer: Optional[str] = None) -> Dict[str, str]:
@@ -552,6 +574,15 @@ class DownloadCore:
                             print(f"[WARNING] SSE 전송 실패: {e}")
 
                     loop = asyncio.get_event_loop()
+
+                    # 1fichier 계정 자격증명이 있으면 로그인된 세션 쿠키 확보
+                    # (게스트 슬롯 부족/CGNAT/광고검증 우회용)
+                    account_cookies = await loop.run_in_executor(
+                        None, get_fichier_account_cookies
+                    )
+                    if account_cookies:
+                        print(f"[LOG] 1fichier 계정 세션 사용 (cookies={len(account_cookies)})")
+
                     parse_result = await loop.run_in_executor(
                         None,
                         lambda: parse_1fichier_simple_sync(
@@ -560,7 +591,8 @@ class DownloadCore:
                             None,  # 프록시 없음
                             None,  # 프록시 주소 없음
                             req.id,
-                            sse_callback
+                            sse_callback,
+                            account_cookies=account_cookies,
                         )
                     )
                 else:
@@ -625,6 +657,9 @@ class DownloadCore:
 
                             # 동기 함수를 별도 스레드에서 실행
                             loop = asyncio.get_event_loop()
+                            account_cookies_proxy = await loop.run_in_executor(
+                                None, get_fichier_account_cookies
+                            )
                             parse_result = await loop.run_in_executor(
                                 None,
                                 lambda: parse_1fichier_simple_sync(
@@ -633,7 +668,8 @@ class DownloadCore:
                                     proxies,
                                     proxy_addr,
                                     req.id,
-                                    sse_callback
+                                    sse_callback,
+                                    account_cookies=account_cookies_proxy,
                                 )
                             )
 
@@ -775,7 +811,17 @@ class DownloadCore:
             if parse_result and parse_result.get('download_link'):
                 download_url = parse_result['download_link']
                 # 파싱 세션의 쿠키/헤더를 다운로드에 함께 사용 (1fichier 세션 유지용)
-                session_cookies = parse_result.get('cookies') or {}
+                # 파서 세션 쿠키 (Cloudflare 우회 토큰 등) + 1fichier 계정 쿠키 합치기.
+                # aiohttp 세션이 정확히 같은 인증/세션 컨텍스트를 사용하도록 한다.
+                session_cookies = dict(parse_result.get('cookies') or {})
+                try:
+                    fichier_cookies = await asyncio.get_event_loop().run_in_executor(
+                        None, get_fichier_account_cookies
+                    )
+                    if fichier_cookies:
+                        session_cookies.update(fichier_cookies)
+                except Exception as cookie_merge_error:
+                    print(f"[WARNING] 1fichier 계정 쿠키 병합 실패: {cookie_merge_error}")
                 session_user_agent = parse_result.get('user_agent')
                 session_referer = parse_result.get('referer') or parse_url
                 print(f"[LOG] 다운로드 링크 획득: {download_url} (cookies={len(session_cookies)})")

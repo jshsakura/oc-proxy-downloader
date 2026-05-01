@@ -100,6 +100,10 @@ def detect_block_reason(html_content):
         # 한도/속도 제한
         ("you must wait", None),  # 대기시간이면 정상 흐름이므로 무시 (None 으로 표시)
         ("limited to 1 download", "무료 다운로드 한도 초과"),
+        # 게스트 슬롯 가득 참 — 등록 사용자(무료 계정) 로그인 시 우회 가능
+        ("free download is temporarily limited", "무료 게스트 슬롯이 가득 참 (1fichier 무료 계정 로그인 필요)"),
+        ("all free guest slots are currently in use", "무료 게스트 슬롯이 가득 참 (1fichier 무료 계정 로그인 필요)"),
+        ("free slots are available right now for registered users", "무료 게스트 슬롯이 가득 참 (1fichier 무료 계정 로그인 필요)"),
         # Cloudflare 챌린지
         ("attention required! | cloudflare", "Cloudflare 챌린지(우회 실패)"),
         ("checking your browser before accessing", "Cloudflare 챌린지(우회 실패)"),
@@ -147,21 +151,33 @@ def is_likely_download_url(candidate, base_host=None):
     return False
 
 
-def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None, download_id=None, sse_callback=None):
+def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None, download_id=None, sse_callback=None,
+                               account_cookies=None):
     """
     1fichier 단순 파싱 로직
     1. 파일정보 추출
     2. 대기시간 추출
     3. 대기 후 다운로드 링크 획득
+
+    ``account_cookies`` (dict) — ``fichier_auth.get_session_cookies()`` 가
+    돌려준 1fichier 로그인 세션 쿠키. 이 값을 cloudscraper 의 cookies 에
+    주입하면 ``Free guest slots are full`` 같은 게스트 케이스를 우회한다.
     """
 
     def create_fresh_scraper():
         """매번 새로운 CloudScraper 인스턴스 생성"""
-        return cloudscraper.create_scraper(
+        s = cloudscraper.create_scraper(
             browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
         )
+        if account_cookies:
+            for name, value in account_cookies.items():
+                try:
+                    s.cookies.set(name, value, domain=".1fichier.com")
+                except Exception:
+                    pass
+        return s
 
-    # 첫 페이지 로드용 스크래퍼
+    # 첫 페이지 로드용 스크래퍼 (계정 쿠키가 있으면 미리 주입됨)
     scraper = create_fresh_scraper()
     
     headers = {

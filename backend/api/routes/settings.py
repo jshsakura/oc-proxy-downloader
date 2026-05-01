@@ -141,6 +141,44 @@ async def select_folder(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/fichier/test-login")
+async def test_fichier_login(request: Request):
+    """저장된 1fichier 자격증명으로 로그인 테스트.
+
+    body 가 비어있으면 ``config`` 의 ``fichier_email`` / ``fichier_password`` 사용,
+    body 에 ``email`` / ``password`` 가 있으면 그 값으로 즉석 테스트 (저장 X).
+    """
+    from core import fichier_auth
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+
+    if not email or not password:
+        config = get_config()
+        email = (config.get("fichier_email") or "").strip()
+        password = config.get("fichier_password") or ""
+
+    if not email or not password:
+        return {
+            "success": False,
+            "message": "1fichier 이메일/비밀번호가 입력되지 않았습니다.",
+        }
+
+    try:
+        # force_refresh=True 로 캐시 무시하고 새 로그인 시도
+        fichier_auth.get_authenticated_scraper(email, password, force_refresh=True)
+        return {"success": True, "message": "로그인 성공 — 다운로드 시 자동 사용됩니다."}
+    except fichier_auth.FichierLoginError as exc:
+        return {"success": False, "message": f"로그인 실패: {exc}"}
+    except Exception as exc:
+        return {"success": False, "message": f"테스트 중 오류: {exc}"}
+
+
 @router.post("/telegram/test")
 async def test_telegram_notification(request: Request):
     """텔레그램 알림 테스트"""

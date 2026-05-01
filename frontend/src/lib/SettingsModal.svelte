@@ -236,6 +236,8 @@
         currentSettings.telegram_notify_failure !== false,
       telegram_notify_wait: currentSettings.telegram_notify_wait !== false,
       telegram_notify_start: currentSettings.telegram_notify_start === true,
+      fichier_email: currentSettings.fichier_email || "",
+      fichier_password: currentSettings.fichier_password || "",
     };
     selectedTheme = settings.theme || $theme;
     selectedLocale = localStorage.getItem("lang") || "ko";
@@ -886,6 +888,70 @@
               </div>
             {/if}
           </div>
+
+          <!-- 1fichier 계정 로그인 (게스트 슬롯 부족 / CGNAT 우회용) -->
+          <fieldset class="form-group fichier-account">
+            <legend>1fichier 계정</legend>
+            <p class="form-hint">
+              무료 게스트 슬롯이 가득 차서 다운로드가 거부될 때, 1fichier 계정에
+              로그인된 세션으로 우회합니다.
+              <a href="https://1fichier.com/register.pl" target="_blank" rel="noopener">
+                무료 계정 만들기 →
+              </a>
+            </p>
+
+            <div class="form-row">
+              <label for="fichier-email">이메일</label>
+              <input
+                id="fichier-email"
+                type="email"
+                autocomplete="username"
+                placeholder="example@mail.com"
+                bind:value={settings.fichier_email}
+              />
+            </div>
+
+            <div class="form-row">
+              <label for="fichier-password">비밀번호</label>
+              <input
+                id="fichier-password"
+                type="password"
+                autocomplete="current-password"
+                placeholder="••••••••"
+                bind:value={settings.fichier_password}
+              />
+            </div>
+
+            <div class="form-actions">
+              <button
+                type="button"
+                class="btn-secondary"
+                on:click={async () => {
+                  try {
+                    const res = await fetch("/api/fichier/test-login", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        email: settings.fichier_email,
+                        password: settings.fichier_password,
+                      }),
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      toast.success(data.message);
+                    } else {
+                      toast.error(data.message);
+                    }
+                  } catch (e) {
+                    toast.error("로그인 테스트 중 오류: " + e);
+                  }
+                }}
+                disabled={!settings.fichier_email || !settings.fichier_password}
+              >
+                로그인 테스트
+              </button>
+            </div>
+          </fieldset>
 
           <fieldset class="form-group telegram-notifications">
             <legend>{$t("telegram_notifications")}</legend>
