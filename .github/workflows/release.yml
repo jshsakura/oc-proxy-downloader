@@ -1,0 +1,202 @@
+name: Release (Windows EXE + GitHub Release)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "기존 태그를 다시 빌드/릴리스 (예: v2.0.21)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 공통 메타데이터 (버전, 릴리스 노트용 베이스)
+  # ---------------------------------------------------------------------------
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_no_v: ${{ steps.version.outputs.version_no_v }}
+      tag_ref: ${{ steps.version.outputs.tag_ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            TAG_REF="${GITHUB_REF}"
+          elif [[ -n "${{ github.event.inputs.tag }}" ]]; then
+            VERSION="${{ github.event.inputs.tag }}"
+            TAG_REF="refs/tags/${VERSION}"
+          else
+            echo "::error::tag 입력이 없고 push 이벤트도 아닙니다."
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version_no_v=${VERSION#v}" >> "$GITHUB_OUTPUT"
+          echo "tag_ref=${TAG_REF}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
+
+  # ---------------------------------------------------------------------------
+  # Windows EXE 빌드 (PyInstaller)
+  # ---------------------------------------------------------------------------
+  build-windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag_ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller
+
+      - name: Build frontend
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Run backend tests (smoke)
+        working-directory: backend
+        shell: pwsh
+        run: |
+          pip install pytest pytest-asyncio
+          pytest tests/ -q
+
+      - name: Build EXE with PyInstaller
+        working-directory: standalone
+        shell: pwsh
+        run: |
+          python -m PyInstaller --clean --noconfirm oc-proxy-downloader.spec
+
+      - name: Verify EXE
+        working-directory: standalone/dist
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "oc-proxy-downloader.exe")) {
+            Write-Error "EXE not produced!"
+            exit 1
+          }
+          Get-Item oc-proxy-downloader.exe | Select-Object Name, Length, LastWriteTime
+
+      - name: Rename EXE with version
+        working-directory: standalone/dist
+        shell: pwsh
+        run: |
+          $newName = "oc-proxy-downloader-${{ needs.prepare.outputs.version }}-win-x64.exe"
+          Rename-Item -Path "oc-proxy-downloader.exe" -NewName $newName
+          Write-Host "Renamed to $newName"
+
+      - name: Compute checksum
+        working-directory: standalone/dist
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "*.exe" | Select-Object -First 1
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          "$hash *$($exe.Name)" | Out-File -Encoding ascii "$($exe.Name).sha256"
+          Get-Content "$($exe.Name).sha256"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-proxy-downloader-windows
+          path: |
+            standalone/dist/*.exe
+            standalone/dist/*.sha256
+          retention-days: 30
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # GitHub Release 생성 + 산출물 첨부
+  # ---------------------------------------------------------------------------
+  release:
+    needs: [prepare, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.tag_ref }}
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: oc-proxy-downloader-windows
+          path: ./artifacts
+
+      - name: Compose release notes
+        id: notes
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          PREV_TAG=$(git describe --tags --abbrev=0 "${VERSION}^" 2>/dev/null || echo "")
+
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --pretty=format:'- %s (%h)' "${PREV_TAG}..${VERSION}")
+            COMPARE_LINE="**Changes since \`${PREV_TAG}\`:**"
+          else
+            CHANGES=$(git log --pretty=format:'- %s (%h)' -20 "${VERSION}")
+            COMPARE_LINE="**Recent changes:**"
+          fi
+
+          {
+            echo "notes<<__EOF__"
+            echo "## OC Proxy Downloader ${VERSION}"
+            echo
+            echo "### Downloads"
+            echo "- 🪟 **Windows (x64)**: \`oc-proxy-downloader-${VERSION}-win-x64.exe\` (첨부 파일 참고)"
+            echo "- 🐳 **Docker**: \`docker pull ${{ github.repository_owner }}/oc-proxy-downloader:${{ needs.prepare.outputs.version_no_v }}\`"
+            echo
+            echo "${COMPARE_LINE}"
+            echo
+            echo "${CHANGES}"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create / Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.version }}
+          body: ${{ steps.notes.outputs.notes }}
+          files: |
+            artifacts/*.exe
+            artifacts/*.sha256
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

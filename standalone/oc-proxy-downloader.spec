@@ -103,6 +103,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
+_version_file = Path('version_info.txt')
 exe = EXE(
     pyz,
     a.scripts,
@@ -124,5 +125,6 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='app_icon.ico',
+    version=str(_version_file) if _version_file.exists() and sys.platform.startswith('win') else None,
     contents_directory='.',
 )
