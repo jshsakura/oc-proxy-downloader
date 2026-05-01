@@ -421,10 +421,27 @@
     width: 100%;
     resize: none;
     position: relative;
-    /* 스크롤바가 등장/사라질 때 컨텐츠 우측이 1px 흔들리는 문제 방지.
-       헤더/푸터는 스크롤바 영역이 없는데 본문만 스크롤바 폭만큼 안쪽으로
-       들어가서 우측이 어긋나 보였음. */
-    scrollbar-gutter: stable;
+    /* 얇은 오버레이형 스크롤바. 헤더/푸터 폭과 본문 폭이 어긋나는 문제는
+       스크롤바 자체를 가늘게 만들고 트랙을 투명하게 해서 시각적으로
+       사라지게 처리. scrollbar-gutter: stable 은 항상 ~15px 빈 공간을
+       예약해서 오히려 우측 틈이 두드러지므로 사용 안 함. */
+    scrollbar-width: thin;
+    scrollbar-color: var(--card-border) transparent;
+  }
+
+  .modal-body::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .modal-body::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .modal-body::-webkit-scrollbar-thumb {
+    background: var(--card-border);
+    border-radius: 3px;
+  }
+  .modal-body::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
   }
 
   .modal-body * {
