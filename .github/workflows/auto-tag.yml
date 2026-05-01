@@ -71,4 +71,27 @@ jobs:
           MSG="Release $VER (auto-tagged from version.py bump)"
           git tag -a "$VER" -m "$MSG"
           git push origin "$VER"
-          echo "✅ Pushed tag $VER → release.yml + docker-build.yml will run."
+          echo "✅ Pushed tag $VER"
+
+      # GitHub 정책: GITHUB_TOKEN 으로 push 한 태그는 다른 워크플로우의
+      # ``push.tags`` 트리거를 자동으로 발동시키지 않는다 (무한 루프 방지).
+      # 따라서 우리가 명시적으로 ``workflow_dispatch`` 로 호출해서 EXE/macOS/
+      # Docker 빌드를 시작한다.
+      - name: Trigger release + docker workflows for the new tag
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          # release.yml: input.tag 로 태그 지정
+          gh workflow run "Release (Windows EXE + GitHub Release)" \
+            --ref main \
+            -f tag="$VER"
+          echo "▶ release.yml dispatched for $VER"
+
+          # docker-build.yml: input.tag 로 태그 지정
+          gh workflow run "Build and Push Multi-Platform Docker Image" \
+            --ref main \
+            -f tag="$VER"
+          echo "▶ docker-build.yml dispatched for $VER"

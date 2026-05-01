@@ -10,6 +10,11 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+-*"
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "수동 빌드할 태그 (예: 2.0.24). 비우면 main 브랜치 빌드."
+        required: false
 
 env:
   REGISTRY: docker.io
@@ -31,8 +36,12 @@ jobs:
     - name: Generate version
       id: version
       run: |
-        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          # 태그 이름만 잘라낸 뒤 v 접두사가 있으면 제거 (2.0.22, v2.0.22 모두 지원)
+        DISPATCH_TAG="${{ github.event.inputs.tag }}"
+        if [[ -n "$DISPATCH_TAG" ]]; then
+          VERSION="${DISPATCH_TAG#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "is_release=true" >> "$GITHUB_OUTPUT"
+        elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
           TAG_NAME="${GITHUB_REF#refs/tags/}"
           VERSION="${TAG_NAME#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
