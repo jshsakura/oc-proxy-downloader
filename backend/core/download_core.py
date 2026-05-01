@@ -826,6 +826,7 @@ class DownloadCore:
                 cookies=session_cookies,
                 user_agent=session_user_agent,
                 referer=session_referer,
+                parse_url=parse_url,  # 다운로드 도중 404/410 시 재파싱에 사용
             )
             print(f"[DEBUG] 직접 다운로드 완료: {req.id}")
             return True
@@ -859,6 +860,114 @@ class DownloadCore:
             })
             return False
 
+    async def _consume_response_and_finish(
+        self,
+        req: DownloadRequest,
+        db: Session,
+        response,
+        initial_size: int,
+        download_mode: str,
+    ):
+        """200/206 응답을 받은 뒤 본문을 받아서 완료 처리까지 한다."""
+        # Content-Length 갱신
+        content_length = response.headers.get('Content-Length')
+        if content_length and (not req.total_size or req.total_size == 0):
+            req.total_size = int(content_length) + initial_size
+            db.commit()
+            print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
+
+        # 텔레그램 다운로드 시작 알림
+        try:
+            file_name = req.file_name or "Unknown File"
+            file_size = req.file_size
+            send_telegram_start_notification(file_name, download_mode, "ko", file_size)
+            print(f"[LOG] 텔레그램 다운로드 시작 알림 전송: {file_name}")
+        except Exception as telegram_error:
+            print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
+
+        # 실제 파일 다운로드
+        print(f"[DEBUG] 파일 다운로드 시작 - 초기크기: {initial_size}, 총크기: {req.total_size}")
+        downloaded_size = await download_file_content(
+            response, req.save_path, initial_size, req.total_size, req, db
+        )
+        print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
+
+        # .part → 최종 파일명 리네임
+        final_path = get_final_file_path(req.save_path)
+        if req.save_path != final_path:
+            try:
+                shutil.move(req.save_path, final_path)
+                print(f"[DEBUG] 파일 리네임: {req.save_path} -> {final_path}")
+                req.save_path = final_path
+                db.commit()
+            except Exception as rename_error:
+                print(f"[WARNING] 파일 리네임 실패: {rename_error}")
+
+        # 완료 처리
+        print(f"[LOG] 다운로드 완료 처리 시작: {req.id}")
+        req.status = StatusEnum.done
+        req.downloaded_size = downloaded_size
+        req.finished_at = datetime.datetime.now()
+        db.commit()
+
+        await self.send_download_update(req.id, {
+            "status": "done",
+            "progress": 100,
+            "message": "다운로드 완료"
+        })
+
+        # 텔레그램 성공 알림
+        try:
+            processing_time = None
+            if req.started_at and req.finished_at:
+                time_diff = req.finished_at - req.started_at
+                hours, remainder = divmod(int(time_diff.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            send_telegram_notification(
+                req.file_name, "success", language="ko",
+                file_size_str=req.file_size, save_path=req.save_path,
+                requested_time=processing_time, download_mode=download_mode,
+            )
+        except Exception as telegram_error:
+            print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
+
+        # 1fichier 연속 요청 방지를 위한 쿨다운
+        if "1fichier" in req.url.lower():
+            print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
+            await asyncio.sleep(5)
+            print(f"[LOG] 1fichier 쿨다운 완료")
+
+    async def _reparse_for_retry(
+        self,
+        req: DownloadRequest,
+        parse_url: str,
+        proxy_addr: Optional[str] = None,
+        proxies: Optional[Dict[str, str]] = None,
+    ):
+        """다운로드 도중 404/410 등으로 링크 만료가 감지됐을 때 다시 파싱한다.
+
+        반환값은 ``parse_1fichier_simple_sync`` 의 결과 dict 와 동일한 형식.
+        실패 시 ``None``.
+        """
+        if not parse_url or "1fichier.com" not in parse_url:
+            return None
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,
+                lambda: parse_1fichier_simple_sync(
+                    parse_url,
+                    req.password,
+                    proxies,
+                    proxy_addr,
+                    req.id,
+                ),
+            )
+        except Exception as reparse_error:
+            print(f"[ERROR] 재파싱 오류: {reparse_error}")
+            return None
+
     async def _download_file_directly(
         self,
         req: DownloadRequest,
@@ -867,6 +976,8 @@ class DownloadCore:
         cookies: Optional[Dict[str, str]] = None,
         user_agent: Optional[str] = None,
         referer: Optional[str] = None,
+        parse_url: Optional[str] = None,
+        max_reparse: int = 1,
     ):
         """직접 다운로드 (로컬 방식과 동일).
 
@@ -874,6 +985,11 @@ class DownloadCore:
         세션 정보를 그대로 전달받기 위한 인자다. 1fichier 의 다운로드 서버는
         파싱 세션과 동일한 쿠키/UA 가 없으면 404 를 반환하기 때문에 반드시
         함께 전달해야 한다.
+
+        ``parse_url`` 이 주어지면, 다운로드 도중 404/410 을 받았을 때 최대
+        ``max_reparse`` 회 자동으로 재파싱하여 새로운 download_url/세션을
+        받아 재시도한다. (1fichier 다운로드 링크는 발급 후 곧 만료되거나
+        세션 손실로 404 가 되는 일이 잦음.)
         """
         try:
             print(f"[LOG] 직접 다운로드 시작: {download_url}")
@@ -885,96 +1001,63 @@ class DownloadCore:
 
             timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=300)
 
-            session_cookies = cookies or {}
-            async with aiohttp.ClientSession(timeout=timeout, cookies=session_cookies) as session:
-                headers = build_download_headers(user_agent=user_agent, referer=referer)
-                initial_size = 0
+            reparse_attempted = 0
+            current_url = download_url
+            current_cookies = cookies or {}
+            current_ua = user_agent
+            current_referer = referer
 
-                # 기존 파일 확인 (이어받기 지원)
-                if os.path.exists(req.save_path):
-                    initial_size = os.path.getsize(req.save_path)
-                    headers['Range'] = f'bytes={initial_size}-'
-                    print(f"[DEBUG] 이어받기: {initial_size} bytes")
+            while True:
+                try:
+                    async with aiohttp.ClientSession(timeout=timeout, cookies=current_cookies) as session:
+                        headers = build_download_headers(user_agent=current_ua, referer=current_referer)
+                        initial_size = 0
 
-                async with session.get(download_url, headers=headers) as response:
-                    if response.status not in [200, 206]:
-                        raise Exception(f"HTTP {response.status}: {response.reason}")
+                        # 기존 파일 확인 (이어받기 지원)
+                        if os.path.exists(req.save_path):
+                            initial_size = os.path.getsize(req.save_path)
+                            headers['Range'] = f'bytes={initial_size}-'
+                            print(f"[DEBUG] 이어받기: {initial_size} bytes")
 
-                    # Content-Length 가져오기
-                    content_length = response.headers.get('Content-Length')
-                    if content_length and (not req.total_size or req.total_size == 0):
-                        req.total_size = int(content_length) + initial_size
-                        db.commit()
-                        print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
-
-                    # 텔레그램 다운로드 시작 알림
-                    try:
-                        file_name = req.file_name or "Unknown File"
-                        file_size = req.file_size
-                        download_mode = "proxy" if req.use_proxy else "local"
-                        from services.notification_service import send_telegram_start_notification, send_telegram_notification
-                        send_telegram_start_notification(file_name, download_mode, "ko", file_size)
-                        print(f"[LOG] 텔레그램 다운로드 시작 알림 전송: {file_name}")
-                    except Exception as telegram_error:
-                        print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
-
-                    # 실제 파일 다운로드
-                    print(f"[DEBUG] 파일 다운로드 시작 - 초기크기: {initial_size}, 총크기: {req.total_size}")
-                    from utils.file_helpers import download_file_content
-                    downloaded_size = await download_file_content(
-                        response, req.save_path, initial_size, req.total_size, req, db
+                        async with session.get(current_url, headers=headers) as response:
+                            if response.status not in [200, 206]:
+                                raise Exception(f"HTTP {response.status}: {response.reason}")
+                            # 응답 처리는 아래 with-블록 외부의 코드를 그대로 사용하기 위해
+                            # 같은 들여쓰기 레벨에서 이어서 처리한다.
+                            await self._consume_response_and_finish(
+                                req, db, response, initial_size,
+                                download_mode="proxy" if req.use_proxy else "local",
+                            )
+                            return  # 성공 시 즉시 종료
+                except Exception as e:
+                    err_text = str(e)
+                    expired = ("HTTP 404" in err_text or "HTTP 410" in err_text
+                               or "Not Found" in err_text or "Gone" in err_text)
+                    can_reparse = (
+                        parse_url
+                        and expired
+                        and reparse_attempted < max_reparse
+                        and "1fichier.com" in parse_url
                     )
-                    print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
+                    if not can_reparse:
+                        raise
 
-                    # .part 파일을 최종 파일명으로 리네임
-                    from utils.file_helpers import get_final_file_path
-                    final_path = get_final_file_path(req.save_path)
-                    if req.save_path != final_path:
-                        try:
-                            import shutil
-                            shutil.move(req.save_path, final_path)
-                            print(f"[DEBUG] 파일 리네임: {req.save_path} -> {final_path}")
-                            req.save_path = final_path
-                            db.commit()
-                        except Exception as rename_error:
-                            print(f"[WARNING] 파일 리네임 실패: {rename_error}")
+                    reparse_attempted += 1
+                    print(f"[WARNING] 다운로드 링크 만료/세션손실 감지({err_text}), "
+                          f"재파싱 시도 {reparse_attempted}/{max_reparse}")
 
-                    # 완료 처리
-                    print(f"[LOG] 다운로드 완료 처리 시작: {req.id}")
-                    req.status = StatusEnum.done
-                    req.downloaded_size = downloaded_size
-                    req.finished_at = datetime.datetime.now()
-                    db.commit()
+                    new_result = await self._reparse_for_retry(
+                        req, parse_url, proxy_addr=None, proxies=None,
+                    )
+                    if not new_result or not new_result.get('download_link'):
+                        raise Exception("재파싱 실패: 새 다운로드 링크를 얻지 못함")
 
-                    await self.send_download_update(req.id, {
-                        "status": "done",
-                        "progress": 100,
-                        "message": "다운로드 완료"
-                    })
-
-                    # 텔레그램 성공 알림
-                    print(f"[DEBUG] 텔레그램 성공 알림 전송 시작 (경로1): {req.file_name}")
-                    try:
-                        # 처리 시간 계산
-                        processing_time = None
-                        if req.started_at and req.finished_at:
-                            time_diff = req.finished_at - req.started_at
-                            hours, remainder = divmod(int(time_diff.total_seconds()), 3600)
-                            minutes, seconds = divmod(remainder, 60)
-                            processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-
-                        download_mode = "proxy" if req.use_proxy else "local"
-                        send_telegram_notification(req.file_name, "success", language="ko",
-                                                 file_size_str=req.file_size, save_path=req.save_path,
-                                                 requested_time=processing_time, download_mode=download_mode)
-                    except Exception as telegram_error:
-                        print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
-
-                    # 1fichier 연속 요청 방지를 위한 쿨다운
-                    if "1fichier" in req.url.lower():
-                        print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
-                        await asyncio.sleep(5)
-                        print(f"[LOG] 1fichier 쿨다운 완료")
+                    current_url = new_result['download_link']
+                    current_cookies = new_result.get('cookies') or current_cookies
+                    current_ua = new_result.get('user_agent') or current_ua
+                    current_referer = new_result.get('referer') or current_referer
+                    print(f"[LOG] 재파싱으로 새 다운로드 링크 획득: {current_url}")
+                    # 다음 루프에서 재시도
 
         except Exception as e:
             print(f"[ERROR] 직접 다운로드 실패: {e}")
@@ -1178,9 +1261,14 @@ class DownloadCore:
                 except Exception as download_error:
                     print(f"[ERROR] 다운로드 실패 ({retry_count + 1}): {download_error}")
 
-                    # 410 Gone 에러면 링크 만료 - 재파싱 시도
-                    if "410" in str(download_error) or "Gone" in str(download_error):
-                        print(f"[WARNING] 다운로드 링크 만료 감지 - 재파싱 시도")
+                    # 404/410 모두 링크 만료 또는 세션 손실 신호 - 재파싱 시도
+                    err_text = str(download_error)
+                    expired = (
+                        "404" in err_text or "410" in err_text
+                        or "Gone" in err_text or "Not Found" in err_text
+                    )
+                    if expired:
+                        print(f"[WARNING] 다운로드 링크 만료/세션 손실 감지 - 재파싱 시도")
                         try:
                             # 재파싱
                             parse_url = req.original_url if req.original_url else req.url

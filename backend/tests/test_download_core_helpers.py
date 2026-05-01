@@ -126,13 +126,14 @@ async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypa
     monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
     core.send_download_update = AsyncMock()
 
-    # 실제 파일 IO 회피 — 함수 내부의 ``from utils.file_helpers import ...``
-    # 재임포트도 같은 모듈을 가리키므로 모듈 속성을 패치하면 충분.
+    # 실제 파일 IO 회피
     import utils.file_helpers as fh
 
     monkeypatch.setattr(fh, "download_file_content", AsyncMock(return_value=0))
+    monkeypatch.setattr(dc, "download_file_content", AsyncMock(return_value=0))
     monkeypatch.setattr(fh, "get_final_file_path", lambda p: p)
     monkeypatch.setattr(dc, "get_final_file_path", lambda p: p)
+    monkeypatch.setattr(dc.shutil, "move", lambda *a, **kw: None)
 
     # 가짜 응답을 200 으로 설정
     def session_factory(*args, **kwargs):
@@ -189,3 +190,93 @@ async def test_direct_download_raises_with_aiohttp_style_404(fake_aiohttp, monke
         )
 
     assert "HTTP 404: Not Found" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_direct_download_auto_reparses_on_404(monkeypatch):
+    """404 발생 시 parse_url 이 주어지면 자동 재파싱 후 새 링크로 재시도한다."""
+
+    core = dc.DownloadCore()
+    req = _FakeDownloadRequest()
+    db = _FakeDb()
+
+    monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
+    monkeypatch.setattr(dc, "send_telegram_start_notification", lambda *a, **kw: None)
+    core.send_download_update = AsyncMock()
+
+    # 파일 IO mocking
+    import utils.file_helpers as fh
+    monkeypatch.setattr(fh, "download_file_content", AsyncMock(return_value=0))
+    monkeypatch.setattr(dc, "download_file_content", AsyncMock(return_value=0))
+    monkeypatch.setattr(fh, "get_final_file_path", lambda p: p)
+    monkeypatch.setattr(dc, "get_final_file_path", lambda p: p)
+    monkeypatch.setattr(dc.shutil, "move", lambda *a, **kw: None)
+
+    # 첫 시도 → 404, 두 번째 시도 → 200
+    call_seq = {"i": 0}
+
+    def session_factory(*args, **kwargs):
+        s = _FakeAioSession(*args, **kwargs)
+        if call_seq["i"] == 0:
+            s.response = _FakeAioResponse(404, "Not Found")
+        else:
+            s.response = _FakeAioResponse(200, "OK", headers={"Content-Length": "0"})
+        call_seq["i"] += 1
+        return s
+
+    monkeypatch.setattr(dc.aiohttp, "ClientSession", session_factory)
+
+    # 재파싱 결과 fake
+    async def fake_reparse(req, parse_url, **kw):
+        return {
+            "download_link": "https://a-2.1fichier.com/p2/movie.mkv",
+            "cookies": {"new": "cookie"},
+            "user_agent": "UA-new",
+            "referer": parse_url,
+        }
+
+    core._reparse_for_retry = fake_reparse
+
+    await core._download_file_directly(
+        req,
+        db,
+        "https://a-1.1fichier.com/p1/movie.mkv",
+        cookies={"old": "cookie"},
+        user_agent="UA-old",
+        referer="https://1fichier.com/?abc",
+        parse_url="https://1fichier.com/?abc",
+    )
+
+    # 두 번 시도(첫 실패, 둘째 성공) 했어야 함
+    assert call_seq["i"] == 2
+
+
+@pytest.mark.asyncio
+async def test_direct_download_does_not_reparse_when_parse_url_missing(monkeypatch):
+    """parse_url 이 없으면 404 를 받아도 재파싱하지 않고 그대로 raise."""
+
+    core = dc.DownloadCore()
+    req = _FakeDownloadRequest()
+    db = _FakeDb()
+
+    monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
+    monkeypatch.setattr(dc, "send_telegram_start_notification", lambda *a, **kw: None)
+    core.send_download_update = AsyncMock()
+
+    def session_factory(*args, **kwargs):
+        s = _FakeAioSession(*args, **kwargs)
+        s.response = _FakeAioResponse(404, "Not Found")
+        return s
+
+    monkeypatch.setattr(dc.aiohttp, "ClientSession", session_factory)
+
+    with pytest.raises(Exception, match="HTTP 404"):
+        await core._download_file_directly(
+            req,
+            db,
+            "https://a-1.1fichier.com/expired",
+            cookies={},
+            user_agent="UA",
+            referer=None,
+            parse_url=None,
+        )
