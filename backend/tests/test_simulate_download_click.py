@@ -177,13 +177,36 @@ class TestSimulateDownloadClick:
         assert link == "https://a-1.1fichier.com/ptoken/file.bin"
         assert scraper.post.call_count == 2
 
-    def test_unknown_response_raises_link_not_found(self):
-        """200 인데 후보를 찾을 수 없고 추가 대기도 없으면 명확한 에러를 raise."""
+    def test_unknown_response_raises_link_not_found_with_diagnostics(self):
+        """200 인데 후보를 찾을 수 없으면 디버그 단서 포함된 메시지로 raise."""
         scraper, _ = _make_scraper_with_post_response(
             status=200,
-            text="<html><body>nothing useful here</body></html>",
+            text="<html><head><title>Unexpected page</title></head><body><a href='/foo'>foo</a></body></html>",
         )
-        with pytest.raises(Exception, match="다운로드 링크"):
+        with pytest.raises(Exception) as excinfo:
+            sp.simulate_download_click(
+                scraper,
+                "https://1fichier.com/?abc",
+                WAIT_PAGE_HTML,
+                None,
+                {"User-Agent": "UA"},
+                None,
+            )
+        msg = str(excinfo.value)
+        assert "다운로드 링크를 찾을 수 없음" in msg
+        # 디버깅에 필요한 단서가 메시지에 포함돼야 함
+        assert "POST status=200" in msg
+        assert "title=" in msg
+        assert "forms=" in msg
+        assert "a_tags=" in msg
+
+    def test_post_response_with_block_reason_raises_block_message(self):
+        """POST 응답이 차단 페이지면 ``1fichier 차단`` 으로 raise."""
+        scraper, _ = _make_scraper_with_post_response(
+            status=200,
+            text="<html><body>Accès restreint – professional infrastructure detected.</body></html>",
+        )
+        with pytest.raises(Exception, match="1fichier 차단"):
             sp.simulate_download_click(
                 scraper,
                 "https://1fichier.com/?abc",

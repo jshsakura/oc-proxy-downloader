@@ -150,6 +150,50 @@ class TestPickDownloadLinkFromHtml:
         assert sp.pick_download_link_from_html(None) is None
         assert sp.pick_download_link_from_html(BeautifulSoup("", "html.parser")) is None
 
+    def test_anchor_with_standard_id_ok(self):
+        """1fichier 표준 다운로드 버튼 id='ok' 가 있으면 그 링크 우선."""
+        html = """
+        <html><body>
+            <a id="ok" href="https://example-file-host.1fichier.com/aaaabbbbccc/movie.mkv">Get</a>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        link = sp.pick_download_link_from_html(soup, html)
+        assert link == "https://example-file-host.1fichier.com/aaaabbbbccc/movie.mkv"
+
+    def test_form_action_to_download_host_is_picked(self):
+        html = """
+        <html><body>
+            <form action="https://a-1.1fichier.com/p1tok/file.bin" method="get"></form>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert sp.pick_download_link_from_html(soup, html) == \
+            "https://a-1.1fichier.com/p1tok/file.bin"
+
+    def test_javascript_location_redirect_is_picked(self):
+        html = """
+        <html><body>
+            <script>
+              setTimeout(function(){ window.location = "https://a-7.1fichier.com/p7tok/big.iso"; }, 0);
+            </script>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert sp.pick_download_link_from_html(soup, html) == \
+            "https://a-7.1fichier.com/p7tok/big.iso"
+
+    def test_relative_anchor_href_is_resolved(self):
+        html = """
+        <html><body>
+            <a id="ok" href="/p1abc/movie.mkv">Click here to download</a>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        # relative path 는 1fichier.com 메인 도메인 + 경로가 되므로
+        # is_likely_download_url 에서 다운로드 호스트가 아니라 거절됨 → None
+        assert sp.pick_download_link_from_html(soup, html) is None
+
 
 # ---------------------------------------------------------------------------
 # extract_file_info_simple

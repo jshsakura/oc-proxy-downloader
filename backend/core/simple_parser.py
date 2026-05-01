@@ -541,9 +541,13 @@ def pick_download_link_from_html(soup, raw_html=""):
 
     우선순위:
       1. 다운로드 서버 호스트(``a-X``, ``cdn-X`` 등) 로 시작하는 ``<a href>``
-      2. ``<a href>`` 중 ``download`` / ``click here`` / ``télécharger`` 텍스트를
-         가진 링크 — 단, ``is_likely_download_url`` 통과해야 함
-      3. raw HTML 정규식 매칭 — ``is_likely_download_url`` 통과해야 함
+      2. 1fichier 가 표준으로 사용하는 다운로드 버튼 id 들 (``ok``, ``dlw``,
+         ``dl``) 의 ``<a>``
+      3. ``<form action>`` 이 다운로드 호스트를 가리키는 경우
+      4. ``<a href>`` 중 ``download`` / ``click here`` / ``télécharger``
+         텍스트를 가진 링크 — ``is_likely_download_url`` 통과해야 함
+      5. JavaScript 리다이렉트 (``location.href = "..."``) 안의 URL
+      6. raw HTML 정규식 매칭 — ``is_likely_download_url`` 통과해야 함
     """
     if soup is None:
         return None
@@ -551,36 +555,67 @@ def pick_download_link_from_html(soup, raw_html=""):
     text_keywords = ('download', 'click here', 'télécharger', 'telecharger')
     keyword_candidates = []
 
-    for link in soup.find_all('a', href=True):
-        href = link.get('href') or ''
+    def _absolutize(href):
         if not href:
-            continue
+            return None
         if href.startswith('/'):
-            absolute = f"https://1fichier.com{href}"
-        else:
-            absolute = href
+            return f"https://1fichier.com{href}"
+        return href
 
-        # 1순위: 다운로드 서버 호스트
+    # 1순위 + 2순위: <a> 태그 스캔
+    for link in soup.find_all('a', href=True):
+        absolute = _absolutize(link.get('href'))
+        if not absolute:
+            continue
+
         if _DOWNLOAD_HOST_RE.match(absolute):
+            return absolute
+
+        # 1fichier 표준 다운로드 버튼 id 우선
+        link_id = (link.get('id') or '').lower()
+        if link_id in ('ok', 'dlw', 'dl', 'lnk-dl', 'btn-dl') and is_likely_download_url(absolute):
             return absolute
 
         text = link.get_text(strip=True).lower()
         if any(keyword in text for keyword in text_keywords) and is_likely_download_url(absolute):
             keyword_candidates.append(absolute)
 
+    # 3순위: form action
+    for form in soup.find_all('form', action=True):
+        action = _absolutize(form.get('action'))
+        if action and _DOWNLOAD_HOST_RE.match(action):
+            return action
+
+    # 4순위: 키워드 매칭 후보 (위에서 모은 것 중 첫 번째)
     if keyword_candidates:
         return keyword_candidates[0]
 
-    # 3순위: raw HTML 에서 정규식으로 1fichier 서브도메인 URL 추출
+    # 5순위: JavaScript 리다이렉트
+    if raw_html:
+        js_patterns = [
+            r'(?:window\.)?location(?:\.href)?\s*=\s*["\']([^"\']+)["\']',
+            r'document\.location(?:\.href)?\s*=\s*["\']([^"\']+)["\']',
+            r'location\.replace\s*\(\s*["\']([^"\']+)["\']\s*\)',
+            r'window\.open\s*\(\s*["\']([^"\']+)["\']',
+        ]
+        for pattern in js_patterns:
+            for match in re.findall(pattern, raw_html, re.IGNORECASE):
+                absolute = _absolutize(match)
+                if absolute and is_likely_download_url(absolute):
+                    return absolute
+
+    # 6순위: raw HTML 의 1fichier 서브도메인 URL 정규식
     if raw_html:
         # 파일 경로에 포함될 수 있는 . / _ - 까지 허용
-        general_pattern = r'https://[a-zA-Z0-9\-]+\.1fichier\.com/[A-Za-z0-9_\-./]+'
-        for match in re.findall(general_pattern, raw_html):
-            # 따옴표/백틱 등으로 끝나는 경우는 정규식이 거기까지만 잡으므로 OK.
-            # 경로 끝 점(``.``) 만 떼어준다.
-            cleaned = match.rstrip('.')
-            if is_likely_download_url(cleaned):
-                return cleaned
+        general_patterns = (
+            r'https?://(?:a-\d+|cdn-\d+|[a-z]-\d+|[a-z]+\d+|download|dl)\.1fichier\.com/[A-Za-z0-9_\-./]+',
+            r'https?://[a-zA-Z0-9\-]+\.1fichier\.com/[A-Za-z0-9_\-./]{8,}',
+        )
+        for pattern in general_patterns:
+            for match in re.findall(pattern, raw_html):
+                cleaned = match.rstrip('.')
+                if is_likely_download_url(cleaned):
+                    return cleaned
 
     return None
 
@@ -726,19 +761,29 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
                 if keyword.lower() in response.text.lower():
                     print(f"[DEBUG] 응답에서 제한 키워드 발견 (정상): {keyword} - 대기시간 후 다운로드 가능")
 
-            # JavaScript 리다이렉트나 다른 패턴 확인
-            js_patterns = [
-                r'location\.href\s*=\s*["\']([^"\']+)["\']',
-                r'window\.location\s*=\s*["\']([^"\']+)["\']',
-                r'document\.location\s*=\s*["\']([^"\']+)["\']'
-            ]
+        # 어떤 분기에서도 후보를 못 찾았다 — 디버깅에 도움될 단서를
+        # 메시지에 포함해 raise.
+        diag_status = response.status_code
+        try:
+            diag_soup = BeautifulSoup(response.text or "", "html.parser")
+            diag_form_count = len(diag_soup.find_all("form"))
+            diag_a_count = len(diag_soup.find_all("a", href=True))
+            diag_title = (diag_soup.title.string.strip() if diag_soup.title and diag_soup.title.string else "")
+            diag_block = detect_block_reason(response.text or "")
+        except Exception:
+            diag_form_count = -1
+            diag_a_count = -1
+            diag_title = ""
+            diag_block = None
 
-            for js_pattern in js_patterns:
-                js_matches = re.findall(js_pattern, response.text, re.IGNORECASE)
-                if js_matches:
-                    print(f"[DEBUG] JavaScript 리다이렉트 패턴 발견: {js_matches[0]}")
+        if diag_block:
+            raise Exception(f"1fichier 차단: {diag_block}")
 
-        raise Exception("다운로드 링크를 찾을 수 없음")
+        raise Exception(
+            "다운로드 링크를 찾을 수 없음 "
+            f"(POST status={diag_status}, title='{diag_title[:60]}', "
+            f"forms={diag_form_count}, a_tags={diag_a_count})"
+        )
         
     except Exception as e:
         print(f"[ERROR] 다운로드 클릭 시뮬레이션 실패: {e}")

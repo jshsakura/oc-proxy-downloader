@@ -232,30 +232,12 @@
                 {/if}
               </td>
             </tr>
-            <tr>
-              <th>{$t("detail_error_message")}</th>
-              <td>
+            <tr class="error-row">
+              <td colspan="2" class="error-cell">
                 {#if download.error_message}
                   {@const parsed = parseStructuredError(download.error_message)}
-                  <div class="error-message-container">
-                    {#if parsed}
-                      <div class="error-structured">
-                        <div class="error-stage">{parsed.headline}</div>
-                        <div class="error-summary">{parsed.summary}</div>
-                        <div class="error-action">
-                          <strong>{$t("detail_error_action") || "조치"}:</strong>
-                          {parsed.action}
-                        </div>
-                        <details class="error-raw">
-                          <summary>{$t("detail_error_raw") || "원본 메시지"}</summary>
-                          <code>{parsed.raw}</code>
-                        </details>
-                      </div>
-                    {:else}
-                      <span class="error-text" title={download.error_message}>
-                        {download.error_message}
-                      </span>
-                    {/if}
+                  <div class="error-row-header">
+                    <span class="error-row-label">{$t("detail_error_message")}</span>
                     <button
                       class="copy-button"
                       on:click={() => copyToClipboard(download.error_message)}
@@ -264,8 +246,26 @@
                       <CopyIcon />
                     </button>
                   </div>
+                  {#if parsed}
+                    <div class="error-structured">
+                      <div class="error-stage">{parsed.headline} {parsed.summary}</div>
+                      <div class="error-action">
+                        <strong>{$t("detail_error_action") || "조치"}:</strong>
+                        {parsed.action}
+                      </div>
+                      <details class="error-raw">
+                        <summary>{$t("detail_error_raw") || "원본 메시지"}</summary>
+                        <code>{parsed.raw}</code>
+                      </details>
+                    </div>
+                  {:else}
+                    <div class="error-text-block">{download.error_message}</div>
+                  {/if}
                 {:else}
-                  <span class="error-text">{$t("detail_no_error")}</span>
+                  <div class="error-row-header">
+                    <span class="error-row-label">{$t("detail_error_message")}</span>
+                    <span class="error-text">{$t("detail_no_error")}</span>
+                  </div>
                 {/if}
               </td>
             </tr>
@@ -482,38 +482,53 @@
     overflow: hidden;
   }
 
-  .error-structured {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
+  .error-row .error-cell {
+    padding: 14px 16px;
   }
-  .error-stage {
+  .error-row-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .error-row-label {
     font-weight: 600;
-    color: var(--danger-color, #dc2626);
+    color: var(--text-secondary, #6b7280);
     font-size: 13px;
   }
-  .error-summary {
+  .error-structured {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  /* 단계 + 사유를 한 줄에 흐르게 (긴 사유는 wrap 허용) */
+  .error-stage {
     color: var(--text-primary, #1f2937);
     font-size: 14px;
-    line-height: 1.4;
-    word-break: break-word;
+    line-height: 1.5;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+  .error-stage::first-letter {
+    color: var(--danger-color, #dc2626);
   }
   .error-action {
     color: var(--text-secondary, #4b5563);
     font-size: 13px;
-    line-height: 1.4;
+    line-height: 1.5;
     background: var(--surface-muted, rgba(59, 130, 246, 0.08));
     padding: 8px 10px;
     border-radius: 6px;
     border-left: 3px solid var(--primary-color, #3b82f6);
+    word-break: keep-all;
+    overflow-wrap: anywhere;
   }
   .error-action strong {
     color: var(--primary-color, #2563eb);
   }
   .error-raw {
-    margin-top: 4px;
+    margin-top: 2px;
   }
   .error-raw summary {
     cursor: pointer;
@@ -531,6 +546,13 @@
     font-size: 12px;
     color: var(--text-primary, #1f2937);
     word-break: break-all;
+  }
+  .error-text-block {
+    color: var(--text-primary, #1f2937);
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .copy-button {
