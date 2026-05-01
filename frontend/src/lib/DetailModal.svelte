@@ -454,16 +454,10 @@
     color: var(--text-primary, #1f2937);
     font-size: 13px;
     line-height: 1.5;
-    word-break: keep-all;
-    overflow-wrap: anywhere;
     min-width: 0;
-    /* 최대 2줄까지만 보여주고 그 뒤는 ... 처리. 풀 텍스트는 ``title``
-       속성에서 호버 시 보이고, 우측의 복사 버튼으로 클립보드에 받을 수
-       있다. */
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
+    /* 한 줄 고정 + 길면 ``...`` 처리. 풀 메시지는 title 호버 또는
+       옆의 복사 버튼으로 확인. */
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     cursor: help;
