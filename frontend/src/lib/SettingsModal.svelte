@@ -51,6 +51,22 @@
   let detailedGuideExpanded = false;
   let fichierAccountExpanded = false;
   let fichierTestLoading = false;
+  // 1fichier 자격증명을 이미 저장한 사용자에게는 ID/PW 입력란을 숨기고
+  // 저장된 이메일만 표시. '변경' 버튼을 누르면 다시 편집 모드로 전환.
+  let fichierEditMode = false;
+
+  function startFichierEdit() {
+    fichierEditMode = true;
+    // 비밀번호는 다시 입력하도록 비움 (이메일은 그대로 둠)
+    settings.fichier_password = "";
+  }
+
+  function clearFichierAccount() {
+    settings.fichier_email = "";
+    settings.fichier_password = "";
+    fichierEditMode = true;
+    toast.info("1fichier 계정을 비웠습니다. 저장 후 적용됩니다.");
+  }
 
   async function testFichierLogin() {
     if (!settings.fichier_email || !settings.fichier_password) {
@@ -944,59 +960,96 @@
             {#if fichierAccountExpanded}
               <div class="telegram-accordion">
                 <div class="accordion-content">
-                  <div class="telegram-input-group">
-                    <div class="input-field">
-                      <label for="fichier-email">이메일</label>
-                      <input
-                        id="fichier-email"
-                        type="email"
-                        class="input"
-                        autocomplete="username"
-                        placeholder="example@mail.com"
-                        bind:value={settings.fichier_email}
-                      />
-                      <small class="input-hint">
-                        1fichier 가입 시 사용한 이메일.
-                        <a
-                          href="https://1fichier.com/register.pl"
-                          target="_blank"
-                          rel="noopener"
-                          style="color:var(--primary-color, #3b82f6)"
-                        >무료 계정 만들기 →</a>
-                      </small>
+                  {#if settings.fichier_email && settings.fichier_password && !fichierEditMode}
+                    <!-- 저장된 자격증명: 이메일만 깔끔하게 표시 -->
+                    <div class="fichier-saved">
+                      <div class="fichier-saved-row">
+                        <span class="fichier-saved-icon" aria-hidden="true">✓</span>
+                        <div class="fichier-saved-text">
+                          <div class="fichier-saved-email">{settings.fichier_email}</div>
+                          <div class="fichier-saved-sub">로그인 정보가 저장되어 있습니다.</div>
+                        </div>
+                      </div>
+                      <div class="fichier-saved-actions">
+                        <button type="button" class="button button-secondary test-telegram-button" on:click={startFichierEdit}>
+                          변경
+                        </button>
+                        <button
+                          type="button"
+                          class="button button-secondary test-telegram-button"
+                          style="background:var(--danger-color, #dc2626); color:white"
+                          on:click={clearFichierAccount}
+                        >
+                          삭제
+                        </button>
+                      </div>
                     </div>
+                  {:else}
+                    <!-- 입력/편집 모드 -->
+                    <div class="telegram-input-group">
+                      <div class="input-field">
+                        <label for="fichier-email">이메일</label>
+                        <input
+                          id="fichier-email"
+                          type="email"
+                          class="input"
+                          autocomplete="username"
+                          placeholder="example@mail.com"
+                          bind:value={settings.fichier_email}
+                        />
+                        <small class="input-hint">
+                          1fichier 가입 시 사용한 이메일.
+                          <a
+                            href="https://1fichier.com/register.pl"
+                            target="_blank"
+                            rel="noopener"
+                            style="color:var(--primary-color, #3b82f6)"
+                          >무료 계정 만들기 →</a>
+                        </small>
+                      </div>
 
-                    <div class="input-field">
-                      <label for="fichier-password">비밀번호</label>
-                      <input
-                        id="fichier-password"
-                        type="password"
-                        class="input"
-                        autocomplete="current-password"
-                        placeholder="••••••••"
-                        bind:value={settings.fichier_password}
-                      />
-                      <small class="input-hint">
-                        설정에 평문으로 저장됩니다 (로컬에만).
-                      </small>
-                    </div>
+                      <div class="input-field">
+                        <label for="fichier-password">비밀번호</label>
+                        <input
+                          id="fichier-password"
+                          type="password"
+                          class="input"
+                          autocomplete="current-password"
+                          placeholder="••••••••"
+                          bind:value={settings.fichier_password}
+                        />
+                        <small class="input-hint">
+                          설정에 저장되어 모든 다운로드에서 자동 사용됩니다 (로컬에만).
+                        </small>
+                      </div>
 
-                    <div class="telegram-test-section">
-                      <button
-                        type="button"
-                        class="action-button"
-                        disabled={!settings.fichier_email ||
-                          !settings.fichier_password ||
-                          fichierTestLoading}
-                        on:click={testFichierLogin}
-                      >
-                        {fichierTestLoading ? "확인 중..." : "로그인 테스트"}
-                      </button>
-                      <small class="input-hint">
-                        성공하면 다운로드 시 자동으로 사용됩니다.
-                      </small>
+                      <div class="telegram-test-section">
+                        <button
+                          type="button"
+                          class="button button-secondary test-telegram-button"
+                          disabled={!settings.fichier_email ||
+                            !settings.fichier_password ||
+                            fichierTestLoading}
+                          on:click={testFichierLogin}
+                        >
+                          {fichierTestLoading ? "확인 중..." : "로그인 테스트"}
+                        </button>
+                        {#if currentSettings?.fichier_email}
+                          <button
+                            type="button"
+                            class="button button-secondary test-telegram-button"
+                            on:click={() => {
+                              settings.fichier_email = currentSettings.fichier_email || "";
+                              settings.fichier_password = currentSettings.fichier_password || "";
+                              fichierEditMode = false;
+                            }}
+                          >
+                            취소
+                          </button>
+                        {/if}
+                      </div>
                     </div>
-                  </div>
+                  {/if}
                 </div>
               </div>
             {/if}
@@ -2372,6 +2425,8 @@
   .telegram-test-section {
     display: flex;
     justify-content: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
     margin-top: 1rem;
   }
 
@@ -2379,6 +2434,61 @@
     padding: 0.75rem 1.5rem;
     font-size: 0.875rem;
     min-height: 2.5rem;
+  }
+
+  /* 1fichier 저장된 자격증명 카드 */
+  .fichier-saved {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    background: linear-gradient(
+      135deg,
+      rgba(34, 197, 94, 0.08) 0%,
+      rgba(22, 163, 74, 0.04) 100%
+    );
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    border-radius: 10px;
+  }
+  .fichier-saved-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .fichier-saved-icon {
+    flex-shrink: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    background: rgba(34, 197, 94, 0.15);
+    color: #16a34a;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+  }
+  .fichier-saved-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+    flex: 1;
+  }
+  .fichier-saved-email {
+    font-weight: 600;
+    color: var(--text-primary, #1f2937);
+    font-size: 0.95rem;
+    word-break: break-all;
+  }
+  .fichier-saved-sub {
+    color: var(--text-secondary, #6b7280);
+    font-size: 0.78rem;
+  }
+  .fichier-saved-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
   /* Telegram Setup Guide Styles */
