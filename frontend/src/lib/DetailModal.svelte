@@ -218,7 +218,10 @@
               <th>{$t("detail_error_message")}</th>
               <td>
                 <div class="error-message-container">
-                  <div class="error-text-block">
+                  <div
+                    class="error-text-block"
+                    title={download.error_message || ""}
+                  >
                     {download.error_message || $t("detail_no_error")}
                   </div>
                   {#if download.error_message}
@@ -451,10 +454,19 @@
     color: var(--text-primary, #1f2937);
     font-size: 13px;
     line-height: 1.5;
-    white-space: pre-wrap;
     word-break: keep-all;
     overflow-wrap: anywhere;
     min-width: 0;
+    /* 최대 2줄까지만 보여주고 그 뒤는 ... 처리. 풀 텍스트는 ``title``
+       속성에서 호버 시 보이고, 우측의 복사 버튼으로 클립보드에 받을 수
+       있다. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: help;
   }
 
   .copy-button {
