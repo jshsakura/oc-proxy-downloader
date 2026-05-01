@@ -125,6 +125,8 @@
   "detail_finished_at": "Finished At",
   "detail_error_message": "Error Message",
   "detail_no_error": "No error",
+  "detail_error_action": "Action",
+  "detail_error_raw": "Raw message",
   "copy_error": "Copy Error",
   "close": "Close",
   "local_title": "Local",

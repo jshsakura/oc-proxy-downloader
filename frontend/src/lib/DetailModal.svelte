@@ -26,6 +26,24 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
   }
 
+  /**
+   * 백엔드에서 ``format_error`` 가 만들어낸 구조화된 에러 메시지를 파싱.
+   *
+   * 예) "[다운로드 실패] 다운로드 링크가 만료되었거나... (HTTP 404: Not Found)\n조치: 다시 받기..."
+   * 매칭되지 않으면 ``null`` 을 반환해 raw 메시지를 그대로 보여주게 한다.
+   */
+  function parseStructuredError(text) {
+    if (!text || typeof text !== "string") return null;
+    const headlineMatch = text.match(/^\[([^\]]+)\]\s*(.+?)\s*\(([\s\S]+?)\)\s*\n?조치:\s*([\s\S]+)$/);
+    if (!headlineMatch) return null;
+    return {
+      headline: `[${headlineMatch[1]}]`,
+      summary: headlineMatch[2],
+      raw: headlineMatch[3],
+      action: headlineMatch[4].trim(),
+    };
+  }
+
   async function copyToClipboard(text) {
     try {
       if (navigator.clipboard && window.isSecureContext) {
@@ -217,11 +235,27 @@
             <tr>
               <th>{$t("detail_error_message")}</th>
               <td>
-                <div class="error-message-container">
-                  <span class="error-text" title={download.error_message || ""}>
-                    {download.error_message || $t("detail_no_error")}
-                  </span>
-                  {#if download.error_message}
+                {#if download.error_message}
+                  {@const parsed = parseStructuredError(download.error_message)}
+                  <div class="error-message-container">
+                    {#if parsed}
+                      <div class="error-structured">
+                        <div class="error-stage">{parsed.headline}</div>
+                        <div class="error-summary">{parsed.summary}</div>
+                        <div class="error-action">
+                          <strong>{$t("detail_error_action") || "조치"}:</strong>
+                          {parsed.action}
+                        </div>
+                        <details class="error-raw">
+                          <summary>{$t("detail_error_raw") || "원본 메시지"}</summary>
+                          <code>{parsed.raw}</code>
+                        </details>
+                      </div>
+                    {:else}
+                      <span class="error-text" title={download.error_message}>
+                        {download.error_message}
+                      </span>
+                    {/if}
                     <button
                       class="copy-button"
                       on:click={() => copyToClipboard(download.error_message)}
@@ -229,8 +263,10 @@
                     >
                       <CopyIcon />
                     </button>
-                  {/if}
-                </div>
+                  </div>
+                {:else}
+                  <span class="error-text">{$t("detail_no_error")}</span>
+                {/if}
               </td>
             </tr>
           </tbody>
@@ -444,6 +480,57 @@
     min-width: 0;
     max-width: calc(100% - 40px);
     overflow: hidden;
+  }
+
+  .error-structured {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .error-stage {
+    font-weight: 600;
+    color: var(--danger-color, #dc2626);
+    font-size: 13px;
+  }
+  .error-summary {
+    color: var(--text-primary, #1f2937);
+    font-size: 14px;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .error-action {
+    color: var(--text-secondary, #4b5563);
+    font-size: 13px;
+    line-height: 1.4;
+    background: var(--surface-muted, rgba(59, 130, 246, 0.08));
+    padding: 8px 10px;
+    border-radius: 6px;
+    border-left: 3px solid var(--primary-color, #3b82f6);
+  }
+  .error-action strong {
+    color: var(--primary-color, #2563eb);
+  }
+  .error-raw {
+    margin-top: 4px;
+  }
+  .error-raw summary {
+    cursor: pointer;
+    color: var(--text-secondary, #6b7280);
+    font-size: 12px;
+    user-select: none;
+  }
+  .error-raw code {
+    display: block;
+    margin-top: 4px;
+    padding: 6px 8px;
+    background: var(--code-background, rgba(0, 0, 0, 0.04));
+    border-radius: 4px;
+    font-family: "Courier New", monospace;
+    font-size: 12px;
+    color: var(--text-primary, #1f2937);
+    word-break: break-all;
   }
 
   .copy-button {

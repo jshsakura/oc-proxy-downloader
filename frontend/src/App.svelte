@@ -437,6 +437,14 @@
 
       if (message.type === "status_update") {
         const updatedDownload = message.data;
+        // 실패 메시지를 즉시 UI 에 반영 (백엔드는 message 로 보냄)
+        if (
+          updatedDownload?.status?.toLowerCase?.() === "failed" &&
+          updatedDownload?.message &&
+          !updatedDownload.error_message
+        ) {
+          updatedDownload.error_message = updatedDownload.message;
+        }
         // ID 타입 통일 (숫자로 변환)
         const downloadId = parseInt(updatedDownload.id);
         const index = downloads.findIndex((d) => parseInt(d.id) === downloadId);
@@ -489,6 +497,14 @@
         const newDownloads = [...downloads];
         
         message.data.forEach(updatedDownload => {
+          // 실패 메시지를 error_message 로도 매핑
+          if (
+            updatedDownload?.status?.toLowerCase?.() === "failed" &&
+            updatedDownload?.message &&
+            !updatedDownload.error_message
+          ) {
+            updatedDownload.error_message = updatedDownload.message;
+          }
           const index = newDownloads.findIndex((d) => d.id === updatedDownload.id);
           if (index !== -1) {
             const oldDownload = newDownloads[index];
@@ -1072,6 +1088,19 @@
     const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
     const speed = (bytesPerSecond / Math.pow(k, i)).toFixed(i >= 2 ? 2 : 1);
     return speed + " " + sizes[i];
+  }
+
+  /**
+   * 백엔드의 ``format_error`` 가 만든 메시지에서 사용자가 즉시 볼 한 줄 요약 추출.
+   * "[다운로드 실패] 다운로드 링크가 만료되었거나... (HTTP 404: Not Found)\n조치: ..."
+   * → "다운로드 링크가 만료되었거나..."
+   */
+  function extractFailureSummary(errorMessage) {
+    if (!errorMessage || typeof errorMessage !== "string") return "";
+    const m = errorMessage.match(/^\[[^\]]+\]\s*(.+?)\s*\(/);
+    if (m) return m[1];
+    // fallback: 첫 줄만 잘라서 보여줌
+    return errorMessage.split("\n")[0].slice(0, 80);
   }
 
   function getStatusTooltip(download) {
@@ -1791,6 +1820,11 @@
                         {/if}
                       {/if}
                     </span>
+                    {#if download.status?.toLowerCase() === "failed" && download.error_message}
+                      <div class="failure-reason" title={download.error_message}>
+                        {extractFailureSummary(download.error_message)}
+                      </div>
+                    {/if}
                   </td>
                   <td class="center-align">
                     {download.total_size

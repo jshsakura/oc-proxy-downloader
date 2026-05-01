@@ -122,6 +122,8 @@
   "detail_finished_at": "완료 시간",
   "detail_error_message": "에러 메시지",
   "detail_no_error": "에러 없음",
+  "detail_error_action": "조치",
+  "detail_error_raw": "원본 메시지",
   "copy_error": "에러 복사",
   "close": "닫기",
   "local_title": "로컬",

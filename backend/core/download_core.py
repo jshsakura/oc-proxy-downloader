@@ -29,7 +29,36 @@ from utils.file_helpers import download_file_content, generate_file_path, get_fi
 from core.proxy_manager import proxy_manager
 from urllib.parse import urlparse, unquote, urlunparse
 from core.models import ProxyStatus
-from core.simple_parser import parse_1fichier_simple_sync, preparse_1fichier_standalone
+from core.simple_parser import (
+    parse_1fichier_simple_sync,
+    preparse_1fichier_standalone,
+    clean_1fichier_url,
+)
+from core.error_messages import format_error
+
+
+DEFAULT_DOWNLOAD_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+
+def build_download_headers(user_agent: Optional[str] = None, referer: Optional[str] = None) -> Dict[str, str]:
+    """파싱 세션과 동일한 컨텍스트로 다운로드 요청을 보내기 위한 헤더 생성.
+
+    1fichier 의 a-X.1fichier.com 같은 다운로드 서버는 User-Agent / Referer 가
+    없으면 404 를 내려 보내는 경우가 많다. 호출부는 파싱 단계에서 사용한
+    값을 그대로 전달하면 된다.
+    """
+    headers = {
+        "User-Agent": user_agent or DEFAULT_DOWNLOAD_USER_AGENT,
+        "Accept": "*/*",
+        "Accept-Encoding": "identity",
+        "Connection": "keep-alive",
+    }
+    if referer:
+        headers["Referer"] = referer
+    return headers
 
 
 class DownloadCore:
@@ -81,23 +110,9 @@ class DownloadCore:
         if "1fichier.com" in req.url:
 
             parse_url = req.original_url if req.original_url else req.url
-            # 1fichier URL에서 첫 번째 파라미터 외 모두 제거 (안전한 방식)
-            if "1fichier.com" in parse_url:
-                try:
-                    parsed_url = urlparse(parse_url)
-                    query_parts = parsed_url.query.split('&')
-                    if len(query_parts) > 1:
-                        cleaned_query = query_parts[0]
-                        parse_url = urlunparse((
-                            parsed_url.scheme,
-                            parsed_url.netloc,
-                            parsed_url.path,
-                            parsed_url.params,
-                            cleaned_query,
-                            parsed_url.fragment
-                        ))
-                except Exception as e:
-                    print(f"[WARN] 1fichier URL 정리 실패: {e}")
+            # 1fichier URL 정리: 파일 페이지(1fichier.com/?id) 의 affiliate 등 제거.
+            # 다운로드 서버 호스트는 보존됨.
+            parse_url = clean_1fichier_url(parse_url)
             print(f"[LOG] 사전파싱 시작: {req.id}")
 
             try:
@@ -344,12 +359,15 @@ class DownloadCore:
             print(f"[ERROR] 다운로드 태스크 오류: {e}")
             req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
             if req:
+                user_message = format_error("다운로드", str(e))
                 req.status = StatusEnum.failed
-                req.error = str(e)
+                req.error = user_message
                 db.commit()
                 await self.send_download_update(req_id, {
                     "status": "failed",
-                    "message": f"다운로드 실패: {str(e)}"
+                    "message": user_message,
+                    "stage": "다운로드",
+                    "raw_error": str(e),
                 })
         finally:
             db.close()
@@ -358,6 +376,10 @@ class DownloadCore:
         """1fichier 프록시 다운로드 (원래 함수명)"""
         print(f"[DEBUG] _download_with_proxy_async 시작: {req.id}")
         await self.send_download_log(req.id, "1fichier 다운로드 시작")
+
+        # 단계 추적용 플래그 — 다운로드 단계 진입 후 실패한 경우와
+        # 파싱 단계에서 실패한 경우를 라벨링에서 구분하기 위함.
+        download_started = False
 
         # 초기 상태 설정
         print(f"[DEBUG] 초기 상태 설정: {req.id}")
@@ -752,7 +774,11 @@ class DownloadCore:
             print(f"[DEBUG] parse_result 전체: {parse_result}")
             if parse_result and parse_result.get('download_link'):
                 download_url = parse_result['download_link']
-                print(f"[LOG] 다운로드 링크 획득: {download_url}")
+                # 파싱 세션의 쿠키/헤더를 다운로드에 함께 사용 (1fichier 세션 유지용)
+                session_cookies = parse_result.get('cookies') or {}
+                session_user_agent = parse_result.get('user_agent')
+                session_referer = parse_result.get('referer') or parse_url
+                print(f"[LOG] 다운로드 링크 획득: {download_url} (cookies={len(session_cookies)})")
 
                 # 1fichier인 경우에만 원본 URL 저장 (처음 한 번만)
                 if not req.original_url and "1fichier.com" in parse_url:
@@ -778,6 +804,7 @@ class DownloadCore:
             # 즉시 파일 다운로드 시작
             req.status = StatusEnum.downloading
             db.commit()
+            download_started = True  # 이후 실패는 다운로드 단계 실패로 라벨링
 
             print(f"[DEBUG] 로컬 방식으로 직접 다운로드 시작: {req.id}")
 
@@ -793,14 +820,19 @@ class DownloadCore:
                 req.started_at = datetime.datetime.now()
                 db.commit()
 
-            # 로컬 다운로드 방식으로 직접 다운로드
-            await self._download_file_directly(req, db, download_url)
+            # 로컬 다운로드 방식으로 직접 다운로드 (파서 세션의 쿠키/헤더 전달)
+            await self._download_file_directly(
+                req, db, download_url,
+                cookies=session_cookies,
+                user_agent=session_user_agent,
+                referer=session_referer,
+            )
             print(f"[DEBUG] 직접 다운로드 완료: {req.id}")
             return True
 
         except Exception as e:
-            print(f"[ERROR] 1fichier 파싱 실패: {e}")
-            print(f"[ERROR] 파싱 오류 상세:\n{traceback.format_exc()}")
+            print(f"[ERROR] 1fichier 처리 실패: {e}")
+            print(f"[ERROR] 오류 상세:\n{traceback.format_exc()}")
 
             # 현재 상태 확인 - 정지된 경우 상태 유지
             db.refresh(req)
@@ -808,20 +840,41 @@ class DownloadCore:
                 print(f"[LOG] 다운로드 {req.id}가 이미 정지됨, 상태 유지")
                 return False
 
-            # 파싱 실패 시 실패 처리 (정지가 아닌 경우에만)
+            # 단계 라벨 결정: 다운로드 단계 진입 여부에 따라 구분
+            # (내부 함수가 status를 failed로 바꾼 후 re-raise 할 수 있어
+            # req.status가 아닌 자체 플래그로 판단해야 함)
+            stage = "다운로드" if download_started else "파싱"
+            user_message = format_error(stage, str(e))
+
             req.status = StatusEnum.failed
-            req.error = f"파싱 실패: {str(e)}"
+            req.error = user_message
             req.finished_at = datetime.datetime.now()
             db.commit()
 
             await self.send_download_update(req.id, {
                 "status": "failed",
-                "message": f"파싱 실패: {str(e)}"
+                "message": user_message,
+                "stage": stage,
+                "raw_error": str(e),
             })
             return False
 
-    async def _download_file_directly(self, req: DownloadRequest, db: Session, download_url: str):
-        """직접 다운로드 (로컬 방식과 동일)"""
+    async def _download_file_directly(
+        self,
+        req: DownloadRequest,
+        db: Session,
+        download_url: str,
+        cookies: Optional[Dict[str, str]] = None,
+        user_agent: Optional[str] = None,
+        referer: Optional[str] = None,
+    ):
+        """직접 다운로드 (로컬 방식과 동일).
+
+        cookies, user_agent, referer 는 파싱 단계에서 cloudscraper 가 사용한
+        세션 정보를 그대로 전달받기 위한 인자다. 1fichier 의 다운로드 서버는
+        파싱 세션과 동일한 쿠키/UA 가 없으면 404 를 반환하기 때문에 반드시
+        함께 전달해야 한다.
+        """
         try:
             print(f"[LOG] 직접 다운로드 시작: {download_url}")
 
@@ -832,8 +885,9 @@ class DownloadCore:
 
             timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=300)
 
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                headers = {}
+            session_cookies = cookies or {}
+            async with aiohttp.ClientSession(timeout=timeout, cookies=session_cookies) as session:
+                headers = build_download_headers(user_agent=user_agent, referer=referer)
                 initial_size = 0
 
                 # 기존 파일 확인 (이어받기 지원)
@@ -924,14 +978,17 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 직접 다운로드 실패: {e}")
+            user_message = format_error("다운로드", str(e))
             req.status = StatusEnum.failed
-            req.error = str(e)
+            req.error = user_message
             req.finished_at = datetime.datetime.now()
             db.commit()
 
             await self.send_download_update(req.id, {
                 "status": "failed",
-                "message": f"다운로드 실패: {str(e)}"
+                "message": user_message,
+                "stage": "다운로드",
+                "raw_error": str(e),
             })
 
             # 텔레그램 실패 알림
@@ -945,7 +1002,7 @@ class DownloadCore:
                     processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
                 print(f"[DEBUG] 텔레그램 실패 알림 전송 시작: {req.file_name}")
-                send_telegram_notification(req.file_name, "failed", error=str(e), language="ko",
+                send_telegram_notification(req.file_name, "failed", error=user_message, language="ko",
                                          file_size_str=req.file_size, requested_time=processing_time)
             except Exception as telegram_error:
                 print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")
@@ -970,8 +1027,17 @@ class DownloadCore:
         # 실제 로컬 다운로드 구현
         await self._perform_local_download_async(req, db)
 
-    async def _perform_file_download_async(self, req: DownloadRequest, db: Session, download_url: str = None, success_proxy: str = None):
-        """실제 파일 다운로드 수행"""
+    async def _perform_file_download_async(
+        self,
+        req: DownloadRequest,
+        db: Session,
+        download_url: str = None,
+        success_proxy: str = None,
+        cookies: Optional[Dict[str, str]] = None,
+        user_agent: Optional[str] = None,
+        referer: Optional[str] = None,
+    ):
+        """실제 파일 다운로드 수행 (파싱 세션 컨텍스트 포함)."""
         try:
             print(f"[DEBUG] 파일 다운로드 시작: {req.id}")
 
@@ -1043,8 +1109,13 @@ class DownloadCore:
                         connector = aiohttp.TCPConnector()
 
                     proxy_url = f"http://{proxy_addr}" if req.use_proxy and proxy_addr else None
-                    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                            headers = {}
+                    session_cookies = cookies or {}
+                    async with aiohttp.ClientSession(
+                        timeout=timeout,
+                        connector=connector,
+                        cookies=session_cookies,
+                    ) as session:
+                            headers = build_download_headers(user_agent=user_agent, referer=referer)
                             initial_size = 0
 
                             # 기존 파일 확인 (이어받기 지원)
@@ -1129,6 +1200,10 @@ class DownloadCore:
 
                             if new_parse_result and new_parse_result.get('download_link'):
                                 download_url = new_parse_result['download_link']
+                                # 재파싱으로 얻은 세션 컨텍스트도 갱신
+                                cookies = new_parse_result.get('cookies') or cookies
+                                user_agent = new_parse_result.get('user_agent') or user_agent
+                                referer = new_parse_result.get('referer') or referer
                                 print(f"[LOG] 재파싱 성공, 새 다운로드 링크: {download_url}")
                                 # 새 링크로 다시 시도하기 위해 continue
                                 continue
@@ -1213,14 +1288,17 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 파일 다운로드 실패: {e}")
+            user_message = format_error("다운로드", str(e))
             req.status = StatusEnum.failed
-            req.error = str(e)
+            req.error = user_message
             req.finished_at = datetime.datetime.now()
             db.commit()
 
             await self.send_download_update(req.id, {
                 "status": "failed",
-                "message": f"다운로드 실패: {str(e)}"
+                "message": user_message,
+                "stage": "다운로드",
+                "raw_error": str(e),
             })
 
             # 텔레그램 실패 알림
@@ -1234,7 +1312,7 @@ class DownloadCore:
                     processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
                 print(f"[DEBUG] 텔레그램 실패 알림 전송 시작: {req.file_name}")
-                send_telegram_notification(req.file_name, "failed", error=str(e), language="ko",
+                send_telegram_notification(req.file_name, "failed", error=user_message, language="ko",
                                          file_size_str=req.file_size, requested_time=processing_time)
             except Exception as telegram_error:
                 print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")

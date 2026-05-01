@@ -20,6 +20,84 @@ from core.db import SessionLocal
 from core.models import DownloadRequest, StatusEnum
 
 
+# 1fichier 다운로드 호스트 패턴 (a-1.1fichier.com, cdn-2.1fichier.com, s17.1fichier.com 등)
+_DOWNLOAD_HOST_RE = re.compile(
+    r"^https?://(?:a-\d+|cdn-\d+|[a-z]-\d+|[a-z]+\d+|download|dl)\.1fichier\.com/",
+    re.IGNORECASE,
+)
+
+# 명백히 다운로드 링크가 아닌 1fichier 페이지들 (제외)
+_EXCLUDE_PATH_KEYWORDS = (
+    "/cgu", "/cgv", "/mentions", "/privacy", "/about", "/tarifs",
+    "/premium", "/console", "/register", "/login", "/contact", "/faq",
+    "/abus", "/hlp", "/api.html", "/help",
+)
+
+
+def clean_1fichier_url(url):
+    """1fichier URL 에서 첫 번째 쿼리 파라미터(파일 ID) 만 남기고 나머지 제거.
+
+    1fichier 의 파일 페이지 URL 은 ``https://1fichier.com/?<file_id>`` 형식이고,
+    affiliate(``&af=...``) 같은 추가 파라미터가 붙으면 파싱에 실패할 수 있어
+    파일 ID 외의 쿼리는 제거한다.
+
+    다운로드 서버 호스트(예: ``a-1.1fichier.com``)는 토큰 쿼리를 잘라내면
+    오히려 404 가 나기 때문에 그대로 둔다.
+    """
+    if not url or "1fichier.com" not in url:
+        return url
+
+    parsed = urlparse(url)
+
+    # 다운로드 서버 호스트는 절대 건드리지 않음
+    if parsed.hostname and parsed.hostname.lower() != "1fichier.com":
+        return url
+
+    if not parsed.query:
+        return url
+
+    file_id = parsed.query.split("&", 1)[0]
+    if not file_id or file_id == parsed.query:
+        return url
+
+    return urlunparse(parsed._replace(query=file_id))
+
+
+def is_likely_download_url(candidate, base_host=None):
+    """후보 URL 이 실제 다운로드 링크일 가능성이 높은지 판단."""
+    if not candidate or not isinstance(candidate, str):
+        return False
+
+    lowered = candidate.lower()
+
+    # 명백한 정적 자산은 제외
+    for ext in (".css", ".js", ".png", ".jpg", ".jpeg", ".ico", ".svg", "favicon", "logo"):
+        if ext in lowered:
+            return False
+
+    # 메뉴/약관/콘솔 페이지는 제외
+    for keyword in _EXCLUDE_PATH_KEYWORDS:
+        if keyword in lowered:
+            return False
+
+    # 다운로드 서버 호스트면 즉시 통과
+    if _DOWNLOAD_HOST_RE.match(candidate):
+        return True
+
+    # 1fichier 메인 도메인 자체는 (다운로드가 아닌) 페이지로 판단
+    parsed = urlparse(candidate)
+    if parsed.hostname and parsed.hostname.lower() == "1fichier.com":
+        return False
+
+    # 1fichier 의 다른 서브도메인이고 파일 식별자처럼 보이는 긴 경로면 허용
+    if parsed.hostname and parsed.hostname.lower().endswith(".1fichier.com"):
+        last_segment = parsed.path.rsplit("/", 1)[-1]
+        if len(last_segment) >= 5:
+            return True
+
+    return False
+
+
 def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None, download_id=None, sse_callback=None):
     """
     1fichier 단순 파싱 로직
@@ -46,22 +124,11 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         # 1단계: 페이지 로드
         print(f"[LOG] 1fichier 페이지 로드: {url}")
 
-        # &af 등 불필요한 파라미터 제거 (파일 ID만 남김)
-        try:
-            parsed_url = urlparse(url)
-            # 1fichier는 쿼리스트링의 첫번째 값이 파일 ID임
-            file_id = parsed_url.query.split('&')[0]
-            
-            # 쿼리스트링을 파일 ID로만 재구성
-            parsed_url = parsed_url._replace(query=file_id)
-            cleaned_url = urlunparse(parsed_url)
-
-            if url != cleaned_url:
-                print(f"[LOG] 불필요한 URL 파라미터 제거 후: {cleaned_url}")
-                url = cleaned_url
-                
-        except Exception as e:
-            print(f"[WARNING] URL 파라미터 정리 중 오류: {e}")
+        # &af 등 불필요한 파라미터 제거 (파일 ID만 남김, 다운로드 호스트는 보존)
+        cleaned_url = clean_1fichier_url(url)
+        if cleaned_url != url:
+            print(f"[LOG] 불필요한 URL 파라미터 제거 후: {cleaned_url}")
+            url = cleaned_url
             
         print(f"[DEBUG] 사용 중인 프록시: {proxies}")
         print(f"[DEBUG] 헤더: {headers}")
@@ -185,12 +252,22 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         if not download_link:
             raise Exception("다운로드 링크를 찾을 수 없음")
 
+        # cloudscraper 세션의 쿠키를 dict로 추출 (aiohttp 다운로드 시 재사용)
+        try:
+            session_cookies = {c.name: c.value for c in scraper.cookies}
+        except Exception as cookie_error:
+            print(f"[WARNING] 쿠키 추출 실패: {cookie_error}")
+            session_cookies = {}
+
         result = {
             'download_link': download_link,
             'file_info': file_info,
-            'wait_time': wait_seconds
+            'wait_time': wait_seconds,
+            'cookies': session_cookies,
+            'user_agent': headers.get('User-Agent'),
+            'referer': url,
         }
-        print(f"[DEBUG] 파싱 결과 반환: download_link={download_link is not None}, file_info={file_info is not None}, wait_time={wait_seconds}")
+        print(f"[DEBUG] 파싱 결과 반환: download_link={download_link is not None}, file_info={file_info is not None}, wait_time={wait_seconds}, cookies={len(session_cookies)}")
         return result
         
     except Exception as e:
@@ -283,17 +360,11 @@ def preparse_1fichier_standalone(url):
 
         print(f"[LOG] 사전파싱 시작: {url}")
 
-        # &af 등 불필요한 파라미터 제거 (파일 ID만 남김)
-        try:
-            parsed_url = urlparse(url)
-            file_id = parsed_url.query.split('&')[0]
-            parsed_url = parsed_url._replace(query=file_id)
-            cleaned_url = urlunparse(parsed_url)
-            if url != cleaned_url:
-                print(f"[LOG] 사전파싱 URL 정리: {cleaned_url}")
-                url = cleaned_url
-        except Exception as e:
-            print(f"[WARNING] 사전파싱 URL 정리 중 오류: {e}")
+        # &af 등 불필요한 파라미터 제거 (파일 ID만 남김, 다운로드 호스트는 보존)
+        cleaned_url = clean_1fichier_url(url)
+        if cleaned_url != url:
+            print(f"[LOG] 사전파싱 URL 정리: {cleaned_url}")
+            url = cleaned_url
 
         # 사전파싱용 새 스크래퍼 생성
         scraper = cloudscraper.create_scraper(
@@ -404,6 +475,55 @@ def extract_wait_time_from_button(html_content):
         return None
 
 
+def pick_download_link_from_html(soup, raw_html=""):
+    """1fichier 응답 HTML 에서 실제 다운로드 링크 후보를 골라낸다.
+
+    우선순위:
+      1. 다운로드 서버 호스트(``a-X``, ``cdn-X`` 등) 로 시작하는 ``<a href>``
+      2. ``<a href>`` 중 ``download`` / ``click here`` / ``télécharger`` 텍스트를
+         가진 링크 — 단, ``is_likely_download_url`` 통과해야 함
+      3. raw HTML 정규식 매칭 — ``is_likely_download_url`` 통과해야 함
+    """
+    if soup is None:
+        return None
+
+    text_keywords = ('download', 'click here', 'télécharger', 'telecharger')
+    keyword_candidates = []
+
+    for link in soup.find_all('a', href=True):
+        href = link.get('href') or ''
+        if not href:
+            continue
+        if href.startswith('/'):
+            absolute = f"https://1fichier.com{href}"
+        else:
+            absolute = href
+
+        # 1순위: 다운로드 서버 호스트
+        if _DOWNLOAD_HOST_RE.match(absolute):
+            return absolute
+
+        text = link.get_text(strip=True).lower()
+        if any(keyword in text for keyword in text_keywords) and is_likely_download_url(absolute):
+            keyword_candidates.append(absolute)
+
+    if keyword_candidates:
+        return keyword_candidates[0]
+
+    # 3순위: raw HTML 에서 정규식으로 1fichier 서브도메인 URL 추출
+    if raw_html:
+        # 파일 경로에 포함될 수 있는 . / _ - 까지 허용
+        general_pattern = r'https://[a-zA-Z0-9\-]+\.1fichier\.com/[A-Za-z0-9_\-./]+'
+        for match in re.findall(general_pattern, raw_html):
+            # 따옴표/백틱 등으로 끝나는 경우는 정규식이 거기까지만 잡으므로 OK.
+            # 경로 끝 점(``.``) 만 떼어준다.
+            cleaned = match.rstrip('.')
+            if is_likely_download_url(cleaned):
+                return cleaned
+
+    return None
+
+
 def simulate_download_click(scraper, url, html_content, password, headers, proxies):
     """다운로드 버튼 클릭 시뮬레이션"""
     try:
@@ -473,8 +593,8 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
             if location and location.startswith('/'):
                 location = f"https://1fichier.com{location}"
 
-            if location and 'a-' in location:
-                print(f"[LOG] 다운로드 링크 획득: {location}")
+            if location and is_likely_download_url(location):
+                print(f"[LOG] 다운로드 링크 획득(redirect): {location}")
                 return location
 
         # HTML 응답에서 다운로드 링크 찾기
@@ -487,40 +607,12 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
 
             # 1. 먼저 특정 다운로드 링크 텍스트가 있는 <a> 태그 찾기
             soup_response = BeautifulSoup(response.text, 'html.parser')
-
-            # "Click here to download" 또는 "Download" 텍스트가 있는 링크 찾기
-            download_link_candidates = []
-
-            for link in soup_response.find_all('a', href=True):
-                href = link.get('href')
-                text = link.get_text(strip=True).lower()
-
-                # 1fichier.com 도메인이고 다운로드 관련 텍스트가 있는 링크
-                if (href and '1fichier.com' in href and
-                    any(keyword in text for keyword in ['download', 'click here', 'télécharger'])):
-                    download_link_candidates.append(href)
-                    print(f"[DEBUG] 다운로드 후보 링크 발견: {href} (텍스트: '{text}')")
-
-            # 후보가 있으면 첫 번째 반환
-            if download_link_candidates:
-                final_link = download_link_candidates[0]
-                # 상대 경로면 절대 경로로 변환
+            final_link = pick_download_link_from_html(soup_response, response.text)
+            if final_link:
                 if final_link.startswith('/'):
                     final_link = f"https://1fichier.com{final_link}"
                 print(f"[LOG] 다운로드 링크 발견: {final_link}")
                 return final_link
-
-            # 2. 백업: 1fichier.com 도메인의 모든 링크 패턴 매칭
-            general_pattern = r'https://[a-zA-Z0-9\-]+\.1fichier\.com/[a-zA-Z0-9_\-/]+'
-            matches = re.findall(general_pattern, response.text)
-            if matches:
-                # CSS, JS, 이미지 파일 및 favicon 제외
-                for match in matches:
-                    if not any(ext in match for ext in ['.css', '.js', '.png', '.jpg', '.ico', 'favicon', 'logo']):
-                        # 실제 다운로드 링크인지 확인 (최소 길이 체크)
-                        if len(match.split('/')[-1]) > 5:  # 파일 식별자가 충분히 긴지
-                            print(f"[LOG] 일반 패턴으로 다운로드 링크 발견: {match}")
-                            return match
 
             print(f"[DEBUG] 다운로드 링크 패턴 매칭 실패")
 
@@ -547,23 +639,19 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
                     if location and location.startswith('/'):
                         location = f"https://1fichier.com{location}"
 
-                    if location and 'a-' in location:
+                    if location and is_likely_download_url(location):
                         print(f"[LOG] 재시도 후 다운로드 링크 획득: {location}")
                         return location
 
                 # 재시도 응답에서 다운로드 링크 찾기
                 if retry_response.status_code == 200:
                     soup_retry = BeautifulSoup(retry_response.text, 'html.parser')
-                    for link in soup_retry.find_all('a', href=True):
-                        href = link.get('href')
-                        text = link.get_text(strip=True).lower()
-
-                        if (href and '1fichier.com' in href and
-                            any(keyword in text for keyword in ['download', 'click here', 'télécharger'])):
-                            if href.startswith('/'):
-                                href = f"https://1fichier.com{href}"
-                            print(f"[LOG] 재시도 후 다운로드 링크 발견: {href}")
-                            return href
+                    retry_link = pick_download_link_from_html(soup_retry, retry_response.text)
+                    if retry_link:
+                        if retry_link.startswith('/'):
+                            retry_link = f"https://1fichier.com{retry_link}"
+                        print(f"[LOG] 재시도 후 다운로드 링크 발견: {retry_link}")
+                        return retry_link
 
             # 응답에 실제 오류 메시지가 있는지 확인 (limit는 정상 상황이므로 제외)
             error_keywords = ['error', 'expired', 'invalid', 'not found']

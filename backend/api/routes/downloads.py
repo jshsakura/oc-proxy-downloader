@@ -18,7 +18,7 @@ from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
 from core.download_core import download_core
 from core.parser import fichier_parser
-from core.simple_parser import parse_1fichier_simple_sync
+from core.simple_parser import parse_1fichier_simple_sync, clean_1fichier_url
 from services.sse_manager import sse_manager
 
 router = APIRouter(prefix="/api", tags=["downloads"])
@@ -39,23 +39,8 @@ async def add_download(
         if not url:
             raise HTTPException(status_code=400, detail="URL이 필요합니다")
 
-        # 1fichier URL에서 첫 번째 파라미터 외 모두 제거 (안전한 방식)
-        if "1fichier.com" in url:
-            try:
-                parsed_url = urlparse(url)
-                query_parts = parsed_url.query.split('&')
-                if len(query_parts) > 1:
-                    cleaned_query = query_parts[0]
-                    url = urlunparse((
-                        parsed_url.scheme,
-                        parsed_url.netloc,
-                        parsed_url.path,
-                        parsed_url.params,
-                        cleaned_query,
-                        parsed_url.fragment
-                    ))
-            except Exception as e:
-                print(f"[WARN] 1fichier URL 정리 실패: {e}")
+        # 1fichier URL 정리 (파일 페이지의 affiliate 등 제거, 다운로드 호스트는 보존)
+        url = clean_1fichier_url(url)
 
         # 새 다운로드 요청 생성
         new_request = DownloadRequest(
