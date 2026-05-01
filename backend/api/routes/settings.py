@@ -141,6 +141,43 @@ async def select_folder(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/debug/parse-response")
+async def get_debug_parse_response(stage: str = "post"):
+    """마지막 1fichier 파싱 응답 본문 다운로드.
+
+    파라미터 ``stage`` = ``get`` 또는 ``post`` (기본 post). 본문을 그대로
+    내려주므로 사용자가 브라우저에서 ``/api/debug/parse-response?stage=post``
+    로 접근하면 즉시 HTML 다운로드 가능. docker logs 접근이 어려운 환경에서도
+    실패 진단에 사용.
+    """
+    from fastapi.responses import Response
+    from core.config import CONFIG_DIR
+
+    if stage not in ("get", "post"):
+        raise HTTPException(status_code=400, detail="stage 는 get 또는 post 여야 합니다")
+
+    path = CONFIG_DIR / f"parse_debug_{stage}.html"
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"디버그 파일 없음: {path.name} (한 번 다운로드를 시도해야 생성됨)",
+        )
+
+    try:
+        body = path.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"파일 읽기 실패: {exc}")
+
+    return Response(
+        content=body,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="parse_debug_{stage}.html"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @router.post("/fichier/test-login")
 async def test_fichier_login(request: Request):
     """저장된 1fichier 자격증명으로 로그인 테스트.

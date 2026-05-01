@@ -20,6 +20,25 @@ from core.db import SessionLocal
 from core.models import DownloadRequest, StatusEnum
 
 
+def _save_parse_debug(stage: str, status_code, body_text):
+    """파싱 실패 시 응답 본문을 ``<config>/parse_debug_<stage>.html`` 로 저장.
+
+    사용자가 docker logs 접근이 어려운 환경 (TrueNAS Apps 등) 에서도
+    ``GET /api/debug/last-parse-response`` 또는 상세 모달의 디버그 링크로
+    내려받아 패치 분석에 사용한다.
+    """
+    try:
+        from core.config import CONFIG_DIR
+        from datetime import datetime
+        path = CONFIG_DIR / f"parse_debug_{stage}.html"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"<!-- saved at {datetime.utcnow().isoformat()}Z, status={status_code} -->\n")
+            f.write(body_text or "")
+        print(f"[LOG] 파싱 응답 본문을 디버그 파일로 저장: {path}")
+    except Exception as save_err:
+        print(f"[WARNING] 파싱 디버그 저장 실패: {save_err}")
+
+
 # 1fichier 다운로드 호스트 패턴 (a-1.1fichier.com, cdn-2.1fichier.com, s17.1fichier.com 등)
 _DOWNLOAD_HOST_RE = re.compile(
     r"^https?://(?:a-\d+|cdn-\d+|[a-z]-\d+|[a-z]+\d+|download|dl)\.1fichier\.com/",
@@ -208,6 +227,9 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         except Exception as e:
             print(f"[ERROR] 페이지 로드 중 예외 발생: {e}")
             raise e
+
+        # GET 응답은 항상 디버그용으로 저장 (성공해도 흐름 추적 가능)
+        _save_parse_debug("get", response.status_code, response.text)
 
         if response.status_code != 200:
             print(f"[ERROR] 페이지 로드 실패 - 응답 내용: {response.text[:500]}")
@@ -708,6 +730,9 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
             if location and is_likely_download_url(location):
                 print(f"[LOG] 다운로드 링크 획득(redirect): {location}")
                 return location
+
+        # POST 응답은 항상 디버그용으로 저장 (성공/실패 무관)
+        _save_parse_debug("post", response.status_code, response.text)
 
         # HTML 응답에서 다운로드 링크 찾기
         if response.status_code == 200:
