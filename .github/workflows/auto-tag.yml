@@ -14,7 +14,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write   # 태그 생성/푸시
+  actions: write    # 다른 워크플로우 dispatch (release.yml / docker-build.yml)
 
 jobs:
   auto-tag:
