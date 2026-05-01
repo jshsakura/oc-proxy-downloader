@@ -49,6 +49,36 @@
   let telegramGuideExpanded = false;
   let telegramSettingsExpanded = false;
   let detailedGuideExpanded = false;
+  let fichierAccountExpanded = false;
+  let fichierTestLoading = false;
+
+  async function testFichierLogin() {
+    if (!settings.fichier_email || !settings.fichier_password) {
+      toast.error("이메일과 비밀번호를 모두 입력해주세요.");
+      return;
+    }
+    fichierTestLoading = true;
+    try {
+      const res = await fetch("/api/fichier/test-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: settings.fichier_email,
+          password: settings.fichier_password,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message || "로그인 성공");
+      } else {
+        toast.error(data.message || "로그인 실패");
+      }
+    } catch (e) {
+      toast.error("로그인 테스트 중 오류: " + e);
+    } finally {
+      fichierTestLoading = false;
+    }
+  }
   let showLogoutConfirm = false;
 
   // 버전 정보
@@ -889,68 +919,87 @@
             {/if}
           </div>
 
-          <!-- 1fichier 계정 로그인 (게스트 슬롯 부족 / CGNAT 우회용) -->
-          <fieldset class="form-group fichier-account">
+          <!-- 1fichier 계정 (게스트 슬롯 부족 우회) -->
+          <fieldset class="form-group telegram-notifications">
             <legend>1fichier 계정</legend>
-            <p class="form-hint">
-              무료 게스트 슬롯이 가득 차서 다운로드가 거부될 때, 1fichier 계정에
-              로그인된 세션으로 우회합니다.
-              <a href="https://1fichier.com/register.pl" target="_blank" rel="noopener">
-                무료 계정 만들기 →
-              </a>
-            </p>
 
-            <div class="form-row">
-              <label for="fichier-email">이메일</label>
-              <input
-                id="fichier-email"
-                type="email"
-                autocomplete="username"
-                placeholder="example@mail.com"
-                bind:value={settings.fichier_email}
-              />
-            </div>
+            <button
+              type="button"
+              class="telegram-header"
+              on:click={() => (fichierAccountExpanded = !fichierAccountExpanded)}
+            >
+              <div class="telegram-info">
+                <p class="telegram-desc">🔑 1fichier 무료 계정 로그인</p>
+                <p class="telegram-sub">게스트 슬롯이 가득 찼을 때 자동으로 인증된 세션 사용</p>
+              </div>
+              <div class="toggle-chevron" class:expanded={fichierAccountExpanded}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6,9 12,15 18,9"></polyline>
+                </svg>
+              </div>
+            </button>
 
-            <div class="form-row">
-              <label for="fichier-password">비밀번호</label>
-              <input
-                id="fichier-password"
-                type="password"
-                autocomplete="current-password"
-                placeholder="••••••••"
-                bind:value={settings.fichier_password}
-              />
-            </div>
+            {#if fichierAccountExpanded}
+              <div class="telegram-accordion">
+                <div class="accordion-content">
+                  <div class="telegram-input-group">
+                    <div class="input-field">
+                      <label for="fichier-email">이메일</label>
+                      <input
+                        id="fichier-email"
+                        type="email"
+                        class="input"
+                        autocomplete="username"
+                        placeholder="example@mail.com"
+                        bind:value={settings.fichier_email}
+                      />
+                      <small class="input-hint">
+                        1fichier 가입 시 사용한 이메일.
+                        <a
+                          href="https://1fichier.com/register.pl"
+                          target="_blank"
+                          rel="noopener"
+                          style="color:var(--primary-color, #3b82f6)"
+                        >무료 계정 만들기 →</a>
+                      </small>
+                    </div>
 
-            <div class="form-actions">
-              <button
-                type="button"
-                class="btn-secondary"
-                on:click={async () => {
-                  try {
-                    const res = await fetch("/api/fichier/test-login", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        email: settings.fichier_email,
-                        password: settings.fichier_password,
-                      }),
-                    });
-                    const data = await res.json();
-                    if (data.success) {
-                      toast.success(data.message);
-                    } else {
-                      toast.error(data.message);
-                    }
-                  } catch (e) {
-                    toast.error("로그인 테스트 중 오류: " + e);
-                  }
-                }}
-                disabled={!settings.fichier_email || !settings.fichier_password}
-              >
-                로그인 테스트
-              </button>
-            </div>
+                    <div class="input-field">
+                      <label for="fichier-password">비밀번호</label>
+                      <input
+                        id="fichier-password"
+                        type="password"
+                        class="input"
+                        autocomplete="current-password"
+                        placeholder="••••••••"
+                        bind:value={settings.fichier_password}
+                      />
+                      <small class="input-hint">
+                        설정에 평문으로 저장됩니다 (로컬에만).
+                      </small>
+                    </div>
+
+                    <div class="telegram-test-section">
+                      <button
+                        type="button"
+                        class="action-button"
+                        disabled={!settings.fichier_email ||
+                          !settings.fichier_password ||
+                          fichierTestLoading}
+                        on:click={testFichierLogin}
+                      >
+                        {fichierTestLoading ? "확인 중..." : "로그인 테스트"}
+                      </button>
+                      <small class="input-hint">
+                        성공하면 다운로드 시 자동으로 사용됩니다.
+                      </small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {/if}
           </fieldset>
 
           <fieldset class="form-group telegram-notifications">
