@@ -2281,6 +2281,17 @@
     gap: 0.5rem;
   }
 
+  /* 헤더 보조 문구 — 부모 <button> 의 기본 색(black)을 상속하지 않게
+     명시적으로 테마 변수 사용. 누락 시 라이트 모드에서 검정 고정으로
+     보여 다크/드라큘라 테마와 안 맞는 문제가 있었음. */
+  .telegram-sub {
+    margin: 0.25rem 0 0 0;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.4;
+    font-weight: 400;
+  }
+
   .toggle-chevron {
     display: flex;
     align-items: center;
