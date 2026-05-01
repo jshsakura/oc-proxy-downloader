@@ -2,8 +2,12 @@ name: Build and Push Multi-Platform Docker Image
 
 on:
   push:
-    branches: [ "main" ]  # Push to main = latest tag (linux/amd64 + linux/arm64)
-    tags: [ "v*" ]       # Version tags = versioned releases (linux/amd64 + linux/arm64)
+    branches: [ "main" ]   # Push to main = latest tag
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"      # 권장: 순수 SemVer (2.0.22)
+      - "[0-9]+.[0-9]+.[0-9]+-*"
+      - "v[0-9]+.[0-9]+.[0-9]+"     # 호환: v 접두사 (v2.0.21 등 기존 태그)
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
   pull_request:
     branches: [ "main" ]
 

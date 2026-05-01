@@ -3,11 +3,16 @@ name: Release (Windows EXE + GitHub Release)
 on:
   push:
     tags:
-      - "v*"
+      # 순수 SemVer 형식 (권장): 2.0.22, 10.1.0
+      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-*"
+      # 기존 호환: v2.0.21 같은 prefix 형식
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "기존 태그를 다시 빌드/릴리스 (예: v2.0.21)"
+        description: "기존 태그를 다시 빌드/릴리스 (예: 2.0.22 또는 v2.0.22)"
         required: false
 
 permissions:
@@ -20,7 +25,9 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      # tag_name: 실제 git 태그 이름 (예: 2.0.22 또는 v2.0.22 — 푸시한 그대로 사용)
+      tag_name: ${{ steps.version.outputs.tag_name }}
+      # version_no_v: v prefix 를 항상 제거한 순수 버전 (예: 2.0.22) — Docker 태그/파일명 등에 사용
       version_no_v: ${{ steps.version.outputs.version_no_v }}
       tag_ref: ${{ steps.version.outputs.tag_ref }}
     steps:
@@ -34,19 +41,23 @@ jobs:
         shell: bash
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
             TAG_REF="${GITHUB_REF}"
           elif [[ -n "${{ github.event.inputs.tag }}" ]]; then
-            VERSION="${{ github.event.inputs.tag }}"
-            TAG_REF="refs/tags/${VERSION}"
+            TAG_NAME="${{ github.event.inputs.tag }}"
+            TAG_REF="refs/tags/${TAG_NAME}"
           else
             echo "::error::tag 입력이 없고 push 이벤트도 아닙니다."
             exit 1
           fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "version_no_v=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+          # 사용자가 v 를 붙였든 안 붙였든 항상 v 제거한 형식을 별도로 보관
+          VERSION_NO_V="${TAG_NAME#v}"
+
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_no_v=${VERSION_NO_V}" >> "$GITHUB_OUTPUT"
           echo "tag_ref=${TAG_REF}" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: ${VERSION}"
+          echo "Resolved tag: ${TAG_NAME} (semver=${VERSION_NO_V})"
 
   # ---------------------------------------------------------------------------
   # Windows EXE 빌드 (PyInstaller)
@@ -115,7 +126,7 @@ jobs:
         working-directory: standalone/dist
         shell: pwsh
         run: |
-          $newName = "oc-proxy-downloader-${{ needs.prepare.outputs.version }}-win-x64.exe"
+          $newName = "oc-proxy-downloader-${{ needs.prepare.outputs.version_no_v }}-win-x64.exe"
           Rename-Item -Path "oc-proxy-downloader.exe" -NewName $newName
           Write-Host "Renamed to $newName"
 
@@ -161,24 +172,25 @@ jobs:
         id: notes
         shell: bash
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          PREV_TAG=$(git describe --tags --abbrev=0 "${VERSION}^" 2>/dev/null || echo "")
+          TAG_NAME="${{ needs.prepare.outputs.tag_name }}"
+          VERSION_NO_V="${{ needs.prepare.outputs.version_no_v }}"
+          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG_NAME}^" 2>/dev/null || echo "")
 
           if [ -n "$PREV_TAG" ]; then
-            CHANGES=$(git log --pretty=format:'- %s (%h)' "${PREV_TAG}..${VERSION}")
+            CHANGES=$(git log --pretty=format:'- %s (%h)' "${PREV_TAG}..${TAG_NAME}")
             COMPARE_LINE="**Changes since \`${PREV_TAG}\`:**"
           else
-            CHANGES=$(git log --pretty=format:'- %s (%h)' -20 "${VERSION}")
+            CHANGES=$(git log --pretty=format:'- %s (%h)' -20 "${TAG_NAME}")
             COMPARE_LINE="**Recent changes:**"
           fi
 
           {
             echo "notes<<__EOF__"
-            echo "## OC Proxy Downloader ${VERSION}"
+            echo "## OC Proxy Downloader ${VERSION_NO_V}"
             echo
             echo "### Downloads"
-            echo "- 🪟 **Windows (x64)**: \`oc-proxy-downloader-${VERSION}-win-x64.exe\` (첨부 파일 참고)"
-            echo "- 🐳 **Docker**: \`docker pull ${{ github.repository_owner }}/oc-proxy-downloader:${{ needs.prepare.outputs.version_no_v }}\`"
+            echo "- 🪟 **Windows (x64)**: \`oc-proxy-downloader-${VERSION_NO_V}-win-x64.exe\` (첨부 파일 참고)"
+            echo "- 🐳 **Docker**: \`docker pull ${{ github.repository_owner }}/oc-proxy-downloader:${VERSION_NO_V}\`"
             echo
             echo "${COMPARE_LINE}"
             echo
@@ -189,8 +201,8 @@ jobs:
       - name: Create / Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.prepare.outputs.version }}
-          name: ${{ needs.prepare.outputs.version }}
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          name: ${{ needs.prepare.outputs.version_no_v }}
           body: ${{ steps.notes.outputs.notes }}
           files: |
             artifacts/*.exe
