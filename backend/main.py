@@ -171,7 +171,7 @@ def main():
     try:
         # 개발 서버 실행 - 빠른 종료 설정
         # 환경별 포트 설정
-        port = 8888 if getattr(sys, 'frozen', False) else 8000
+        port = int(os.environ.get('OC_PORT', '8888' if getattr(sys, 'frozen', False) else '8000'))
 
         config = uvicorn.Config(
             app,  # PyInstaller 환경에서는 직접 app 객체 전달

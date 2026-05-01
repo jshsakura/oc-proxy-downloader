@@ -63,6 +63,55 @@ def clean_1fichier_url(url):
     return urlunparse(parsed._replace(query=file_id))
 
 
+def detect_block_reason(html_content):
+    """1fichier 응답 HTML 에서 명시적인 차단/만료 사유를 식별.
+
+    1fichier 는 status 200 으로 응답하면서도 본문에서 다음과 같은 상태를
+    드러내는 경우가 많다:
+
+    - VPS/VPN IP 차단 ("Accès restreint", "professional infrastructure detected")
+    - 파일이 삭제되었거나 신고됨 ("File not found", "removed", "deleted")
+    - Cloudflare 챌린지 페이지가 그대로 노출되는 경우
+    - 일시적 점검 페이지
+
+    이런 경우 폼이 없으니 ``parse_1fichier_simple_sync`` 가 ``다운로드 폼을
+    찾을 수 없음`` 을 raise 해서 사용자는 진짜 원인을 알 수 없다.
+    이 함수는 본문에서 차단 사유를 골라내 한국어 키워드로 반환하거나,
+    매칭이 없으면 ``None`` 을 반환한다.
+    """
+    if not html_content:
+        return None
+
+    text = html_content.lower()
+
+    block_rules = (
+        # VPS/VPN/프록시 차단
+        ("accès restreint", "VPS/VPN IP 차단"),
+        ("acces restreint", "VPS/VPN IP 차단"),
+        ("professional infrastructure detected", "VPS/VPN IP 차단"),
+        ("server, proxy, vpn", "VPS/VPN IP 차단"),
+        ("unauthorized personal vpn", "VPS/VPN IP 차단"),
+        # 파일 상태
+        ("file not found", "파일 없음 또는 삭제됨"),
+        ("the file has been deleted", "파일 삭제됨"),
+        ("the requested file has been removed", "파일 삭제됨"),
+        ("le fichier a été supprimé", "파일 삭제됨"),
+        ("file has been reported", "파일이 신고되어 차단됨"),
+        # 한도/속도 제한
+        ("you must wait", None),  # 대기시간이면 정상 흐름이므로 무시 (None 으로 표시)
+        ("limited to 1 download", "무료 다운로드 한도 초과"),
+        # Cloudflare 챌린지
+        ("attention required! | cloudflare", "Cloudflare 챌린지(우회 실패)"),
+        ("checking your browser before accessing", "Cloudflare 챌린지(우회 실패)"),
+    )
+
+    for needle, reason in block_rules:
+        if needle in text:
+            return reason  # None 이면 무시 의미
+
+    return None
+
+
 def is_likely_download_url(candidate, base_host=None):
     """후보 URL 이 실제 다운로드 링크일 가능성이 높은지 판단."""
     if not candidate or not isinstance(candidate, str):
@@ -147,7 +196,13 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         if response.status_code != 200:
             print(f"[ERROR] 페이지 로드 실패 - 응답 내용: {response.text[:500]}")
             raise Exception(f"페이지 로드 실패: HTTP {response.status_code}")
-        
+
+        # 1.5단계: 본문 차단 사유 감지 (200 인데도 폼이 없는 케이스)
+        block_reason = detect_block_reason(response.text)
+        if block_reason:
+            print(f"[ERROR] 1fichier 페이지 차단 감지: {block_reason}")
+            raise Exception(f"1fichier 차단: {block_reason}")
+
         # 2단계: 파일 정보 추출
         print(f"[DEBUG] HTML 미리보기 (처음 500자):")
         print(response.text[:500])
@@ -385,6 +440,12 @@ def preparse_1fichier_standalone(url):
 
         if response.status_code != 200:
             print(f"[ERROR] 사전파싱 실패: HTTP {response.status_code}")
+            return None
+
+        # 차단 사유가 본문에 있으면 사전파싱 실패로 명시 (이후 본 파싱에서 동일하게 raise 됨)
+        block_reason = detect_block_reason(response.text)
+        if block_reason:
+            print(f"[WARNING] 사전파싱: 차단 감지 - {block_reason}")
             return None
 
         # 파일 정보 추출

@@ -137,3 +137,6 @@ docker-compose.override.yml
 *.flac
 
 .venv
+# Playwright/Local verification artifacts
+.playwright-mcp/
+verify-*.png
