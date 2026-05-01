@@ -1090,19 +1090,6 @@
     return speed + " " + sizes[i];
   }
 
-  /**
-   * 백엔드의 ``format_error`` 가 만든 메시지에서 사용자가 즉시 볼 한 줄 요약 추출.
-   * "[다운로드 실패] 다운로드 링크가 만료되었거나... (HTTP 404: Not Found)\n조치: ..."
-   * → "다운로드 링크가 만료되었거나..."
-   */
-  function extractFailureSummary(errorMessage) {
-    if (!errorMessage || typeof errorMessage !== "string") return "";
-    const m = errorMessage.match(/^\[[^\]]+\]\s*(.+?)\s*\(/);
-    if (m) return m[1];
-    // fallback: 첫 줄만 잘라서 보여줌
-    return errorMessage.split("\n")[0].slice(0, 80);
-  }
-
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
 
@@ -1820,11 +1807,6 @@
                         {/if}
                       {/if}
                     </span>
-                    {#if download.status?.toLowerCase() === "failed" && download.error_message}
-                      <div class="failure-reason" title={download.error_message}>
-                        {extractFailureSummary(download.error_message)}
-                      </div>
-                    {/if}
                   </td>
                   <td class="center-align">
                     {download.total_size
