@@ -294,6 +294,7 @@
   $: if (!showModal) {
     settings = {};
     isInitialized = false;
+    fichierEditMode = false;
   }
 
   $: if (showModal) {
@@ -960,7 +961,7 @@
             {#if fichierAccountExpanded}
               <div class="telegram-accordion">
                 <div class="accordion-content">
-                  {#if settings.fichier_email && settings.fichier_password && !fichierEditMode}
+                  {#if currentSettings?.fichier_email && currentSettings?.fichier_password && !fichierEditMode}
                     <!-- 저장된 자격증명: 이메일만 깔끔하게 표시 -->
                     <div class="fichier-saved">
                       <div class="fichier-saved-row">
