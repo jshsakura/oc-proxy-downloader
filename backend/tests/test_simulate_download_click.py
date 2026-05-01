@@ -216,6 +216,32 @@ class TestSimulateDownloadClick:
                 None,
             )
 
+    def test_post_response_returning_homepage_raises_form_rejection(self):
+        """차단 메시지 없이 홈페이지가 반환된 케이스 — 폼 제출 거부로 분류."""
+        homepage = """
+        <html>
+          <head><title>1fichier.com: Cloud Storage</title></head>
+          <body>
+            <a href="/">Home</a>
+            <a href="/tarifs.html">Prices</a>
+            <a href="/register.pl">Register</a>
+          </body>
+        </html>
+        """
+        scraper, _ = _make_scraper_with_post_response(status=200, text=homepage)
+        with pytest.raises(Exception) as excinfo:
+            sp.simulate_download_click(
+                scraper,
+                "https://1fichier.com/?abc",
+                WAIT_PAGE_HTML,
+                None,
+                {"User-Agent": "UA"},
+                None,
+            )
+        msg = str(excinfo.value)
+        assert "폼 제출 거부" in msg
+        assert "POST status=200" in msg
+
 
 # ---------------------------------------------------------------------------
 # parse_1fichier_simple_sync

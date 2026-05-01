@@ -39,6 +39,11 @@ class TestClassify:
         assert expected_kw_in_summary in result.summary
         assert result.action  # 조치 문구가 비어있지 않아야 함
 
+    def test_form_rejection_pattern_classified_with_cgnat_hint(self):
+        c = classify_error("파싱", "1fichier 폼 제출 거부: 다운로드 페이지 대신 홈페이지가 반환됨 (POST status=200, a_tags=21)")
+        assert "거부" in c.summary
+        assert "CGNAT" in c.action or "프록시" in c.action
+
     def test_unknown_pattern_falls_back_with_generic_action(self):
         result = classify_error("다운로드", "weird_unmatched_error_blob")
         assert result.summary == "원인을 자동으로 분류하지 못했습니다"

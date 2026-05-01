@@ -779,6 +779,16 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
         if diag_block:
             raise Exception(f"1fichier 차단: {diag_block}")
 
+        # POST 응답이 홈페이지로 돌아온 케이스 — 1fichier 가 폼 제출을
+        # 거부 (한도/세션/자동화 감지 등). title 이 'Cloud Storage' 인데
+        # form 이 하나도 없으면 다운로드 페이지가 아니라 홈페이지.
+        if diag_form_count == 0 and "cloud storage" in (diag_title or "").lower():
+            raise Exception(
+                "1fichier 폼 제출 거부: 다운로드 페이지 대신 홈페이지가 반환됨 "
+                "(세션 만료/한도 초과/자동화 감지 가능성, "
+                f"POST status={diag_status}, a_tags={diag_a_count})"
+            )
+
         raise Exception(
             "다운로드 링크를 찾을 수 없음 "
             f"(POST status={diag_status}, title='{diag_title[:60]}', "
