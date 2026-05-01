@@ -1,0 +1,74 @@
+name: Auto-tag on version bump
+
+# main 브랜치에 ``backend/core/version.py`` 의 ``CURRENT_VERSION`` 이 바뀌어
+# push 되면, 그 값으로 SemVer 태그를 자동 생성·푸시한다.
+# 그 태그가 다시 ``release.yml`` 과 ``docker-build.yml`` 을 트리거하므로
+# 사용자는 version.py 만 올려서 push 하면 EXE / macOS zip / Docker / GitHub
+# Release 가 한 번에 발행된다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/core/version.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read CURRENT_VERSION
+        id: ver
+        shell: bash
+        run: |
+          # backend/core/version.py 에서 버전 추출 (v 접두사가 있어도 떼어냄)
+          RAW=$(grep -oP 'CURRENT_VERSION\s*=\s*"v?\K[0-9]+\.[0-9]+\.[0-9]+(?=")' backend/core/version.py || true)
+          if [ -z "$RAW" ]; then
+            echo "::error::version.py 에서 CURRENT_VERSION 을 읽을 수 없습니다."
+            exit 1
+          fi
+          # SemVer 형식 검증
+          if ! [[ "$RAW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::CURRENT_VERSION 형식이 SemVer 가 아닙니다: $RAW"
+            exit 1
+          fi
+          echo "version=$RAW" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $RAW"
+
+      - name: Check if tag already exists
+        id: check
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          if git rev-parse "$VER" >/dev/null 2>&1 || git rev-parse "v$VER" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $VER (or v$VER) already exists. Nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $VER does not exist yet. Will create."
+          fi
+
+      - name: Configure git identity
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        if: steps.check.outputs.exists == 'false'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          MSG="Release $VER (auto-tagged from version.py bump)"
+          git tag -a "$VER" -m "$MSG"
+          git push origin "$VER"
+          echo "✅ Pushed tag $VER → release.yml + docker-build.yml will run."
