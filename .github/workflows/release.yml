@@ -150,10 +150,87 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # macOS arm64 (Apple Silicon) 빌드
+  # ---------------------------------------------------------------------------
+  build-macos-arm64:
+    needs: prepare
+    runs-on: macos-14   # Apple Silicon (arm64) 러너
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag_ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Run backend tests (smoke)
+        working-directory: backend
+        run: |
+          pip install pytest pytest-asyncio
+          pytest tests/ -q
+
+      - name: Build macOS binary with PyInstaller
+        working-directory: standalone
+        run: |
+          python -m PyInstaller --clean --noconfirm oc-proxy-downloader.spec
+
+      - name: Verify and rename binary
+        working-directory: standalone/dist
+        run: |
+          if [ ! -f "oc-proxy-downloader" ]; then
+            echo "::error::macOS binary not produced"
+            ls -la
+            exit 1
+          fi
+          chmod +x oc-proxy-downloader
+          file oc-proxy-downloader
+          NEW_NAME="oc-proxy-downloader-${{ needs.prepare.outputs.version_no_v }}-macos-arm64"
+          mv oc-proxy-downloader "${NEW_NAME}"
+          # Gatekeeper 주의: zip 으로 묶어 실행 권한 보존
+          zip -j "${NEW_NAME}.zip" "${NEW_NAME}"
+          # SHA256
+          shasum -a 256 "${NEW_NAME}.zip" | tee "${NEW_NAME}.zip.sha256"
+          ls -la
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-proxy-downloader-macos-arm64
+          path: |
+            standalone/dist/*.zip
+            standalone/dist/*.sha256
+          retention-days: 30
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # GitHub Release 생성 + 산출물 첨부
   # ---------------------------------------------------------------------------
   release:
-    needs: [prepare, build-windows]
+    needs: [prepare, build-windows, build-macos-arm64]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -166,6 +243,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: oc-proxy-downloader-windows
+          path: ./artifacts
+
+      - name: Download macOS arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: oc-proxy-downloader-macos-arm64
           path: ./artifacts
 
       - name: Compose release notes
@@ -190,6 +273,9 @@ jobs:
             echo
             echo "### Downloads"
             echo "- 🪟 **Windows (x64)**: \`oc-proxy-downloader-${VERSION_NO_V}-win-x64.exe\` (첨부 파일 참고)"
+            echo "- 🍎 **macOS (Apple Silicon, arm64)**: \`oc-proxy-downloader-${VERSION_NO_V}-macos-arm64.zip\`"
+            echo "  > 처음 실행 시 Gatekeeper 가 차단할 수 있습니다."
+            echo "  > 터미널에서 \`xattr -d com.apple.quarantine oc-proxy-downloader-${VERSION_NO_V}-macos-arm64\` 실행 후 사용하세요."
             echo "- 🐳 **Docker**: \`docker pull ${{ github.repository_owner }}/oc-proxy-downloader:${VERSION_NO_V}\`"
             echo
             echo "${COMPARE_LINE}"
@@ -206,6 +292,7 @@ jobs:
           body: ${{ steps.notes.outputs.notes }}
           files: |
             artifacts/*.exe
+            artifacts/*.zip
             artifacts/*.sha256
           draft: false
           prerelease: false

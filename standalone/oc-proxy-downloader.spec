@@ -104,6 +104,11 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 _version_file = Path('version_info.txt')
+_is_windows = sys.platform.startswith('win')
+# 아이콘은 .ico (Windows) 만 지원. macOS/Linux 빌드 시에는 None 으로 전달해
+# PyInstaller 의 포맷 경고를 피한다.
+_icon_path = 'app_icon.ico' if _is_windows else None
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -124,7 +129,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='app_icon.ico',
-    version=str(_version_file) if _version_file.exists() and sys.platform.startswith('win') else None,
+    icon=_icon_path,
+    version=str(_version_file) if _version_file.exists() and _is_windows else None,
     contents_directory='.',
 )
