@@ -1,5 +1,7 @@
 # 1단계: Svelte 프론트엔드 빌드
-FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
+# 베이스 이미지는 AWS Public ECR 의 Docker 라이브러리 미러를 사용한다.
+# Docker Hub 의 anonymous pull rate limit (HTTP 429) 회피용.
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/node:20-alpine AS frontend-build
 WORKDIR /app/frontend
 
 # 의존성 파일들만 먼저 복사하여 캐싱 최적화
@@ -11,7 +13,8 @@ COPY frontend/ ./
 RUN npm run build
 
 # 2단계: Python FastAPI 백엔드 + 정적 파일
-FROM python:3.11-slim AS backend
+# AWS Public ECR 의 Docker 라이브러리 미러 사용 (Docker Hub 429 회피).
+FROM public.ecr.aws/docker/library/python:3.11-slim AS backend
 
 # Build arguments for multi-platform
 ARG TARGETPLATFORM
