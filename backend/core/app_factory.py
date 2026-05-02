@@ -28,6 +28,27 @@ AUTH_PASSWORD = os.getenv('AUTH_PASSWORD')
 AUTHENTICATION_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
 
 
+SHUTDOWN_TIMEOUT_SEC = 5.0
+TASK_CANCEL_TIMEOUT_SEC = 3.0
+
+
+async def _shutdown_step(label: str, coro_fn, timeout: float = SHUTDOWN_TIMEOUT_SEC):
+    """서비스 종료 한 단계를 안전하게 실행.
+
+    timeout/cancelled 는 정상 흐름으로 처리하고 다른 예외는 WARNING 로
+    찍기만 한다 — 한 단계의 실패가 다음 종료 단계를 막으면 안 됨.
+    """
+    try:
+        await asyncio.wait_for(coro_fn(), timeout=timeout)
+        print(f"[LOG] {label} stopped")
+    except asyncio.TimeoutError:
+        print(f"[WARNING] {label} stop timeout")
+    except asyncio.CancelledError:
+        print(f"[LOG] {label} stop cancelled - normal during shutdown")
+    except Exception as e:
+        print(f"[WARNING] {label} stop error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """애플리케이션 수명주기 관리"""
@@ -53,54 +74,23 @@ async def lifespan(app: FastAPI):
     # 정리 작업
     print("[LOG] *** 애플리케이션 종료 시작 ***")
 
-    try:
-        # 서비스들 정지 (타임아웃 설정)
-        await asyncio.wait_for(download_service.stop(), timeout=5.0)
-        print("[LOG] Download service stopped")
-    except asyncio.TimeoutError:
-        print("[WARNING] Download service stop timeout")
-    except asyncio.CancelledError:
-        print("[LOG] Download service stop cancelled - normal during shutdown")
-    except Exception as e:
-        print(f"[WARNING] Download service stop error: {e}")
-
-    try:
-        await asyncio.wait_for(sse_manager.stop(), timeout=5.0)
-        print("[LOG] SSE manager stopped")
-    except asyncio.TimeoutError:
-        print("[WARNING] SSE manager stop timeout")
-    except asyncio.CancelledError:
-        print("[LOG] SSE manager stop cancelled - normal during shutdown")
-    except Exception as e:
-        print(f"[WARNING] SSE manager stop error: {e}")
+    await _shutdown_step("Download service", download_service.stop)
+    await _shutdown_step("SSE manager", sse_manager.stop)
 
     # 실행 중인 태스크들 정리 (현재 태스크 제외하여 무한 재귀 방지)
     try:
         current_task = asyncio.current_task()
-        tasks = [task for task in asyncio.all_tasks() 
-                if not task.done() and task != current_task]
+        tasks = [t for t in asyncio.all_tasks()
+                 if not t.done() and t != current_task]
         if tasks:
             print(f"[LOG] Cancelling {len(tasks)} remaining tasks...")
-            # 각 태스크를 개별적으로 취소하고 예외 처리
-            for task in tasks:
-                try:
-                    task.cancel()
-                except Exception as e:
-                    print(f"[WARNING] Failed to cancel task {task}: {e}")
-            
-            # 타임아웃을 설정하여 무한 대기 방지
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True),
-                    timeout=3.0
-                )
-                print("[LOG] Tasks cancelled")
-            except asyncio.TimeoutError:
-                print("[WARNING] Task cancellation timeout")
-            except asyncio.CancelledError:
-                print("[LOG] Task cancellation interrupted - this is normal during shutdown")
-            except Exception as e:
-                print(f"[WARNING] Unexpected error during task cancellation: {e}")
+            for t in tasks:
+                t.cancel()
+            await _shutdown_step(
+                "Task cancellation",
+                lambda: asyncio.gather(*tasks, return_exceptions=True),
+                timeout=TASK_CANCEL_TIMEOUT_SEC,
+            )
     except Exception as e:
         print(f"[WARNING] Task cleanup error: {e}")
 

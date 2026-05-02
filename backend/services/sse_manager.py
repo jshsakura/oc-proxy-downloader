@@ -29,7 +29,7 @@ class SSEConnection:
         
         try:
             await self.queue.put(message)
-        except:
+        except Exception:
             self.connected = False
             
     def disconnect(self):
@@ -60,7 +60,7 @@ class SSEConnection:
                             }
                             yield f"data: {json.dumps(heartbeat)}\n\n"
                             self.last_heartbeat = time.time()
-                        except:
+                        except Exception:
                             break
 
                 except asyncio.CancelledError:
@@ -137,7 +137,7 @@ class SSEManager:
                 try:
                     await conn.send_message(message_type, data)
                     active_connections.append(conn)
-                except:
+                except Exception:
                     conn.disconnect()
                     
             # 연결 목록 업데이트

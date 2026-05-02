@@ -46,6 +46,21 @@ DEFAULT_DOWNLOAD_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
+# 재시도 상한
+# - 프록시 파싱: 사용자 프록시 수가 많아도 100 회 이상은 무의미
+# - 프록시 다운로드: 한 다운로드에 너무 많은 프록시 시도하면 시간 낭비
+# - 로컬 다운로드: 망 자체가 끊긴 게 아니면 3 회면 대부분 회수됨
+MAX_PROXY_PARSE_RETRIES_CAP = 100
+MAX_DOWNLOAD_RETRIES_PROXY_CAP = 20
+MAX_DOWNLOAD_RETRIES_LOCAL = 3
+
+# SSE callback 이 main 루프 이벤트 큐에 메시지 푸시할 때 대기 한도.
+# 너무 길면 sync executor 스레드가 막히고, 너무 짧으면 헤비 부하 시 SSE 누락.
+SSE_CALLBACK_TIMEOUT_SEC = 1.0
+
+# 다운로드 태스크 cancel 응답 대기 한도.
+TASK_CANCEL_TIMEOUT_SEC = 1.0
+
 
 def get_fichier_account_cookies() -> Dict[str, str]:
     """설정에 저장된 1fichier 자격증명으로 로그인해 세션 쿠키 dict 를 반환.
@@ -141,7 +156,7 @@ class DownloadCore:
                     sse_manager.broadcast_message(msg_type, data),
                     main_loop,
                 )
-                future.result(timeout=1.0)
+                future.result(timeout=SSE_CALLBACK_TIMEOUT_SEC)
             except Exception as e:
                 print(f"[WARNING] SSE 전송 실패: {e}")
         return sse_callback
@@ -626,7 +641,7 @@ class DownloadCore:
                     total_proxy_list = await proxy_manager.get_user_proxy_list(db)
                     total_proxies = len(total_proxy_list) if total_proxy_list else 0
                     failed_count = 0
-                    MAX_PROXY_PARSE_RETRIES = min(100, total_proxies)  # 파싱은 최대 100개까지
+                    MAX_PROXY_PARSE_RETRIES = min(MAX_PROXY_PARSE_RETRIES_CAP, total_proxies)
 
                     while parse_result is None and proxy_addr and retry_count < MAX_PROXY_PARSE_RETRIES:
                         # 다운로드 정지 상태 체크
@@ -1191,7 +1206,10 @@ class DownloadCore:
                 total_proxies = len(total_proxy_list) if total_proxy_list else 0
 
             # 프록시 다운로드: 프록시 수만큼, 일반 다운로드: 3회 재시도
-            MAX_DOWNLOAD_RETRIES = min(20, total_proxies) if req.use_proxy else 3
+            MAX_DOWNLOAD_RETRIES = (
+                min(MAX_DOWNLOAD_RETRIES_PROXY_CAP, total_proxies)
+                if req.use_proxy else MAX_DOWNLOAD_RETRIES_LOCAL
+            )
             while not download_success and retry_count < MAX_DOWNLOAD_RETRIES:
                 # 다운로드 정지 상태 체크
                 db.refresh(req)
@@ -1499,7 +1517,7 @@ class DownloadCore:
 
                     # 짧은 타임아웃으로 빠른 취소
                     try:
-                        await asyncio.wait_for(task, timeout=1.0)
+                        await asyncio.wait_for(task, timeout=TASK_CANCEL_TIMEOUT_SEC)
                     except (asyncio.CancelledError, asyncio.TimeoutError):
                         pass
 
@@ -1750,7 +1768,7 @@ class DownloadCore:
         for req_id, task in list(self.download_tasks.items()):
             try:
                 task.cancel()
-                await asyncio.wait_for(task, timeout=1.0)
+                await asyncio.wait_for(task, timeout=TASK_CANCEL_TIMEOUT_SEC)
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
             finally:

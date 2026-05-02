@@ -644,7 +644,7 @@ class FichierParser:
                                     text = data['name']
                                 else:
                                     continue
-                            except:
+                            except (json.JSONDecodeError, TypeError):
                                 continue
                         
                         text = text.strip()
