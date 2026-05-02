@@ -37,6 +37,8 @@ from core.simple_parser import (
 from core.error_messages import format_error
 from core import fichier_auth
 from core import cancel_signal
+from core.config import get_config
+from core.i18n import get_translations
 
 
 DEFAULT_DOWNLOAD_USER_AGENT = (
@@ -51,7 +53,6 @@ def get_fichier_account_cookies() -> Dict[str, str]:
     자격증명이 없거나 로그인 실패 시 빈 dict 반환 (호출자는 게스트로 진행).
     """
     try:
-        from core.config import get_config
         cfg = get_config()
         email = (cfg.get("fichier_email") or "").strip()
         password = cfg.get("fichier_password") or ""
@@ -452,7 +453,6 @@ class DownloadCore:
             proxy_addr = None
             if req.use_proxy:
                 try:
-                    from core.proxy_manager import proxy_manager
                     # 프록시 매니저에서 프록시 가져오기
                     proxy_list = await proxy_manager.get_user_proxy_list(db)
                     if proxy_list:
@@ -623,7 +623,6 @@ class DownloadCore:
                     })
 
                     # 총 프록시 개수와 실패 건수 추적
-                    from core.proxy_manager import proxy_manager
                     total_proxy_list = await proxy_manager.get_user_proxy_list(db)
                     total_proxies = len(total_proxy_list) if total_proxy_list else 0
                     failed_count = 0
@@ -684,9 +683,6 @@ class DownloadCore:
 
                                 # 프록시 파싱 성공 시 프록시 상태 창 업데이트 (대기중으로 변경)
                                 try:
-                                    from core.config import get_config
-                                    from core.i18n import get_translations
-
                                     config = get_config()
                                     user_language = config.get("language", "ko")
                                     translations = get_translations(user_language)
@@ -754,9 +750,6 @@ class DownloadCore:
                     # 프록시 파싱 실패 시 프록시 상태 초기화
                     if req.use_proxy:
                         try:
-                            from core.config import get_config
-                            from core.i18n import get_translations
-
                             config = get_config()
                             user_language = config.get("language", "ko")
                             translations = get_translations(user_language)
@@ -1194,7 +1187,6 @@ class DownloadCore:
             total_proxies = 0
             failed_count = 0
             if req.use_proxy:
-                from core.proxy_manager import proxy_manager
                 total_proxy_list = await proxy_manager.get_user_proxy_list(db)
                 total_proxies = len(total_proxy_list) if total_proxy_list else 0
 
@@ -1323,7 +1315,6 @@ class DownloadCore:
                         try:
                             # 재파싱
                             parse_url = req.original_url if req.original_url else req.url
-                            from core.simple_parser import parse_1fichier_simple_sync
 
                             loop = asyncio.get_event_loop()
                             new_parse_result = await loop.run_in_executor(
@@ -1549,7 +1540,6 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 다운로드 중지 실패 - ID: {req_id}, 에러: {e}")
-            import traceback
             traceback.print_exc()
             return False
 

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import os
 import signal
+import sys
 import atexit
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, Request
@@ -21,7 +23,6 @@ from core.db import get_db
 from sqlalchemy import text
 
 # 인증 설정
-import os
 AUTH_USERNAME = os.getenv('AUTH_USERNAME')
 AUTH_PASSWORD = os.getenv('AUTH_PASSWORD')
 AUTHENTICATION_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
@@ -213,8 +214,6 @@ def create_app() -> FastAPI:
         )
 
     # 정적 파일 서빙 (PyInstaller, Docker 및 로컬 환경 자동 감지)
-    import sys
-
     # 프론트엔드 정적 파일 경로 설정 (EXE/도커 통합)
     if getattr(sys, 'frozen', False):
         # PyInstaller로 번들된 환경 (EXE) - static 폴더 사용

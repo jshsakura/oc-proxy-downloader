@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 import datetime
 import enum
 
+
 class StatusEnum(str, enum.Enum):
     pending = "pending"
     parsing = "parsing"
@@ -13,9 +14,52 @@ class StatusEnum(str, enum.Enum):
     done = "done"
     failed = "failed"
 
+
 Base = declarative_base()
 
-class DownloadRequest(Base):
+
+def _serialize_column_value(name, value):
+    """SQLAlchemy 컬럼 값을 JSON 직렬화 가능한 형태로 변환.
+
+    공통 규칙:
+    - datetime → ISO8601 문자열 (None 보존)
+    - StatusEnum → ``.value`` 문자열
+    - status == 'paused' (구버전 DB) → 'stopped' 으로 마이그레이션
+    - downloaded_size/total_size 가 None → 0 (UI 가 항상 숫자로 받게)
+    - error 는 항상 문자열로 변환, encoding 오류는 placeholder 로
+    """
+    if isinstance(value, datetime.datetime):
+        return value.isoformat() if value else None
+    if isinstance(value, StatusEnum):
+        return value.value
+    if name == "status" and isinstance(value, str) and value == "paused":
+        return "stopped"  # legacy migration
+    if name in ("downloaded_size", "total_size") and value is None:
+        return 0
+    if name == "error" and value:
+        try:
+            return str(value)
+        except (UnicodeDecodeError, UnicodeEncodeError) as e:
+            print(f"[LOG] Encoding error for {name}: {e}")
+            return "Encoding error"
+    return value
+
+
+class _AsDictMixin:
+    """``as_dict()`` 를 제공하는 공용 mixin.
+
+    DownloadRequest / UserProxy 등 두 모델에 동일한 60줄짜리 직렬화
+    로직이 복사돼 있던 것을 한 곳으로 모음.
+    """
+
+    def as_dict(self):
+        return {
+            c.name: _serialize_column_value(c.name, getattr(self, c.name))
+            for c in self.__table__.columns
+        }
+
+
+class DownloadRequest(_AsDictMixin, Base):
     __tablename__ = "download_requests"
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, nullable=False)
@@ -40,34 +84,10 @@ class DownloadRequest(Base):
         # 처리 흐름이 읽어간다.
         self.progress = 0
 
-    def as_dict(self):
-        data = {}
-        for c in self.__table__.columns:
-            value = getattr(self, c.name)
-            if isinstance(value, datetime.datetime):
-                data[c.name] = value.isoformat() if value else None
-            elif isinstance(value, StatusEnum):
-                data[c.name] = value.value
-            elif c.name == 'status' and isinstance(value, str) and value == 'paused':
-                # Handle legacy 'paused' status for backward compatibility
-                data[c.name] = 'stopped'
-            elif c.name in ['downloaded_size', 'total_size'] and value is None:
-                data[c.name] = 0 # Ensure these are always numbers
-            elif c.name == 'error' and value:
-                # Clean error messages (simplified for performance)
-                try:
-                    data[c.name] = str(value)
-                except (UnicodeDecodeError, UnicodeEncodeError) as e:
-                    print(f"[LOG] Encoding error for {c.name}: {e}")
-                    data[c.name] = "Encoding error"
-            else:
-                data[c.name] = value
-        return data
 
-
-class UserProxy(Base):
+class UserProxy(_AsDictMixin, Base):
     __tablename__ = "user_proxies"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     address = Column(String, nullable=False)  # 프록시 주소 (URL 또는 IP:PORT)
     proxy_type = Column(String, default="list")  # "list" 또는 "single"
@@ -76,29 +96,6 @@ class UserProxy(Base):
     last_used = Column(DateTime, nullable=True)
     description = Column(String, nullable=True)  # 사용자 설명
 
-    def as_dict(self):
-        data = {}
-        for c in self.__table__.columns:
-            value = getattr(self, c.name)
-            if isinstance(value, datetime.datetime):
-                data[c.name] = value.isoformat() if value else None
-            elif isinstance(value, StatusEnum):
-                data[c.name] = value.value
-            elif c.name == 'status' and isinstance(value, str) and value == 'paused':
-                # Handle legacy 'paused' status for backward compatibility
-                data[c.name] = 'stopped'
-            elif c.name in ['downloaded_size', 'total_size'] and value is None:
-                data[c.name] = 0 # Ensure these are always numbers
-            elif c.name == 'error' and value:
-                # Clean error messages (simplified for performance)
-                try:
-                    data[c.name] = str(value)
-                except (UnicodeDecodeError, UnicodeEncodeError) as e:
-                    print(f"[LOG] Encoding error for {c.name}: {e}")
-                    data[c.name] = "Encoding error"
-            else:
-                data[c.name] = value
-        return data
 
 # 프록시 상태 관리 테이블
 class ProxyStatus(Base):

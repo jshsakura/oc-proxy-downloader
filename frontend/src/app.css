@@ -39,9 +39,6 @@
   --status-stopped-bg: rgba(108, 117, 125, 0.2);
   --status-stopped-border: rgba(108, 117, 125, 0.2);
   --status-stopped-text:  rgba(108, 117, 125, 0.8);
-  --status-cooldown-bg: rgba(255, 152, 0, 0.2);
-  --status-cooldown-border: #ff9800;
-  --status-cooldown-text: #e65100;
 
   /* 파싱 상태 전용 색상 - Light Theme (보라색 계열) */
   --status-parsing-bg: rgba(156, 39, 176, 0.2);
@@ -101,9 +98,6 @@ html.dark {
   --status-stopped-bg: rgba(156, 163, 175, 0.25);
   --status-stopped-border: #9ca3af;
   --status-stopped-text: #d1d5db;
-  --status-cooldown-bg: rgba(251, 146, 60, 0.25);
-  --status-cooldown-border: #fb923c;
-  --status-cooldown-text: #fdba74;
 
   /* 파싱 상태 전용 색상 - Dark Theme (보라색 계열) */
   --status-parsing-bg: rgba(168, 85, 247, 0.25);
@@ -161,9 +155,6 @@ html.dracula {
   --status-stopped-bg: rgba(98, 114, 164, 0.5);
   --status-stopped-border: #6272a4;
   --status-stopped-text: #8be9fd;
-  --status-cooldown-bg: rgba(241, 250, 140, 0.3);
-  --status-cooldown-border: #f1fa8c;
-  --status-cooldown-text: #f1fa8c;
 
   /* 파싱 상태 전용 색상 - Dracula Theme (보라색 계열) */
   --status-parsing-bg: rgba(189, 147, 249, 0.3);
@@ -1945,53 +1936,6 @@ table th:first-child {
   border: 1px solid var(--success-color);
 }
 
-/* 1fichier 쿨다운 상태 스타일 */
-.status-cooldown.interactive-status {
-  border: 1px solid #ff9800;
-  background: linear-gradient(
-    90deg,
-    transparent 40%,
-    #ff9800 40%,
-    #ff9800 60%,
-    transparent 60%
-  );
-  background-size: 20px 100%;
-  animation: cooldown-progress 2s linear infinite;
-}
-
-@keyframes cooldown-progress {
-  0% {
-    background-position: -20px 0;
-  }
-  100% {
-    background-position: 20px 0;
-  }
-}
-
-.cooldown-countdown {
-  font-weight: bold;
-  color: #ff9800;
-}
-
-.cooldown-indicator {
-  display: inline-block;
-  margin-left: 5px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: #ff9800;
-  animation: cooldown-blink 1s ease-in-out infinite alternate;
-}
-
-@keyframes cooldown-blink {
-  from {
-    opacity: 0.3;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 /* 1fichier 자동 재시도 상태 스타일 */
 .status-pending.interactive-status[title*="1fichier 자동 재시도"] {
   border: 1px solid var(--warning-color);
@@ -2062,10 +2006,6 @@ table th:first-child {
 .wait-indicator-failed {
   border-top: 1.5px solid var(--status-failed-border) !important;
   border-right: 1.5px solid var(--status-failed-border) !important;
-}
-.wait-indicator-cooldown {
-  border-top: 1.5px solid var(--status-cooldown-border) !important;
-  border-right: 1.5px solid var(--status-cooldown-border) !important;
 }
 
 @keyframes waitPulse {
@@ -2593,18 +2533,6 @@ span.status.status-stopped,
 }
 .status-stopped::before {
   background-color: var(--status-stopped-border);
-}
-
-/* 쿨다운 */
-span.status.status-cooldown,
-.status-cooldown.interactive-status {
-  background-color: var(--status-cooldown-bg) !important;
-  border-color: var(--status-cooldown-border) !important;
-  color: var(--status-cooldown-text) !important;
-}
-.status-cooldown::before {
-  background-color: var(--status-cooldown-border);
-  animation: cooldown-blink 1s ease-in-out infinite;
 }
 
 @keyframes pulse-dot {

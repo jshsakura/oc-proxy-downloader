@@ -66,7 +66,6 @@ class ProxyManager:
                 return None
 
             # 이미 실패한 프록시들 조회 (success가 False인 것들)
-            from core.models import ProxyStatus
             failed_proxies = db.query(ProxyStatus).filter(
                 ProxyStatus.success == False
             ).all()
@@ -113,9 +112,6 @@ class ProxyManager:
     async def mark_proxy_failed(self, db: Session, proxy_addr: str):
         """프록시 실패 기록"""
         try:
-            from core.models import ProxyStatus
-            import datetime
-
             # IP:Port 분리
             if ':' in proxy_addr:
                 ip, port = proxy_addr.split(':', 1)
@@ -158,7 +154,6 @@ class ProxyManager:
     async def get_total_failed_count(self, db: Session) -> int:
         """전체 실패한 프록시 개수 반환 (DB에서 조회)"""
         try:
-            from core.models import ProxyStatus
             return db.query(ProxyStatus).filter(ProxyStatus.success == False).count()
         except Exception as e:
             print(f"[ERROR] get_total_failed_count 실패: {e}")
