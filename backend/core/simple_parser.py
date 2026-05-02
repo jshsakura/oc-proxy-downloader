@@ -8,16 +8,12 @@
 
 import re
 import time
-import httpx
+from datetime import datetime
 import cloudscraper
-import asyncio
-import datetime
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urlunparse
-from services.sse_manager import sse_manager
 from services.notification_service import send_telegram_wait_notification
-from core.db import SessionLocal
-from core.models import DownloadRequest, StatusEnum
+from core.config import CONFIG_DIR
 from core import cancel_signal
 
 
@@ -29,8 +25,6 @@ def _save_parse_debug(stage: str, status_code, body_text):
     내려받아 패치 분석에 사용한다.
     """
     try:
-        from core.config import CONFIG_DIR
-        from datetime import datetime
         path = CONFIG_DIR / f"parse_debug_{stage}.html"
         with open(path, "w", encoding="utf-8") as f:
             f.write(f"<!-- saved at {datetime.utcnow().isoformat()}Z, status={status_code} -->\n")

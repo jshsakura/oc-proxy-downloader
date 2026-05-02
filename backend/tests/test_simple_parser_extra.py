@@ -75,7 +75,13 @@ def test_parse_simple_sync_with_wait_time_skips_actual_sleep(monkeypatch):
 
 
 def test_parse_simple_sync_sse_callback_invoked_during_wait(monkeypatch):
-    """download_id 가 있으면 카운트다운 도중 SSE 콜백이 호출된다."""
+    """download_id 가 있으면 카운트다운 도중 SSE 콜백이 호출된다.
+    cancel_signal 기반으로 바뀐 이후엔 DB 모킹 불필요.
+    """
+    import threading
+    from core import cancel_signal
+
+    cancel_signal.reset_all_for_tests()
 
     get_response = MagicMock()
     get_response.status_code = 200
@@ -94,27 +100,28 @@ def test_parse_simple_sync_sse_callback_invoked_during_wait(monkeypatch):
 
     monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
     monkeypatch.setattr(sp.time, "sleep", lambda s: None)
-
-    # SessionLocal 모킹 — DB 검사 분기 통과
-    session_mock = MagicMock()
-    session_mock.__enter__.return_value.query.return_value.filter.return_value.first.return_value = None
-    monkeypatch.setattr(sp, "SessionLocal", lambda: session_mock)
+    # Event.wait 는 threading 모듈 — time.sleep 패치로는 막히지 않으므로
+    # 즉시 timeout(False) 반환하도록 패치.
+    monkeypatch.setattr(threading.Event, "wait",
+                        lambda self, timeout=None: self.is_set())
 
     sse_messages = []
 
     def sse_cb(msg_type, payload):
         sse_messages.append((msg_type, payload))
 
-    sp.parse_1fichier_simple_sync(
-        "https://1fichier.com/?abc",
-        password=None,
-        proxies=None,
-        proxy_addr=None,
-        download_id=42,
-        sse_callback=sse_cb,
-    )
+    try:
+        sp.parse_1fichier_simple_sync(
+            "https://1fichier.com/?abc",
+            password=None,
+            proxies=None,
+            proxy_addr=None,
+            download_id=42,
+            sse_callback=sse_cb,
+        )
+    finally:
+        cancel_signal.reset_all_for_tests()
 
-    # status_update + 카운트다운 메시지가 최소 1번씩
     types = [m[0] for m in sse_messages]
     assert "status_update" in types
     assert any(t == "waiting" for t in types)
