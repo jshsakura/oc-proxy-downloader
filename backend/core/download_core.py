@@ -62,6 +62,19 @@ SSE_CALLBACK_TIMEOUT_SEC = 1.0
 TASK_CANCEL_TIMEOUT_SEC = 1.0
 
 
+def _build_proxy_dict(proxy_addr: Optional[str]) -> Optional[Dict[str, str]]:
+    """``proxy_addr`` (e.g. ``1.2.3.4:8080``) 를 requests/aiohttp 가 받는
+    proxies dict 로 변환. None 이면 None 반환.
+
+    HTTPS 트래픽도 HTTP 프록시를 통해 CONNECT 터널링하므로 https 키도
+    ``http://`` 스킴으로 둠.
+    """
+    if not proxy_addr:
+        return None
+    url = f"http://{proxy_addr}"
+    return {"http": url, "https": url}
+
+
 def get_fichier_account_cookies() -> Dict[str, str]:
     """설정에 저장된 1fichier 자격증명으로 로그인해 세션 쿠키 dict 를 반환.
 
@@ -474,12 +487,7 @@ class DownloadCore:
                         # 사용 가능한 프록시 선택 (실패한 프록시 제외)
                         proxy_addr = await proxy_manager.get_next_available_proxy(db, req.id)
                         if proxy_addr:
-                            # 다양한 프록시 타입 지원: HTTP/HTTPS 프록시 모두 시도
-                            # 대부분의 프록시는 HTTP 프록시이므로 HTTPS 터널링 사용
-                            proxies = {
-                                "http": f"http://{proxy_addr}",
-                                "https": f"http://{proxy_addr}"  # HTTP 프록시를 통한 HTTPS 터널링
-                            }
+                            proxies = _build_proxy_dict(proxy_addr)
                             print(f"[LOG] 프록시 사용: {proxy_addr}")
                         else:
                             print(f"[WARNING] 사용 가능한 프록시가 없음")
@@ -742,10 +750,7 @@ class DownloadCore:
                                 # 다음 프록시 가져오기
                                 proxy_addr = await proxy_manager.get_next_available_proxy(db, req.id)
                                 if proxy_addr:
-                                    proxies = {
-                                        "http": f"http://{proxy_addr}",
-                                        "https": f"http://{proxy_addr}"  # HTTP 프록시를 통한 HTTPS 터널링
-                                    }
+                                    proxies = _build_proxy_dict(proxy_addr)
                                     print(f"[LOG] 다음 프록시로 재시도: {proxy_addr}")
                                     continue
                                 else:
@@ -1340,9 +1345,9 @@ class DownloadCore:
                                 lambda: parse_1fichier_simple_sync(
                                     parse_url,
                                     req.password,
-                                    {"http": f"http://{proxy_addr}", "https": f"http://{proxy_addr}"} if proxy_addr else None,
+                                    _build_proxy_dict(proxy_addr),
                                     proxy_addr,
-                                    req.id
+                                    req.id,
                                 )
                             )
 
