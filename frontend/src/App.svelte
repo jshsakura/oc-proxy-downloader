@@ -648,25 +648,17 @@
       }
 
       // 1fichier 대기시간 처리 (파싱 후 대기)
+      // 백엔드는 status_update 로 status="waiting" 을 따로 한 번 보냄.
+      // 여기서는 카운트다운 데이터(downloadWaitInfo)만 갱신해서 race
+      // (status_update 와 waiting 메시지가 뒤섞일 때 status 가 강제로
+      // 덮어써지는 문제) 를 방지.
       if (message.type === "waiting") {
-        console.log("🕐 1fichier waiting 메시지 수신:", message.data);
-        const { id, remaining, total, message: waitMsg } = message.data;
+        const { id, remaining, total } = message.data;
         downloadWaitInfo[id] = {
           remaining_time: remaining,
           total_time: total,
-          wait_message: waitMsg || `1fichier 대기 중... ${remaining}초 남음`
         };
-
-        // 해당 다운로드 상태를 waiting으로 업데이트
-        const download = downloads.find(d => d.id === id);
-        if (download) {
-          download.status = "waiting";
-          download.wait_message = waitMsg || `1fichier 대기 중... ${remaining}초 남음`;
-          downloads = [...downloads];
-        }
-
         downloadWaitInfo = { ...downloadWaitInfo };
-        updateStats(downloads);
       }
 
       // 대기시간 카운트다운 처리 (로컬 다운로드용)
@@ -1079,6 +1071,16 @@
     const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+  }
+
+  // 대기시간 카운트다운 표기 — 항상 mm:ss 형식.
+  // 60초 경계에서 단위가 점프(60초 → 1분 → 59초)하던 비일관성 제거.
+  function formatWaitTime(seconds) {
+    if (seconds == null || seconds < 0) return "0:00";
+    const total = Math.max(0, Math.floor(seconds));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
   }
 
   function formatSpeed(bytesPerSecond) {
@@ -1770,23 +1772,12 @@
                     >
                       {#if download.status.toLowerCase() === "cooldown" && download.cooldown_remaining}
                         <span class="cooldown-countdown">
-                          {$t("download_cooldown")} ({download.cooldown_remaining}{$t(
-                            "time_seconds"
-                          )})
+                          {$t("download_cooldown")} ({formatWaitTime(download.cooldown_remaining)})
                           <span class="cooldown-indicator"></span>
                         </span>
                       {:else if download.status.toLowerCase() === "waiting" && downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
                         <span class="wait-countdown">
-                          {#if downloadWaitInfo[download.id].remaining_time >= 60}
-                            {$t("download_waiting_time")} ({Math.floor(
-                              downloadWaitInfo[download.id].remaining_time /
-                                60
-                            )}{$t("time_minutes")})
-                          {:else}
-                            {$t("download_waiting_time")} ({downloadWaitInfo[
-                              download.id
-                            ].remaining_time}{$t("time_seconds")})
-                          {/if}
+                          {$t("download_waiting_time")} ({formatWaitTime(downloadWaitInfo[download.id].remaining_time)})
                           <span
                             class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
                           ></span>

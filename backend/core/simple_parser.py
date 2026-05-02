@@ -18,6 +18,7 @@ from services.sse_manager import sse_manager
 from services.notification_service import send_telegram_wait_notification
 from core.db import SessionLocal
 from core.models import DownloadRequest, StatusEnum
+from core import cancel_signal
 
 
 def _save_parse_debug(stage: str, status_code, body_text):
@@ -266,69 +267,23 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                     file_size_str = file_info.get('size', 'Unknown')
                     send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size_str)
 
-            # 4단계: 정확히 대기 (SSE로 카운트다운 전송)
+            # 4단계: 정확히 대기 (SSE 카운트다운 + cancel signal)
             print(f"[LOG] {wait_seconds}초 대기 시작...")
-
-            # 대기 상태로 변경
-            if sse_callback:
-                try:
-                    sse_callback("status_update", {
-                        "id": download_id,
-                        "status": "waiting",
-                        "progress": 0,
-                        "message": f"1fichier 대기 중... {wait_seconds}초"
-                    })
-                except Exception as sse_error:
-                    print(f"[WARNING] SSE 대기 상태 전송 실패: {sse_error}")
-
-            # SSE로 대기시간 카운트다운 전송
-            if download_id:
-                # 1초마다 정지 상태 체크, 5초마다 SSE 업데이트 (더 빠른 응답)
-                for remaining in range(wait_seconds, 0, -1):  # 1초씩 감소
-                    # 다운로드 상태 확인 (정지되었는지 체크) - 1초마다 체크
-                    try:
-                        with SessionLocal() as db:
-                            req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
-                            if req and req.status == StatusEnum.stopped:
-                                print(f"[LOG] 대기 중 정지 감지, 카운트다운 중단")
-                                return None  # 정지된 경우 파싱 중단
-                    except Exception as e:
-                        print(f"[WARNING] 상태 확인 실패: {e}")
-
-                    # SSE 콜백으로 대기시간 전송 (5초마다만)
-                    if remaining % 5 == 0 and sse_callback:
-                        try:
-                            sse_callback("waiting", {
-                                "id": download_id,
-                                "remaining": remaining,
-                                "total": wait_seconds,
-                                "message": f"1fichier 대기 중... {remaining}초 남음"
-                            })
-                        except Exception as sse_error:
-                            print(f"[WARNING] SSE 대기시간 전송 실패: {sse_error}")
-
-                    if remaining % 5 == 0:
-                        print(f"[DEBUG] 대기 중: {remaining}초 남음")
-                    time.sleep(1)  # 1초씩 대기
-
-                # 대기 완료
-                print(f"[LOG] 대기 완료: download_id={download_id}")
-            else:
-                time.sleep(wait_seconds)
-
+            cancelled = _run_wait_countdown(
+                wait_seconds=wait_seconds,
+                download_id=download_id,
+                sse_callback=sse_callback,
+            )
+            if cancelled:
+                print(f"[LOG] 대기 중 정지 감지, 파싱 중단 (id={download_id})")
+                return None
             print(f"[LOG] 대기 완료!")
 
 
-        # 다운로드 링크 획득 전 정지 상태 재확인 (DB 연결 최소화)
-        if download_id:
-            try:
-                with SessionLocal() as db:
-                    req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
-                    if req and req.status == StatusEnum.stopped:
-                        print(f"[LOG] 다운로드 링크 획득 전 정지 감지, 파싱 중단")
-                        return None
-            except Exception as e:
-                print(f"[WARNING] 링크 획득 전 상태 확인 실패: {e}")
+        # 다운로드 링크 획득 전 정지 신호 재확인 (DB 쿼리 없이 in-memory)
+        if download_id and cancel_signal.is_cancelled(download_id):
+            print(f"[LOG] 다운로드 링크 획득 전 정지 감지, 파싱 중단 (id={download_id})")
+            return None
 
         # 5단계: 다운로드 버튼 클릭 시뮬레이션 (대기 완료 후 같은 세션 유지)
         download_link = None
@@ -656,6 +611,75 @@ def pick_download_link_from_html(soup, raw_html=""):
                     return cleaned
 
     return None
+
+
+# 카운트다운 SSE 갱신 주기 (초). 5초마다 + 마지막 1초마다 자세히.
+_WAIT_SSE_INTERVAL = 5
+_WAIT_FINAL_PHASE = 5  # 마지막 5초는 1초마다 갱신
+
+
+def _emit(sse_callback, event_type, payload):
+    """SSE 콜백을 안전하게 호출. 실패해도 카운트다운은 계속."""
+    if not sse_callback:
+        return
+    try:
+        sse_callback(event_type, payload)
+    except Exception as sse_error:
+        print(f"[WARNING] SSE 전송 실패 ({event_type}): {sse_error}")
+
+
+def _run_wait_countdown(wait_seconds, download_id, sse_callback):
+    """1fichier 대기시간 카운트다운.
+
+    반환값: ``True`` 면 사용자 정지 신호로 중단됨, ``False`` 면 끝까지 대기.
+
+    설계:
+    - download_id 가 있으면 ``cancel_signal.get_event(id)`` 의 wait 로
+      취소 즉시 반응 (DB 폴링 안 함).
+    - waiting 진입 시 status_update + 첫 카운트다운 즉시 발송 (UI 가
+      remaining_time 0~5초 공백을 안 보게).
+    - 5초마다 + 마지막 5초는 1초마다 카운트다운 SSE.
+    - 종료 시 wait_countdown_complete 발송 (UI stale state 방지).
+    - SSE payload 는 구조화 데이터만 — 메시지 텍스트는 프론트 i18n.
+    """
+    if wait_seconds <= 0:
+        return False
+
+    # 진입: status 전이 + 즉시 첫 카운트다운
+    _emit(sse_callback, "status_update", {
+        "id": download_id, "status": "waiting", "progress": 0,
+    })
+    _emit(sse_callback, "waiting", {
+        "id": download_id, "remaining": wait_seconds, "total": wait_seconds,
+    })
+
+    # download_id 가 없으면 정지 감지 불가 — 단순 sleep
+    if not download_id:
+        time.sleep(wait_seconds)
+        return False
+
+    event = cancel_signal.get_event(download_id)
+
+    remaining = wait_seconds
+    while remaining > 0:
+        # 1초 sleep — 그 사이에 cancel signal 들어오면 즉시 깨어남
+        if event.wait(timeout=1.0):
+            return True
+
+        remaining -= 1
+
+        # 갱신 조건: 5초 단위 OR 마지막 5초 (1초마다)
+        if remaining > 0 and (
+            remaining % _WAIT_SSE_INTERVAL == 0 or remaining <= _WAIT_FINAL_PHASE
+        ):
+            _emit(sse_callback, "waiting", {
+                "id": download_id, "remaining": remaining, "total": wait_seconds,
+            })
+            print(f"[DEBUG] 대기 중: {remaining}초 남음 (id={download_id})")
+
+    # 종료: UI 의 waiting indicator 즉시 정리
+    _emit(sse_callback, "wait_countdown_complete", {"id": download_id})
+    return False
 
 
 # POST 재시도 상한. 1fichier 등록 사용자가 한 번 더 대기 사이클을 요구하는

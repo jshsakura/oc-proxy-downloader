@@ -36,6 +36,7 @@ from core.simple_parser import (
 )
 from core.error_messages import format_error
 from core import fichier_auth
+from core import cancel_signal
 
 
 DEFAULT_DOWNLOAD_USER_AGENT = (
@@ -199,6 +200,10 @@ class DownloadCore:
     async def start_download_async(self, req: DownloadRequest, db: Session) -> bool:
         """비동기 다운로드 시작"""
         try:
+            # 정지 후 재시작 케이스 — 이전 cancel signal 이 set 채로 남아
+            # 있으면 새 다운로드의 카운트다운이 즉시 깨어나는 버그가 됨.
+            cancel_signal.clear(req.id)
+
             # 파일 정보가 이미 있으면 파싱 건너뛰고 바로 다운로드 시작
             # 단, 1fichier의 경우 대기시간 확인과 새 다운로드 링크 획득을 위해 사전파싱 필요
             is_1fichier = "1fichier.com" in req.url
@@ -1489,6 +1494,10 @@ class DownloadCore:
         try:
             print(f"[DEBUG] 다운로드 중지 시작 - ID: {req_id}")
 
+            # 0. cancel signal 즉시 set — 1fichier 카운트다운/대기 루프가
+            #    DB 폴링 없이 깨어남.
+            cancel_signal.signal_cancel(req_id)
+
             # 1. 실행 중인 태스크 즉시 취소
             task_cancelled = False
             if req_id in self.download_tasks:
@@ -1637,6 +1646,9 @@ class DownloadCore:
 
     def _task_cleanup(self, req_id: int):
         """태스크 정리"""
+        # cancel signal 도 같이 정리해서 in-memory 누수 방지.
+        cancel_signal.clear(req_id)
+
         if req_id in self.download_tasks:
             del self.download_tasks[req_id]
             print(f"[LOG] 다운로드 태스크 정리: {req_id}")

@@ -4,4 +4,4 @@
 """
 
 # 현재 앱 버전
-CURRENT_VERSION = "v2.0.39"
+CURRENT_VERSION = "v2.0.40"

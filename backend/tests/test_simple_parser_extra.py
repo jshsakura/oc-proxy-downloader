@@ -121,7 +121,8 @@ def test_parse_simple_sync_sse_callback_invoked_during_wait(monkeypatch):
 
 
 def test_parse_simple_sync_returns_none_when_stopped_during_wait(monkeypatch):
-    """대기 중 status=stopped 가 감지되면 None 반환."""
+    """대기 중 cancel_signal 이 set 되면 None 반환 (DB 폴링 없음)."""
+    from core import cancel_signal
 
     get_response = MagicMock()
     get_response.status_code = 200
@@ -133,21 +134,20 @@ def test_parse_simple_sync_returns_none_when_stopped_during_wait(monkeypatch):
     scraper.get.return_value = get_response
 
     monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
-    monkeypatch.setattr(sp.time, "sleep", lambda s: None)
 
-    # DB 가 stopped 상태인 요청을 반환하도록 모킹
-    fake_req = MagicMock()
-    fake_req.status = sp.StatusEnum.stopped
+    # 카운트다운 진입 *전* 에 cancel signal 을 set 해두면, get_event 가
+    # 이미 set 된 Event 를 반환하므로 첫 wait 호출이 즉시 True 로 깨어난다.
+    cancel_signal.reset_all_for_tests()
+    cancel_signal.signal_cancel(42)
 
-    session_mock = MagicMock()
-    session_mock.__enter__.return_value.query.return_value.filter.return_value.first.return_value = fake_req
-    monkeypatch.setattr(sp, "SessionLocal", lambda: session_mock)
-
-    result = sp.parse_1fichier_simple_sync(
-        "https://1fichier.com/?abc",
-        download_id=42,
-    )
-    assert result is None
+    try:
+        result = sp.parse_1fichier_simple_sync(
+            "https://1fichier.com/?abc",
+            download_id=42,
+        )
+        assert result is None
+    finally:
+        cancel_signal.reset_all_for_tests()
 
 
 # ---------------------------------------------------------------------------
