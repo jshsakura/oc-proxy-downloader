@@ -661,29 +661,6 @@
         downloadWaitInfo = { ...downloadWaitInfo };
       }
 
-      // 대기시간 카운트다운 처리 (로컬 다운로드용)
-      if (message.type === "wait_countdown") {
-        console.log("🕐 wait_countdown 메시지 수신:", message.data);
-        const { id, remaining_time, wait_message } = message.data;
-        downloadWaitInfo[id] = {
-          remaining_time: remaining_time,
-          message: wait_message,
-          timestamp: Date.now(),
-        };
-
-        // 다운로드 상태는 서버에서 설정한 상태를 유지 (강제 변경하지 않음)
-        downloadWaitInfo = { ...downloadWaitInfo };
-        console.log("📊 downloadWaitInfo 업데이트됨:", downloadWaitInfo);
-        console.log("🔍 wait_countdown 조건 체크:", {
-          id,
-          hasWaitInfo: !!downloadWaitInfo[id],
-          remaining_time: downloadWaitInfo[id]?.remaining_time,
-          condition:
-            downloadWaitInfo[id] &&
-            downloadWaitInfo[id].remaining_time > 0,
-        });
-      }
-
       // 대기 완료 처리
       if (message.type === "wait_countdown_complete") {
         const { id } = message.data;

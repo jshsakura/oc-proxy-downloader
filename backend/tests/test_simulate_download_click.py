@@ -380,6 +380,41 @@ class TestSimulateDownloadClick:
         assert scraper.post.call_count == sp.MAX_POST_ATTEMPTS, \
             "정확히 MAX_POST_ATTEMPTS 만큼만 시도해야 함"
 
+    def test_retry_wait_aborts_on_cancel_signal(self, monkeypatch):
+        """재시도 사이 extra_wait sleep 중 cancel signal 이 set 되면 즉시 중단."""
+        import threading
+        from core import cancel_signal
+
+        cancel_signal.reset_all_for_tests()
+
+        wait_page = "<html><body><script>var ct = 60;</script><form id='f1'></form></body></html>"
+        wait_resp = MagicMock()
+        wait_resp.status_code = 200
+        wait_resp.text = wait_page
+        wait_resp.headers = {}
+
+        scraper = MagicMock()
+        scraper.post.return_value = wait_resp
+
+        # 첫 POST 직후 cancel signal 이 set 되는 시나리오 — Event.wait 가
+        # 즉시 True 반환하도록 패치 (set 됐을 때만 True)
+        monkeypatch.setattr(sp.time, "sleep", lambda s: None)
+        monkeypatch.setattr(threading.Event, "wait",
+                            lambda self, timeout=None: self.is_set())
+        cancel_signal.signal_cancel(99)
+
+        try:
+            with pytest.raises(Exception, match="사용자 정지"):
+                sp.simulate_download_click(
+                    scraper, "https://1fichier.com/?abc", WAIT_PAGE_HTML,
+                    None, {"User-Agent": "UA"}, None,
+                    download_id=99, sse_callback=None,
+                )
+            # 첫 POST 만 실행되고 retry 진입 직후 cancel
+            assert scraper.post.call_count == 1
+        finally:
+            cancel_signal.reset_all_for_tests()
+
     def test_retry_loop_stops_early_when_no_extra_wait(self):
         """응답이 대기 페이지가 아니라 일반 실패면 즉시 중단 — 무의미한 재시도 방지."""
         scraper, _ = _make_scraper_with_post_response(

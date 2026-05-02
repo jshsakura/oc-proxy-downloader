@@ -282,12 +282,20 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         # 5단계: 다운로드 버튼 클릭 시뮬레이션 (대기 완료 후 같은 세션 유지)
         download_link = None
         try:
-            # 같은 스크래퍼로 세션 유지하며 POST 요청
-            download_link = simulate_download_click(scraper, url, response.text, password, headers, proxies)
+            # 같은 스크래퍼로 세션 유지하며 POST 요청. download_id/sse_callback
+            # 을 같이 넘겨서 재시도 사이의 추가 대기도 cancel_signal 즉시
+            # 반응 + UI 카운트다운 SSE 가 동작하도록 한다.
+            download_link = simulate_download_click(
+                scraper, url, response.text, password, headers, proxies,
+                download_id=download_id, sse_callback=sse_callback,
+            )
             print(f"[LOG] 다운로드 링크 획득 성공: {download_link}")
         except Exception as download_error:
+            # 사용자 정지로 인한 중단이면 None 반환 (실패가 아니라 정지)
+            if download_id and cancel_signal.is_cancelled(download_id):
+                print(f"[LOG] 사용자 정지 감지 — 파싱 중단 (id={download_id})")
+                return None
             print(f"[ERROR] 다운로드 링크 추출 실패: {download_error}")
-            # 모든 에러를 그대로 재시도 가능하게 처리
             raise download_error
 
         # 다운로드 링크가 없으면 실패
@@ -797,11 +805,16 @@ def _classify_post_failure(response):
     )
 
 
-def simulate_download_click(scraper, url, html_content, password, headers, proxies):
+def simulate_download_click(scraper, url, html_content, password, headers,
+                            proxies, download_id=None, sse_callback=None):
     """다운로드 버튼 클릭 시뮬레이션.
 
     GET 페이지 HTML 에서 폼을 찾아 데이터 수집 → POST. 응답이 또 대기
     페이지면 추가 대기시간 추출 후 재 POST. ``MAX_POST_ATTEMPTS`` 까지.
+
+    ``download_id`` / ``sse_callback`` 가 주어지면 재시도 사이의 추가
+    대기에서도 cancel_signal 을 감지하고 (정지 즉시 중단) UI 카운트다운을
+    SSE 로 송출한다.
     """
     soup = BeautifulSoup(html_content, 'html.parser')
 
@@ -855,6 +868,20 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
         if not extra_wait:
             break
         print(f"[LOG] attempt {attempt} 응답에서 추가 대기시간 {extra_wait}초 발견 → 대기 후 재시도")
-        time.sleep(extra_wait)
+
+        # 재시도 대기는 _run_wait_countdown 으로 — cancel signal 즉시 반응 +
+        # UI 카운트다운 SSE. download_id/sse_callback 없으면 단순 sleep.
+        cancelled = _run_wait_countdown(
+            wait_seconds=extra_wait,
+            download_id=download_id,
+            sse_callback=sse_callback,
+        )
+        if cancelled:
+            # 사용자 정지로 빠져나옴 — 마지막 응답을 그대로 분류해서 raise
+            # 하지 말고, 호출자가 cancel_signal.is_cancelled 로 감지할 수
+            # 있게 None 반환은 호출자(parse_1fichier_simple_sync) 에서 다룸.
+            # 여기서는 현재 진단 분류 그대로 raise — 어차피 호출자에서
+            # 정지 감지 분기가 있음.
+            raise Exception("사용자 정지로 다운로드 중단")
 
     raise _classify_post_failure(last_response)
