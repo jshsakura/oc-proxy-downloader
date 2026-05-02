@@ -1072,11 +1072,6 @@
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
 
-    // 1fichier 쿨다운 상태 체크
-    if (download.status.toLowerCase() === "cooldown" && download.message) {
-      return download.message;
-    }
-
     // 1fichier 자동 재시도 상태 체크
     if (
       download.status.toLowerCase() === "pending" &&
@@ -1131,7 +1126,6 @@
       done: $t("download_done"),
       stopped: $t("download_stopped"),
       failed: $t("download_failed"),
-      cooldown: $t("download_cooldown"),
     };
 
     return statusTooltips[download.status.toLowerCase()] || download.status;
@@ -1747,12 +1741,7 @@
                         : 'local-status'}"
                       title={getStatusTooltip(download)}
                     >
-                      {#if download.status.toLowerCase() === "cooldown" && download.cooldown_remaining}
-                        <span class="cooldown-countdown">
-                          {$t("download_cooldown")} ({formatWaitTime(download.cooldown_remaining)})
-                          <span class="cooldown-indicator"></span>
-                        </span>
-                      {:else if download.status.toLowerCase() === "waiting" && downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
+                      {#if download.status.toLowerCase() === "waiting" && downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
                         <span class="wait-countdown">
                           {$t("download_waiting_time")} ({formatWaitTime(downloadWaitInfo[download.id].remaining_time)})
                           <span
@@ -1806,7 +1795,7 @@
                         >
                           {formatSpeed(download.download_speed)}
                         </span>
-                      {:else if ["parsing", "downloading", "proxying", "pending", "waiting", "cooldown"].includes(download.status.toLowerCase())}
+                      {:else if ["parsing", "downloading", "proxying", "pending", "waiting"].includes(download.status.toLowerCase())}
                         <span
                           class="speed-text parsing-indicator {download.use_proxy
                             ? 'proxy-loading'
@@ -1908,7 +1897,7 @@
                         <DeleteIcon />
                       </button>
                     {:else}
-                      {#if ["downloading", "proxying", "pending", "parsing", "cooldown", "waiting"].includes(download.status?.toLowerCase())}
+                      {#if ["downloading", "proxying", "pending", "parsing", "waiting"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"
                           title={$t("action_pause")}

@@ -12,7 +12,6 @@ class StatusEnum(str, enum.Enum):
     stopped = "stopped"
     done = "done"
     failed = "failed"
-    cooldown = "cooldown"
 
 Base = declarative_base()
 
@@ -36,19 +35,10 @@ class DownloadRequest(Base):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # 임시 속성들 (DB에 저장되지 않음)
-        self._wait_until = None  # 대기 완료 시간
-        self.progress = 0  # 현재 진행률
-
-    @property
-    def wait_until(self):
-        """대기 완료 시간을 반환합니다. DB에서 로드된 객체의 경우 기본값을 반환합니다."""
-        return getattr(self, '_wait_until', None)
-
-    @wait_until.setter
-    def wait_until(self, value):
-        """대기 완료 시간을 설정합니다."""
-        self._wait_until = value
+        # progress 는 DB 컬럼이 아닌 transient 필드 — 정지/재개 시 SSE
+        # broadcast 에 포함시키려고 인스턴스에 임시로 set 한 뒤 다른 요청
+        # 처리 흐름이 읽어간다.
+        self.progress = 0
 
     def as_dict(self):
         data = {}

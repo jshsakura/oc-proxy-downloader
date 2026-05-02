@@ -8,7 +8,7 @@
 
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 import cloudscraper
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urlunparse
@@ -27,7 +27,7 @@ def _save_parse_debug(stage: str, status_code, body_text):
     try:
         path = CONFIG_DIR / f"parse_debug_{stage}.html"
         with open(path, "w", encoding="utf-8") as f:
-            f.write(f"<!-- saved at {datetime.utcnow().isoformat()}Z, status={status_code} -->\n")
+            f.write(f"<!-- saved at {datetime.now(timezone.utc).isoformat()}, status={status_code} -->\n")
             f.write(body_text or "")
         print(f"[LOG] 파싱 응답 본문을 디버그 파일로 저장: {path}")
     except Exception as save_err:

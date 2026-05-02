@@ -123,6 +123,28 @@ class DownloadCore:
         except Exception as e:
             print(f"[ERROR] SSE 업데이트 전송 실패: {e}")
 
+    @staticmethod
+    def _make_thread_safe_sse_callback(main_loop):
+        """sync executor 스레드에서 호출 가능한 SSE 콜백 생성.
+
+        ``parse_1fichier_simple_sync`` 가 별도 스레드에서 실행되므로,
+        해당 스레드는 main asyncio 루프에 직접 접근할 수 없다. 이 헬퍼는
+        ``run_coroutine_threadsafe`` 로 이벤트를 main 루프로 위임한다.
+
+        과거에 두 군데 (로컬/프록시 파싱) 에 동일한 내부 함수가 복사돼
+        있던 것을 단일 헬퍼로 합침.
+        """
+        def sse_callback(msg_type, data):
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    sse_manager.broadcast_message(msg_type, data),
+                    main_loop,
+                )
+                future.result(timeout=1.0)
+            except Exception as e:
+                print(f"[WARNING] SSE 전송 실패: {e}")
+        return sse_callback
+
     async def _perform_preparse(self, req: DownloadRequest, db: Session):
         """사전파싱 수행 (세마포어 밖에서 실행)"""
         # 이미 파일 정보가 있으면 사전파싱 건너뜀
@@ -565,20 +587,9 @@ class DownloadCore:
                 if not req.use_proxy:
                     print(f"[LOG] 일반 망으로 파싱 시도")
 
-                    # SSE 콜백 정의 (메인 이벤트 루프 캡처)
                     main_loop = asyncio.get_event_loop()
-                    def sse_callback(msg_type, data):
-                        try:
-                            # 메인 루프에서 코루틴 실행
-                            future = asyncio.run_coroutine_threadsafe(
-                                sse_manager.broadcast_message(msg_type, data),
-                                main_loop
-                            )
-                            future.result(timeout=1.0)  # 1초 타임아웃
-                        except Exception as e:
-                            print(f"[WARNING] SSE 전송 실패: {e}")
-
-                    loop = asyncio.get_event_loop()
+                    sse_callback = self._make_thread_safe_sse_callback(main_loop)
+                    loop = main_loop
 
                     # 1fichier 계정 자격증명이 있으면 로그인된 세션 쿠키 확보
                     # (게스트 슬롯 부족/CGNAT/광고검증 우회용)
@@ -647,21 +658,10 @@ class DownloadCore:
                                 "failed": total_failed_count
                             })
 
-                            # SSE 콜백 정의 (메인 이벤트 루프 캡처)
                             main_loop = asyncio.get_event_loop()
-                            def sse_callback(msg_type, data):
-                                try:
-                                    # 메인 루프에서 코루틴 실행
-                                    future = asyncio.run_coroutine_threadsafe(
-                                        sse_manager.broadcast_message(msg_type, data),
-                                        main_loop
-                                    )
-                                    future.result(timeout=1.0)  # 1초 타임아웃
-                                except Exception as e:
-                                    print(f"[WARNING] SSE 전송 실패: {e}")
+                            sse_callback = self._make_thread_safe_sse_callback(main_loop)
 
-                            # 동기 함수를 별도 스레드에서 실행
-                            loop = asyncio.get_event_loop()
+                            loop = main_loop
                             account_cookies_proxy = await loop.run_in_executor(
                                 None, get_fichier_account_cookies
                             )
