@@ -658,203 +658,185 @@ def pick_download_link_from_html(soup, raw_html=""):
     return None
 
 
-def simulate_download_click(scraper, url, html_content, password, headers, proxies):
-    """다운로드 버튼 클릭 시뮬레이션"""
+# POST 재시도 상한. 1fichier 등록 사용자가 한 번 더 대기 사이클을 요구하는
+# 경우(첫 POST 가 "saved on account" + 새 ct 카운트로 응답)를 흡수하기 위해
+# 3 으로 둠. 매 시도마다 응답에서 추가 대기시간이 발견될 때만 다음 시도로
+# 진행하므로, 게스트/프리미엄 같은 단일-POST 케이스에는 영향 없음.
+MAX_POST_ATTEMPTS = 3
+
+
+def _collect_form_data(form, password):
+    """1fichier 다운로드 폼에서 실제 브라우저가 보낼 POST 본문을 만든다.
+
+    실제 브라우저(JS) 가 ``$('#f1').submit()`` 으로 폼을 제출할 때:
+    - **클릭하지 않은 submit 버튼은 포함되지 않는다.** 등록 사용자 폼에는
+      ``<input type="submit" name="save" value="Save on my account">`` 가
+      들어있어서 이를 자동 수집하면 1fichier 가 다운로드가 아니라 "계정에
+      저장" 액션으로 해석한다.
+    - **unchecked 체크박스는 포함되지 않는다.** ``checked`` 속성이 있는
+      것만 보낸다.
+    - hidden / text / email / password 는 정상적으로 포함.
+    """
+    form_data = {}
+    for input_elem in form.find_all('input'):
+        name = input_elem.get('name')
+        if not name:
+            continue
+        value = input_elem.get('value', '')
+        input_type = (input_elem.get('type') or 'text').lower()
+
+        if input_type == 'submit':
+            continue
+
+        if input_type == 'checkbox':
+            if input_elem.has_attr('checked'):
+                form_data[name] = value or 'on'
+            continue
+
+        if input_type == 'password' and password:
+            form_data[name] = password
+            continue
+
+        if input_type in ('hidden', 'text', 'email') or value:
+            form_data[name] = value
+
+    return form_data
+
+
+def _build_post_headers(base_headers, url):
+    """POST 요청에 1fichier 가 기대하는 헤더 추가."""
+    h = base_headers.copy()
+    h.update({
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': url,
+        'Origin': 'https://1fichier.com',
+    })
+    return h
+
+
+def _extract_link_from_response(response):
+    """POST 응답에서 다운로드 링크 추출. 못 찾으면 None.
+
+    리다이렉트(3xx) 면 Location 검사, 200 이면 본문에서 후보 추출.
+    """
+    if response.status_code in (301, 302, 303, 307, 308):
+        location = response.headers.get('Location')
+        if location and location.startswith('/'):
+            location = f"https://1fichier.com{location}"
+        if location and is_likely_download_url(location):
+            return location
+        return None
+
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text or "", 'html.parser')
+        link = pick_download_link_from_html(soup, response.text or "")
+        if link:
+            if link.startswith('/'):
+                link = f"https://1fichier.com{link}"
+            return link
+
+    return None
+
+
+def _classify_post_failure(response):
+    """모든 POST 시도가 끝났는데 링크를 못 찾은 경우, 응답 분석해서
+    사용자에게 도움이 되는 Exception 을 반환한다.
+    """
+    if response is None:
+        return Exception("POST 응답 없음 — 네트워크 오류 가능성")
+
+    diag_status = response.status_code
     try:
-        soup = BeautifulSoup(html_content, 'html.parser')
+        diag_soup = BeautifulSoup(response.text or "", "html.parser")
+        diag_form_count = len(diag_soup.find_all("form"))
+        diag_a_count = len(diag_soup.find_all("a", href=True))
+        diag_title = (diag_soup.title.string.strip()
+                      if diag_soup.title and diag_soup.title.string else "")
+        diag_block = detect_block_reason(response.text or "")
+    except Exception:
+        diag_form_count = -1
+        diag_a_count = -1
+        diag_title = ""
+        diag_block = None
 
-        # 다운로드 버튼 상태 확인 (정보용, disabled 상태는 무시)
-        download_button = soup.find('button', {'id': 'dlw'})
-        if download_button:
-            is_disabled = download_button.get('disabled') is not None
-            button_text = download_button.get_text(strip=True)
-            print(f"[LOG] 다운로드 버튼 상태: disabled={is_disabled}, text='{button_text}'")
-            print(f"[LOG] 대기시간 완료 후이므로 disabled 상태 무시하고 POST 요청 진행")
+    if diag_block:
+        return Exception(f"1fichier 차단: {diag_block}")
 
-        # 폼 찾기 (주로 id="f1")
-        form = soup.find('form', {'id': 'f1'}) or soup.find('form')
+    # POST 응답이 홈페이지로 돌아온 케이스 — 1fichier 가 폼 제출을 거부
+    # (한도/세션/자동화 감지 등). title 이 'Cloud Storage' 인데 form 이
+    # 하나도 없으면 다운로드 페이지가 아니라 홈페이지.
+    if diag_form_count == 0 and "cloud storage" in (diag_title or "").lower():
+        return Exception(
+            "1fichier 폼 제출 거부: 다운로드 페이지 대신 홈페이지가 반환됨 "
+            "(세션 만료/한도 초과/자동화 감지 가능성, "
+            f"POST status={diag_status}, a_tags={diag_a_count})"
+        )
 
-        if not form:
-            raise Exception("다운로드 폼을 찾을 수 없음")
+    return Exception(
+        "다운로드 링크를 찾을 수 없음 "
+        f"(POST status={diag_status}, title='{diag_title[:60]}', "
+        f"forms={diag_form_count}, a_tags={diag_a_count})"
+    )
 
-        # 폼 데이터 수집.
-        # 1fichier 등록 사용자 폼에는 ``<input type="submit" name="save"
-        # value="Save on my account">`` 처럼 "계정에 저장" 버튼이 들어 있다.
-        # 실제 브라우저는 사용자가 *클릭한 submit 버튼* 하나만 폼 데이터에
-        # 포함시키는데, 다운로드 트리거인 ``<button id="dlw">`` 는 name 이
-        # 없는 JS-only 버튼이라 클릭 시 어떤 submit 필드도 같이 보내지
-        # 않는다. 그런데 기존 코드는 ``input_type in ['submit', ...]`` 로
-        # 모든 submit 버튼을 자동 수집하면서 ``save=Save on my account`` 까지
-        # 같이 보내고 있어서, 1fichier 가 다운로드 요청이 아니라 "save"
-        # 액션으로 해석 → 파일이 계정에 저장만 되고 다운로드 링크는 안
-        # 줘서 무한 대기 페이지에 갇히던 문제가 있었음.
-        # → submit 타입은 일괄 스킵, ``submit=Download`` 자동 추가도 제거.
-        form_data = {}
-        for input_elem in form.find_all('input'):
-            name = input_elem.get('name')
-            value = input_elem.get('value', '')
-            input_type = (input_elem.get('type') or 'text').lower()
 
-            if not name:
-                continue
+def simulate_download_click(scraper, url, html_content, password, headers, proxies):
+    """다운로드 버튼 클릭 시뮬레이션.
 
-            if input_type == 'submit':
-                # 클릭하지 않은 submit 버튼은 보내지 않는다.
-                continue
+    GET 페이지 HTML 에서 폼을 찾아 데이터 수집 → POST. 응답이 또 대기
+    페이지면 추가 대기시간 추출 후 재 POST. ``MAX_POST_ATTEMPTS`` 까지.
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
 
-            if input_type == 'checkbox':
-                # 브라우저는 unchecked 체크박스를 폼에 포함하지 않는다.
-                if input_elem.has_attr('checked'):
-                    form_data[name] = value or 'on'
-                continue
+    # 다운로드 버튼 상태 확인 (정보용, disabled 상태는 무시)
+    download_button = soup.find('button', {'id': 'dlw'})
+    if download_button:
+        is_disabled = download_button.get('disabled') is not None
+        button_text = download_button.get_text(strip=True)
+        print(f"[LOG] 다운로드 버튼 상태: disabled={is_disabled}, text='{button_text}'")
 
-            if input_type == 'password' and password:
-                form_data[name] = password
-                continue
+    form = soup.find('form', {'id': 'f1'}) or soup.find('form')
+    if not form:
+        raise Exception("다운로드 폼을 찾을 수 없음")
 
-            if input_type in ('hidden', 'text', 'email') or value:
-                form_data[name] = value
+    form_data = _collect_form_data(form, password)
+    print(f"[LOG] 폼 데이터: {form_data}")
 
-        print(f"[LOG] 폼 데이터: {form_data}")
+    post_headers = _build_post_headers(headers, url)
+    timeout_val = (30, 60) if proxies else (10, 30)
 
-        # POST 요청으로 다운로드 링크 획득
-        post_headers = headers.copy()
-        post_headers.update({
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': url,
-            'Origin': 'https://1fichier.com'
-        })
-
-        print(f"[DEBUG] POST 요청 URL: {url}")
-        print(f"[DEBUG] POST 헤더: {post_headers}")
-        print(f"[DEBUG] POST 프록시: {proxies}")
-
+    last_response = None
+    for attempt in range(1, MAX_POST_ATTEMPTS + 1):
+        print(f"[DEBUG] POST attempt {attempt}/{MAX_POST_ATTEMPTS} → {url}")
         try:
-            # 프록시 사용 시 더 긴 타임아웃 적용
-            timeout_val = (30, 60) if proxies else (10, 30)
-            response = scraper.post(url, data=form_data, headers=post_headers,
-                                  proxies=proxies, timeout=timeout_val, allow_redirects=False)
-            print(f"[DEBUG] POST 응답 코드: {response.status_code}")
-            print(f"[DEBUG] POST 응답 URL: {response.url}")
+            response = scraper.post(
+                url, data=form_data, headers=post_headers,
+                proxies=proxies, timeout=timeout_val, allow_redirects=False,
+            )
         except Exception as post_error:
-            print(f"[ERROR] POST 요청 중 예외 발생: {post_error}")
-            raise post_error
+            print(f"[ERROR] POST 요청 중 예외 발생 (attempt {attempt}): {post_error}")
+            raise
 
-        # 리다이렉트 처리
-        if response.status_code in [301, 302, 303, 307, 308]:
-            location = response.headers.get('Location')
-            if location and location.startswith('/'):
-                location = f"https://1fichier.com{location}"
+        last_response = response
+        print(f"[DEBUG] POST attempt {attempt} 응답 코드: {response.status_code}")
 
-            if location and is_likely_download_url(location):
-                print(f"[LOG] 다운로드 링크 획득(redirect): {location}")
-                return location
-
-        # POST 응답은 항상 디버그용으로 저장 (성공/실패 무관)
+        # 시도별 응답을 ``parse_debug_post_<n>.html`` 로 분리 저장 + 최신은
+        # 호환성 위해 ``parse_debug_post.html`` 도 같이 갱신.
+        _save_parse_debug(f"post_{attempt}", response.status_code, response.text)
         _save_parse_debug("post", response.status_code, response.text)
 
-        # HTML 응답에서 다운로드 링크 찾기
-        if response.status_code == 200:
-            print(f"[DEBUG] POST 응답 상태: {response.status_code}")
-            print(f"[DEBUG] POST 응답 헤더: {dict(response.headers)}")
-            print(f"[DEBUG] POST 응답 내용 (전체):")
-            print(response.text)
-            print(f"[DEBUG] POST 응답 내용 끝")
+        link = _extract_link_from_response(response)
+        if link:
+            print(f"[LOG] 다운로드 링크 획득 (attempt {attempt}): {link}")
+            return link
 
-            # 1. 먼저 특정 다운로드 링크 텍스트가 있는 <a> 태그 찾기
-            soup_response = BeautifulSoup(response.text, 'html.parser')
-            final_link = pick_download_link_from_html(soup_response, response.text)
-            if final_link:
-                if final_link.startswith('/'):
-                    final_link = f"https://1fichier.com{final_link}"
-                print(f"[LOG] 다운로드 링크 발견: {final_link}")
-                return final_link
+        if attempt >= MAX_POST_ATTEMPTS:
+            break
 
-            print(f"[DEBUG] 다운로드 링크 패턴 매칭 실패")
+        # 추가 대기시간이 없으면 더 시도해도 의미 없음.
+        extra_wait = extract_wait_time_from_button(response.text or "")
+        if not extra_wait:
+            break
+        print(f"[LOG] attempt {attempt} 응답에서 추가 대기시간 {extra_wait}초 발견 → 대기 후 재시도")
+        time.sleep(extra_wait)
 
-            # POST 응답에서 추가 대기시간 체크 (1fichier 다중 대기 처리)
-            additional_wait_time = extract_wait_time_from_button(response.text)
-            if additional_wait_time:
-                print(f"[LOG] POST 응답에서 추가 대기시간 발견: {additional_wait_time}초")
-                print(f"[LOG] 추가 대기시간 시작...")
-
-                # 추가 대기 처리
-                time.sleep(additional_wait_time)
-                print(f"[LOG] 추가 대기 완료!")
-
-                # 추가 대기 후 다시 POST 요청
-                print(f"[LOG] 추가 대기 후 재시도...")
-                # 프록시 사용 시 더 긴 타임아웃 적용
-                timeout_val = (30, 60) if proxies else (10, 30)
-                retry_response = scraper.post(url, data=form_data, headers=post_headers,
-                                            proxies=proxies, timeout=timeout_val, allow_redirects=False)
-
-                # 리다이렉트 처리
-                if retry_response.status_code in [301, 302, 303, 307, 308]:
-                    location = retry_response.headers.get('Location')
-                    if location and location.startswith('/'):
-                        location = f"https://1fichier.com{location}"
-
-                    if location and is_likely_download_url(location):
-                        print(f"[LOG] 재시도 후 다운로드 링크 획득: {location}")
-                        return location
-
-                # 재시도 응답에서 다운로드 링크 찾기
-                if retry_response.status_code == 200:
-                    soup_retry = BeautifulSoup(retry_response.text, 'html.parser')
-                    retry_link = pick_download_link_from_html(soup_retry, retry_response.text)
-                    if retry_link:
-                        if retry_link.startswith('/'):
-                            retry_link = f"https://1fichier.com{retry_link}"
-                        print(f"[LOG] 재시도 후 다운로드 링크 발견: {retry_link}")
-                        return retry_link
-
-            # 응답에 실제 오류 메시지가 있는지 확인 (limit는 정상 상황이므로 제외)
-            error_keywords = ['error', 'expired', 'invalid', 'not found']
-            for keyword in error_keywords:
-                if keyword.lower() in response.text.lower():
-                    print(f"[DEBUG] 응답에서 오류 키워드 발견: {keyword}")
-
-            # limit는 대기 후 정상 다운로드 가능한 상황이므로 별도 처리
-            limit_keywords = ['limite', 'limit']
-            for keyword in limit_keywords:
-                if keyword.lower() in response.text.lower():
-                    print(f"[DEBUG] 응답에서 제한 키워드 발견 (정상): {keyword} - 대기시간 후 다운로드 가능")
-
-        # 어떤 분기에서도 후보를 못 찾았다 — 디버깅에 도움될 단서를
-        # 메시지에 포함해 raise.
-        diag_status = response.status_code
-        try:
-            diag_soup = BeautifulSoup(response.text or "", "html.parser")
-            diag_form_count = len(diag_soup.find_all("form"))
-            diag_a_count = len(diag_soup.find_all("a", href=True))
-            diag_title = (diag_soup.title.string.strip() if diag_soup.title and diag_soup.title.string else "")
-            diag_block = detect_block_reason(response.text or "")
-        except Exception:
-            diag_form_count = -1
-            diag_a_count = -1
-            diag_title = ""
-            diag_block = None
-
-        if diag_block:
-            raise Exception(f"1fichier 차단: {diag_block}")
-
-        # POST 응답이 홈페이지로 돌아온 케이스 — 1fichier 가 폼 제출을
-        # 거부 (한도/세션/자동화 감지 등). title 이 'Cloud Storage' 인데
-        # form 이 하나도 없으면 다운로드 페이지가 아니라 홈페이지.
-        if diag_form_count == 0 and "cloud storage" in (diag_title or "").lower():
-            raise Exception(
-                "1fichier 폼 제출 거부: 다운로드 페이지 대신 홈페이지가 반환됨 "
-                "(세션 만료/한도 초과/자동화 감지 가능성, "
-                f"POST status={diag_status}, a_tags={diag_a_count})"
-            )
-
-        raise Exception(
-            "다운로드 링크를 찾을 수 없음 "
-            f"(POST status={diag_status}, title='{diag_title[:60]}', "
-            f"forms={diag_form_count}, a_tags={diag_a_count})"
-        )
-        
-    except Exception as e:
-        print(f"[ERROR] 다운로드 클릭 시뮬레이션 실패: {e}")
-        raise e
+    raise _classify_post_failure(last_response)

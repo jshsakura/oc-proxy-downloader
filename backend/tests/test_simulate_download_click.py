@@ -6,8 +6,124 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from bs4 import BeautifulSoup
 
 from core import simple_parser as sp
+
+
+# ---------------------------------------------------------------------------
+# _collect_form_data
+# ---------------------------------------------------------------------------
+
+
+def _form(html):
+    return BeautifulSoup(html, "html.parser").find("form")
+
+
+class TestCollectFormData:
+    def test_excludes_save_submit_button_for_registered_user(self):
+        """등록 사용자 폼의 'Save on my account' submit 은 form_data 에 들어가면 안 된다.
+        실제 브라우저는 클릭한 submit 만 포함한다 (다운로드는 JS 트리거라 submit 미포함).
+        """
+        form = _form("""
+            <form id="f1">
+              <input type="submit" name="save" value="Save on my account">
+              <input type="checkbox" name="dl_no_ssl">
+              <input type="checkbox" name="dlinline">
+            </form>
+        """)
+        data = sp._collect_form_data(form, password=None)
+        assert "save" not in data, "save submit 은 절대 포함되면 안 됨"
+
+    def test_excludes_unchecked_checkboxes(self):
+        """체크되지 않은 체크박스는 브라우저가 안 보내므로 form_data 에서도 제외."""
+        form = _form("""
+            <form id="f1">
+              <input type="checkbox" name="dl_no_ssl">
+              <input type="checkbox" name="dlinline">
+              <input type="checkbox" name="use_credits">
+            </form>
+        """)
+        assert sp._collect_form_data(form, password=None) == {}
+
+    def test_includes_checked_checkboxes(self):
+        form = _form("""
+            <form id="f1">
+              <input type="checkbox" name="dl_no_ssl" checked>
+              <input type="checkbox" name="dlinline" checked value="yes">
+            </form>
+        """)
+        data = sp._collect_form_data(form, password=None)
+        assert data == {"dl_no_ssl": "on", "dlinline": "yes"}
+
+    def test_includes_hidden_fields(self):
+        form = _form("""
+            <form id="f1">
+              <input type="hidden" name="adz" value="adv-token-123">
+              <input type="hidden" name="csrf" value="">
+            </form>
+        """)
+        data = sp._collect_form_data(form, password=None)
+        assert data["adz"] == "adv-token-123"
+        # value 비어있어도 hidden 은 포함되어야 함
+        assert "csrf" in data
+
+    def test_includes_password_when_provided(self):
+        form = _form("""
+            <form id="f1">
+              <input type="password" name="pass" value="">
+            </form>
+        """)
+        data = sp._collect_form_data(form, password="secret")
+        assert data["pass"] == "secret"
+
+    def test_skips_password_when_not_provided(self):
+        form = _form("""
+            <form id="f1">
+              <input type="password" name="pass" value="">
+            </form>
+        """)
+        # password 가 None 이면 비밀번호 보호된 파일이 아닌 케이스 — 보내지 않음
+        data = sp._collect_form_data(form, password=None)
+        assert data == {}
+
+    def test_skips_inputs_without_name(self):
+        form = _form("""
+            <form id="f1">
+              <input type="hidden" value="orphan">
+              <input type="hidden" name="ok" value="ok">
+            </form>
+        """)
+        assert sp._collect_form_data(form, password=None) == {"ok": "ok"}
+
+    def test_does_not_auto_inject_submit_field(self):
+        """과거 ``submit=Download`` 자동 추가 동작이 회귀하지 않도록 보호."""
+        form = _form("""
+            <form id="f1">
+              <input type="checkbox" name="dl_no_ssl">
+            </form>
+        """)
+        data = sp._collect_form_data(form, password=None)
+        assert "submit" not in data
+        assert data == {}
+
+    def test_real_registered_user_form_only_yields_empty_dict(self):
+        """실제 1fichier 등록 사용자 GET 페이지에서 캡처한 폼 구조 — 어떤
+        것도 체크/입력되지 않았다면 form_data 는 비어있어야 한다 (브라우저
+        가 #dlw 클릭 → JS submit 했을 때의 동작).
+        """
+        form = _form("""
+            <form id="f1" method="post" action="https://1fichier.com/?abc">
+              <select id="did" name="did"><option value="0">Root</option></select>
+              <input type="submit" name="save" value="Save on my account">
+              <input type="checkbox" name="dl_no_ssl">
+              <input type="checkbox" name="dlinline">
+              <input type="checkbox" name="use_credits">
+            </form>
+        """)
+        # select 는 input 이 아니므로 _collect_form_data 가 다루지 않음.
+        # 향후 select 처리 추가 시 이 테스트도 같이 업데이트 필요.
+        assert sp._collect_form_data(form, password=None) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +331,67 @@ class TestSimulateDownloadClick:
                 {"User-Agent": "UA"},
                 None,
             )
+
+    def test_retry_loop_succeeds_within_max_attempts(self, monkeypatch):
+        """첫 시도 + 두 번째 시도 모두 대기 페이지, 세 번째 시도에서 다운로드 링크."""
+        wait_page = "<html><body><script>var ct = 60;</script><form id='f1'></form></body></html>"
+
+        wait1 = MagicMock(); wait1.status_code = 200; wait1.text = wait_page; wait1.headers = {}
+        wait2 = MagicMock(); wait2.status_code = 200; wait2.text = wait_page; wait2.headers = {}
+        success = MagicMock()
+        success.status_code = 302
+        success.text = ""
+        success.headers = {"Location": "https://a-1.1fichier.com/ptoken/file.bin"}
+
+        scraper = MagicMock()
+        scraper.post.side_effect = [wait1, wait2, success]
+
+        monkeypatch.setattr(sp.time, "sleep", lambda s: None)
+
+        link = sp.simulate_download_click(
+            scraper, "https://1fichier.com/?abc", WAIT_PAGE_HTML,
+            None, {"User-Agent": "UA"}, None,
+        )
+        assert link == "https://a-1.1fichier.com/ptoken/file.bin"
+        assert scraper.post.call_count == 3, "MAX_POST_ATTEMPTS=3 안에서 성공해야 함"
+
+    def test_retry_loop_stops_at_max_attempts(self, monkeypatch):
+        """MAX_POST_ATTEMPTS 도달하면 더 시도하지 않고 진단 메시지로 raise."""
+        wait_page = "<html><body><script>var ct = 60;</script><form id='f1'></form></body></html>"
+
+        responses = []
+        for _ in range(sp.MAX_POST_ATTEMPTS + 2):
+            r = MagicMock()
+            r.status_code = 200
+            r.text = wait_page
+            r.headers = {}
+            responses.append(r)
+
+        scraper = MagicMock()
+        scraper.post.side_effect = responses
+
+        monkeypatch.setattr(sp.time, "sleep", lambda s: None)
+
+        with pytest.raises(Exception):
+            sp.simulate_download_click(
+                scraper, "https://1fichier.com/?abc", WAIT_PAGE_HTML,
+                None, {"User-Agent": "UA"}, None,
+            )
+        assert scraper.post.call_count == sp.MAX_POST_ATTEMPTS, \
+            "정확히 MAX_POST_ATTEMPTS 만큼만 시도해야 함"
+
+    def test_retry_loop_stops_early_when_no_extra_wait(self):
+        """응답이 대기 페이지가 아니라 일반 실패면 즉시 중단 — 무의미한 재시도 방지."""
+        scraper, _ = _make_scraper_with_post_response(
+            status=200,
+            text="<html><head><title>Unexpected</title></head><body></body></html>",
+        )
+        with pytest.raises(Exception):
+            sp.simulate_download_click(
+                scraper, "https://1fichier.com/?abc", WAIT_PAGE_HTML,
+                None, {"User-Agent": "UA"}, None,
+            )
+        assert scraper.post.call_count == 1, "추가 대기시간 없으면 1번만 시도"
 
     def test_post_response_returning_homepage_raises_form_rejection(self):
         """차단 메시지 없이 홈페이지가 반환된 케이스 — 폼 제출 거부로 분류."""
