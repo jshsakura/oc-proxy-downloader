@@ -783,7 +783,10 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
         # 모든 다운로드를 pending 상태로 변경 (한 번에 처리)
         for download in failed_local_downloads:
             download.status = StatusEnum.pending
-            download.error_message = None
+            # 컬럼 이름은 ``error`` — ``error_message`` 로 쓰던 transient
+            # 속성은 DB 에 persist 되지 않던 버그라 None 으로 비우는 것도
+            # 의미가 없었음. 정상 컬럼으로 교정.
+            download.error = None
             download.downloaded_size = 0  # 다운로드 크기 초기화
 
         # 한 번에 커밋
