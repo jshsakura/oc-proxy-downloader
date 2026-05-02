@@ -677,24 +677,43 @@ def simulate_download_click(scraper, url, html_content, password, headers, proxi
         if not form:
             raise Exception("다운로드 폼을 찾을 수 없음")
 
-        # 폼 데이터 수집
+        # 폼 데이터 수집.
+        # 1fichier 등록 사용자 폼에는 ``<input type="submit" name="save"
+        # value="Save on my account">`` 처럼 "계정에 저장" 버튼이 들어 있다.
+        # 실제 브라우저는 사용자가 *클릭한 submit 버튼* 하나만 폼 데이터에
+        # 포함시키는데, 다운로드 트리거인 ``<button id="dlw">`` 는 name 이
+        # 없는 JS-only 버튼이라 클릭 시 어떤 submit 필드도 같이 보내지
+        # 않는다. 그런데 기존 코드는 ``input_type in ['submit', ...]`` 로
+        # 모든 submit 버튼을 자동 수집하면서 ``save=Save on my account`` 까지
+        # 같이 보내고 있어서, 1fichier 가 다운로드 요청이 아니라 "save"
+        # 액션으로 해석 → 파일이 계정에 저장만 되고 다운로드 링크는 안
+        # 줘서 무한 대기 페이지에 갇히던 문제가 있었음.
+        # → submit 타입은 일괄 스킵, ``submit=Download`` 자동 추가도 제거.
         form_data = {}
-
-        # 모든 input 필드 수집
         for input_elem in form.find_all('input'):
             name = input_elem.get('name')
             value = input_elem.get('value', '')
-            input_type = input_elem.get('type', 'text')
+            input_type = (input_elem.get('type') or 'text').lower()
 
-            if name:
-                if input_type == 'password' and password:
-                    form_data[name] = password
-                elif input_type in ['submit', 'hidden'] or value:
-                    form_data[name] = value
+            if not name:
+                continue
 
-        # submit 버튼이 없으면 기본값 추가
-        if not any('submit' in key.lower() for key in form_data.keys()):
-            form_data['submit'] = 'Download'
+            if input_type == 'submit':
+                # 클릭하지 않은 submit 버튼은 보내지 않는다.
+                continue
+
+            if input_type == 'checkbox':
+                # 브라우저는 unchecked 체크박스를 폼에 포함하지 않는다.
+                if input_elem.has_attr('checked'):
+                    form_data[name] = value or 'on'
+                continue
+
+            if input_type == 'password' and password:
+                form_data[name] = password
+                continue
+
+            if input_type in ('hidden', 'text', 'email') or value:
+                form_data[name] = value
 
         print(f"[LOG] 폼 데이터: {form_data}")
 
