@@ -20,6 +20,7 @@ from core.download_core import download_core
 from core.parser import fichier_parser
 from core.simple_parser import parse_1fichier_simple_sync, clean_1fichier_url
 from services.sse_manager import sse_manager
+from services.ouo_unwrap_service import is_ouo_url, unwrap_if_ouo
 
 router = APIRouter(prefix="/api", tags=["downloads"])
 
@@ -39,13 +40,29 @@ async def add_download(
         if not url:
             raise HTTPException(status_code=400, detail="URL이 필요합니다")
 
+        # ouo.io / ouo.press 단축링크 자동 우회. 우회 결과가 진짜 다운로드 URL.
+        # 우회 실패 시 원본을 그대로 두고 사용자 측에서 재시도하게 함.
+        original_ouo_url: Optional[str] = None
+        if is_ouo_url(url):
+            original_ouo_url = url
+            unwrapped = unwrap_if_ouo(url)
+            if unwrapped:
+                print(f"[LOG] ouo unwrap: {url} -> {unwrapped}")
+                url = unwrapped
+            else:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"ouo 단축링크 우회 실패: {url} — 잠시 후 다시 시도해주세요",
+                )
+
         # 1fichier URL 정리 (파일 페이지의 affiliate 등 제거, 다운로드 호스트는 보존)
         url = clean_1fichier_url(url)
 
-        # 새 다운로드 요청 생성
+        # 새 다운로드 요청 생성. ouo 우회로 들어온 URL은 원본 ouo 링크를
+        # original_url에 보존하여 추후 진단/재우회에 사용 가능하게 함.
         new_request = DownloadRequest(
             url=url,
-            original_url=url if "1fichier.com" in url else None,  # 1fichier인 경우에만 원본 URL 설정
+            original_url=original_ouo_url or (url if "1fichier.com" in url else None),
             password=password if password else None,
             use_proxy=use_proxy,
             status=StatusEnum.pending
