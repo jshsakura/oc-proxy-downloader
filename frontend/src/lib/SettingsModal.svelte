@@ -23,6 +23,10 @@
     light: "☀️",
     dark: "🌙",
     dracula: "🧛‍♂️",
+    nord: "❄️",
+    solarized: "🌞",
+    monokai: "🎨",
+    ocean: "🌊",
     system: "🖥️",
   };
 
@@ -688,6 +692,62 @@
                     >{themeIcons.dracula}</span
                   >
                   <span>{$t("theme_dracula")}</span>
+                </div>
+              </label>
+              <label class="theme-option-label">
+                <input
+                  type="radio"
+                  bind:group={selectedTheme}
+                  value="nord"
+                  hidden
+                />
+                <div class="theme-card nord-theme-card">
+                  <span class="theme-icon" aria-label={$t("theme_nord_aria")}
+                    >{themeIcons.nord}</span
+                  >
+                  <span>{$t("theme_nord")}</span>
+                </div>
+              </label>
+              <label class="theme-option-label">
+                <input
+                  type="radio"
+                  bind:group={selectedTheme}
+                  value="solarized"
+                  hidden
+                />
+                <div class="theme-card solarized-theme-card">
+                  <span class="theme-icon" aria-label={$t("theme_solarized_aria")}
+                    >{themeIcons.solarized}</span
+                  >
+                  <span>{$t("theme_solarized")}</span>
+                </div>
+              </label>
+              <label class="theme-option-label">
+                <input
+                  type="radio"
+                  bind:group={selectedTheme}
+                  value="monokai"
+                  hidden
+                />
+                <div class="theme-card monokai-theme-card">
+                  <span class="theme-icon" aria-label={$t("theme_monokai_aria")}
+                    >{themeIcons.monokai}</span
+                  >
+                  <span>{$t("theme_monokai")}</span>
+                </div>
+              </label>
+              <label class="theme-option-label">
+                <input
+                  type="radio"
+                  bind:group={selectedTheme}
+                  value="ocean"
+                  hidden
+                />
+                <div class="theme-card ocean-theme-card">
+                  <span class="theme-icon" aria-label={$t("theme_ocean_aria")}
+                    >{themeIcons.ocean}</span
+                  >
+                  <span>{$t("theme_ocean")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
@@ -1908,8 +1968,8 @@
 
   .theme-options {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 0.75rem;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
     margin-top: 0.75rem;
   }
 
@@ -1920,17 +1980,17 @@
 
   .theme-card {
     border: 2px solid var(--card-border, #e5e7eb);
-    border-radius: 12px;
-    padding: 0.75rem 0.5rem;
+    border-radius: 8px;
+    padding: 0.4rem 0.25rem;
     text-align: center;
     transition: all 0.2s ease;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.25rem;
     background: var(--card-background);
     color: var(--text-primary);
   }
@@ -1947,7 +2007,7 @@
   }
 
   .theme-icon {
-    font-size: 1.5rem;
+    font-size: 1.2rem;
   }
 
   .light-theme-card {
@@ -1965,6 +2025,22 @@
   .system-theme-card {
     background: linear-gradient(135deg, #64748b 0%, #475569 100%) !important;
     color: white !important;
+  }
+  .nord-theme-card {
+    background: linear-gradient(135deg, #2e3440 0%, #3b4252 100%) !important;
+    color: #eceff4 !important;
+  }
+  .solarized-theme-card {
+    background: linear-gradient(135deg, #002b36 0%, #073642 100%) !important;
+    color: #fdf6e3 !important;
+  }
+  .monokai-theme-card {
+    background: linear-gradient(135deg, #272822 0%, #1e1f1c 100%) !important;
+    color: #f8f8f2 !important;
+  }
+  .ocean-theme-card {
+    background: linear-gradient(135deg, #0a192f 0%, #112240 100%) !important;
+    color: #ccd6f6 !important;
   }
 
   .modal-footer {
@@ -2215,7 +2291,7 @@
     }
 
     .theme-options {
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: repeat(4, 1fr);
     }
 
     .button {

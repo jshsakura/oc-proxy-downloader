@@ -183,6 +183,10 @@
     light: "☀️",
     dark: "🌙",
     dracula: "🧛‍♀️",
+    nord: "❄️",
+    solarized: "🌞",
+    monokai: "🎨",
+    ocean: "🌊",
     system: "💻",
   };
 
@@ -1536,8 +1540,13 @@
       currentTab = newTab;
       // 검색어는 탭 전환 시에도 유지
       currentPage = 1; // 탭 전환 시 첫 페이지로 이동
-      // 탭 전환 시 조용한 데이터 새로고침
-      syncDownloadsSilently();
+      if (newTab === "dashboard") {
+        fetchDashboardStats();
+        fetchDashboardHistory();
+      } else {
+        // 탭 전환 시 조용한 데이터 새로고침
+        syncDownloadsSilently();
+      }
     }
   }
 
@@ -1758,48 +1767,6 @@
       </form>
     </div>
 
-    <div class="gauge-container">
-      <div class="gauge-item">
-        <ProxyGauge
-          totalProxies={proxyStats.totalProxies}
-          availableProxies={proxyStats.availableProxies}
-          usedProxies={proxyStats.usedProxies}
-          successCount={proxyStats.successCount}
-          failCount={proxyStats.failCount}
-          currentProxy={proxyStats.currentProxy || ""}
-          currentStep={proxyStats.currentStep || ""}
-          status={proxyStats.status || ""}
-          currentIndex={proxyStats.currentIndex || 0}
-          totalAttempting={proxyStats.totalAttempting || 0}
-          lastError={proxyStats.lastError || ""}
-          activeDownloadCount={activeProxyDownloadCount}
-          statusMessage={proxyStats.status_message || ""}
-          on:resetProxyStatus={handleResetProxyStatus}
-        />
-      </div>
-
-      <div class="gauge-item">
-        <LocalGauge
-          localDownloadCount={localStats.localDownloadCount}
-          localStatus={localStats.localStatus}
-        />
-      </div>
-    </div>
-
-    <!-- Dashboard Section -->
-    <Dashboard
-      {dashboardStats}
-      {dashboardPeriod}
-      {dashboardStartDate}
-      {dashboardEndDate}
-      {dashboardHistory}
-      {dashboardTotalPages}
-      dashboardCurrentPage={dashboardCurrentPage}
-      on:periodChange={(e) => { dashboardPeriod = e.detail; }}
-      on:customApply={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
-      on:pageChange={(e) => { dashboardCurrentPage = e.detail; fetchDashboardHistory(); }}
-    />
-
     <div class="downloads-section">
       <div class="tabs-container">
         <div class="tabs">
@@ -1817,35 +1784,87 @@
           >
             {$t("tab_completed")} ({completedCount})
           </button>
+          <button
+            class="tab"
+            class:active={currentTab === "dashboard"}
+            on:click={() => onTabChange("dashboard")}
+          >
+            {$t("tab_dashboard")}
+          </button>
         </div>
 
-        <!-- 검색 필터 -->
-        <div class="search-container">
-          <input
-            type="text"
-            class="search-input"
-            placeholder={$t("search_placeholder")}
-            bind:value={searchQuery}
-            on:input={handleSearchInput}
-          />
-          {#if searchQuery && searchQuery.trim()}
-            <button
-              type="button"
-              class="search-clear-btn"
-              on:click={clearSearch}
-              title="검색어 지우기"
-              aria-label="검색어 지우기"
-            >
-              <CloseIcon />
-            </button>
-          {:else}
-            <div class="search-icon">
-              <SearchIcon />
-            </div>
-          {/if}
-        </div>
+        {#if currentTab !== "dashboard"}
+          <!-- 검색 필터 -->
+          <div class="search-container">
+            <input
+              type="text"
+              class="search-input"
+              placeholder={$t("search_placeholder")}
+              bind:value={searchQuery}
+              on:input={handleSearchInput}
+            />
+            {#if searchQuery && searchQuery.trim()}
+              <button
+                type="button"
+                class="search-clear-btn"
+                on:click={clearSearch}
+                title="검색어 지우기"
+                aria-label="검색어 지우기"
+              >
+                <CloseIcon />
+              </button>
+            {:else}
+              <div class="search-icon">
+                <SearchIcon />
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
 
+      {#if currentTab === "dashboard"}
+        <div class="gauge-container">
+          <div class="gauge-item">
+            <ProxyGauge
+              totalProxies={proxyStats.totalProxies}
+              availableProxies={proxyStats.availableProxies}
+              usedProxies={proxyStats.usedProxies}
+              successCount={proxyStats.successCount}
+              failCount={proxyStats.failCount}
+              currentProxy={proxyStats.currentProxy || ""}
+              currentStep={proxyStats.currentStep || ""}
+              status={proxyStats.status || ""}
+              currentIndex={proxyStats.currentIndex || 0}
+              totalAttempting={proxyStats.totalAttempting || 0}
+              lastError={proxyStats.lastError || ""}
+              activeDownloadCount={activeProxyDownloadCount}
+              statusMessage={proxyStats.status_message || ""}
+              on:resetProxyStatus={handleResetProxyStatus}
+            />
+          </div>
+
+          <div class="gauge-item">
+            <LocalGauge
+              localDownloadCount={localStats.localDownloadCount}
+              localStatus={localStats.localStatus}
+            />
+          </div>
+        </div>
+
+        <!-- Dashboard Section -->
+        <Dashboard
+          {dashboardStats}
+          {dashboardPeriod}
+          {dashboardStartDate}
+          {dashboardEndDate}
+          {dashboardHistory}
+          {dashboardTotalPages}
+          dashboardCurrentPage={dashboardCurrentPage}
+          on:periodChange={(e) => { dashboardPeriod = e.detail; }}
+          on:customApply={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
+          on:pageChange={(e) => { dashboardCurrentPage = e.detail; fetchDashboardHistory(); }}
+        />
+      {:else}
       <div
         class="table-container"
         class:empty-table={filteredDownloads.length === 0}
@@ -2133,10 +2152,9 @@
           </tbody>
         </table>
       </div>
-    </div>
 
-    <!-- 페이지네이션 - 항상 표시 -->
-    <div class="pagination-footer">
+      <!-- 페이지네이션 - 항상 표시 -->
+      <div class="pagination-footer">
       <div class="page-info">
         {#if totalPages > 1}
           <div>{$t("pagination_page_info", { currentPage, totalPages })}</div>
@@ -2356,6 +2374,8 @@
             </div>
           </div>
         </div>
+      {/if}
+      </div>
       {/if}
     </div>
   {/if}

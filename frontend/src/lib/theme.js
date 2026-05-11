@@ -13,8 +13,8 @@ const createThemeStore = () => {
     if (typeof document !== 'undefined') {
       
       // Remove all theme classes first
-      document.documentElement.classList.remove('dark', 'dracula');
-      document.body.classList.remove('dark', 'dracula');
+      document.documentElement.classList.remove('dark', 'dracula', 'nord', 'solarized', 'monokai', 'ocean');
+      document.body.classList.remove('dark', 'dracula', 'nord', 'solarized', 'monokai', 'ocean');
 
       if (currentTheme === 'dark') {
         document.documentElement.classList.add('dark');
@@ -22,12 +22,22 @@ const createThemeStore = () => {
       } else if (currentTheme === 'dracula') {
         document.documentElement.classList.add('dracula');
         document.body.classList.add('dracula');
+      } else if (currentTheme === 'nord') {
+        document.documentElement.classList.add('nord');
+        document.body.classList.add('nord');
+      } else if (currentTheme === 'solarized') {
+        document.documentElement.classList.add('solarized');
+        document.body.classList.add('solarized');
+      } else if (currentTheme === 'monokai') {
+        document.documentElement.classList.add('monokai');
+        document.body.classList.add('monokai');
+      } else if (currentTheme === 'ocean') {
+        document.documentElement.classList.add('ocean');
+        document.body.classList.add('ocean');
       } else if (currentTheme === 'system') {
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
           document.documentElement.classList.add('dark');
           document.body.classList.add('dark');
-        } else {
-          // Default to light if system is not dark
         }
       } else {
         // Light theme - no classes needed

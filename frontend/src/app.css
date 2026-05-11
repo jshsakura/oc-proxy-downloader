@@ -1,5 +1,7 @@
 :root {
+  color-scheme: light;
   --font-sans: 'Nanum Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  --date-icon-filter: none;
 
   /* Modern Gray Light Theme */
   --background: #f8fafc;
@@ -72,6 +74,8 @@
 }
 
 html.dark {
+  color-scheme: dark;
+  --date-icon-filter: invert(1);
   /* Professional Dark Theme */
   --background: #0f172a;
   --text-primary: #f1f5f9;
@@ -141,6 +145,8 @@ html.dark {
 }
 
 html.dracula {
+  color-scheme: dark;
+  --date-icon-filter: invert(1);
   /* Improved Dracula Theme - Better visibility and comfort */
   --background: #282a36;
   --text-primary: #f8f8f2;
@@ -207,6 +213,270 @@ html.dracula {
   --chart-color-3: #f1fa8c;
   --chart-grid: rgba(255, 255, 255, 0.06);
   --chart-muted: #6272a4;
+  --chart-bg: transparent;
+  --dashboard-card-bg: var(--card-background);
+  --dashboard-card-border: var(--card-border);
+  --dashboard-stat-value: var(--text-primary);
+  --dashboard-stat-label: var(--text-secondary);
+}
+
+html.nord {
+  color-scheme: dark;
+  --date-icon-filter: invert(1);
+  --background: #2e3440;
+  --text-primary: #eceff4;
+  --text-secondary: #d8dee9;
+  --card-background: #3b4252;
+  --card-border: #434c5e;
+  --primary-color: #88c0d0;
+  --primary-hover: #81a1c1;
+  --primary-color-rgb: 136, 192, 208;
+  --danger-color: #bf616a;
+  --danger-hover: #a54e58;
+  --success-color: #a3be8c;
+  --warning-color: #ebcb8b;
+  --input-bg: #3b4252;
+  --input-border: #434c5e;
+
+  --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.15);
+  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.25);
+
+  --disabled-button-background: #434c5e;
+  --disabled-button-text: #d8dee9;
+
+  --status-downloading-bg: rgba(136, 192, 208, 0.25);
+  --status-downloading-border: #88c0d0;
+  --status-downloading-text: #88c0d0;
+  --status-pending-bg: rgba(235, 203, 139, 0.25);
+  --status-pending-border: #ebcb8b;
+  --status-pending-text: #ebcb8b;
+  --status-done-bg: rgba(163, 190, 140, 0.25);
+  --status-done-border: #a3be8c;
+  --status-done-text: #a3be8c;
+  --status-failed-bg: rgba(191, 97, 106, 0.25);
+  --status-failed-border: #bf616a;
+  --status-failed-text: #bf616a;
+  --status-stopped-bg: rgba(76, 86, 106, 0.4);
+  --status-stopped-border: #4c566a;
+  --status-stopped-text: #d8dee9;
+
+  --status-parsing-bg: rgba(180, 142, 173, 0.25);
+  --status-parsing-border: #b48ead;
+  --status-parsing-text: #b48ead;
+
+  --theme-selected-bg: #434c5e;
+
+  --toast-bg: #434c5e;
+  --toast-text: #eceff4;
+  --button-secondary-background: #434c5e;
+  --button-secondary-text: #eceff4;
+  --button-secondary-background-hover: #4c566a;
+  --button-secondary-border: #434c5e;
+  --bg-secondary: #434c5e;
+
+  --chart-color-1: #a3be8c;
+  --chart-color-2: #bf616a;
+  --chart-color-3: #ebcb8b;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-muted: #4c566a;
+  --chart-bg: transparent;
+  --dashboard-card-bg: var(--card-background);
+  --dashboard-card-border: var(--card-border);
+  --dashboard-stat-value: var(--text-primary);
+  --dashboard-stat-label: var(--text-secondary);
+}
+
+html.solarized {
+  color-scheme: dark;
+  --date-icon-filter: invert(1);
+  --background: #002b36;
+  --text-primary: #fdf6e3;
+  --text-secondary: #93a1a1;
+  --card-background: #073642;
+  --card-border: #0a4050;
+  --primary-color: #b58900;
+  --primary-hover: #cb9b10;
+  --primary-color-rgb: 181, 137, 0;
+  --danger-color: #dc322f;
+  --danger-hover: #c4292a;
+  --success-color: #859900;
+  --warning-color: #cb4b16;
+  --input-bg: #073642;
+  --input-border: #0a4050;
+
+  --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.3);
+
+  --disabled-button-background: #0a4050;
+  --disabled-button-text: #93a1a1;
+
+  --status-downloading-bg: rgba(181, 137, 0, 0.25);
+  --status-downloading-border: #b58900;
+  --status-downloading-text: #d4a017;
+  --status-pending-bg: rgba(203, 75, 22, 0.25);
+  --status-pending-border: #cb4b16;
+  --status-pending-text: #e07030;
+  --status-done-bg: rgba(133, 153, 0, 0.25);
+  --status-done-border: #859900;
+  --status-done-text: #a0b800;
+  --status-failed-bg: rgba(220, 50, 47, 0.25);
+  --status-failed-border: #dc322f;
+  --status-failed-text: #ef5350;
+  --status-stopped-bg: rgba(88, 110, 117, 0.3);
+  --status-stopped-border: #586e75;
+  --status-stopped-text: #93a1a1;
+
+  --status-parsing-bg: rgba(108, 113, 196, 0.25);
+  --status-parsing-border: #6c71c4;
+  --status-parsing-text: #8b90e0;
+
+  --theme-selected-bg: #0a4050;
+
+  --toast-bg: #073642;
+  --toast-text: #fdf6e3;
+  --button-secondary-background: #0a4050;
+  --button-secondary-text: #fdf6e3;
+  --button-secondary-background-hover: #0d4f5e;
+  --button-secondary-border: #0a4050;
+  --bg-secondary: #0a4050;
+
+  --chart-color-1: #859900;
+  --chart-color-2: #dc322f;
+  --chart-color-3: #b58900;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-muted: #586e75;
+  --chart-bg: transparent;
+  --dashboard-card-bg: var(--card-background);
+  --dashboard-card-border: var(--card-border);
+  --dashboard-stat-value: var(--text-primary);
+  --dashboard-stat-label: var(--text-secondary);
+}
+
+html.monokai {
+  color-scheme: dark;
+  --date-icon-filter: invert(1);
+  --background: #272822;
+  --text-primary: #f8f8f2;
+  --text-secondary: #a6a69c;
+  --card-background: #1e1f1c;
+  --card-border: #3e3d32;
+  --primary-color: #f92672;
+  --primary-hover: #e0175f;
+  --primary-color-rgb: 249, 38, 114;
+  --danger-color: #f92672;
+  --danger-hover: #e0175f;
+  --success-color: #a6e22e;
+  --warning-color: #e6db74;
+  --input-bg: #1e1f1c;
+  --input-border: #3e3d32;
+
+  --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.35);
+
+  --disabled-button-background: #3e3d32;
+  --disabled-button-text: #a6a69c;
+
+  --status-downloading-bg: rgba(102, 217, 239, 0.2);
+  --status-downloading-border: #66d9ef;
+  --status-downloading-text: #66d9ef;
+  --status-pending-bg: rgba(230, 219, 116, 0.2);
+  --status-pending-border: #e6db74;
+  --status-pending-text: #e6db74;
+  --status-done-bg: rgba(166, 226, 46, 0.2);
+  --status-done-border: #a6e22e;
+  --status-done-text: #a6e22e;
+  --status-failed-bg: rgba(249, 38, 114, 0.2);
+  --status-failed-border: #f92672;
+  --status-failed-text: #f92672;
+  --status-stopped-bg: rgba(117, 113, 94, 0.3);
+  --status-stopped-border: #75715e;
+  --status-stopped-text: #a6a69c;
+
+  --status-parsing-bg: rgba(174, 129, 255, 0.2);
+  --status-parsing-border: #ae81ff;
+  --status-parsing-text: #ae81ff;
+
+  --theme-selected-bg: #3e3d32;
+
+  --toast-bg: #3e3d32;
+  --toast-text: #f8f8f2;
+  --button-secondary-background: #3e3d32;
+  --button-secondary-text: #f8f8f2;
+  --button-secondary-background-hover: #49483e;
+  --button-secondary-border: #3e3d32;
+  --bg-secondary: #3e3d32;
+
+  --chart-color-1: #a6e22e;
+  --chart-color-2: #f92672;
+  --chart-color-3: #e6db74;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-muted: #75715e;
+  --chart-bg: transparent;
+  --dashboard-card-bg: var(--card-background);
+  --dashboard-card-border: var(--card-border);
+  --dashboard-stat-value: var(--text-primary);
+  --dashboard-stat-label: var(--text-secondary);
+}
+
+html.ocean {
+  color-scheme: dark;
+  --date-icon-filter: invert(1);
+  --background: #0a192f;
+  --text-primary: #ccd6f6;
+  --text-secondary: #8892b0;
+  --card-background: #112240;
+  --card-border: #1d3461;
+  --primary-color: #64ffda;
+  --primary-hover: #4de8c0;
+  --primary-color-rgb: 100, 255, 218;
+  --danger-color: #f06292;
+  --danger-hover: #d84a7a;
+  --success-color: #64ffda;
+  --warning-color: #ffd54f;
+  --input-bg: #112240;
+  --input-border: #1d3461;
+
+  --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.35);
+
+  --disabled-button-background: #1d3461;
+  --disabled-button-text: #8892b0;
+
+  --status-downloading-bg: rgba(100, 255, 218, 0.15);
+  --status-downloading-border: #64ffda;
+  --status-downloading-text: #64ffda;
+  --status-pending-bg: rgba(255, 213, 79, 0.15);
+  --status-pending-border: #ffd54f;
+  --status-pending-text: #ffd54f;
+  --status-done-bg: rgba(100, 255, 218, 0.15);
+  --status-done-border: #64ffda;
+  --status-done-text: #64ffda;
+  --status-failed-bg: rgba(240, 98, 146, 0.15);
+  --status-failed-border: #f06292;
+  --status-failed-text: #f06292;
+  --status-stopped-bg: rgba(136, 146, 176, 0.2);
+  --status-stopped-border: #8892b0;
+  --status-stopped-text: #8892b0;
+
+  --status-parsing-bg: rgba(121, 134, 203, 0.2);
+  --status-parsing-border: #7986cb;
+  --status-parsing-text: #7986cb;
+
+  --theme-selected-bg: #1d3461;
+
+  --toast-bg: #1d3461;
+  --toast-text: #ccd6f6;
+  --button-secondary-background: #1d3461;
+  --button-secondary-text: #ccd6f6;
+  --button-secondary-background-hover: #234678;
+  --button-secondary-border: #1d3461;
+  --bg-secondary: #1d3461;
+
+  --chart-color-1: #64ffda;
+  --chart-color-2: #f06292;
+  --chart-color-3: #ffd54f;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-muted: #495670;
   --chart-bg: transparent;
   --dashboard-card-bg: var(--card-background);
   --dashboard-card-border: var(--card-border);
@@ -295,6 +565,118 @@ html.dracula ::-webkit-scrollbar-track {
   border-radius: 6px;
 }
 html.dracula ::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Nord Theme */
+html.nord, html.nord body {
+  scrollbar-width: auto;
+  scrollbar-color: #4c566a #3b4252;
+}
+html.nord ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+  background: #3b4252;
+}
+html.nord ::-webkit-scrollbar-thumb {
+  background: #4c566a;
+  border-radius: 6px;
+  border: 2px solid #3b4252;
+}
+html.nord ::-webkit-scrollbar-thumb:hover {
+  background: #5e6a80;
+}
+html.nord ::-webkit-scrollbar-track {
+  background: #3b4252;
+  border-radius: 6px;
+}
+html.nord ::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Solarized Theme */
+html.solarized, html.solarized body {
+  scrollbar-width: auto;
+  scrollbar-color: #586e75 #073642;
+}
+html.solarized ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+  background: #073642;
+}
+html.solarized ::-webkit-scrollbar-thumb {
+  background: #586e75;
+  border-radius: 6px;
+  border: 2px solid #073642;
+}
+html.solarized ::-webkit-scrollbar-thumb:hover {
+  background: #657b83;
+}
+html.solarized ::-webkit-scrollbar-track {
+  background: #073642;
+  border-radius: 6px;
+}
+html.solarized ::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Monokai Theme */
+html.monokai, html.monokai body {
+  scrollbar-width: auto;
+  scrollbar-color: #75715e #1e1f1c;
+}
+html.monokai ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+  background: #1e1f1c;
+}
+html.monokai ::-webkit-scrollbar-thumb {
+  background: #75715e;
+  border-radius: 6px;
+  border: 2px solid #1e1f1c;
+}
+html.monokai ::-webkit-scrollbar-thumb:hover {
+  background: #8a866e;
+}
+html.monokai ::-webkit-scrollbar-track {
+  background: #1e1f1c;
+  border-radius: 6px;
+}
+html.monokai ::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Ocean Theme */
+html.ocean, html.ocean body {
+  scrollbar-width: auto;
+  scrollbar-color: #1d3461 #112240;
+}
+html.ocean ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+  background: #112240;
+}
+html.ocean ::-webkit-scrollbar-thumb {
+  background: #1d3461;
+  border-radius: 6px;
+  border: 2px solid #112240;
+}
+html.ocean ::-webkit-scrollbar-thumb:hover {
+  background: #2a4a80;
+}
+html.ocean ::-webkit-scrollbar-track {
+  background: #112240;
+  border-radius: 6px;
+}
+html.ocean ::-webkit-scrollbar-button {
   display: none;
   width: 0;
   height: 0;
@@ -1247,8 +1629,8 @@ label {
 /* Theme Options */
 .theme-options {
   display: grid;
-  grid-template-columns: repeat(4, 1fr); /* Changed to 4 columns for desktop */
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 0.75rem;
 }
 
 .theme-option-label {
@@ -1262,11 +1644,12 @@ label {
   justify-content: center;
   gap: 0.2em;
   border: 2px solid var(--card-border);
-  border-radius: 10px;
-  padding: 0.5rem;
+  border-radius: 8px;
+  padding: 0.35rem 0.25rem;
   text-align: center;
   transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   color: var(--text-primary);
+  font-size: 0.75rem;
 }
 
 .theme-card:hover {
@@ -1323,6 +1706,42 @@ html.dracula .system-theme-card {
   background: #e3f0ff !important;
   color: #0B6BCB !important;
   border-color: #0B6BCB !important;
+}
+
+.nord-theme-card {
+  background: linear-gradient(135deg, #2e3440 0%, #3b4252 100%);
+  color: #eceff4;
+}
+.theme-option-label input[type="radio"]:checked + .nord-theme-card {
+  background: linear-gradient(135deg, #434c5e 0%, #4c566a 100%) !important;
+  border-color: #88c0d0 !important;
+}
+
+.solarized-theme-card {
+  background: linear-gradient(135deg, #002b36 0%, #073642 100%);
+  color: #fdf6e3;
+}
+.theme-option-label input[type="radio"]:checked + .solarized-theme-card {
+  background: linear-gradient(135deg, #073642 0%, #0a4050 100%) !important;
+  border-color: #b58900 !important;
+}
+
+.monokai-theme-card {
+  background: linear-gradient(135deg, #272822 0%, #1e1f1c 100%);
+  color: #f8f8f2;
+}
+.theme-option-label input[type="radio"]:checked + .monokai-theme-card {
+  background: linear-gradient(135deg, #3e3d32 0%, #49483e 100%) !important;
+  border-color: #f92672 !important;
+}
+
+.ocean-theme-card {
+  background: linear-gradient(135deg, #0a192f 0%, #112240 100%);
+  color: #ccd6f6;
+}
+.theme-option-label input[type="radio"]:checked + .ocean-theme-card {
+  background: linear-gradient(135deg, #1d3461 0%, #234678 100%) !important;
+  border-color: #64ffda !important;
 }
 
 /* Detail Modal Specific Styles */
@@ -2967,6 +3386,11 @@ span.status.status-stopped,
   background: var(--input-bg);
   color: var(--text-primary);
   font-size: 0.85rem;
+}
+
+.dashboard-period-custom input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: var(--date-icon-filter, none);
+  cursor: pointer;
 }
 
 .dashboard-period-custom button {
