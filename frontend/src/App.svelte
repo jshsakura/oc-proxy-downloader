@@ -43,6 +43,7 @@
   import ConfirmModal from "./lib/ConfirmModal.svelte";
   import ProxyGauge from "./lib/ProxyGauge.svelte";
   import LocalGauge from "./lib/LocalGauge.svelte";
+  import Dashboard from "./lib/Dashboard.svelte";
   import { EventSourceManager } from "./EventSource.js";
 
   console.log(
@@ -148,6 +149,15 @@
   let currentTab = "working";
   let searchQuery = "";
   let searchTimeout;
+
+  // Dashboard statistics state
+  let dashboardPeriod = "30d";
+  let dashboardStartDate = "";
+  let dashboardEndDate = "";
+  let dashboardStats = null;
+  let dashboardHistory = [];
+  let dashboardTotalPages = 0;
+  let dashboardCurrentPage = 1;
 
   function openConfirm({
     message,
@@ -449,6 +459,80 @@
       console.error($t("proxy_availability_check_failed"), error);
       proxyAvailable = false;
     }
+  }
+
+  // Dashboard date helper: compute start/end YYYY-MM-DD from dashboardPeriod
+  function getDashboardDateRange() {
+    const today = new Date();
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    const todayStr = fmt(today);
+
+    switch (dashboardPeriod) {
+      case "today":
+        return { start: todayStr, end: todayStr };
+      case "7d": {
+        const d = new Date(today);
+        d.setDate(d.getDate() - 7);
+        return { start: fmt(d), end: todayStr };
+      }
+      case "30d": {
+        const d = new Date(today);
+        d.setDate(d.getDate() - 30);
+        return { start: fmt(d), end: todayStr };
+      }
+      case "all":
+        return { start: null, end: null };
+      case "custom":
+        return { start: dashboardStartDate, end: dashboardEndDate };
+      default:
+        return { start: null, end: null };
+    }
+  }
+
+  async function fetchDashboardStats() {
+    try {
+      const { start, end } = getDashboardDateRange();
+      let url = "/api/history/stats";
+      const params = new URLSearchParams();
+      if (start) params.set("start_date", start);
+      if (end) params.set("end_date", end);
+      if (params.toString()) url += "?" + params.toString();
+
+      const response = await fetch(url);
+      if (response.ok) {
+        dashboardStats = await response.json();
+      }
+    } catch (error) {
+      console.error("Error fetching dashboard stats:", error);
+    }
+  }
+
+  async function fetchDashboardHistory() {
+    try {
+      const { start, end } = getDashboardDateRange();
+      let url = "/api/history/period";
+      const params = new URLSearchParams();
+      if (start) params.set("start_date", start);
+      if (end) params.set("end_date", end);
+      params.set("page", String(dashboardCurrentPage));
+      params.set("page_size", "50");
+      url += "?" + params.toString();
+
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        dashboardHistory = data.history || [];
+        dashboardTotalPages = data.total_pages || 0;
+      }
+    } catch (error) {
+      console.error("Error fetching dashboard history:", error);
+    }
+  }
+
+  // Reactive: fetch dashboard data when period or page changes
+  $: if (dashboardPeriod) {
+    fetchDashboardStats();
+    fetchDashboardHistory();
   }
 
   function connectEventSource() {
@@ -1701,6 +1785,20 @@
         />
       </div>
     </div>
+
+    <!-- Dashboard Section -->
+    <Dashboard
+      {dashboardStats}
+      {dashboardPeriod}
+      {dashboardStartDate}
+      {dashboardEndDate}
+      {dashboardHistory}
+      {dashboardTotalPages}
+      dashboardCurrentPage={dashboardCurrentPage}
+      on:periodChange={(e) => { dashboardPeriod = e.detail; }}
+      on:customApply={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
+      on:pageChange={(e) => { dashboardCurrentPage = e.detail; fetchDashboardHistory(); }}
+    />
 
     <div class="downloads-section">
       <div class="tabs-container">

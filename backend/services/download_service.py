@@ -153,32 +153,11 @@ class DownloadService:
             return {"error": str(e)}
 
     async def cleanup_completed_downloads(self, older_than_hours: int = 24):
-        """완료된 다운로드 정리 (선택적)"""
-        try:
-            with SessionLocal() as db:
-                cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=older_than_hours)
-
-                # 24시간 이전에 완료된 다운로드들 삭제
-                completed_old = db.query(DownloadRequest).filter(
-                    DownloadRequest.status == StatusEnum.done,
-                    DownloadRequest.finished_at < cutoff_time,
-                )
-
-                count = completed_old.count()
-                completed_old.delete()
-                db.commit()
-
-                if count > 0:
-                    print(f"[LOG] {count}개 완료된 다운로드 정리")
-                    await sse_manager.broadcast_message("downloads_cleaned", {
-                        "message": f"{count}개 완료된 다운로드가 정리되었습니다",
-                        "count": count,
-                    })
-
-                return count
-        except Exception as e:
-            print(f"[ERROR] 다운로드 정리 실패: {e}")
-            return 0
+        """DEPRECATED: Infinite retention policy — DO NOT CALL.
+        User requires all download history preserved indefinitely.
+        This method is intentionally a no-op to prevent accidental data loss.
+        """
+        return 0
 
 
 # 전역 인스턴스

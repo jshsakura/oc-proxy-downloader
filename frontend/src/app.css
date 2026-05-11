@@ -57,6 +57,18 @@
   --button-secondary-background-hover: #e2e8f0;
   --button-secondary-border: #cbd5e1;
   --bg-secondary: #f8fafc;
+
+  /* Chart Colors */
+  --chart-color-1: #4CAF50;
+  --chart-color-2: #f44336;
+  --chart-color-3: #FF9800;
+  --chart-grid: rgba(0, 0, 0, 0.08);
+  --chart-muted: #9E9E9E;
+  --chart-bg: transparent;
+  --dashboard-card-bg: var(--card-background);
+  --dashboard-card-border: var(--card-border);
+  --dashboard-stat-value: var(--text-primary);
+  --dashboard-stat-label: var(--text-secondary);
 }
 
 html.dark {
@@ -114,6 +126,18 @@ html.dark {
   --button-secondary-background-hover: #333;
   --button-secondary-border: #333;
   --bg-secondary: #334155;
+
+  /* Chart Colors */
+  --chart-color-1: #66BB6A;
+  --chart-color-2: #ef5350;
+  --chart-color-3: #FFA726;
+  --chart-grid: rgba(255, 255, 255, 0.08);
+  --chart-muted: #757575;
+  --chart-bg: transparent;
+  --dashboard-card-bg: var(--card-background);
+  --dashboard-card-border: var(--card-border);
+  --dashboard-stat-value: var(--text-primary);
+  --dashboard-stat-label: var(--text-secondary);
 }
 
 html.dracula {
@@ -176,6 +200,18 @@ html.dracula {
   --button-secondary-background-hover: #5a5c7a;
   --button-secondary-border: #44475a;
   --bg-secondary: #44475a;
+
+  /* Chart Colors */
+  --chart-color-1: #50fa7b;
+  --chart-color-2: #ff5555;
+  --chart-color-3: #f1fa8c;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-muted: #6272a4;
+  --chart-bg: transparent;
+  --dashboard-card-bg: var(--card-background);
+  --dashboard-card-border: var(--card-border);
+  --dashboard-stat-value: var(--text-primary);
+  --dashboard-stat-label: var(--text-secondary);
 }
 
 /* ===== Scrollbar Theming ===== */
@@ -2824,6 +2860,136 @@ span.status.status-stopped,
   [data-sonner-toaster] [data-sonner-toast] {
     min-width: 320px !important;
     max-width: 90vw !important;
+  }
+}
+
+/* Dashboard Section */
+.dashboard-section {
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dashboard-stat-card {
+  background: var(--dashboard-card-bg);
+  border: 1px solid var(--dashboard-card-border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-light);
+  transition: box-shadow 0.2s ease;
+}
+
+.dashboard-stat-card:hover {
+  box-shadow: var(--shadow-medium);
+}
+
+.dashboard-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--dashboard-stat-value);
+  line-height: 1.2;
+}
+
+.dashboard-stat-label {
+  font-size: 0.8rem;
+  color: var(--dashboard-stat-label);
+  margin-top: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dashboard-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dashboard-chart-container {
+  background: var(--dashboard-card-bg);
+  border: 1px solid var(--dashboard-card-border);
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: var(--shadow-light);
+}
+
+.dashboard-chart-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-period-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.dashboard-period-btn {
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  background: var(--card-background);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.dashboard-period-btn:hover {
+  border-color: var(--primary-color);
+}
+
+.dashboard-period-btn.active {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.dashboard-period-custom {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.dashboard-period-custom input[type="date"] {
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.dashboard-period-custom button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--primary-color);
+  background: var(--primary-color);
+  color: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background-color 0.15s ease;
+}
+
+.dashboard-period-custom button:hover {
+  background: var(--primary-hover);
+}
+
+@media (max-width: 768px) {
+  .dashboard-charts-row {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 

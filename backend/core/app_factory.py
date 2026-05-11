@@ -61,6 +61,11 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     print("[LOG] Database tables created")
 
+    # Create requested_at index for period queries (idempotent)
+    with engine.connect() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_download_requests_requested_at ON download_requests(requested_at)"))
+        conn.commit()
+
     # 데이터베이스 마이그레이션 실행
     await _run_migrations()
 

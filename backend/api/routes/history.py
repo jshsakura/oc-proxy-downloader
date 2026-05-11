@@ -3,9 +3,10 @@
 다운로드 히스토리 API 라우터
 """
 
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from typing import List, Optional
 
 from core.db import get_db
@@ -20,30 +21,24 @@ async def get_download_history(
     limit: Optional[int] = None,
     offset: int = 0
 ):
-    """다운로드 히스토리 조회 (제한 없이 전체 데이터)"""
+    """다운로드 히스토리 조회 (기본 limit=200)"""
     try:
         # 최근 다운로드들을 가져오기 (ID 역순)
-        query = db.query(DownloadRequest).order_by(desc(DownloadRequest.id))
+        base_query = db.query(DownloadRequest).order_by(desc(DownloadRequest.id))
+
+        # 전체 개수 (offset/limit 적용 전)
+        total_count = base_query.count()
+
+        # 기본 limit=200
+        effective_limit = limit if limit is not None else 200
 
         # offset이 있으면 적용
+        query = base_query
         if offset > 0:
             query = query.offset(offset)
 
-        # limit이 지정되면 적용, 아니면 전체 조회
-        if limit is not None:
-            query = query.limit(limit)
-
+        query = query.limit(effective_limit)
         downloads = query.all()
-
-        # 디버깅: 조회된 데이터 상태 확인
-        total_count = len(downloads)
-        status_counts = {}
-        for download in downloads:
-            status = download.status.value if download.status else "unknown"
-            status_counts[status] = status_counts.get(status, 0) + 1
-
-        print(f"[DEBUG] History API - Total downloads: {total_count}")
-        print(f"[DEBUG] History API - Status counts: {status_counts}")
 
         history = []
         for download in downloads:
@@ -61,7 +56,7 @@ async def get_download_history(
                 "downloaded_size": download.downloaded_size
             })
 
-        return {"history": history, "total": len(history)}
+        return {"history": history, "total": total_count}
 
     except Exception as e:
         print(f"[ERROR] Get download history failed: {e}")
@@ -224,4 +219,148 @@ async def get_active_downloads(db: Session = Depends(get_db)):
 
     except Exception as e:
         print(f"[ERROR] Get active downloads failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/history/period")
+def get_history_period(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    try:
+        query = db.query(DownloadRequest).order_by(desc(DownloadRequest.requested_at))
+
+        if start_date:
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+            query = query.filter(DownloadRequest.requested_at >= start_dt)
+
+        if end_date:
+            try:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+            query = query.filter(DownloadRequest.requested_at < end_dt)
+
+        if status:
+            try:
+                status_enum = StatusEnum(status)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid status. Valid: {[s.value for s in StatusEnum]}")
+            query = query.filter(DownloadRequest.status == status_enum)
+
+        total = query.count()
+
+        page_size = max(1, min(200, page_size))
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+
+        offset = (page - 1) * page_size
+        downloads = query.offset(offset).limit(page_size).all()
+
+        history = [d.as_dict() for d in downloads]
+
+        return {
+            "history": history,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Get history period failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/history/stats")
+def get_history_stats(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    try:
+        query = db.query(DownloadRequest)
+        start_dt = None
+        end_dt = None
+
+        if start_date:
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+            query = query.filter(DownloadRequest.requested_at >= start_dt)
+
+        if end_date:
+            try:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+            query = query.filter(DownloadRequest.requested_at < end_dt)
+
+        total = query.count()
+
+        status_counts = {}
+        for status_enum in StatusEnum:
+            count = query.filter(DownloadRequest.status == status_enum).count()
+            status_counts[status_enum.value] = count
+
+        total_bytes_result = query.with_entities(
+            func.coalesce(func.sum(DownloadRequest.total_size), 0)
+        ).scalar()
+        total_bytes = int(total_bytes_result) if total_bytes_result else 0
+
+        proxy_count = query.filter(DownloadRequest.use_proxy == True).count()
+        local_count = query.filter(DownloadRequest.use_proxy == False).count()
+
+        done_count = status_counts.get("done", 0)
+        success_rate = round(done_count / total * 100, 1) if total > 0 else 0.0
+
+        trend_query = db.query(
+            func.date(DownloadRequest.requested_at).label("date"),
+            func.count(DownloadRequest.id).label("count"),
+            func.coalesce(func.sum(DownloadRequest.total_size), 0).label("bytes")
+        )
+
+        if start_date:
+            trend_query = trend_query.filter(DownloadRequest.requested_at >= start_dt)
+        if end_date:
+            trend_query = trend_query.filter(DownloadRequest.requested_at < end_dt)
+
+        trend_query = trend_query.group_by(func.date(DownloadRequest.requested_at)).order_by(func.date(DownloadRequest.requested_at))
+
+        daily_trend_raw = trend_query.all()
+
+        daily_trend = []
+        if len(daily_trend_raw) <= 365:
+            for row in daily_trend_raw:
+                daily_trend.append({"date": str(row.date), "count": row.count, "bytes": int(row.bytes)})
+        else:
+            step = len(daily_trend_raw) / 365
+            for i in range(365):
+                idx = int(i * step)
+                row = daily_trend_raw[idx]
+                daily_trend.append({"date": str(row.date), "count": row.count, "bytes": int(row.bytes)})
+
+        return {
+            "total": total,
+            "by_status": status_counts,
+            "total_bytes": total_bytes,
+            "proxy_count": proxy_count,
+            "local_count": local_count,
+            "success_rate": success_rate,
+            "daily_trend": daily_trend
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Get history stats failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
