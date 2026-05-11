@@ -2498,6 +2498,20 @@ table th:first-child {
   border: 1px solid var(--card-border);
   border-bottom: none;
   opacity: 0.7;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.tab .tab-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tab .tab-badge {
+  display: none;
 }
 
 .tab:hover {
@@ -2532,6 +2546,34 @@ table th:first-child {
 
 /* 모바일에서 검색창 크기 조정 */
 @media (max-width: 768px) {
+  .tab {
+    padding: 0.6rem 0.5rem;
+    gap: 0.25rem;
+  }
+
+  .tab .tab-text {
+    display: none;
+  }
+
+  .tab .tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: rgba(var(--primary-color-rgb), 0.15);
+    color: var(--primary-color);
+    font-size: 0.65rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .tab.active .tab-badge {
+    background: rgba(var(--primary-color-rgb), 0.25);
+  }
+
   .search-container {
     min-width: 100px;
     max-width: 130px;

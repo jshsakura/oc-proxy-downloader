@@ -39,6 +39,9 @@
   import CloseIcon from "./icons/CloseIcon.svelte";
   import ChevronLeftIcon from "./icons/ChevronLeftIcon.svelte";
   import ChevronRightIcon from "./icons/ChevronRightIcon.svelte";
+  import LoaderIcon from "./icons/LoaderIcon.svelte";
+  import CheckCircleIcon from "./icons/CheckCircleIcon.svelte";
+  import BarChartIcon from "./icons/BarChartIcon.svelte";
   import { Toaster, toast } from 'svelte-sonner';
   import ConfirmModal from "./lib/ConfirmModal.svelte";
   import ProxyGauge from "./lib/ProxyGauge.svelte";
@@ -1774,22 +1777,30 @@
             class="tab"
             class:active={currentTab === "working"}
             on:click={() => onTabChange("working")}
+            title={$t("tab_working")}
           >
-            {$t("tab_working")} ({workingCount})
+            <span class="tab-icon"><LoaderIcon /></span>
+            <span class="tab-text">{$t("tab_working")} ({workingCount})</span>
+            <span class="tab-badge">{workingCount}</span>
           </button>
           <button
             class="tab"
             class:active={currentTab === "completed"}
             on:click={() => onTabChange("completed")}
+            title={$t("tab_completed")}
           >
-            {$t("tab_completed")} ({completedCount})
+            <span class="tab-icon"><CheckCircleIcon /></span>
+            <span class="tab-text">{$t("tab_completed")} ({completedCount})</span>
+            <span class="tab-badge">{completedCount}</span>
           </button>
           <button
             class="tab"
             class:active={currentTab === "dashboard"}
             on:click={() => onTabChange("dashboard")}
+            title={$t("tab_dashboard")}
           >
-            {$t("tab_dashboard")}
+            <span class="tab-icon"><BarChartIcon /></span>
+            <span class="tab-text">{$t("tab_dashboard")}</span>
           </button>
         </div>
 
