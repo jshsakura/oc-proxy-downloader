@@ -112,6 +112,24 @@
   // 디바운싱을 위한 타이머
   let activeDownloadsTimer = null;
 
+  // SSE 업데이트 배칭 (requestAnimationFrame) — 상태 할당을 다음 프레임으로 지연
+  let pendingStateUpdates = [];
+  let batchRafId = null;
+
+  function queueStateUpdate(updateFn) {
+    pendingStateUpdates.push(updateFn);
+    if (batchRafId === null) {
+      batchRafId = requestAnimationFrame(() => {
+        batchRafId = null;
+        const updates = pendingStateUpdates;
+        pendingStateUpdates = [];
+        updates.forEach((fn) => {
+          fn();
+        });
+      });
+    }
+  }
+
   // 대기시간 실시간 업데이트를 위한 타이머
   let waitTimeUpdateTimer = null;
   let currentTime = Date.now();
@@ -352,6 +370,11 @@
     if (activeDownloadsInterval) {
       clearInterval(activeDownloadsInterval);
     }
+    if (batchRafId !== null) {
+      cancelAnimationFrame(batchRafId);
+      batchRafId = null;
+      pendingStateUpdates = [];
+    }
   });
 
   function handleLoginSuccess() {
@@ -446,107 +469,120 @@
           updatedDownload.error_message = updatedDownload.message;
         }
         // ID 타입 통일 (숫자로 변환)
-        const downloadId = parseInt(updatedDownload.id);
-        const index = downloads.findIndex((d) => parseInt(d.id) === downloadId);
+        const downloadId = Number.parseInt(updatedDownload.id, 10);
 
-        if (index !== -1) {
-          downloads = downloads.map((d, i) =>
-            i === index ? { ...d, ...updatedDownload } : d
-          );
-          // save_path 업데이트 로그
-          if (updatedDownload.save_path) {
-          }
+        // 상태 할당 배칭: 큐 실행 시점의 최신 downloads 기준으로 병합
+        queueStateUpdate(() => {
+          let proxyStatsChanged = false;
+          const currentIndex = downloads.findIndex((d) => Number.parseInt(d.id, 10) === downloadId);
 
-          // 상태가 대기(waiting)가 아닌 다른 상태로 변경되면 대기 정보 제거
-          if (updatedDownload.status !== "waiting" && downloadWaitInfo[downloadId]) {
-            delete downloadWaitInfo[downloadId];
-            downloadWaitInfo = { ...downloadWaitInfo };
-          }
+          if (currentIndex !== -1) {
+            // 프록시 상태 리셋 처리 (stopped, failed, done 상태일 때)
+            if (
+              proxyStats.status === "trying" &&
+              ["stopped", "failed", "done"].includes(updatedDownload.status?.toLowerCase())
+            ) {
+              const otherProxyDownloads = downloads.filter(
+                (d) =>
+                  Number.parseInt(d.id, 10) !== downloadId &&
+                  (d.status === "parsing" || d.status === "downloading")
+              );
 
-          // 프록시 상태 리셋 처리 (stopped, failed, done 상태일 때)
-          if (proxyStats.status === "trying" &&
-              ['stopped', 'failed', 'done'].includes(updatedDownload.status?.toLowerCase())) {
-            const otherProxyDownloads = downloads.filter(d =>
-              d.id !== downloadId &&
-              (d.status === "parsing" || d.status === "downloading")
-            );
-
-            if (otherProxyDownloads.length === 0) {
-              proxyStats.status = "idle";
-              proxyStats.currentProxy = null;
-              proxyStats.tryStartTime = null;
-              console.log(`🔄 다운로드 ${downloadId} 상태 변경으로 인한 프록시 상태 리셋`);
+              if (otherProxyDownloads.length === 0) {
+                proxyStats.status = "idle";
+                proxyStats.currentProxy = null;
+                proxyStats.tryStartTime = null;
+                proxyStatsChanged = true;
+                console.log(`🔄 다운로드 ${downloadId} 상태 변경으로 인한 프록시 상태 리셋`);
+              }
             }
-          }
-        } else {
-          // 중복 추가 방지: 유효한 ID와 URL이 있을 때만 추가
-          if (downloadId && !isNaN(downloadId) && updatedDownload.url) {
+
+            downloads = downloads.map((d, i) =>
+              i === currentIndex ? { ...d, ...updatedDownload } : d
+            );
+            if (updatedDownload.status !== "waiting" && downloadWaitInfo[downloadId]) {
+              delete downloadWaitInfo[downloadId];
+              downloadWaitInfo = { ...downloadWaitInfo };
+            }
+            updateStats(downloads);
+            if (proxyStatsChanged) {
+              proxyStats = { ...proxyStats };
+            }
+          } else if (downloadId && !Number.isNaN(downloadId) && updatedDownload.url) {
             downloads = [updatedDownload, ...downloads];
+            updateStats(downloads);
           } else {
             console.warn("❌ 잘못된 다운로드 데이터 무시:", updatedDownload);
           }
-        }
-
-        updateStats(downloads);
+        });
       }
 
       // 배치 업데이트 처리
       if (message.type === "batch_status_update") {
-        
-        let hasChanges = false;
-        const newDownloads = [...downloads];
-        
-        message.data.forEach(updatedDownload => {
-          // 실패 메시지를 error_message 로도 매핑
-          if (
-            updatedDownload?.status?.toLowerCase?.() === "failed" &&
-            updatedDownload?.message &&
-            !updatedDownload.error_message
-          ) {
-            updatedDownload.error_message = updatedDownload.message;
-          }
-          const index = newDownloads.findIndex((d) => d.id === updatedDownload.id);
-          if (index !== -1) {
-            const oldDownload = newDownloads[index];
-            newDownloads[index] = { ...newDownloads[index], ...updatedDownload };
-            hasChanges = true;
-            
-            // 프록시 다운로드의 상태가 stopped, failed, done으로 변경되면 다른 진행 중인 프록시 다운로드가 없을 때만 프록시 상태 초기화
-            if (oldDownload.use_proxy &&
-                oldDownload.status !== updatedDownload.status &&
-                ['stopped', 'failed', 'done'].includes(updatedDownload.status?.toLowerCase())) {
+        queueStateUpdate(() => {
+          let hasChanges = false;
+          let proxyStatsChanged = false;
+          const newDownloads = [...downloads];
 
-              // 다른 활성 프록시 다운로드가 있는지 확인
-              const otherActiveProxyDownloads = newDownloads.filter(d =>
-                d.use_proxy &&
-                d.id !== updatedDownload.id &&
-                ['pending', 'proxying', 'parsing', 'downloading'].includes(d.status?.toLowerCase())
-              );
-
-              // 다른 활성 프록시 다운로드가 없을 때만 프록시 상태 초기화
-              if (otherActiveProxyDownloads.length === 0) {
-                proxyStats.status = "";
-                proxyStats.currentProxy = "";
-                proxyStats.currentStep = "";
-                proxyStats.currentIndex = 0;
-                proxyStats.totalAttempting = 0;
-                proxyStats = { ...proxyStats };
-                console.log(`[LOG] 마지막 프록시 다운로드 종료, 프록시 상태 초기화`);
-              } else {
-                console.log(`[LOG] 다른 프록시 다운로드 진행 중 (${otherActiveProxyDownloads.length}개), 프록시 상태 유지`);
-              }
+          message.data.forEach((updatedDownload) => {
+            // 실패 메시지를 error_message 로도 매핑
+            if (
+              updatedDownload?.status?.toLowerCase?.() === "failed" &&
+              updatedDownload?.message &&
+              !updatedDownload.error_message
+            ) {
+              updatedDownload.error_message = updatedDownload.message;
             }
-          } else {
-            newDownloads.unshift(updatedDownload);
-            hasChanges = true;
+            const index = newDownloads.findIndex((d) => d.id === updatedDownload.id);
+            if (index !== -1) {
+              const oldDownload = newDownloads[index];
+              newDownloads[index] = { ...newDownloads[index], ...updatedDownload };
+              hasChanges = true;
+
+              // 프록시 다운로드의 상태가 stopped, failed, done으로 변경되면 다른 진행 중인 프록시 다운로드가 없을 때만 프록시 상태 초기화
+              if (
+                oldDownload.use_proxy &&
+                oldDownload.status !== updatedDownload.status &&
+                ["stopped", "failed", "done"].includes(updatedDownload.status?.toLowerCase())
+              ) {
+                // 다른 활성 프록시 다운로드가 있는지 확인
+                const otherActiveProxyDownloads = newDownloads.filter(
+                  (d) =>
+                    d.use_proxy &&
+                    d.id !== updatedDownload.id &&
+                    ["pending", "proxying", "parsing", "downloading"].includes(
+                      d.status?.toLowerCase()
+                    )
+                );
+
+                // 다른 활성 프록시 다운로드가 없을 때만 프록시 상태 초기화
+                if (otherActiveProxyDownloads.length === 0) {
+                  proxyStats.status = "";
+                  proxyStats.currentProxy = "";
+                  proxyStats.currentStep = "";
+                  proxyStats.currentIndex = 0;
+                  proxyStats.totalAttempting = 0;
+                  proxyStatsChanged = true;
+                  console.log(`[LOG] 마지막 프록시 다운로드 종료, 프록시 상태 초기화`);
+                } else {
+                  console.log(`[LOG] 다른 프록시 다운로드 진행 중 (${otherActiveProxyDownloads.length}개), 프록시 상태 유지`);
+                }
+              }
+            } else {
+              newDownloads.unshift(updatedDownload);
+              hasChanges = true;
+            }
+          });
+
+          if (hasChanges) {
+            downloads = newDownloads;
+            // 통계만 업데이트 (fetchActiveDownloads는 디바운싱으로 별도 처리)
+            updateStats(downloads);
+          }
+          if (proxyStatsChanged) {
+            proxyStats = { ...proxyStats };
           }
         });
-        
-        if (hasChanges) {
-          downloads = newDownloads;
-          // 통계만 업데이트 (fetchActiveDownloads는 디바운싱으로 별도 처리)
-          updateStats(downloads);
-        }
       }
 
       // 프록시 메시지 처리
@@ -574,24 +610,27 @@
           console.log(`[DEBUG] 프록시 즉시 차감: ${failedDiff}개, ${beforeAvailable} -> ${proxyStats.availableProxies}`);
         }
         proxyStats.status = "trying";
-        proxyStats = { ...proxyStats };
 
-        // 메인 그리드에서 해당 다운로드 상태도 업데이트 (빠지지 않도록)
-        if (id) {
-          const download = downloads.find(d => d.id === id);
-          if (download) {
-            const failedText = failed > 0 ? ` (실패: ${failed})` : '';
-            download.proxy_message = `${step} - ${proxy} (${current}/${total})${failedText}`;
-            downloads = [...downloads];
-          }
+        // 상태 할당 배칭
+        queueStateUpdate(() => {
+          proxyStats = { ...proxyStats };
+          // 메인 그리드에서 해당 다운로드 상태도 업데이트 (빠지지 않도록)
+          if (id) {
+            const download = downloads.find(d => d.id === id);
+            if (download) {
+              const failedText = failed > 0 ? ` (실패: ${failed})` : '';
+              download.proxy_message = `${step} - ${proxy} (${current}/${total})${failedText}`;
+              downloads = [...downloads];
+            }
 
-          // 프록시 작업이 시작되면 대기 정보 제거
-          if (downloadWaitInfo[id]) {
-            delete downloadWaitInfo[id];
-            downloadWaitInfo = { ...downloadWaitInfo };
-            console.log(`🛑 프록시 작업 시작으로 인한 대기 정보 제거: ${id} (${step})`);
+            // 프록시 작업이 시작되면 대기 정보 제거
+            if (downloadWaitInfo[id]) {
+              delete downloadWaitInfo[id];
+              downloadWaitInfo = { ...downloadWaitInfo };
+              console.log(`🛑 프록시 작업 시작으로 인한 대기 정보 제거: ${id} (${step})`);
+            }
           }
-        }
+        });
       }
 
 
@@ -602,16 +641,20 @@
         proxyStats.currentStep = msg || step;
         proxyStats.status = "success";
         proxyStats.successCount++;
-        proxyStats = { ...proxyStats };
 
-        // 메인 그리드에서 해당 다운로드 상태도 업데이트
-        if (id) {
-          const download = downloads.find(d => d.id === id);
-          if (download) {
-            download.proxy_message = `${proxy} - ${msg || step}`;
-            downloads = [...downloads];
+        // 상태 할당 배칭
+        queueStateUpdate(() => {
+          proxyStats = { ...proxyStats };
+
+          // 메인 그리드에서 해당 다운로드 상태도 업데이트
+          if (id) {
+            const download = downloads.find(d => d.id === id);
+            if (download) {
+              download.proxy_message = `${proxy} - ${msg || step}`;
+              downloads = [...downloads];
+            }
           }
-        }
+        });
       }
 
       if (message.type === "proxy_failed") {
@@ -620,19 +663,21 @@
         proxyStats.currentStep = msg || step;
         proxyStats.status = "failed";
         proxyStats.lastError = error || "";
-
-        // 개별 프록시 실패는 이미 proxy_trying에서 실시간 차감됨
-
-        // 메인 그리드에서 해당 다운로드 상태도 업데이트
-        if (id) {
-          const download = downloads.find(d => d.id === id);
-          if (download) {
-            download.proxy_message = msg || step;
-            downloads = [...downloads];
-          }
-        }
         proxyStats.failCount++;
-        proxyStats = { ...proxyStats };
+
+        // 상태 할당 배칭
+        queueStateUpdate(() => {
+          proxyStats = { ...proxyStats };
+
+          // 메인 그리드에서 해당 다운로드 상태도 업데이트
+          if (id) {
+            const download = downloads.find(d => d.id === id);
+            if (download) {
+              download.proxy_message = msg || step;
+              downloads = [...downloads];
+            }
+          }
+        });
       }
 
       // 프록시 상태 초기화 처리
@@ -643,7 +688,10 @@
         proxyStats.currentStep = "";
         proxyStats.currentIndex = 0;
         proxyStats.totalAttempting = 0;
-        proxyStats = { ...proxyStats };
+        // 상태 할당 배칭
+        queueStateUpdate(() => {
+          proxyStats = { ...proxyStats };
+        });
         console.log("[LOG] 프록시 상태 강제 초기화 완료");
       }
 
@@ -658,22 +706,27 @@
           remaining_time: remaining,
           total_time: total,
         };
-        downloadWaitInfo = { ...downloadWaitInfo };
+        queueStateUpdate(() => {
+          downloadWaitInfo = { ...downloadWaitInfo };
+        });
       }
 
       // 대기 완료 처리
       if (message.type === "wait_countdown_complete") {
         const { id } = message.data;
         delete downloadWaitInfo[id];
-        downloadWaitInfo = { ...downloadWaitInfo };
+        queueStateUpdate(() => {
+          downloadWaitInfo = { ...downloadWaitInfo };
+        });
       }
 
       // 다운로드 정지 시 대기 정보 제거
       if (message.type === "download_stopped") {
         const { id } = message.data;
-        if (downloadWaitInfo[id]) {
+        const waitInfoExists = !!downloadWaitInfo[id];
+        let proxyStatsChanged = false;
+        if (waitInfoExists) {
           delete downloadWaitInfo[id];
-          downloadWaitInfo = { ...downloadWaitInfo };
           console.log(`🛑 정지로 인한 대기 정보 제거: ${id}`);
         }
 
@@ -688,10 +741,22 @@
             proxyStats.status = "idle";
             proxyStats.currentProxy = null;
             proxyStats.tryStartTime = null;
+            proxyStatsChanged = true;
             console.log(`🔄 마지막 프록시 다운로드 ${id} 중지로 인한 프록시 상태 리셋`);
           } else {
             console.log(`🔄 다른 프록시 다운로드 ${otherProxyDownloads.length}개 진행 중, 프록시 상태 유지`);
           }
+        }
+
+        if (waitInfoExists || proxyStatsChanged) {
+          queueStateUpdate(() => {
+            if (waitInfoExists) {
+              downloadWaitInfo = { ...downloadWaitInfo };
+            }
+            if (proxyStatsChanged) {
+              proxyStats = { ...proxyStats };
+            }
+          });
         }
       }
 
@@ -699,22 +764,24 @@
       if (message.type === "filename_update") {
         console.log("📁 filename_update 메시지 수신:", message.data);
         const { id, filename, file_size } = message.data;
-        const index = downloads.findIndex((d) => d.id === id);
-        if (index !== -1) {
-          downloads = downloads.map((d, i) => {
-            if (i === index) {
-              console.log(
-                `📁 파일명 업데이트: ID=${id}, ${d.filename} → ${filename}, 크기: ${file_size}`
-              );
-              return {
-                ...d,
-                filename: filename || d.filename,
-                file_size: file_size || d.file_size,
-              };
-            }
-            return d;
-          });
-        }
+        queueStateUpdate(() => {
+          const currentIndex = downloads.findIndex((d) => d.id === id);
+          if (currentIndex !== -1) {
+            downloads = downloads.map((d, i) => {
+              if (i === currentIndex) {
+                console.log(
+                  `📁 파일명 업데이트: ID=${id}, ${d.filename} → ${filename}, 크기: ${file_size}`
+                );
+                return {
+                  ...d,
+                  filename: filename || d.filename,
+                  file_size: file_size || d.file_size,
+                };
+              }
+              return d;
+            });
+          }
+        });
       }
 
       // SSE 테스트 메시지 처리

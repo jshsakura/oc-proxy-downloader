@@ -1229,7 +1229,7 @@ label {
   border-radius: 10px;
   padding: 0.5rem;
   text-align: center;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   color: var(--text-primary);
 }
 
@@ -1442,7 +1442,7 @@ html.dracula .system-theme-card {
   background-color: var(--card-background);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1773,7 +1773,7 @@ table th:first-child {
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .page-number-btn:hover:not(.active) {
@@ -1846,7 +1846,7 @@ table th:first-child {
 .interactive-status {
   position: relative;
   cursor: help;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .interactive-status:hover {
@@ -1892,17 +1892,17 @@ table th:first-child {
 .status-proxying.interactive-status,
 .status-downloading.interactive-status {
   animation: pulse 2s ease-in-out infinite;
+  will-change: opacity;
+  contain: layout style;
 }
 
 @keyframes pulse {
   0%,
   100% {
     opacity: 1;
-    transform: scale(1);
   }
   50% {
-    opacity: 0.9;
-    transform: scale(1.005);
+    opacity: 0.85;
   }
 }
 
@@ -1954,12 +1954,10 @@ table th:first-child {
   0%,
   100% {
     opacity: 1;
-    transform: scale(1);
     background-position: 0 0;
   }
   50% {
     opacity: 0.7;
-    transform: scale(1.02);
     background-position: 5px 5px;
   }
 }
@@ -2038,7 +2036,7 @@ table th:first-child {
   cursor: pointer;
   font-weight: 500;
   font-size: 0.875rem;
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
   color: var(--text-secondary);
   border-radius: 8px 8px 0 0;
   position: relative;
@@ -2110,7 +2108,7 @@ table th:first-child {
   background-color: var(--card-background);
   color: var(--text-primary);
   font-size: 0.875rem;
-  transition: all 0.3s ease;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
   outline: none;
 }
 
@@ -2152,7 +2150,7 @@ table th:first-child {
   width: 16px;
   height: 16px;
   border-radius: 2px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
   padding: 0;
 }
 
@@ -2194,7 +2192,7 @@ table th:first-child {
   border: 2px solid;
   border-radius: 16px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
   outline: none;
   overflow: hidden;
   padding: 2px;
@@ -2259,7 +2257,7 @@ table th:first-child {
   border: 2px solid;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
   outline: none;
   overflow: hidden;
   padding: 1px;
@@ -2328,7 +2326,8 @@ table th:first-child {
   height: 100%;
   background-color: var(--success-color);
   border-radius: 10px;
-  transition: width 0.5s ease-out;
+  will-change: width;
+  transition: width 0.15s ease-out;
   min-width: 0;
   opacity: 0.9;
 }
@@ -2613,7 +2612,7 @@ span.status.status-stopped,
     cursor: pointer;
     font-size: 14px;
     font-weight: 500;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
     gap: 0.375rem;
   }
 
@@ -2650,7 +2649,7 @@ span.status.status-stopped,
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
   }
 
   .page-number-btn-mobile:hover:not(.active) {
@@ -2727,7 +2726,7 @@ span.status.status-stopped,
   border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   margin-right: 0.5rem;
 }
 

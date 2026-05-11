@@ -64,6 +64,9 @@ downloads/
 .claude/settings.local.json
 CLAUDE.md
 
+# Sisyphus local agent state
+.sisyphus/
+
 # Kiro
 .kiro/
 
