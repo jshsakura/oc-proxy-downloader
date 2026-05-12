@@ -1687,16 +1687,6 @@
       <h1>{$t("title")}</h1>
       <div class="header-actions">
         <button
-          type="button"
-          on:click={toggleDashboard}
-          class="button-icon header-dashboard-button"
-          class:active={dashboardExpanded}
-          title={$t("tab_dashboard")}
-          aria-label={$t("tab_dashboard")}
-        >
-          <BarChartIcon />
-        </button>
-        <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
           aria-label={$t("settings_title")}
