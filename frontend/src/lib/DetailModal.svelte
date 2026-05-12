@@ -6,7 +6,6 @@
   import CopyIcon from "../icons/CopyIcon.svelte";
   import { onMount, onDestroy } from "svelte";
   import { toast } from 'svelte-sonner';
-  import { formatBytes } from "./utils.js";
 
   export let showModal = false;
   export let download = {};
@@ -18,9 +17,32 @@
     dispatch("close");
   }
 
+  function formatBytes(bytes, decimals = 2) {
+    if (!bytes || bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+  }
+
   async function copyToClipboard(text) {
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for older browsers or non-HTTPS
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        textArea.remove();
+      }
       toast.success($t("copy_success"));
     } catch (err) {
       console.error($t("clipboard_copy_failed"), err);
@@ -49,8 +71,7 @@
   >
     <div
       class="modern-modal"
-      use:clickOutside
-      on:click_outside={closeModal}
+      on:click|stopPropagation
       on:keydown={() => {}}
       role="dialog"
       tabindex="-1"
