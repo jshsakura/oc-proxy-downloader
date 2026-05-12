@@ -17,6 +17,7 @@
   --warning-color: #d97706;
   --input-bg: #f8fafc;
   --input-border: #d1d5db;
+  --input-inner-bg: rgba(99, 102, 241, 0.04);
   
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 1px rgba(0, 0, 0, 0.03);
   --shadow-medium: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
@@ -78,6 +79,72 @@
   --scrollbar-track: #f1f1f1;
 }
 
+html.dark {
+  color-scheme: dark;
+  --date-icon-filter: invert(1);
+  --background: #1a1a2e;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --card-background: #252540;
+  --card-border: #333355;
+  --primary-color: #818cf8;
+  --primary-hover: #6366f1;
+  --primary-color-rgb: 129, 140, 248;
+  --danger-color: #f87171;
+  --danger-hover: #ef4444;
+  --success-color: #4ade80;
+  --warning-color: #fbbf24;
+  --input-bg: #252540;
+  --input-border: #333355;
+  --input-inner-bg: rgba(129, 140, 248, 0.06);
+  --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.4);
+  --disabled-button-background: #333355;
+  --disabled-button-text: #6b7280;
+  --status-downloading-bg: rgba(129, 140, 248, 0.15);
+  --status-downloading-border: #818cf8;
+  --status-downloading-text: #a5b4fc;
+  --status-pending-bg: rgba(251, 191, 36, 0.15);
+  --status-pending-border: #fbbf24;
+  --status-pending-text: #fcd34d;
+  --status-done-bg: rgba(74, 222, 128, 0.15);
+  --status-done-border: #4ade80;
+  --status-done-text: #86efac;
+  --status-failed-bg: rgba(248, 113, 113, 0.15);
+  --status-failed-border: #f87171;
+  --status-failed-text: #fca5a5;
+  --status-stopped-bg: rgba(100, 120, 160, 0.2);
+  --status-stopped-border: #6478a0;
+  --status-stopped-text: #94a3b8;
+  --status-parsing-bg: rgba(103, 232, 249, 0.15);
+  --status-parsing-border: #67e8f9;
+  --status-parsing-text: #a5f3fc;
+  --theme-selected-bg: #333355;
+  --toast-bg: #333355;
+  --toast-text: #e2e8f0;
+  --button-background: #555;
+  --button-hover-background: #777;
+  --button-text: #f0f0f0;
+  --button-secondary-background: #333355;
+  --button-secondary-text: #e2e8f0;
+  --button-secondary-background-hover: #444466;
+  --button-secondary-border: #333355;
+  --bg-secondary: #1e1e35;
+  --scrollbar-thumb: #555;
+  --scrollbar-thumb-hover: #666;
+  --scrollbar-track: #2a2a2a;
+  --chart-color-1: #818cf8;
+  --chart-color-2: #f87171;
+  --chart-color-3: #fbbf24;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-muted: #6b7280;
+  --chart-bg: transparent;
+  --dashboard-card-bg: var(--card-background);
+  --dashboard-card-border: var(--card-border);
+  --dashboard-stat-value: var(--text-primary);
+  --dashboard-stat-label: var(--text-secondary);
+}
+
 html.forest {
   color-scheme: dark;
   --date-icon-filter: invert(1);
@@ -95,6 +162,7 @@ html.forest {
   --warning-color: #fbbf24;
   --input-bg: #152118;
   --input-border: #1e3322;
+  --input-inner-bg: rgba(74, 222, 128, 0.05);
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.4);
   --disabled-button-background: #1e3322;
@@ -157,6 +225,7 @@ html.sunset {
   --warning-color: #fbbf24;
   --input-bg: #261a12;
   --input-border: #3d2818;
+  --input-inner-bg: rgba(251, 146, 60, 0.05);
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.4);
   --disabled-button-background: #3d2818;
@@ -219,7 +288,8 @@ html.dracula {
   --success-color: #70d999; /* Softer green */
   --warning-color: #ffb86c; /* Keep orange as is */
   --input-bg: #3a3c4e; /* Match card background */
-  --input-border: #50556a; /* Softer border */
+  --input-border: #50556a;
+  --input-inner-bg: rgba(189, 147, 249, 0.05);
   
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.1);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.3);
@@ -299,6 +369,7 @@ html.nord {
   --warning-color: #ebcb8b;
   --input-bg: #3b4252;
   --input-border: #434c5e;
+  --input-inner-bg: rgba(136, 192, 208, 0.05);
 
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.15);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.25);
@@ -368,6 +439,7 @@ html.solarized {
   --warning-color: #cb4b16;
   --input-bg: #073642;
   --input-border: #0a4050;
+  --input-inner-bg: rgba(181, 137, 0, 0.05);
 
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.3);
@@ -437,6 +509,7 @@ html.monokai {
   --warning-color: #e6db74;
   --input-bg: #1e1f1c;
   --input-border: #3e3d32;
+  --input-inner-bg: rgba(249, 38, 114, 0.05);
 
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.35);
@@ -506,6 +579,7 @@ html.ocean {
   --warning-color: #ffd54f;
   --input-bg: #112240;
   --input-border: #1d3461;
+  --input-inner-bg: rgba(61, 214, 176, 0.05);
 
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.35);
@@ -575,6 +649,7 @@ html.rose {
   --warning-color: #fbbf24;
   --input-bg: #261a22;
   --input-border: #3d2434;
+  --input-inner-bg: rgba(244, 63, 94, 0.05);
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.4);
   --disabled-button-background: #3d2434;
@@ -637,6 +712,7 @@ html.neon {
   --warning-color: #ffea00;
   --input-bg: #141425;
   --input-border: #252540;
+  --input-inner-bg: rgba(224, 64, 251, 0.05);
   --shadow-light: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.5);
   --disabled-button-background: #252540;
@@ -922,7 +998,7 @@ h1 {
     width: 100%;
     padding: 0.75rem 1rem;
     font-size: 1rem;
-    background: rgba(var(--primary-color-rgb, 71, 75, 223), 0.04);
+    background: var(--input-inner-bg, rgba(var(--primary-color-rgb, 71, 75, 223), 0.04));
     border: 1px solid var(--input-border);
     border-radius: 10px;
     color: var(--text-primary);
@@ -935,7 +1011,7 @@ h1 {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb), 0.15), 0 4px 12px rgba(0, 0, 0, 0.08);
-    background: rgba(var(--primary-color-rgb, 71, 75, 223), 0.06);
+    background: var(--input-inner-bg, rgba(var(--primary-color-rgb, 71, 75, 223), 0.06));
 }
 
 select.input {
@@ -1387,23 +1463,6 @@ html[data-theme="light"] {
   --button-secondary-border: #b0b0b0;
 }
 
-html[data-theme="dark"] {
-  --button-background: #555; /* Dark gray for dark theme buttons */
-  --button-hover-background: #777; /* Slightly lighter gray on hover */
-  --button-text: #f0f0f0; /* Light text for dark theme buttons */
-
-  --button-secondary-background: #23272b;
-  --button-secondary-text: #fff;
-  --button-secondary-background-hover: #333;
-  --button-secondary-border: #333;
-
-  --disabled-button-background: #444;
-  --disabled-button-text: #ccc;
-  --scrollbar-thumb: #555;
-  --scrollbar-thumb-hover: #666;
-  --scrollbar-track: #2a2a2a;
-}
-
 html[data-theme="dracula"] {
   --button-background: #6272a4;
   --button-hover-background: #7184b8;
@@ -1428,11 +1487,6 @@ html[data-theme="dracula"] {
 html[data-theme="light"] {
   --disabled-button-background: #e0e0e0;
   --disabled-button-text: #999;
-}
-
-html[data-theme="dark"] {
-  --disabled-button-background: #444;
-  --disabled-button-text: #888;
 }
 
 .button-icon {

@@ -6,22 +6,7 @@
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
-  import GitHubIcon from "./icons/GitHubIcon.svelte";
-  import DockerIcon from "./icons/DockerIcon.svelte";
-  import ConfirmModal from "./ConfirmModal.svelte";
-  import { toast } from "svelte-sonner";
-  import SunIcon from "../icons/SunIcon.svelte";
-  import MoonIcon from "../icons/MoonIcon.svelte";
-  import BatIcon from "../icons/BatIcon.svelte";
-  import SnowflakeIcon from "../icons/SnowflakeIcon.svelte";
-  import PaletteIcon from "../icons/PaletteIcon.svelte";
-  import WaveIcon from "../icons/WaveIcon.svelte";
-  import MonitorIcon from "../icons/MonitorIcon.svelte";
   import ExternalLinkIcon from "../icons/ExternalLinkIcon.svelte";
-  import HeartIcon from "../icons/HeartIcon.svelte";
-  import ZapIcon from "../icons/ZapIcon.svelte";
-  import LeafIcon from "../icons/LeafIcon.svelte";
-  import SunsetIcon from "../icons/SunsetIcon.svelte";
   import {
     authRequired,
     isAuthenticated,
@@ -667,171 +652,87 @@
             <legend>{$t("settings_theme")}</legend>
             <div class="theme-options">
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="light"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="light" hidden />
                 <div class="theme-card light-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_light_aria")}
-                    ><SunIcon /></span
-                  >
-                  <span>{$t("theme_light")}</span>
+                  <span class="theme-color-swatch" style="background: #6366f1"></span>
+                  <span class="theme-name">{$t("theme_light")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="dark"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="dark" hidden />
                 <div class="theme-card dark-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_dark_aria")}
-                    ><MoonIcon /></span
-                  >
-                  <span>{$t("theme_dark")}</span>
+                  <span class="theme-color-swatch" style="background: #818cf8"></span>
+                  <span class="theme-name">{$t("theme_dark")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="dracula"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="dracula" hidden />
                 <div class="theme-card dracula-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_dracula_aria")}
-                    ><BatIcon /></span
-                  >
-                  <span>{$t("theme_dracula")}</span>
+                  <span class="theme-color-swatch" style="background: #bd93f9"></span>
+                  <span class="theme-name">{$t("theme_dracula")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="nord"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="nord" hidden />
                 <div class="theme-card nord-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_nord_aria")}
-                    ><SnowflakeIcon /></span
-                  >
-                  <span>{$t("theme_nord")}</span>
+                  <span class="theme-color-swatch" style="background: #88c0d0"></span>
+                  <span class="theme-name">{$t("theme_nord")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="solarized"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="solarized" hidden />
                 <div class="theme-card solarized-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_solarized_aria")}
-                    ><SunIcon /></span
-                  >
-                  <span>{$t("theme_solarized")}</span>
+                  <span class="theme-color-swatch" style="background: #b58900"></span>
+                  <span class="theme-name">{$t("theme_solarized")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="monokai"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="monokai" hidden />
                 <div class="theme-card monokai-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_monokai_aria")}
-                    ><PaletteIcon /></span
-                  >
-                  <span>{$t("theme_monokai")}</span>
+                  <span class="theme-color-swatch" style="background: #f92672"></span>
+                  <span class="theme-name">{$t("theme_monokai")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="ocean"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="ocean" hidden />
                 <div class="theme-card ocean-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_ocean_aria")}
-                    ><WaveIcon /></span
-                  >
-                  <span>{$t("theme_ocean")}</span>
+                  <span class="theme-color-swatch" style="background: #3dd6b0"></span>
+                  <span class="theme-name">{$t("theme_ocean")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="rose"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="rose" hidden />
                 <div class="theme-card rose-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_rose_aria")}
-                    ><HeartIcon /></span
-                  >
-                  <span>{$t("theme_rose")}</span>
+                  <span class="theme-color-swatch" style="background: #f43f5e"></span>
+                  <span class="theme-name">{$t("theme_rose")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="neon"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="neon" hidden />
                 <div class="theme-card neon-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_neon_aria")}
-                    ><ZapIcon /></span
-                  >
-                  <span>{$t("theme_neon")}</span>
+                  <span class="theme-color-swatch" style="background: #e040fb"></span>
+                  <span class="theme-name">{$t("theme_neon")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="forest"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="forest" hidden />
                 <div class="theme-card forest-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_forest_aria")}
-                    ><LeafIcon /></span
-                  >
-                  <span>{$t("theme_forest")}</span>
+                  <span class="theme-color-swatch" style="background: #4ade80"></span>
+                  <span class="theme-name">{$t("theme_forest")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="sunset"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="sunset" hidden />
                 <div class="theme-card sunset-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_sunset_aria")}
-                    ><SunsetIcon /></span
-                  >
-                  <span>{$t("theme_sunset")}</span>
+                  <span class="theme-color-swatch" style="background: #fb923c"></span>
+                  <span class="theme-name">{$t("theme_sunset")}</span>
                 </div>
               </label>
               <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="system"
-                  hidden
-                />
+                <input type="radio" bind:group={selectedTheme} value="system" hidden />
                 <div class="theme-card system-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_system_aria")}
-                    ><MonitorIcon /></span
-                  >
-                  <span>{$t("theme_system")}</span>
+                  <span class="theme-color-swatch" style="background: linear-gradient(135deg, #6366f1 50%, #818cf8 50%)"></span>
+                  <span class="theme-name">{$t("theme_system")}</span>
                 </div>
               </label>
             </div>
@@ -1913,6 +1814,7 @@
     padding: 2rem;
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     margin-bottom: 0;
     min-height: 0;
   }
@@ -1971,14 +1873,13 @@
   .input {
     width: 100%;
     padding: 0.875rem 1rem;
-    border: 2px solid var(--card-border, #e5e7eb);
-    border-radius: 12px;
-    background-color: var(--input-bg, #ffffff);
+    border: 1px solid var(--input-border, #e5e7eb);
+    border-radius: 10px;
+    background-color: var(--input-inner-bg, var(--input-bg, #ffffff));
     color: var(--text-primary);
     font-size: 0.875rem;
     font-weight: 500;
     transition: all 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .input-group .input {
@@ -2000,7 +1901,7 @@
   .input:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb, 59, 130, 246), 0.1);
+    box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb, 59, 130, 246), 0.15);
   }
 
   .input-icon-button {
@@ -2010,7 +1911,7 @@
     height: 2.5rem;
     padding: 0;
     border: none !important;
-    background-color: var(--input-bg);
+    background-color: transparent;
     color: var(--text-secondary);
     border-radius: 10px;
     display: flex;
@@ -2039,7 +1940,7 @@
   .theme-options {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 0.4rem;
+    gap: 0.35rem;
     margin-top: 0.75rem;
   }
 
@@ -2057,46 +1958,37 @@
   .theme-card {
     border: 2px solid var(--card-border, #e5e7eb);
     border-radius: 8px;
-    padding: 0.4rem 0.6rem;
+    padding: 0.45rem 0.6rem;
     transition: all 0.2s ease;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 500;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    display: grid;
-    grid-template-columns: 22px 1fr;
+    display: flex;
     align-items: center;
-    gap: 0.35rem;
-    background: var(--card-background);
-    color: var(--text-primary);
+    gap: 0.4rem;
+    overflow: hidden;
   }
 
   .theme-card:hover {
     border-color: var(--primary-color);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
   }
 
   .theme-option-label input[type="radio"]:checked + .theme-card {
     border-color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb, 59, 130, 246), 0.05);
-    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb, 59, 130, 246), 0.1);
+    box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb, 59, 130, 246), 0.2);
   }
 
-  .theme-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
+  .theme-color-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
     flex-shrink: 0;
   }
 
-  .theme-icon :global(svg) {
-    width: 15px;
-    height: 15px;
-  }
-
-  .theme-card > :last-child {
-    text-align: center;
+  .theme-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 
   .light-theme-card {
