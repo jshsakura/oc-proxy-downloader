@@ -4,8 +4,9 @@ import { formatBytes, formatWaitTime, isValidUrl } from '../src/lib/utils';
 describe('Frontend Utils', () => {
   it('formatBytes should format correctly', () => {
     expect(formatBytes(0)).toBe('0 Bytes');
-    expect(formatBytes(1024)).toBe('1.00 KB');
-    expect(formatBytes(1024 * 1024)).toBe('1.00 MB');
+    expect(formatBytes(1024)).toBe('1 KB');
+    expect(formatBytes(1024 * 1024)).toBe('1 MB');
+    expect(formatBytes(1500)).toBe('1.46 KB');
   });
 
   it('formatWaitTime should format correctly', () => {

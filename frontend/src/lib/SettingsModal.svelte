@@ -2,10 +2,8 @@
   import { createEventDispatcher, onMount, onDestroy } from "svelte";
   import { theme } from "./theme.js";
   import { t, loadTranslations, isLoading } from "./i18n.js";
-  import HomeIcon from "../icons/HomeIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
-  import CopyIcon from "../icons/CopyIcon.svelte";
   import GitHubIcon from "./icons/GitHubIcon.svelte";
   import DockerIcon from "./icons/DockerIcon.svelte";
   import ConfirmModal from "./ConfirmModal.svelte";
@@ -16,6 +14,13 @@
     authUser,
     authManager,
   } from "./auth.js";
+  import { api } from "./api.js";
+
+  // Sub-components
+  import GeneralSettings from "./settings/GeneralSettings.svelte";
+  import ProxySettings from "./settings/ProxySettings.svelte";
+  import AuthSettings from "./settings/AuthSettings.svelte";
+  import TelegramSettings from "./settings/TelegramSettings.svelte";
 
   const dispatch = createEventDispatcher();
 
@@ -55,17 +60,14 @@
   let detailedGuideExpanded = false;
   let fichierAccountExpanded = false;
   let fichierTestLoading = false;
-  // 1fichier 자격증명을 이미 저장한 사용자에게는 ID/PW 입력란을 숨기고
-  // 저장된 이메일만 표시. '변경' 버튼을 누르면 다시 편집 모드로 전환.
   let fichierEditMode = false;
 
   function startFichierEdit() {
     fichierEditMode = true;
-    // 비밀번호는 다시 입력하도록 비움 (이메일은 그대로 둠)
     settings.fichier_password = "";
   }
 
-  function clearFichierAccount() {
+  async function clearFichierAccount() {
     settings.fichier_email = "";
     settings.fichier_password = "";
     fichierEditMode = true;
@@ -79,22 +81,20 @@
     }
     fichierTestLoading = true;
     try {
-      const res = await fetch("/api/fichier/test-login", {
+      const data = await api.request('/fichier/test-login', {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: settings.fichier_email,
           password: settings.fichier_password,
         }),
       });
-      const data = await res.json();
       if (data.success) {
         toast.success(data.message || $t("fichier_test_login"));
       } else {
         toast.error(data.message || $t("fichier_test_login"));
       }
     } catch (e) {
-      toast.error($t("fichier_test_error") + " " + e);
+      toast.error($t("fichier_test_error") + " " + e.message);
     } finally {
       fichierTestLoading = false;
     }
@@ -118,14 +118,11 @@
 
   async function loadUserProxies() {
     try {
-      const response = await fetch("/api/proxies/");
-      if (response.ok) {
-        const data = await response.json();
-        userProxies = data.proxies || [];
-      }
+      const data = await api.getUserProxies(1, 1000); // Get all for internal pagination
+      userProxies = data.proxies || [];
     } catch (error) {
       console.error("Proxy list load failed:", error);
-      userProxies = []; // 오류 시 빈 배열로 설정
+      userProxies = [];
     }
   }
 
@@ -137,27 +134,14 @@
 
     isAddingProxy = true;
     try {
-      const response = await fetch("/api/proxies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: newProxyAddress.trim(),
-          description: newProxyDescription.trim(),
-        }),
-      });
-
-      if (response.ok) {
-        toast.success($t("proxy_added_success"));
-        newProxyAddress = "";
-        newProxyDescription = "";
-        await loadUserProxies();
-        dispatch("proxyChanged");
-      } else {
-        const error = await response.text();
-        toast.error($t("proxy_add_failed", { error }));
-      }
+      await api.addUserProxy(newProxyAddress.trim(), newProxyDescription.trim());
+      toast.success($t("proxy_added_success"));
+      newProxyAddress = "";
+      newProxyDescription = "";
+      await loadUserProxies();
+      dispatch("proxyChanged");
     } catch (error) {
-      toast.error($t("proxy_add_error"));
+      toast.error($t("proxy_add_failed", { error: error.message }));
     } finally {
       isAddingProxy = false;
     }
@@ -165,80 +149,22 @@
 
   async function deleteProxy(proxyId) {
     try {
-      const response = await fetch(`/api/proxies/${proxyId}`, {
-        method: "DELETE",
-      });
-
-      if (response.ok) {
-        toast.success($t("proxy_deleted_success"));
-        await loadUserProxies();
-        dispatch("proxyChanged");
-      } else {
-        toast.error($t("proxy_delete_failed"));
-      }
+      await api.deleteUserProxy(proxyId);
+      toast.success($t("proxy_deleted_success"));
+      await loadUserProxies();
+      dispatch("proxyChanged");
     } catch (error) {
-      toast.error($t("proxy_delete_error"));
+      toast.error($t("proxy_delete_failed"));
     }
   }
 
   async function toggleProxy(proxyId) {
     try {
-      const response = await fetch(`/api/proxies/${proxyId}/toggle`, {
-        method: "PUT",
-      });
-
-      if (response.ok) {
-        await loadUserProxies();
-        dispatch("proxyChanged");
-      } else {
-        toast.error($t("proxy_toggle_failed"));
-      }
+      await api.toggleUserProxy(proxyId);
+      await loadUserProxies();
+      dispatch("proxyChanged");
     } catch (error) {
-      toast.error($t("proxy_toggle_error"));
-    }
-  }
-
-  function formatDate(dateString) {
-    if (!dateString) return "-";
-    const currentLocale = localStorage.getItem("lang") || "en";
-    const date = new Date(dateString);
-    const localeCode = currentLocale === "ko" ? "ko-KR" : "en-US";
-
-    if (currentLocale === "ko") {
-      return date.toLocaleDateString(localeCode, {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
-    } else {
-      return date.toLocaleDateString(localeCode, {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      });
-    }
-  }
-
-  async function copyToClipboard(text) {
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-999999px";
-        textArea.style.top = "-999999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        document.execCommand("copy");
-        textArea.remove();
-      }
-      toast.success($t("copy_success"));
-    } catch (error) {
-      console.error("Clipboard copy failed:", error);
-      toast.error($t("copy_failed"));
+      toast.error($t("proxy_toggle_failed"));
     }
   }
 
@@ -249,10 +175,9 @@
     }
 
     try {
-      const response = await fetch("/api/telegram/test", {
+      await api.request('/telegram/test', {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${localStorage.getItem("access_token")}`,
         },
         body: JSON.stringify({
@@ -260,22 +185,14 @@
           chat_id: settings.telegram_chat_id,
         }),
       });
-
-      if (response.ok) {
-        toast.success($t("telegram_test_success"));
-      } else {
-        const errorData = await response.json();
-        toast.error($t("telegram_test_failed") + ": " + errorData.detail);
-      }
+      toast.success($t("telegram_test_success"));
     } catch (error) {
-      console.error("Telegram test error:", error);
-      toast.error($t("telegram_test_error"));
+      toast.error($t("telegram_test_failed") + ": " + error.message);
     }
   }
 
   let isInitialized = false;
 
-  // Initialize settings only once when the modal is opened with valid data
   $: if (showModal && currentSettings && !isInitialized) {
     settings = {
       ...currentSettings,
@@ -294,7 +211,6 @@
     isInitialized = true;
   }
 
-  // Reset settings when modal is closed to allow re-initialization next time
   $: if (!showModal) {
     settings = {};
     isInitialized = false;
@@ -314,44 +230,13 @@
       language: selectedLocale,
     };
 
-    console.log("[DEBUG] Saving settings:", settingsToSave);
-
     try {
-      const response = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settingsToSave),
-      });
-
-      console.log("[DEBUG] Save API response:", response.status);
-
-      if (response.ok) {
-        const responseData = await response.json();
-        console.log("[DEBUG] Save response data:", responseData);
-
-        // 언어는 이미 changeLocale에서 적용되었으므로 별도 처리 불필요
-
-        dispatch("settingsChanged", settings);
-        closeModal();
-      } else {
-        console.error("[ERROR] Save failed:", response.status);
-        let errorMessage = $t("settings_save_failed", {
-          status: response.status,
-        });
-
-        if (response.status === 500) {
-          errorMessage += `\n${$t("settings_save_error_server")}`;
-        } else if (response.status === 403) {
-          errorMessage += `\n${$t("settings_save_error_auth")}`;
-        } else if (response.status === 404) {
-          errorMessage += `\n${$t("settings_save_error_notfound")}`;
-        }
-
-        alert(errorMessage);
-      }
+      await api.saveSettings(settingsToSave);
+      dispatch("settingsChanged", settings);
+      closeModal();
     } catch (error) {
       console.error("Error saving settings:", error);
-      alert("Error saving settings");
+      alert($t("settings_save_failed", { status: error.message }));
     }
   }
 
@@ -359,39 +244,18 @@
 
   async function resetToDefault() {
     try {
-      console.log("[DEBUG] Calling API to get default path");
-      const response = await fetch("/api/default_download_path");
-      console.log("[DEBUG] API response received:", response.status);
+      const data = await api.request('/default_download_path');
+      environmentInfo = {
+        is_standalone: data.is_standalone || false,
+        is_docker: data.is_docker || false,
+      };
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log("[DEBUG] Default path data:", data);
-
-        // 환경 정보 저장
-        environmentInfo = {
-          is_standalone: data.is_standalone || false,
-          is_docker: data.is_docker || false,
-        };
-
-        if (data.default_download_path) {
-          settings = { ...settings, download_path: data.default_download_path };
-          console.log(
-            "[DEBUG] Reset to default path:",
-            data.default_download_path
-          );
-        } else {
-          settings = { ...settings, download_path: "/downloads" };
-          console.log("[DEBUG] Reset to default: /downloads");
-        }
+      if (data.default_download_path) {
+        settings = { ...settings, download_path: data.default_download_path };
       } else {
-        console.warn(
-          "[WARN] Default path API failed, using fallback:",
-          response.status
-        );
         settings = { ...settings, download_path: "/downloads" };
       }
     } catch (e) {
-      console.warn("[WARN] Default path API error, using fallback:", e.message);
       settings = { ...settings, download_path: "/downloads" };
     }
   }
@@ -403,29 +267,17 @@
     }
 
     try {
-      const response = await fetch("/api/select_folder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.path) {
-          settings = { ...settings, download_path: data.path };
-        }
-      } else {
-        const errorData = await response.json();
-        toast.error(errorData.detail || "폴더 선택에 실패했습니다");
+      const data = await api.selectFolder();
+      if (data.path) {
+        settings = { ...settings, download_path: data.path };
       }
     } catch (error) {
-      console.error("Folder selection error:", error);
-      toast.error("폴더 선택 중 오류가 발생했습니다");
+      toast.error(error.message || "폴더 선택에 실패했습니다");
     }
   }
 
   async function changeLocale(e) {
     selectedLocale = e.target.value;
-    // 언어 변경 시 즉시 번역 로드하여 미리보기 제공
     localStorage.setItem("lang", selectedLocale);
     await loadTranslations(selectedLocale);
   }
@@ -438,7 +290,6 @@
     authManager.logout();
     showLogoutConfirm = false;
     closeModal();
-    // 로그아웃 후 페이지 새로고침으로 상태 완전 초기화
     setTimeout(() => {
       window.location.reload();
     }, 100);
@@ -453,15 +304,11 @@
 
     try {
       isLoadingVersion = true;
-      const response = await fetch("/api/version", {
+      versionInfo = await api.request('/version', {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("access_token")}`,
         },
       });
-
-      if (response.ok) {
-        versionInfo = await response.json();
-      }
     } catch (error) {
       console.warn("[WARN] Failed to load version info:", error);
       versionInfo.error = "Failed to check version";
@@ -473,22 +320,16 @@
   onMount(async () => {
     document.body.style.overflow = "hidden";
 
-    // 환경 정보 로드
     try {
-      const response = await fetch("/api/default_download_path");
-      if (response.ok) {
-        const data = await response.json();
-        environmentInfo = {
-          is_standalone: data.is_standalone || false,
-          is_docker: data.is_docker || false,
-        };
-      }
+      const data = await api.request('/default_download_path');
+      environmentInfo = {
+        is_standalone: data.is_standalone || false,
+        is_docker: data.is_docker || false,
+      };
     } catch (error) {
       console.warn("[WARN] Failed to load environment info:", error);
-      // 기본값 유지
     }
 
-    // 버전 정보 로드
     loadVersionInfo();
   });
   onDestroy(() => {
@@ -586,900 +427,115 @@
             </div>
           {/if}
 
-          <div class="form-group">
-            <label for="download-path">{$t("settings_download_path")}</label>
-            <div class="input-group path-input-group">
-              <input
-                id="download-path"
-                type="text"
-                class="input"
-                bind:value={settings.download_path}
-                placeholder={$t("download_path_placeholder_long")}
-              />
-              <div class="path-buttons">
-                {#if !environmentInfo.is_docker}
-                  <button
-                    type="button"
-                    class="input-icon-button"
-                    on:click={selectFolder}
-                    title="폴더 선택"
-                    aria-label="폴더 선택"
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path
-                        d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"
-                      />
-                    </svg>
-                  </button>
-                {/if}
-                {#if environmentInfo.is_docker}
-                  <button
-                    type="button"
-                    class="input-icon-button reset-button"
-                    on:click={resetToDefault}
-                    title={$t("reset_to_default_tooltip")}
-                    aria-label={$t("reset_to_default_tooltip")}
-                  >
-                    <HomeIcon />
-                  </button>
-                {/if}
-              </div>
-            </div>
-          </div>
+          <GeneralSettings
+            bind:settings
+            {environmentInfo}
+            {selectedLocale}
+            {selectedTheme}
+            {themeIcons}
+            {selectFolder}
+            {resetToDefault}
+            {changeLocale}
+          />
 
-          <div class="form-group">
-            <label for="locale">{$t("settings_language")}</label>
-            <select
-              id="locale"
-              class="input"
-              bind:value={selectedLocale}
-              on:change={changeLocale}
-            >
-              <option value="ko">{$t("language_korean")}</option>
-              <option value="en">{$t("language_english")}</option>
-            </select>
-          </div>
+          <ProxySettings
+            {userProxies}
+            bind:newProxyAddress
+            bind:newProxyDescription
+            {isAddingProxy}
+            bind:currentPage
+            {itemsPerPage}
+            {totalPages}
+            {paginatedProxies}
+            {addProxy}
+            {deleteProxy}
+            {toggleProxy}
+          />
 
-          <fieldset class="form-group">
-            <legend>{$t("settings_theme")}</legend>
-            <div class="theme-options">
-              <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="light"
-                  hidden
-                />
-                <div class="theme-card light-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_light_aria")}
-                    >{themeIcons.light}</span
-                  >
-                  <span>{$t("theme_light")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="dark"
-                  hidden
-                />
-                <div class="theme-card dark-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_dark_aria")}
-                    >{themeIcons.dark}</span
-                  >
-                  <span>{$t("theme_dark")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="dracula"
-                  hidden
-                />
-                <div class="theme-card dracula-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_dracula_aria")}
-                    >{themeIcons.dracula}</span
-                  >
-                  <span>{$t("theme_dracula")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="nord"
-                  hidden
-                />
-                <div class="theme-card nord-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_nord_aria")}
-                    >{themeIcons.nord}</span
-                  >
-                  <span>{$t("theme_nord")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="solarized"
-                  hidden
-                />
-                <div class="theme-card solarized-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_solarized_aria")}
-                    >{themeIcons.solarized}</span
-                  >
-                  <span>{$t("theme_solarized")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="monokai"
-                  hidden
-                />
-                <div class="theme-card monokai-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_monokai_aria")}
-                    >{themeIcons.monokai}</span
-                  >
-                  <span>{$t("theme_monokai")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="ocean"
-                  hidden
-                />
-                <div class="theme-card ocean-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_ocean_aria")}
-                    >{themeIcons.ocean}</span
-                  >
-                  <span>{$t("theme_ocean")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input
-                  type="radio"
-                  bind:group={selectedTheme}
-                  value="system"
-                  hidden
-                />
-                <div class="theme-card system-theme-card">
-                  <span class="theme-icon" aria-label={$t("theme_system_aria")}
-                    >{themeIcons.system}</span
-                  >
-                  <span>{$t("theme_system")}</span>
-                </div>
-              </label>
-            </div>
-          </fieldset>
+          <AuthSettings
+            bind:settings
+            {currentSettings}
+            bind:fichierAccountExpanded
+            bind:fichierEditMode
+            {fichierTestLoading}
+            {startFichierEdit}
+            {clearFichierAccount}
+            {testFichierLogin}
+          />
 
-          <div class="form-group proxy-management">
-            <div class="proxy-management-title">{$t("proxy_management")}</div>
-          </div>
+          <TelegramSettings
+            bind:settings
+            bind:telegramGuideExpanded
+            bind:detailedGuideExpanded
+            bind:telegramSettingsExpanded
+            {testTelegramNotification}
+          />
 
-          <div class="form-group proxy-form-section">
-            <div class="proxy-input-group">
-              <input
-                type="text"
-                class="input proxy-address-input"
-                bind:value={newProxyAddress}
-                placeholder={$t("proxy_add_address")}
-              />
-              <input
-                type="text"
-                class="input proxy-description-input"
-                bind:value={newProxyDescription}
-                placeholder={$t("proxy_add_description")}
-              />
-              <button
-                class="button button-primary proxy-add-button"
-                on:click={addProxy}
-                disabled={isAddingProxy}
-              >
-                {isAddingProxy ? $t("adding_proxy") : $t("proxy_add_button")}
-              </button>
-            </div>
-          </div>
-
-          <div class="form-group proxy-list-section">
-            {#if userProxies.length === 0}
-              <div class="proxy-empty-state">
-                <p>{$t("proxy_empty_message")}</p>
-                <small>{$t("proxy_empty_description")}</small>
-              </div>
-            {:else}
-              <div class="proxy-table-container">
-                <div class="proxy-table-wrapper">
-                  <table class="proxy-table">
-                    <thead>
-                      <tr>
-                        <th class="text-center">{$t("proxy_address")}</th>
-                        <th class="text-center">{$t("proxy_type")}</th>
-                        <th class="text-center">{$t("proxy_status")}</th>
-                        <th class="text-center">{$t("proxy_added_date")}</th>
-                        <th class="text-center">{$t("proxy_actions")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {#each paginatedProxies as proxy, i (proxy.id || i)}
-                        <tr
-                          class="proxy-row {proxy.is_active
-                            ? 'active'
-                            : 'inactive'}"
-                        >
-                          <td class="proxy-address" title={proxy.address}>
-                            <div class="proxy-address-content">
-                              <span class="proxy-url">{proxy.address}</span>
-                              <button
-                                class="copy-proxy-button"
-                                on:click={() =>
-                                  navigator.clipboard?.writeText(proxy.address)}
-                                title="Copy address"
-                                type="button"
-                              >
-                                <CopyIcon />
-                              </button>
-                            </div>
-                            {#if proxy.description}
-                              <small class="proxy-description"
-                                >{proxy.description}</small
-                              >
-                            {/if}
-                          </td>
-                          <td class="text-center">
-                            <span class="proxy-type-badge {proxy.proxy_type}">
-                              {proxy.proxy_type === "list"
-                                ? $t("proxy_type_list")
-                                : $t("proxy_type_single")}
-                            </span>
-                          </td>
-                          <td class="text-center">
-                            <span
-                              class="proxy-status-badge {proxy.is_active
-                                ? 'active'
-                                : 'inactive'}"
-                            >
-                              {proxy.is_active
-                                ? $t("proxy_status_active")
-                                : $t("proxy_status_inactive")}
-                            </span>
-                          </td>
-                          <td class="proxy-date text-center">
-                            {proxy.added_at
-                              ? new Date(proxy.added_at).toLocaleDateString()
-                              : "-"}
-                          </td>
-                          <td class="proxy-actions">
-                            <div class="proxy-action-buttons">
-                              <button
-                                class="proxy-action-btn toggle-btn {proxy.is_active
-                                  ? 'active'
-                                  : 'inactive'}"
-                                on:click={() => toggleProxy(proxy.id)}
-                                title={proxy.is_active
-                                  ? $t("proxy_toggle_inactive")
-                                  : $t("proxy_toggle_active")}
-                                aria-label={proxy.is_active
-                                  ? $t("proxy_toggle_inactive")
-                                  : $t("proxy_toggle_active")}
-                                type="button"
-                              >
-                                {#if proxy.is_active}
-                                  <svg
-                                    width="12"
-                                    height="12"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                  >
-                                    <rect x="6" y="4" width="4" height="16"
-                                    ></rect>
-                                    <rect x="14" y="4" width="4" height="16"
-                                    ></rect>
-                                  </svg>
-                                {:else}
-                                  <svg
-                                    width="12"
-                                    height="12"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                  >
-                                    <polygon points="5,3 19,12 5,21"></polygon>
-                                  </svg>
-                                {/if}
-                              </button>
-                              <button
-                                class="proxy-action-btn delete-btn"
-                                on:click={() => deleteProxy(proxy.id)}
-                                title={$t("proxy_delete")}
-                                aria-label={$t("proxy_delete")}
-                                type="button"
-                              >
-                                <svg
-                                  width="16"
-                                  height="16"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  stroke-width="2"
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                >
-                                  <polyline points="3,6 5,6 21,6"></polyline>
-                                  <path
-                                    d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"
-                                  ></path>
-                                  <line x1="10" y1="11" x2="10" y2="17"></line>
-                                  <line x1="14" y1="11" x2="14" y2="17"></line>
-                                </svg>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <!-- 프록시 테이블 푸터 -->
-              <div class="proxy-table-footer">
-                <div class="proxy-footer-info">
-                  <div class="proxy-count-info">
-                    {$t("total_proxies", { count: userProxies.length })}
+          <!-- 버전 정보 섹션 -->
+          <div class="version-section">
+            <h4 class="section-title">📊 {$t("version_info")}</h4>
+            <div class="version-content">
+              <div class="version-display">
+                {#if isLoadingVersion}
+                  <div class="version-loading">
+                    <span class="loading-spinner"></span>
+                    <span>{$t("checking_version")}</span>
                   </div>
-                  {#if totalPages > 1}
-                    <div class="proxy-page-info">
-                      {(currentPage - 1) * itemsPerPage + 1}~{Math.min(
-                        currentPage * itemsPerPage,
-                        userProxies.length
-                      )} 표시
-                    </div>
-                  {/if}
-                </div>
-
-                {#if totalPages > 1}
-                  <div class="proxy-pagination-buttons">
-                    <button
-                      class="proxy-page-number-btn proxy-prev-next-btn"
-                      on:click={() => (currentPage = currentPage - 1)}
-                      disabled={currentPage <= 1}
+                {:else if versionInfo.error}
+                  <div class="version-simple">
+                    <span class="version-text"
+                      >{versionInfo.current_version}</span
                     >
-                      ←
-                    </button>
-
-                    <!-- 페이지 번호 버튼들 - 최대 5개 표시 -->
-                    {#each Array(Math.min(totalPages, 5)) as _, i}
-                      {@const pageNum = Math.max(1, currentPage - 2) + i}
-                      {#if pageNum <= totalPages}
-                        <button
-                          class="proxy-page-number-btn"
-                          class:active={currentPage === pageNum}
-                          on:click={() => (currentPage = pageNum)}
-                        >
-                          {pageNum}
-                        </button>
-                      {/if}
-                    {/each}
-
-                    <button
-                      class="proxy-page-number-btn proxy-prev-next-btn"
-                      on:click={() => (currentPage = currentPage + 1)}
-                      disabled={currentPage >= totalPages}
+                    <span class="version-status error"
+                      >({$t("version_check_failed")})</span
                     >
-                      →
-                    </button>
+                  </div>
+                {:else if versionInfo.update_available}
+                  <div class="version-simple">
+                    <span class="version-text"
+                      >{versionInfo.current_version} → {versionInfo.latest_version}</span
+                    >
+                    <span class="version-label update"
+                      >🎉 {$t("update_available")}</span
+                    >
+                  </div>
+                {:else}
+                  <div class="version-simple">
+                    <span class="version-text"
+                      >{versionInfo.current_version}</span
+                    >
+                    <span class="version-label latest"
+                      >✨ {$t("latest_version")}</span
+                    >
                   </div>
                 {/if}
               </div>
-            {/if}
-          </div>
-
-          <!-- 1fichier 계정 (게스트 슬롯 부족 우회) -->
-          <fieldset class="form-group telegram-notifications">
-            <legend>{$t("fichier_account_title")}</legend>
-
-            <button
-              type="button"
-              class="telegram-header"
-              on:click={() => (fichierAccountExpanded = !fichierAccountExpanded)}
-            >
-              <div class="telegram-info">
-                <p class="telegram-desc">{$t("fichier_account_header")}</p>
-                <p class="telegram-sub">{$t("fichier_account_sub")}</p>
-              </div>
-              <div class="toggle-chevron" class:expanded={fichierAccountExpanded}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="6,9 12,15 18,9"></polyline>
-                </svg>
-              </div>
-            </button>
-
-            {#if fichierAccountExpanded}
-              <div class="telegram-accordion">
-                <div class="accordion-content">
-                  {#if currentSettings?.fichier_email && currentSettings?.fichier_password && !fichierEditMode}
-                    <!-- 저장된 자격증명: 이메일만 깔끔하게 표시 -->
-                    <div class="fichier-saved">
-                      <div class="fichier-saved-row">
-                        <span class="fichier-saved-icon" aria-hidden="true">✓</span>
-                        <div class="fichier-saved-text">
-                          <div class="fichier-saved-email">{settings.fichier_email}</div>
-                          <div class="fichier-saved-sub">{$t("fichier_saved_sub")}</div>
-                        </div>
-                      </div>
-                      <div class="fichier-saved-actions">
-                        <button
-                          type="button"
-                          class="button button-secondary test-telegram-button"
-                          on:click={startFichierEdit}
-                        >
-                          {$t("fichier_change")}
-                        </button>
-                        <button
-                          type="button"
-                          class="button button-secondary test-telegram-button fichier-danger-button"
-                          on:click={clearFichierAccount}
-                        >
-                          {$t("fichier_delete")}
-                        </button>
-                      </div>
-                    </div>
-                  {:else}
-                    <!-- 입력/편집 모드 -->
-                    <div class="telegram-input-group">
-                      <div class="input-field">
-                        <label for="fichier-email">{$t("fichier_email_label")}</label>
-                        <input
-                          id="fichier-email"
-                          type="email"
-                          class="input"
-                          autocomplete="username"
-                          placeholder="example@mail.com"
-                          bind:value={settings.fichier_email}
-                        />
-                        <small class="input-hint">
-                          {$t("fichier_email_hint_prefix")}
-                          <a
-                            href="https://1fichier.com/register.pl"
-                            target="_blank"
-                            rel="noopener"
-                            class="fichier-inline-link"
-                          >{$t("fichier_create_account")}</a>
-                        </small>
-                      </div>
-
-                      <div class="input-field">
-                        <label for="fichier-password">{$t("fichier_password_label")}</label>
-                        <input
-                          id="fichier-password"
-                          type="password"
-                          class="input"
-                          autocomplete="current-password"
-                          placeholder="••••••••"
-                          bind:value={settings.fichier_password}
-                        />
-                        <small class="input-hint">{$t("fichier_password_hint")}</small>
-                      </div>
-
-                      <div class="telegram-test-section">
-                        <button
-                          type="button"
-                          class="button button-secondary test-telegram-button"
-                          disabled={!settings.fichier_email ||
-                            !settings.fichier_password ||
-                            fichierTestLoading}
-                          on:click={testFichierLogin}
-                        >
-                          {fichierTestLoading
-                            ? $t("fichier_test_loading")
-                            : $t("fichier_test_login")}
-                        </button>
-                        {#if currentSettings?.fichier_email}
-                          <button
-                            type="button"
-                            class="button button-secondary test-telegram-button"
-                            on:click={() => {
-                              settings.fichier_email = currentSettings.fichier_email || "";
-                              settings.fichier_password = currentSettings.fichier_password || "";
-                              fichierEditMode = false;
-                            }}
-                          >
-                            {$t("fichier_cancel")}
-                          </button>
-                        {/if}
-                      </div>
-                    </div>
-                  {/if}
-                </div>
-              </div>
-            {/if}
-          </fieldset>
-
-          <fieldset class="form-group telegram-notifications">
-            <legend>{$t("telegram_notifications")}</legend>
-
-            <!-- 텔레그램 설정 가이드 아코디언 -->
-            <button
-              type="button"
-              class="telegram-header"
-              on:click={() => (telegramGuideExpanded = !telegramGuideExpanded)}
-            >
-              <div class="telegram-info">
-                <p class="telegram-desc">📚 {$t("telegram_setup_guide")}</p>
-              </div>
-              <div
-                class="toggle-chevron"
-                class:expanded={telegramGuideExpanded}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
+              <div class="version-links">
+                <a
+                  href="https://github.com/jshsakura/oc-proxy-downloader"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="version-link github-link"
+                  title="GitHub Repository"
+                  aria-label="GitHub Repository"
                 >
-                  <polyline points="6,9 12,15 18,9"></polyline>
-                </svg>
-              </div>
-            </button>
-
-            {#if telegramGuideExpanded}
-              <div class="telegram-accordion">
-                <div class="accordion-content">
-                  <!-- 텔레그램 설정 가이드 -->
-                  <div class="telegram-setup-guide">
-                    <div class="setup-guide-header">
-                      <h4 class="guide-title">
-                        📱 {$t("telegram_setup_guide")}
-                      </h4>
-                      <p class="guide-description">
-                        {$t("telegram_description")}
-                      </p>
-                    </div>
-
-                    <div class="setup-steps">
-                      <div class="setup-step">
-                        <div class="step-header">
-                          <span class="step-icon">🤖</span>
-                          <h5 class="step-title">
-                            {$t("telegram_step1_title")}
-                          </h5>
-                        </div>
-                        <p class="step-description">
-                          {$t("telegram_step1_desc")}
-                        </p>
-                        <a
-                          href="https://t.me/botfather"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="telegram-link botfather-link"
-                        >
-                          🔗 {$t("telegram_botfather_link")}
-                        </a>
-                      </div>
-
-                      <div class="setup-step">
-                        <div class="step-header">
-                          <span class="step-icon">🆔</span>
-                          <h5 class="step-title">
-                            {$t("telegram_step2_title")}
-                          </h5>
-                        </div>
-                        <p class="step-description">
-                          {$t("telegram_step2_desc")}
-                        </p>
-                        <a
-                          href="https://t.me/userinfobot"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="telegram-link getid-link"
-                        >
-                          🔗 {$t("telegram_getid_bot")}
-                        </a>
-                      </div>
-                    </div>
-
-                    <div class="detailed-guide">
-                      <button
-                        type="button"
-                        class="guide-header-button"
-                        on:click={() =>
-                          (detailedGuideExpanded = !detailedGuideExpanded)}
-                      >
-                        <div class="guide-info">
-                          <p class="guide-desc">
-                            📋 {$t("telegram_guide_detailed")}
-                          </p>
-                        </div>
-                        <div
-                          class="toggle-chevron"
-                          class:expanded={detailedGuideExpanded}
-                        >
-                          <svg
-                            width="20"
-                            height="20"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          >
-                            <polyline points="6,9 12,15 18,9"></polyline>
-                          </svg>
-                        </div>
-                      </button>
-
-                      {#if detailedGuideExpanded}
-                        <div class="guide-accordion">
-                          <div class="guide-accordion-content">
-                            <ol class="guide-steps">
-                              <li>{$t("telegram_guide_step1_detail")}</li>
-                              <li>{$t("telegram_guide_step2_detail")}</li>
-                              <li>{$t("telegram_guide_step3_detail")}</li>
-                              <li>{$t("telegram_guide_step4_detail")}</li>
-                              <li>{$t("telegram_guide_step5_detail")}</li>
-                              <li>{$t("telegram_guide_step6_detail")}</li>
-                            </ol>
-                            <div class="guide-note">
-                              💡 {$t("telegram_guide_group_note")}
-                            </div>
-                          </div>
-                        </div>
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            {/if}
-
-            <!-- 텔레그램 설정 아코디언 -->
-            <button
-              type="button"
-              class="telegram-header"
-              on:click={() =>
-                (telegramSettingsExpanded = !telegramSettingsExpanded)}
-            >
-              <div class="telegram-info">
-                <p class="telegram-desc">⚙️ {$t("telegram_settings")}</p>
-              </div>
-              <div
-                class="toggle-chevron"
-                class:expanded={telegramSettingsExpanded}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
+                  <GitHubIcon width={20} height={20} />
+                  <span>GitHub</span>
+                </a>
+                <a
+                  href="https://hub.docker.com/r/jshsakura/oc-proxy-downloader"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="version-link docker-link"
+                  title="Docker Hub"
+                  aria-label="Docker Hub"
                 >
-                  <polyline points="6,9 12,15 18,9"></polyline>
-                </svg>
-              </div>
-            </button>
-
-            {#if telegramSettingsExpanded}
-              <div class="telegram-accordion">
-                <div class="accordion-content">
-                  <div class="telegram-input-group">
-                    <div class="input-field">
-                      <label for="telegram-bot-token"
-                        >{$t("telegram_bot_token")}</label
-                      >
-                      <input
-                        id="telegram-bot-token"
-                        type="text"
-                        class="input telegram-token-input"
-                        bind:value={settings.telegram_bot_token}
-                        placeholder="1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
-                      />
-                      <small class="input-hint"
-                        >{$t("telegram_bot_token_hint")}</small
-                      >
-                    </div>
-
-                    <div class="input-field">
-                      <label for="telegram-chat-id"
-                        >{$t("telegram_chat_id")}</label
-                      >
-                      <input
-                        id="telegram-chat-id"
-                        type="text"
-                        class="input telegram-chat-input"
-                        bind:value={settings.telegram_chat_id}
-                        placeholder="123456789"
-                      />
-                      <small class="input-hint"
-                        >{$t("telegram_chat_id_hint")}</small
-                      >
-                    </div>
-                  </div>
-
-                  <div class="telegram-options">
-                    <div class="telegram-checkbox-group">
-                      <label class="telegram-checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={settings.telegram_notify_success || false}
-                          on:change={(e) => {
-                            settings = {
-                              ...settings,
-                              telegram_notify_success: e.currentTarget.checked,
-                            };
-                          }}
-                        />
-                        <span class="telegram-checkbox-text"
-                          >✅ {$t("telegram_notify_success")}</span
-                        >
-                      </label>
-
-                      <label class="telegram-checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={settings.telegram_notify_failure !== false}
-                          on:change={(e) => {
-                            settings = {
-                              ...settings,
-                              telegram_notify_failure: e.currentTarget.checked,
-                            };
-                          }}
-                        />
-                        <span class="telegram-checkbox-text"
-                          >❌ {$t("telegram_notify_failure")}</span
-                        >
-                      </label>
-
-                      <label class="telegram-checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={settings.telegram_notify_wait !== false}
-                          on:change={(e) => {
-                            settings = {
-                              ...settings,
-                              telegram_notify_wait: e.currentTarget.checked,
-                            };
-                          }}
-                        />
-                        <span class="telegram-checkbox-text"
-                          >⏳ {$t("telegram_notify_wait")}</span
-                        >
-                      </label>
-                      <div class="telegram-option-description">
-                        {$t("telegram_notify_wait_description")}
-                      </div>
-
-                      <label class="telegram-checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={settings.telegram_notify_start || false}
-                          on:change={(e) => {
-                            settings = {
-                              ...settings,
-                              telegram_notify_start: e.currentTarget.checked,
-                            };
-                          }}
-                        />
-                        <span class="telegram-checkbox-text"
-                          >⬇️ {$t("telegram_notify_start")}</span
-                        >
-                      </label>
-                      <div class="telegram-option-description">
-                        {$t("telegram_notify_start_description")}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="telegram-test-section">
-                    <button
-                      class="button button-secondary test-telegram-button"
-                      on:click={testTelegramNotification}
-                      disabled={!settings.telegram_bot_token ||
-                        !settings.telegram_chat_id}
-                    >
-                      📨 {$t("telegram_test_notification")}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            {/if}
-
-            <!-- 버전 정보 섹션 -->
-            <div class="version-section">
-              <h4 class="section-title">📊 {$t("version_info")}</h4>
-              <div class="version-content">
-                <div class="version-display">
-                  {#if isLoadingVersion}
-                    <div class="version-loading">
-                      <span class="loading-spinner"></span>
-                      <span>{$t("checking_version")}</span>
-                    </div>
-                  {:else if versionInfo.error}
-                    <div class="version-simple">
-                      <span class="version-text"
-                        >{versionInfo.current_version}</span
-                      >
-                      <span class="version-status error"
-                        >({$t("version_check_failed")})</span
-                      >
-                    </div>
-                  {:else if versionInfo.update_available}
-                    <div class="version-simple">
-                      <span class="version-text"
-                        >{versionInfo.current_version} → {versionInfo.latest_version}</span
-                      >
-                      <span class="version-label update"
-                        >🎉 {$t("update_available")}</span
-                      >
-                    </div>
-                  {:else}
-                    <div class="version-simple">
-                      <span class="version-text"
-                        >{versionInfo.current_version}</span
-                      >
-                      <span class="version-label latest"
-                        >✨ {$t("latest_version")}</span
-                      >
-                    </div>
-                  {/if}
-                </div>
-                <div class="version-links">
-                  <a
-                    href="https://github.com/jshsakura/oc-proxy-downloader"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="version-link github-link"
-                    title="GitHub Repository"
-                    aria-label="GitHub Repository"
-                  >
-                    <GitHubIcon width={20} height={20} />
-                    <span>GitHub</span>
-                  </a>
-                  <a
-                    href="https://hub.docker.com/r/jshsakura/oc-proxy-downloader"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="version-link docker-link"
-                    title="Docker Hub"
-                    aria-label="Docker Hub"
-                  >
-                    <DockerIcon width={20} height={20} />
-                    <span>Docker Hub</span>
-                  </a>
-                </div>
+                  <DockerIcon width={20} height={20} />
+                  <span>Docker Hub</span>
+                </a>
               </div>
             </div>
-          </fieldset>
+          </div>
         </div>
 
         <div class="modal-footer">
