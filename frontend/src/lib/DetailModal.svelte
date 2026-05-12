@@ -49,7 +49,8 @@
   >
     <div
       class="modern-modal"
-      on:click|stopPropagation
+      use:clickOutside
+      on:click_outside={closeModal}
       on:keydown={() => {}}
       role="dialog"
       tabindex="-1"

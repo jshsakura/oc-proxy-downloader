@@ -110,3 +110,145 @@
     {/each}
   </div>
 </fieldset>
+
+<style>
+  .form-group {
+    margin-bottom: 1.5rem;
+  }
+
+  fieldset.form-group {
+    border: none;
+    padding: 0;
+  }
+
+  legend {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+  }
+
+  label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+  }
+
+  .input-group {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .input {
+    width: 100%;
+    padding: 0.875rem 1rem;
+    border: 2px solid var(--card-border, #e5e7eb);
+    border-radius: 12px;
+    background-color: var(--input-bg, #ffffff);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .path-input-group .input {
+    padding-right: 88px;
+  }
+
+  .path-buttons {
+    position: absolute;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+  }
+
+  .input-icon-button {
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    border: none !important;
+    background-color: var(--input-bg);
+    color: var(--text-secondary);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .input-icon-button:hover {
+    background-color: var(--card-border);
+    color: var(--text-primary);
+  }
+
+  .theme-options {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .theme-option-label {
+    cursor: pointer;
+    display: block;
+  }
+
+  .theme-card {
+    border: 2px solid var(--card-border, #e5e7eb);
+    border-radius: 8px;
+    padding: 0.4rem 0.25rem;
+    text-align: center;
+    transition: all 0.2s ease;
+    font-size: 0.75rem;
+    font-weight: 500;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    background: var(--card-background);
+    color: var(--text-primary);
+  }
+
+  .theme-card:hover {
+    border-color: var(--primary-color);
+  }
+
+  .theme-card.active {
+    border-color: var(--primary-color);
+    background: rgba(var(--primary-color-rgb, 59, 130, 246), 0.05);
+  }
+
+  .theme-icon {
+    font-size: 1.2rem;
+  }
+
+  .light-theme-card { background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%) !important; color: #1e293b !important; }
+  .dark-theme-card { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important; color: #f8fafc !important; }
+  .dracula-theme-card { background: linear-gradient(135deg, #282a36 0%, #21222c 100%) !important; color: #f8f8f2 !important; }
+  .system-theme-card { background: linear-gradient(135deg, #64748b 0%, #475569 100%) !important; color: white !important; }
+  .nord-theme-card { background: linear-gradient(135deg, #2e3440 0%, #3b4252 100%) !important; color: #eceff4 !important; }
+  .solarized-theme-card { background: linear-gradient(135deg, #002b36 0%, #073642 100%) !important; color: #fdf6e3 !important; }
+  .monokai-theme-card { background: linear-gradient(135deg, #272822 0%, #1e1f1c 100%) !important; color: #f8f8f2 !important; }
+  .ocean-theme-card { background: linear-gradient(135deg, #0a192f 0%, #112240 100%) !important; color: #ccd6f6 !important; }
+
+  @media (max-width: 640px) {
+    .theme-options {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+</style>

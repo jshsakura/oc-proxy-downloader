@@ -15,6 +15,7 @@
     authManager,
   } from "./auth.js";
   import { api } from "./api.js";
+  import { clickOutside } from "./actions.js";
 
   // Sub-components
   import GeneralSettings from "./settings/GeneralSettings.svelte";
@@ -350,7 +351,8 @@
   >
     <div
       class="modern-modal"
-      on:click|stopPropagation
+      use:clickOutside
+      on:click_outside={closeModal}
       on:keydown={() => {}}
       role="dialog"
       tabindex="-1"
@@ -903,1291 +905,7 @@
     min-height: 0;
   }
 
-  .form-group {
-    margin-bottom: 1.5rem;
-  }
-
-  .form-group:last-child {
-    margin-bottom: 0;
-  }
-
-  fieldset.form-group {
-    border: none;
-    padding: 0;
-    margin-bottom: 1.5rem;
-  }
-
-  legend {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-weight: 600;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
-    padding: 0;
-  }
-
-  .proxy-management-title {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-weight: 600;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
-  }
-
-  label {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-weight: 600;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
-  }
-
-  .input-group {
-    position: relative;
-    display: flex;
-    align-items: center;
-  }
-
-  .input {
-    width: 100%;
-    padding: 0.875rem 1rem;
-    border: 2px solid var(--card-border, #e5e7eb);
-    border-radius: 12px;
-    background-color: var(--input-bg, #ffffff);
-    color: var(--text-primary);
-    font-size: 0.875rem;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  }
-
-  .input-group .input {
-    padding-right: 48px;
-  }
-
-  .path-input-group .input {
-    padding-right: 88px;
-  }
-
-  .path-buttons {
-    position: absolute;
-    right: 8px;
-    display: flex;
-    gap: 4px;
-    align-items: center;
-  }
-
-  .input:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb, 59, 130, 246), 0.1);
-  }
-
-  .input-icon-button {
-    position: absolute;
-    right: 8px;
-    width: 2.5rem;
-    height: 2.5rem;
-    padding: 0;
-    border: none !important;
-    background-color: var(--input-bg);
-    color: var(--text-secondary);
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition:
-      background-color 0.2s ease,
-      color 0.2s ease;
-  }
-
-  .input-icon-button.reset-button {
-    right: 8px;
-  }
-
-  .input-icon-button:hover {
-    background-color: var(--card-border);
-    color: var(--text-primary);
-  }
-
-  .input-icon-button :global(svg) {
-    width: 1rem;
-    height: 1rem;
-  }
-
-  .theme-options {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-  }
-
-  .theme-option-label {
-    cursor: pointer;
-    display: block;
-  }
-
-  .theme-card {
-    border: 2px solid var(--card-border, #e5e7eb);
-    border-radius: 8px;
-    padding: 0.4rem 0.25rem;
-    text-align: center;
-    transition: all 0.2s ease;
-    font-size: 0.75rem;
-    font-weight: 500;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
-    background: var(--card-background);
-    color: var(--text-primary);
-  }
-
-  .theme-card:hover {
-    border-color: var(--primary-color);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-  }
-
-  .theme-option-label input[type="radio"]:checked + .theme-card {
-    border-color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb, 59, 130, 246), 0.05);
-    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb, 59, 130, 246), 0.1);
-  }
-
-  .theme-icon {
-    font-size: 1.2rem;
-  }
-
-  .light-theme-card {
-    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%) !important;
-    color: #1e293b !important;
-  }
-  .dark-theme-card {
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
-    color: #f8fafc !important;
-  }
-  .dracula-theme-card {
-    background: linear-gradient(135deg, #282a36 0%, #21222c 100%) !important;
-    color: #f8f8f2 !important;
-  }
-  .system-theme-card {
-    background: linear-gradient(135deg, #64748b 0%, #475569 100%) !important;
-    color: white !important;
-  }
-  .nord-theme-card {
-    background: linear-gradient(135deg, #2e3440 0%, #3b4252 100%) !important;
-    color: #eceff4 !important;
-  }
-  .solarized-theme-card {
-    background: linear-gradient(135deg, #002b36 0%, #073642 100%) !important;
-    color: #fdf6e3 !important;
-  }
-  .monokai-theme-card {
-    background: linear-gradient(135deg, #272822 0%, #1e1f1c 100%) !important;
-    color: #f8f8f2 !important;
-  }
-  .ocean-theme-card {
-    background: linear-gradient(135deg, #0a192f 0%, #112240 100%) !important;
-    color: #ccd6f6 !important;
-  }
-
-  .modal-footer {
-    padding: 1.25rem 2rem;
-    border-top: 1px solid var(--card-border, #e5e7eb);
-    background: linear-gradient(
-      135deg,
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.03) 0%,
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.01) 100%
-    );
-    backdrop-filter: blur(10px);
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 0.75rem;
-    position: relative;
-    z-index: 10;
-    border-bottom-left-radius: 16px;
-    border-bottom-right-radius: 16px;
-    flex-shrink: 0;
-  }
-
-  /* 버전 정보 섹션 스타일 */
-  .version-section {
-    margin-top: 1.5rem;
-    padding: 1rem;
-    background: var(--bg-secondary, #f8f9fa);
-    border-radius: 8px;
-    border: 1px solid var(--card-border);
-  }
-
-  .section-title {
-    margin: 0 0 1rem 0;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .version-display {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .version-loading {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-  }
-
-  .loading-spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--card-border);
-    border-top: 2px solid var(--primary-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-  }
-
-  .version-simple {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  .version-text {
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: 0.875rem;
-  }
-
-  .version-status {
-    font-size: 0.8rem;
-    font-weight: 500;
-  }
-
-  .version-status.error {
-    color: var(--text-secondary);
-  }
-
-  .version-status.update {
-    color: var(--warning-color);
-    font-weight: 600;
-  }
-
-  .version-status.latest {
-    color: var(--success-color, #10b981);
-    font-weight: 500;
-  }
-
-  .version-label {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.125rem 0.5rem;
-    border-radius: 8px;
-    font-size: 0.7rem;
-    font-weight: 500;
-    margin-left: 0.5rem;
-  }
-
-  .version-label.update {
-    background: #f59e0b;
-    color: white;
-  }
-
-  .version-label.latest {
-    background: #10b981;
-    color: white;
-  }
-
-  .version-links {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-  }
-
-  .version-link {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 0.6rem 0.75rem;
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
-    color: var(--text-secondary);
-    text-decoration: none;
-    transition: all 0.2s ease;
-    background: var(--card-background);
-    font-size: 0.875rem;
-    font-weight: 500;
-    line-height: 1;
-    vertical-align: middle;
-  }
-
-  .version-link:hover {
-    background: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
-  }
-
-  .button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.75rem 1.5rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    border-radius: 12px;
-    border: 2px solid transparent;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    text-decoration: none;
-    min-width: 90px;
-    letter-spacing: 0.025em;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .button-primary {
-    background: linear-gradient(
-      135deg,
-      var(--primary-color) 0%,
-      var(--primary-hover, #1e40af) 100%
-    );
-    color: white;
-    box-shadow:
-      0 2px 4px rgba(0, 0, 0, 0.1),
-      0 1px 3px rgba(0, 0, 0, 0.08);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .button-primary:hover {
-    background: linear-gradient(
-      135deg,
-      var(--primary-hover, #1e40af) 0%,
-      var(--primary-color) 100%
-    );
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .button-primary:active {
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  }
-
-  .button-secondary {
-    background: var(--card-background);
-    color: var(--text-secondary);
-    border-color: var(--card-border, #e5e7eb);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  }
-
-  .button-secondary:hover {
-    background: var(
-      --button-secondary-background-hover,
-      var(--bg-secondary, #f8fafc)
-    );
-    border-color: var(--primary-color);
-    color: var(--text-primary);
-  }
-
-  .button-secondary:active {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  }
-
-  @media (max-height: 700px) {
-    .modern-modal {
-      max-height: 95vh;
-      min-height: 300px;
-    }
-
-    .modal-header {
-      padding: 1rem 1.5rem;
-    }
-
-    .modal-body {
-      padding: 1.5rem;
-    }
-
-    .modal-footer {
-      padding: 1rem 1.5rem;
-    }
-
-    .title-text h2 {
-      font-size: 1.25rem;
-    }
-
-    .title-text .subtitle {
-      font-size: 0.8rem;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .modern-modal {
-      width: 95vw;
-      height: 80vh;
-      max-height: 80vh;
-      margin: 0.5rem;
-    }
-
-    .modern-backdrop {
-      padding: 1rem;
-      align-items: flex-start;
-      padding-top: 2rem;
-      padding-bottom: 3rem;
-    }
-
-    .theme-options {
-      grid-template-columns: repeat(4, 1fr);
-    }
-
-    .button {
-      flex: 1;
-      justify-content: center;
-    }
-  }
-
-  .proxy-management {
-    margin-top: 1.5rem;
-    margin-bottom: 0;
-  }
-
-  .proxy-form-section {
-    margin-top: 0;
-    margin-bottom: 1rem;
-  }
-
-  .proxy-list-section {
-    margin-top: 0;
-  }
-
-  .telegram-notifications {
-    margin-top: 1.5rem;
-  }
-
-  .telegram-header {
-    width: 100%;
-    background: var(--card-background);
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-align: left;
-  }
-
-  .telegram-header + .telegram-header {
-    margin-top: 0.5rem;
-  }
-
-  .telegram-header:hover {
-    background: var(--bg-secondary, #f8f9fa);
-    border-color: var(--primary-color);
-    box-shadow: var(--shadow-light);
-  }
-
-  .telegram-info {
-    flex: 1;
-  }
-
-  .telegram-desc {
-    margin: 0;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    line-height: 1.4;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  /* 헤더 보조 문구 — 부모 <button> 의 기본 색(black)을 상속하지 않게
-     명시적으로 테마 변수 사용. 누락 시 라이트 모드에서 검정 고정으로
-     보여 다크/드라큘라 테마와 안 맞는 문제가 있었음. */
-  .telegram-sub {
-    margin: 0.25rem 0 0 0;
-    color: var(--text-secondary);
-    font-size: 0.8rem;
-    line-height: 1.4;
-    font-weight: 400;
-  }
-
-  .toggle-chevron {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    background: var(--bg-secondary, #f8f9fa);
-    color: var(--text-secondary);
-    transition: all 0.2s ease;
-    margin-left: 1rem;
-  }
-
-  .toggle-chevron svg {
-    transition: transform 0.3s ease;
-    transform: rotate(0deg);
-  }
-
-  .toggle-chevron.expanded svg {
-    transform: rotate(180deg);
-  }
-
-  .telegram-header:hover .toggle-chevron {
-    background: var(--primary-color);
-    color: white;
-  }
-
-  .telegram-accordion {
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--card-background);
-    animation: slideDown 0.2s ease-out;
-    margin-bottom: 0.5rem;
-  }
-
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .accordion-content {
-    padding: 1.5rem;
-    border-top: none;
-  }
-
-  .telegram-input-group {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-  }
-
-  .input-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .input-field label {
-    font-weight: 500;
-    color: var(--text-primary);
-    font-size: 0.875rem;
-  }
-
-  .telegram-token-input,
-  .telegram-chat-input {
-    font-family: "Courier New", monospace;
-    font-size: 0.875rem;
-    background: var(--input-background);
-    border: 1px solid var(--input-border);
-    border-radius: 6px;
-    padding: 0.75rem;
-    transition: border-color 0.2s ease;
-  }
-
-  .telegram-token-input:focus,
-  .telegram-chat-input:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.1);
-  }
-
-  .input-hint {
-    color: var(--text-secondary);
-    font-size: 0.75rem;
-    margin-top: 0.25rem;
-  }
-
-  .telegram-options {
-    margin-bottom: 1.5rem;
-    padding: 1rem;
-    background: var(--bg-secondary, #f8f9fa);
-    border-radius: 6px;
-    border: 1px solid var(--card-border);
-  }
-
-  .telegram-checkbox-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .telegram-checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    cursor: pointer;
-    font-size: 0.875rem;
-    padding: 0.5rem;
-    border-radius: 4px;
-    transition: background-color 0.2s ease;
-  }
-
-  .telegram-checkbox-label:hover {
-    background: var(--card-background);
-  }
-
-  .telegram-checkbox-label input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-    cursor: pointer;
-  }
-
-  .telegram-checkbox-text {
-    color: var(--text-primary);
-    font-weight: 500;
-  }
-
-  .telegram-option-description {
-    margin-top: -0.25rem;
-    margin-left: 2rem;
-    color: var(--text-secondary);
-    font-size: 0.75rem;
-    line-height: 1.3;
-    padding-bottom: 0.5rem;
-  }
-
-  .telegram-test-section {
-    display: flex;
-    justify-content: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-top: 1rem;
-  }
-
-  .test-telegram-button {
-    padding: 0.75rem 1.5rem;
-    font-size: 0.875rem;
-    min-height: 2.5rem;
-  }
-
-  /* 1fichier 저장된 자격증명 카드 — 테마 변수만 사용 */
-  .fichier-saved {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding: 1rem 1.25rem;
-    background: var(--card-background);
-    border: 1px solid var(--card-border);
-    border-radius: 10px;
-  }
-  .fichier-saved-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .fichier-saved-icon {
-    flex-shrink: 0;
-    width: 1.75rem;
-    height: 1.75rem;
-    border-radius: 50%;
-    background: rgba(var(--primary-color-rgb), 0.12);
-    color: var(--primary-color);
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.95rem;
-  }
-  .fichier-saved-text {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-    min-width: 0;
-    flex: 1;
-  }
-  .fichier-saved-email {
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: 0.95rem;
-    word-break: break-all;
-  }
-  .fichier-saved-sub {
-    color: var(--text-secondary);
-    font-size: 0.78rem;
-  }
-  .fichier-saved-actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-  .fichier-danger-button {
-    background: var(--danger-color) !important;
-    color: #fff !important;
-    border-color: var(--danger-color) !important;
-  }
-  .fichier-inline-link {
-    color: var(--primary-color);
-    text-decoration: none;
-  }
-  .fichier-inline-link:hover {
-    text-decoration: underline;
-  }
-
-  /* Telegram Setup Guide Styles */
-  .telegram-setup-guide {
-    background: linear-gradient(
-      135deg,
-      rgba(59, 130, 246, 0.05) 0%,
-      rgba(147, 197, 253, 0.05) 100%
-    );
-    border: 1px solid rgba(59, 130, 246, 0.15);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 2rem;
-  }
-
-  .setup-guide-header {
-    text-align: center;
-    margin-bottom: 1.5rem;
-  }
-
-  .guide-title {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--primary-color);
-  }
-
-  .guide-description {
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-    line-height: 1.5;
-  }
-
-  .setup-steps {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 1.5rem;
-  }
-
-  .setup-step {
-    background: var(--card-background);
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
-    padding: 1.25rem;
-    transition: all 0.2s ease;
-  }
-
-  .setup-step:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  }
-
-  .step-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .step-icon {
-    font-size: 1.5rem;
-    line-height: 1;
-  }
-
-  .step-title {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .step-description {
-    margin: 0 0 1rem 0;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-    line-height: 1.5;
-  }
-
-  .telegram-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background: linear-gradient(
-      135deg,
-      var(--primary-color) 0%,
-      var(--primary-hover, #1e40af) 100%
-    );
-    color: white;
-    text-decoration: none;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    border: none;
-    cursor: pointer;
-  }
-
-  .telegram-link:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(var(--primary-color-rgb, 59, 130, 246), 0.3);
-    color: white;
-    text-decoration: none;
-  }
-
-  .botfather-link {
-    background: linear-gradient(135deg, #0088cc 0%, #006ba6 100%);
-  }
-
-  .getid-link {
-    background: linear-gradient(135deg, #28a745 0%, #20853e 100%);
-  }
-
-  .detailed-guide {
-    border-top: 1px solid var(--card-border);
-    padding-top: 1.5rem;
-  }
-
-  .guide-header-button {
-    width: 100%;
-    background: var(--card-background);
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-align: left;
-  }
-
-  .guide-header-button:hover {
-    background: var(--bg-secondary, #f8f9fa);
-    border-color: var(--primary-color);
-    box-shadow: var(--shadow-light);
-  }
-
-  .guide-info {
-    flex: 1;
-  }
-
-  .guide-desc {
-    margin: 0;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    line-height: 1.4;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .guide-accordion {
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--card-background);
-    animation: slideDown 0.2s ease-out;
-  }
-
-  .guide-accordion-content {
-    padding: 1.5rem;
-    border-top: none;
-  }
-
-  .guide-header-button .toggle-chevron {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    background: var(--bg-secondary, #f8f9fa);
-    color: var(--text-secondary);
-    transition: all 0.2s ease;
-    margin-left: 1rem;
-  }
-
-  .guide-header-button .toggle-chevron svg {
-    transition: transform 0.3s ease;
-    transform: rotate(0deg);
-  }
-
-  .guide-header-button .toggle-chevron.expanded svg {
-    transform: rotate(180deg);
-  }
-
-  .guide-header-button:hover .toggle-chevron {
-    background: var(--primary-color);
-    color: white;
-  }
-
-  .guide-steps {
-    margin: 0 0 1rem 0;
-    padding-left: 1.5rem;
-    color: var(--text-primary);
-  }
-
-  .guide-steps li {
-    margin-bottom: 0.5rem;
-    line-height: 1.5;
-    font-size: 0.875rem;
-  }
-
-  .guide-note {
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.2);
-    border-radius: 6px;
-    padding: 0.75rem;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-    line-height: 1.5;
-  }
-
-  /* Dark theme adjustments */
-  :global(body.dark) .telegram-setup-guide {
-    background: linear-gradient(
-      135deg,
-      rgba(59, 130, 246, 0.08) 0%,
-      rgba(147, 197, 253, 0.08) 100%
-    );
-  }
-
-  :global(body.dark) .setup-step:hover {
-    box-shadow: 0 2px 8px rgba(255, 255, 255, 0.08);
-  }
-
-  :global(body.dark) .guide-note {
-    background: rgba(59, 130, 246, 0.15);
-  }
-
-  /* Dracula theme adjustments */
-  :global(body.dracula) .telegram-setup-guide {
-    background: linear-gradient(
-      135deg,
-      rgba(139, 233, 253, 0.08) 0%,
-      rgba(189, 147, 249, 0.08) 100%
-    );
-    border-color: rgba(139, 233, 253, 0.2);
-  }
-
-  :global(body.dracula) .guide-note {
-    background: rgba(139, 233, 253, 0.15);
-    border-color: rgba(139, 233, 253, 0.3);
-  }
-
-  .proxy-add-section {
-    margin-bottom: 1rem;
-  }
-
-  .proxy-input-group {
-    display: grid;
-    grid-template-columns: 2fr 1fr auto;
-    gap: 0.5rem;
-    align-items: end;
-  }
-
-  .proxy-address-input {
-    grid-column: 1;
-  }
-
-  .proxy-description-input {
-    grid-column: 2;
-  }
-
-  .proxy-add-button {
-    grid-column: 3;
-    white-space: nowrap;
-    padding: 0.75rem 1rem;
-    height: auto;
-    min-height: 2.5rem;
-  }
-
-  .proxy-empty-state {
-    text-align: center;
-    padding: 2rem;
-    background: var(--bg-secondary, #f8f9fa);
-    border-radius: 8px;
-    color: var(--text-secondary);
-  }
-
-  .proxy-empty-state p {
-    margin: 0 0 0.5rem 0;
-    font-weight: 500;
-  }
-
-  .proxy-empty-state small {
-    opacity: 0.7;
-  }
-
-  .proxy-table-container {
-    max-height: 250px;
-    min-height: 60px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
-    width: 100%;
-  }
-
-  .proxy-table-wrapper {
-    overflow-x: auto;
-    width: 100%;
-  }
-
-  .proxy-table {
-    width: 100%;
-    min-width: 700px;
-    border-collapse: collapse;
-    table-layout: auto;
-    display: table !important;
-  }
-
-  .proxy-table thead {
-    display: table-header-group !important;
-  }
-
-  .proxy-table tbody {
-    display: table-row-group !important;
-  }
-
-  .proxy-table tr {
-    display: table-row !important;
-  }
-
-  .proxy-table th,
-  .proxy-table td {
-    display: table-cell !important;
-  }
-
-  .proxy-table th,
-  .proxy-table td {
-    padding: 0.4rem 0.5rem;
-    text-align: left;
-    border-bottom: 1px solid var(--card-border);
-    font-size: 0.85rem;
-    vertical-align: middle;
-    white-space: nowrap;
-    min-width: fit-content;
-    line-height: 1.3;
-  }
-
-  .proxy-table tbody tr:last-child td {
-    border-bottom: 1px solid var(--card-border);
-  }
-
-  .proxy-table th:first-child,
-  .proxy-table td:first-child {
-    min-width: 200px;
-    max-width: 300px;
-  }
-
-  .text-center {
-    text-align: center !important;
-  }
-
-  .proxy-table td:nth-child(1) {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    word-break: break-all;
-  }
-
-  .proxy-table th {
-    background: var(--bg-secondary);
-    font-weight: 600;
-    position: sticky;
-    top: 0;
-    text-align: center;
-    border-bottom: 2px solid var(--card-border) !important;
-  }
-
-  .proxy-table th:first-child {
-    text-align: left;
-  }
-
-  .proxy-address {
-    position: relative;
-  }
-
-  .proxy-address-content {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    max-width: 100%;
-  }
-
-  .proxy-url {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-
-  .copy-proxy-button {
-    background: var(--card-background);
-    border: 1px solid var(--card-border);
-    border-radius: 6px;
-    padding: 6px;
-    cursor: pointer;
-    color: var(--text-secondary);
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-    width: 28px;
-    height: 28px;
-    min-width: 28px;
-    max-width: 28px;
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-    opacity: 1;
-    visibility: visible;
-  }
-
-  .copy-proxy-button:hover {
-    background-color: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
-    transform: scale(1.05);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-  }
-
-  .copy-proxy-button:active {
-    transform: scale(0.95);
-  }
-
-  .copy-proxy-button :global(svg) {
-    width: 14px;
-    height: 14px;
-  }
-
-  .proxy-description {
-    display: block;
-    opacity: 0.7;
-    font-style: italic;
-    margin-top: 0.25rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .proxy-actions {
-    padding: 0.25rem !important;
-  }
-
-  .proxy-action-buttons {
-    display: flex !important;
-    gap: 0.25rem;
-    justify-content: center;
-  }
-
-  .proxy-action-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.25rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    transition: all 0.2s;
-    min-width: 24px;
-    height: 24px;
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .proxy-action-btn:hover {
-    transform: scale(1.05);
-  }
-
-  .toggle-btn.active {
-    background-color: rgba(34, 197, 94, 0.1);
-    color: #22c55e;
-  }
-
-  .toggle-btn.inactive {
-    background-color: rgba(156, 163, 175, 0.1);
-    color: #9ca3af;
-  }
-
-  .delete-btn {
-    background-color: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
-  }
-
-  .delete-btn:hover {
-    background-color: #ef4444;
-    color: white;
-  }
-
-  .proxy-type-badge,
-  .proxy-status-badge {
-    display: inline-block;
-    padding: 0.2rem 0.8rem;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: 500;
-  }
-
-  .proxy-type-badge.list {
-    background: #e1f5fe;
-    color: #0277bd;
-  }
-
-  .proxy-type-badge.single {
-    background: #f3e5f5;
-    color: #7b1fa2;
-  }
-
-  .proxy-status-badge.active {
-    background: #e8f5e8;
-    color: #2e7d32;
-  }
-
-  .proxy-status-badge.inactive {
-    background: #fafafa;
-    color: #616161;
-  }
-
-  .proxy-date {
-    white-space: nowrap;
-  }
-
-  /* Auth Info Section Styles */
-  .auth-info-section {
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
-    padding: 1rem;
-    margin-bottom: 1.5rem;
-    background: var(--bg-secondary);
-  }
-
-  .auth-section-title {
-    margin: 0 0 1rem 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
+  /* Common elements in SettingsModal body */
   .auth-info-card {
     display: flex;
     justify-content: space-between;
@@ -2262,158 +980,238 @@
     background: var(--danger-hover);
   }
 
-  @media (max-width: 600px) {
+  /* 버전 정보 섹션 스타일 */
+  .version-section {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background: var(--bg-secondary, #f8f9fa);
+    border-radius: 8px;
+    border: 1px solid var(--card-border);
+  }
+
+  .section-title {
+    margin: 0 0 1rem 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .version-display {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .version-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+  }
+
+  .loading-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--card-border);
+    border-top: 2px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  .version-simple {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .version-text {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+  }
+
+  .version-label {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    margin-left: 0.5rem;
+  }
+
+  .version-label.update {
+    background: #f59e0b;
+    color: white;
+  }
+
+  .version-label.latest {
+    background: #10b981;
+    color: white;
+  }
+
+  .version-links {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .version-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    background: var(--card-background);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1;
+    vertical-align: middle;
+  }
+
+  .version-link:hover {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+  }
+
+  .modal-footer {
+    padding: 1.25rem 2rem;
+    border-top: 1px solid var(--card-border, #e5e7eb);
+    background: linear-gradient(
+      135deg,
+      rgba(var(--primary-color-rgb, 59, 130, 246), 0.03) 0%,
+      rgba(var(--primary-color-rgb, 59, 130, 246), 0.01) 100%
+    );
+    backdrop-filter: blur(10px);
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.75rem;
+    position: relative;
+    z-index: 10;
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
+    flex-shrink: 0;
+  }
+
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border-radius: 12px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    text-decoration: none;
+    min-width: 90px;
+    letter-spacing: 0.025em;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .button-primary {
+    background: linear-gradient(
+      135deg,
+      var(--primary-color) 0%,
+      var(--primary-hover, #1e40af) 100%
+    );
+    color: white;
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.1),
+      0 1px 3px rgba(0, 0, 0, 0.08);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .button-primary:hover {
+    background: linear-gradient(
+      135deg,
+      var(--primary-hover, #1e40af) 0%,
+      var(--primary-color) 100%
+    );
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .button-secondary {
+    background: var(--card-background);
+    color: var(--text-secondary);
+    border-color: var(--card-border, #e5e7eb);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  .button-secondary:hover {
+    background: var(--bg-secondary, #f8fafc);
+    border-color: var(--primary-color);
+    color: var(--text-primary);
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @media (max-height: 700px) {
+    .modern-modal {
+      max-height: 95vh;
+      min-height: 300px;
+    }
+
+    .modal-header {
+      padding: 1rem 1.5rem;
+    }
+
+    .modal-body {
+      padding: 1.5rem;
+    }
+
+    .modal-footer {
+      padding: 1rem 1.5rem;
+    }
+
+    .title-text h2 {
+      font-size: 1.25rem;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .modern-modal {
+      width: 95vw;
+      height: 80vh;
+      max-height: 80vh;
+      margin: 0.5rem;
+    }
+
+    .modern-backdrop {
+      padding: 1rem;
+      align-items: flex-start;
+      padding-top: 2rem;
+      padding-bottom: 3rem;
+    }
+
+    .button {
+      flex: 1;
+      justify-content: center;
+    }
+
     .auth-info-card {
       flex-direction: column;
       align-items: stretch;
       gap: 1rem;
     }
 
-    .user-info-compact {
-      justify-content: flex-start;
-    }
-
     .logout-btn {
       align-self: stretch;
       width: 100%;
       justify-content: center;
-      margin-top: 0.5rem;
-    }
-  }
-
-  .proxy-actions {
-    white-space: nowrap;
-  }
-
-  .proxy-row.inactive {
-    opacity: 0.6;
-  }
-
-  @media (max-width: 768px) {
-    .proxy-input-group {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto auto auto;
-      gap: 0.75rem;
-    }
-
-    .proxy-address-input,
-    .proxy-description-input,
-    .proxy-add-button {
-      grid-column: 1;
-      width: 100%;
-    }
-
-    .proxy-add-button {
-      justify-self: stretch;
-    }
-
-    .proxy-table-wrapper {
-      overflow-x: auto;
-    }
-
-    .proxy-table-container {
-      font-size: 0.75rem;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .proxy-input-group {
-      gap: 1rem;
-    }
-
-    .proxy-table-wrapper {
-      overflow-x: auto;
-    }
-
-    .proxy-table-container {
-      font-size: 0.7rem;
-    }
-
-    .telegram-input-group {
-      gap: 1rem;
-    }
-
-    .telegram-checkbox-group {
-      gap: 1rem;
-    }
-
-    .telegram-test-section {
-      margin-top: 1.5rem;
-    }
-
-    .test-telegram-button {
-      width: 100%;
-      justify-content: center;
-    }
-
-    /* Telegram Setup Guide Mobile Styles */
-    .telegram-setup-guide {
-      padding: 1rem;
-      margin-bottom: 1.5rem;
-    }
-
-    .setup-steps {
-      grid-template-columns: 1fr;
-      gap: 1rem;
-    }
-
-    .setup-step {
-      padding: 1rem;
-    }
-
-    .step-header {
-      gap: 0.5rem;
-    }
-
-    .step-icon {
-      font-size: 1.25rem;
-    }
-
-    .step-title {
-      font-size: 0.9rem;
-    }
-
-    .telegram-link {
-      padding: 0.5rem 0.75rem;
-      font-size: 0.8rem;
-      width: 100%;
-      justify-content: center;
-      text-align: center;
-    }
-
-    .guide-header-button {
-      padding: 1rem;
-    }
-
-    .guide-desc {
-      font-size: 0.875rem;
-    }
-
-    .guide-accordion-content {
-      padding: 1rem;
-    }
-
-    .guide-steps {
-      padding-left: 1rem;
-    }
-
-    .guide-steps li {
-      font-size: 0.8rem;
-    }
-
-    .guide-note {
-      padding: 0.5rem;
-      font-size: 0.8rem;
-    }
-  }
-
-  @media (max-width: 480px) {
-    .proxy-table-wrapper {
-      overflow-x: auto;
-    }
-
-    .proxy-table-container {
-      font-size: 0.65rem;
     }
   }
 </style>

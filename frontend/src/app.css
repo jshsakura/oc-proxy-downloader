@@ -1208,6 +1208,25 @@ tbody tr:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.filename-wrapper-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.filename-wrapper-btn:hover .filename-text {
+  color: var(--primary-color);
+  text-decoration: underline;
+}
 .actions {
   display: flex;
   gap: 0.5rem;

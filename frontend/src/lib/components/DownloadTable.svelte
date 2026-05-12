@@ -104,15 +104,16 @@
         {#each paginatedDownloads as download (download.id)}
           <tr class="status-{download.status?.toLowerCase()}">
             <td class="filename-cell">
-              <div
-                class="filename-wrapper"
+              <button
+                type="button"
+                class="filename-wrapper-btn"
                 on:click={() => openDetailModal(download)}
                 title={download.filename || $t("file_name_na")}
               >
                 <span class="filename-text"
                   >{download.filename || $t("file_name_na")}</span
                 >
-              </div>
+              </button>
             </td>
             <td class="center-align">
               <span

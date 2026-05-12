@@ -143,3 +143,54 @@
     </div>
   {/if}
 </fieldset>
+
+<style>
+  .form-group { margin-bottom: 1.5rem; }
+  legend { display: block; margin-bottom: 0.5rem; font-weight: 600; font-size: 0.875rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.025em; }
+  
+  .input {
+    width: 100%;
+    padding: 0.875rem 1rem;
+    border: 2px solid var(--card-border, #e5e7eb);
+    border-radius: 12px;
+    background-color: var(--input-bg, #ffffff);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+  }
+
+  .telegram-header {
+    width: 100%; background: var(--card-background); border: 1px solid var(--card-border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem;
+    display: flex; justify-content: space-between; align-items: center; cursor: pointer; text-align: left;
+  }
+
+  .telegram-desc { margin: 0; color: var(--text-primary); font-size: 0.9rem; font-weight: 500; }
+  .telegram-sub { margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.8rem; }
+  
+  .toggle-chevron { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); }
+  .toggle-chevron.expanded svg { transform: rotate(180deg); }
+
+  .telegram-accordion { border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; background: var(--card-background); margin-bottom: 0.5rem; }
+  .accordion-content { padding: 1.5rem; }
+
+  .telegram-input-group { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+  .input-field { display: flex; flex-direction: column; gap: 0.5rem; }
+  .input-field label { font-weight: 500; color: var(--text-primary); font-size: 0.875rem; }
+  .input-hint { color: var(--text-secondary); font-size: 0.75rem; }
+
+  .fichier-saved { display: flex; flex-direction: column; gap: 1rem; padding: 1rem 1.25rem; background: var(--card-background); border: 1px solid var(--card-border); border-radius: 10px; }
+  .fichier-saved-row { display: flex; align-items: center; gap: 0.75rem; }
+  .fichier-saved-icon { flex-shrink: 0; width: 1.75rem; height: 1.75rem; border-radius: 50%; background: rgba(var(--primary-color-rgb), 0.12); color: var(--primary-color); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+  .fichier-saved-text { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; flex: 1; }
+  .fichier-saved-email { font-weight: 600; color: var(--text-primary); font-size: 0.95rem; word-break: break-all; }
+  .fichier-saved-sub { color: var(--text-secondary); font-size: 0.78rem; }
+  .fichier-saved-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  
+  .button { display: inline-flex; align-items: center; justify-content: center; padding: 0.75rem 1.5rem; font-size: 0.875rem; font-weight: 600; border-radius: 12px; border: 2px solid transparent; cursor: pointer; }
+  .button-secondary { background: var(--card-background); color: var(--text-secondary); border-color: var(--card-border); }
+  
+  .fichier-danger-button { background: var(--danger-color) !important; color: #fff !important; }
+  .fichier-inline-link { color: var(--primary-color); text-decoration: none; }
+  
+  .telegram-test-section { display: flex; justify-content: center; gap: 0.5rem; margin-top: 1rem; }
+  .test-telegram-button { padding: 0.75rem 1.5rem; font-size: 0.875rem; }
+</style>
