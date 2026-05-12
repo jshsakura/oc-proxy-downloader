@@ -184,17 +184,6 @@
     showConfirm = true;
   }
 
-  const themeIcons = {
-    light: "☀️",
-    dark: "🌙",
-    dracula: "🧛‍♀️",
-    nord: "❄️",
-    solarized: "🌞",
-    monokai: "🎨",
-    ocean: "🌊",
-    system: "💻",
-  };
-
   onMount(async () => {
     // 초기 화면 크기에 따한 항목 수 설정
     itemsPerPage = calculateItemsPerPage();

@@ -745,7 +745,8 @@ h1 {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: center;
+  gap: 1.5rem;
   margin: 1rem 0 0 0;
   padding: 0.65rem 0.85rem;
   border: 1px solid var(--card-border);
@@ -775,7 +776,7 @@ h1 {
 .dashboard-summary-pill {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   min-width: max-content;
   line-height: 1.2;
 }
@@ -803,10 +804,10 @@ h1 {
 
 .dashboard-drawer {
   margin-top: 0.75rem;
-  padding: 1rem;
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  background: var(--bg-secondary);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
 }
 
@@ -2552,23 +2553,22 @@ body.dracula .page-number-btn:disabled {
 }
 
 .tab {
-  background: rgba(0, 0, 0, 0.02);
-  padding: 1rem 1.25rem;
+  background: transparent;
+  padding: 0.6rem 1rem;
   cursor: pointer;
   font-weight: 500;
   font-size: 0.875rem;
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
   color: var(--text-secondary);
-  border-radius: 8px 8px 0 0;
+  border-radius: 8px;
   position: relative;
-  border: 1px solid var(--card-border);
-  border-bottom: none;
+  border: none;
   opacity: 0.7;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  min-height: 48px;
+  min-height: 40px;
 }
 
 .tab-icon {
@@ -2598,26 +2598,20 @@ body.dracula .page-number-btn:disabled {
 
 .tab:hover {
   color: var(--text-primary);
-  background-color: rgba(var(--primary-color-rgb), 0.05);
-  border-color: var(--card-border);
-  border-bottom: none;
+  background-color: rgba(var(--primary-color-rgb), 0.08);
   opacity: 1;
 }
 
 .tab.active {
   color: var(--primary-color);
   font-weight: 600;
-  background-color: var(--card-background);
-  border-color: var(--card-border);
-  border-bottom: 1px solid var(--card-background);
-  box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.03);
-  z-index: 1;
+  background-color: rgba(var(--primary-color-rgb), 0.12);
   opacity: 1;
 }
 
 .tab.active:hover {
   color: var(--primary-color);
-  background-color: var(--card-background);
+  background-color: rgba(var(--primary-color-rgb), 0.15);
 }
 
 /* 검색 컨테이너 스타일 */
@@ -2999,6 +2993,9 @@ body.dracula .page-number-btn:disabled {
 .gauge-item {
   flex: 1;
   min-height: 100px;
+  background: var(--card-background);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
 }
 
 /* 중간사이즈 이하에서는 위아래로 - 759px 이하 */
@@ -3485,16 +3482,8 @@ span.status.status-stopped,
 }
 
 .dashboard-stat-card {
-  background: var(--dashboard-card-bg);
-  border: 1px solid var(--dashboard-card-border);
-  border-radius: 12px;
   padding: 1rem 1.25rem;
-  box-shadow: var(--shadow-light);
   transition: box-shadow 0.2s ease;
-}
-
-.dashboard-stat-card:hover {
-  box-shadow: var(--shadow-medium);
 }
 
 .dashboard-stat-value {
@@ -3520,11 +3509,7 @@ span.status.status-stopped,
 }
 
 .dashboard-chart-container {
-  background: var(--dashboard-card-bg);
-  border: 1px solid var(--dashboard-card-border);
-  border-radius: 12px;
   padding: 1rem;
-  box-shadow: var(--shadow-light);
 }
 
 .dashboard-chart-title {

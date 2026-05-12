@@ -10,6 +10,13 @@
   import DockerIcon from "./icons/DockerIcon.svelte";
   import ConfirmModal from "./ConfirmModal.svelte";
   import { toast } from "svelte-sonner";
+  import SunIcon from "../icons/SunIcon.svelte";
+  import MoonIcon from "../icons/MoonIcon.svelte";
+  import BatIcon from "../icons/BatIcon.svelte";
+  import SnowflakeIcon from "../icons/SnowflakeIcon.svelte";
+  import PaletteIcon from "../icons/PaletteIcon.svelte";
+  import WaveIcon from "../icons/WaveIcon.svelte";
+  import MonitorIcon from "../icons/MonitorIcon.svelte";
   import {
     authRequired,
     isAuthenticated,
@@ -18,17 +25,6 @@
   } from "./auth.js";
 
   const dispatch = createEventDispatcher();
-
-  const themeIcons = {
-    light: "☀️",
-    dark: "🌙",
-    dracula: "🧛‍♂️",
-    nord: "❄️",
-    solarized: "🌞",
-    monokai: "🎨",
-    ocean: "🌊",
-    system: "🖥️",
-  };
 
   export let showModal;
   export let currentSettings;
@@ -661,7 +657,7 @@
                 />
                 <div class="theme-card light-theme-card">
                   <span class="theme-icon" aria-label={$t("theme_light_aria")}
-                    >{themeIcons.light}</span
+                    ><SunIcon /></span
                   >
                   <span>{$t("theme_light")}</span>
                 </div>
@@ -675,7 +671,7 @@
                 />
                 <div class="theme-card dark-theme-card">
                   <span class="theme-icon" aria-label={$t("theme_dark_aria")}
-                    >{themeIcons.dark}</span
+                    ><MoonIcon /></span
                   >
                   <span>{$t("theme_dark")}</span>
                 </div>
@@ -689,7 +685,7 @@
                 />
                 <div class="theme-card dracula-theme-card">
                   <span class="theme-icon" aria-label={$t("theme_dracula_aria")}
-                    >{themeIcons.dracula}</span
+                    ><BatIcon /></span
                   >
                   <span>{$t("theme_dracula")}</span>
                 </div>
@@ -703,7 +699,7 @@
                 />
                 <div class="theme-card nord-theme-card">
                   <span class="theme-icon" aria-label={$t("theme_nord_aria")}
-                    >{themeIcons.nord}</span
+                    ><SnowflakeIcon /></span
                   >
                   <span>{$t("theme_nord")}</span>
                 </div>
@@ -717,7 +713,7 @@
                 />
                 <div class="theme-card solarized-theme-card">
                   <span class="theme-icon" aria-label={$t("theme_solarized_aria")}
-                    >{themeIcons.solarized}</span
+                    ><SunIcon /></span
                   >
                   <span>{$t("theme_solarized")}</span>
                 </div>
@@ -731,7 +727,7 @@
                 />
                 <div class="theme-card monokai-theme-card">
                   <span class="theme-icon" aria-label={$t("theme_monokai_aria")}
-                    >{themeIcons.monokai}</span
+                    ><PaletteIcon /></span
                   >
                   <span>{$t("theme_monokai")}</span>
                 </div>
@@ -745,7 +741,7 @@
                 />
                 <div class="theme-card ocean-theme-card">
                   <span class="theme-icon" aria-label={$t("theme_ocean_aria")}
-                    >{themeIcons.ocean}</span
+                    ><WaveIcon /></span
                   >
                   <span>{$t("theme_ocean")}</span>
                 </div>
@@ -759,7 +755,7 @@
                 />
                 <div class="theme-card system-theme-card">
                   <span class="theme-icon" aria-label={$t("theme_system_aria")}
-                    >{themeIcons.system}</span
+                    ><MonitorIcon /></span
                   >
                   <span>{$t("theme_system")}</span>
                 </div>
@@ -2007,7 +2003,11 @@
   }
 
   .theme-icon {
-    font-size: 1.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
   }
 
   .light-theme-card {

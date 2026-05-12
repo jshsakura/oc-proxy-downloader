@@ -139,9 +139,6 @@
 
 <style>
   .local-gauge {
-    background-color: var(--card-background);
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
     padding: 0.75rem;
     margin-bottom: 0;
     height: 100%;

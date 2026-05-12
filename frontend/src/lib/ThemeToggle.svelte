@@ -1,5 +1,7 @@
 <script>
   import { onMount } from 'svelte';
+  import SunIcon from '../icons/SunIcon.svelte';
+  import MoonIcon from '../icons/MoonIcon.svelte';
 
   let isDarkMode;
 
@@ -26,10 +28,8 @@
 
 <button on:click={toggleTheme} class="theme-toggle">
   {#if isDarkMode}
-    <span>☀️</span>
+    <SunIcon />
   {:else}
-    <span>🌙</span>
+    <MoonIcon />
   {/if}
 </button>
-
-
