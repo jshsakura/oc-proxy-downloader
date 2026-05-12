@@ -1570,6 +1570,10 @@
     requestAnimationFrame(() => searchInputEl?.focus());
   }
 
+  function closeSearch() {
+    searchExpanded = false;
+  }
+
   function toggleDashboard() {
     dashboardExpanded = !dashboardExpanded;
     if (dashboardExpanded) {
@@ -1798,82 +1802,82 @@
           </button>
         </div>
       </form>
-    </div>
 
-    <button
-      type="button"
-      class="dashboard-summary-strip"
-      class:expanded={dashboardExpanded}
-      on:click={toggleDashboard}
-      aria-expanded={dashboardExpanded}
-      aria-label={$t("tab_dashboard")}
-    >
-      <span class="dashboard-summary-icon"><BarChartIcon /></span>
-      <span class="dashboard-summary-pill">
-        <strong>{dashboardSummaryTotal.toLocaleString()}</strong>
-        <span>{$t("dashboard_total_downloads")}</span>
-      </span>
-      <span class="dashboard-summary-pill">
-        <strong>{dashboardSummarySuccessRate.toFixed(0)}%</strong>
-        <span>{$t("dashboard_success_rate")}</span>
-      </span>
-      <span class="dashboard-summary-pill">
-        <strong>{workingCount}</strong>
-        <span>{$t("tab_working")}</span>
-      </span>
-      <span class="dashboard-summary-pill dashboard-summary-data">
-        <strong>{formatBytes(dashboardSummaryBytes)}</strong>
-        <span>{$t("dashboard_total_data")}</span>
-      </span>
-      <span class="dashboard-summary-chevron">
-        <ChevronRightIcon />
-      </span>
-    </button>
+      <button
+        type="button"
+        class="dashboard-summary-strip"
+        class:expanded={dashboardExpanded}
+        on:click={toggleDashboard}
+        aria-expanded={dashboardExpanded}
+        aria-label={$t("tab_dashboard")}
+      >
+        <span class="dashboard-summary-icon"><BarChartIcon /></span>
+        <span class="dashboard-summary-pill">
+          <strong>{dashboardSummaryTotal.toLocaleString()}</strong>
+          <span>{$t("dashboard_total_downloads")}</span>
+        </span>
+        <span class="dashboard-summary-pill">
+          <strong>{dashboardSummarySuccessRate.toFixed(0)}%</strong>
+          <span>{$t("dashboard_success_rate")}</span>
+        </span>
+        <span class="dashboard-summary-pill">
+          <strong>{workingCount}</strong>
+          <span>{$t("tab_working")}</span>
+        </span>
+        <span class="dashboard-summary-pill dashboard-summary-data">
+          <strong>{formatBytes(dashboardSummaryBytes)}</strong>
+          <span>{$t("dashboard_total_data")}</span>
+        </span>
+        <span class="dashboard-summary-chevron">
+          <ChevronRightIcon />
+        </span>
+      </button>
 
-    {#if dashboardExpanded}
-      <div class="dashboard-drawer">
-        <div class="gauge-container dashboard-gauges">
-          <div class="gauge-item">
-            <ProxyGauge
-              totalProxies={proxyStats.totalProxies}
-              availableProxies={proxyStats.availableProxies}
-              usedProxies={proxyStats.usedProxies}
-              successCount={proxyStats.successCount}
-              failCount={proxyStats.failCount}
-              currentProxy={proxyStats.currentProxy || ""}
-              currentStep={proxyStats.currentStep || ""}
-              status={proxyStats.status || ""}
-              currentIndex={proxyStats.currentIndex || 0}
-              totalAttempting={proxyStats.totalAttempting || 0}
-              lastError={proxyStats.lastError || ""}
-              activeDownloadCount={activeProxyDownloadCount}
-              statusMessage={proxyStats.status_message || ""}
-              on:resetProxyStatus={handleResetProxyStatus}
-            />
+      {#if dashboardExpanded}
+        <div class="dashboard-drawer">
+          <div class="gauge-container dashboard-gauges">
+            <div class="gauge-item">
+              <ProxyGauge
+                totalProxies={proxyStats.totalProxies}
+                availableProxies={proxyStats.availableProxies}
+                usedProxies={proxyStats.usedProxies}
+                successCount={proxyStats.successCount}
+                failCount={proxyStats.failCount}
+                currentProxy={proxyStats.currentProxy || ""}
+                currentStep={proxyStats.currentStep || ""}
+                status={proxyStats.status || ""}
+                currentIndex={proxyStats.currentIndex || 0}
+                totalAttempting={proxyStats.totalAttempting || 0}
+                lastError={proxyStats.lastError || ""}
+                activeDownloadCount={activeProxyDownloadCount}
+                statusMessage={proxyStats.status_message || ""}
+                on:resetProxyStatus={handleResetProxyStatus}
+              />
+            </div>
+
+            <div class="gauge-item">
+              <LocalGauge
+                localDownloadCount={localStats.localDownloadCount}
+                localStatus={localStats.localStatus}
+              />
+            </div>
           </div>
 
-          <div class="gauge-item">
-            <LocalGauge
-              localDownloadCount={localStats.localDownloadCount}
-              localStatus={localStats.localStatus}
-            />
-          </div>
+          <Dashboard
+            {dashboardStats}
+            {dashboardPeriod}
+            {dashboardStartDate}
+            {dashboardEndDate}
+            {dashboardHistory}
+            {dashboardTotalPages}
+            dashboardCurrentPage={dashboardCurrentPage}
+            on:periodChange={(e) => { dashboardPeriod = e.detail; }}
+            on:customApply={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
+            on:pageChange={(e) => { dashboardCurrentPage = e.detail; fetchDashboardHistory(); }}
+          />
         </div>
-
-        <Dashboard
-          {dashboardStats}
-          {dashboardPeriod}
-          {dashboardStartDate}
-          {dashboardEndDate}
-          {dashboardHistory}
-          {dashboardTotalPages}
-          dashboardCurrentPage={dashboardCurrentPage}
-          on:periodChange={(e) => { dashboardPeriod = e.detail; }}
-          on:customApply={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
-          on:pageChange={(e) => { dashboardCurrentPage = e.detail; fetchDashboardHistory(); }}
-        />
-      </div>
-    {/if}
+      {/if}
+    </div>
 
     <div class="downloads-section">
       <div class="tabs-container">
@@ -1928,6 +1932,16 @@
                 on:click={clearSearch}
                 title="검색어 지우기"
                 aria-label="검색어 지우기"
+              >
+                <CloseIcon />
+              </button>
+            {:else if searchExpanded}
+              <button
+                type="button"
+                class="search-clear-btn search-collapse-btn"
+                on:click={closeSearch}
+                title="검색창 닫기"
+                aria-label="검색창 닫기"
               >
                 <CloseIcon />
               </button>
