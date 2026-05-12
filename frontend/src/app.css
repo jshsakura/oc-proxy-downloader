@@ -775,15 +775,15 @@ h1 {
 .dashboard-summary-pills {
   display: flex;
   align-items: center;
-  justify-content: center;
   flex: 1;
-  gap: 1.5rem;
+  gap: 0;
 }
 
 .dashboard-summary-pill {
   display: flex;
   flex-direction: column;
   align-items: center;
+  flex: 1;
   line-height: 1.2;
 }
 
@@ -810,7 +810,7 @@ h1 {
 
 .dashboard-drawer {
   margin-top: 0.75rem;
-  padding: 0;
+  padding: 1rem 0 0 0;
   border: none;
   border-radius: 0;
   background: transparent;
