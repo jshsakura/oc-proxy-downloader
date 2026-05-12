@@ -881,7 +881,7 @@
 
     .modern-modal {
       width: 100%;
-      max-width: 100vw;
+      max-width: 100%;
       height: 90vh;
       max-height: 90vh;
       border-radius: 12px;
