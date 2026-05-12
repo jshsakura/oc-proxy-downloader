@@ -36,6 +36,8 @@
   import DownloadIcon from "./icons/DownloadIcon.svelte";
   import SettingsIcon from "./icons/SettingsIcon.svelte";
   import SearchIcon from "./icons/SearchIcon.svelte";
+  import CheckCircleIcon from "./icons/CheckCircleIcon.svelte";
+  import BarChartIcon from "./icons/BarChartIcon.svelte";
   import CloseIcon from "./icons/CloseIcon.svelte";
   import ChevronLeftIcon from "./icons/ChevronLeftIcon.svelte";
   import ChevronRightIcon from "./icons/ChevronRightIcon.svelte";
@@ -148,6 +150,8 @@
 
   let currentTab = "working";
   let searchQuery = "";
+  let searchExpanded = false;
+  let searchInputEl;
   let searchTimeout;
 
   // Dashboard statistics state
@@ -158,6 +162,7 @@
   let dashboardHistory = [];
   let dashboardTotalPages = 0;
   let dashboardCurrentPage = 1;
+  let dashboardExpanded = false;
 
   function openConfirm({
     message,
@@ -1538,15 +1543,11 @@
   function onTabChange(newTab) {
     if (currentTab !== newTab) {
       currentTab = newTab;
+      searchExpanded = false;
       // 검색어는 탭 전환 시에도 유지
       currentPage = 1; // 탭 전환 시 첫 페이지로 이동
-      if (newTab === "dashboard") {
-        fetchDashboardStats();
-        fetchDashboardHistory();
-      } else {
-        // 탭 전환 시 조용한 데이터 새로고침
-        syncDownloadsSilently();
-      }
+      // 탭 전환 시 조용한 데이터 새로고침
+      syncDownloadsSilently();
     }
   }
 
@@ -1560,7 +1561,21 @@
   // 검색어 지우기
   function clearSearch() {
     searchQuery = "";
+    searchExpanded = false;
     currentPage = 1;
+  }
+
+  function openSearch() {
+    searchExpanded = true;
+    requestAnimationFrame(() => searchInputEl?.focus());
+  }
+
+  function toggleDashboard() {
+    dashboardExpanded = !dashboardExpanded;
+    if (dashboardExpanded) {
+      fetchDashboardStats();
+      fetchDashboardHistory();
+    }
   }
 
   // 통합 필터링 및 카운팅 (한 번의 순회로 모든 계산 완료)
@@ -1648,6 +1663,14 @@
       d.use_proxy &&
       ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
   ).length : 0;
+  $: dashboardSummaryTotal = dashboardStats?.total ?? downloads.length;
+  $: dashboardSummarySuccessRate = dashboardStats?.success_rate ?? (downloads.length > 0
+    ? (completedCount / downloads.length) * 100
+    : 0);
+  $: dashboardSummaryBytes = dashboardStats?.total_bytes ?? downloads.reduce(
+    (total, download) => total + (download.total_size || 0),
+    0
+  );
 </script>
 
 <main>
@@ -1670,6 +1693,16 @@
       </button>
       <h1>{$t("title")}</h1>
       <div class="header-actions">
+        <button
+          type="button"
+          on:click={toggleDashboard}
+          class="button-icon header-dashboard-button"
+          class:active={dashboardExpanded}
+          title={$t("tab_dashboard")}
+          aria-label={$t("tab_dashboard")}
+        >
+          <BarChartIcon />
+        </button>
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
@@ -1767,63 +1800,39 @@
       </form>
     </div>
 
-    <div class="downloads-section">
-      <div class="tabs-container">
-        <div class="tabs">
-          <button
-            class="tab"
-            class:active={currentTab === "working"}
-            on:click={() => onTabChange("working")}
-          >
-            {$t("tab_working")} ({workingCount})
-          </button>
-          <button
-            class="tab"
-            class:active={currentTab === "completed"}
-            on:click={() => onTabChange("completed")}
-          >
-            {$t("tab_completed")} ({completedCount})
-          </button>
-          <button
-            class="tab"
-            class:active={currentTab === "dashboard"}
-            on:click={() => onTabChange("dashboard")}
-          >
-            {$t("tab_dashboard")}
-          </button>
-        </div>
+    <button
+      type="button"
+      class="dashboard-summary-strip"
+      class:expanded={dashboardExpanded}
+      on:click={toggleDashboard}
+      aria-expanded={dashboardExpanded}
+      aria-label={$t("tab_dashboard")}
+    >
+      <span class="dashboard-summary-icon"><BarChartIcon /></span>
+      <span class="dashboard-summary-pill">
+        <strong>{dashboardSummaryTotal.toLocaleString()}</strong>
+        <span>{$t("dashboard_total_downloads")}</span>
+      </span>
+      <span class="dashboard-summary-pill">
+        <strong>{dashboardSummarySuccessRate.toFixed(0)}%</strong>
+        <span>{$t("dashboard_success_rate")}</span>
+      </span>
+      <span class="dashboard-summary-pill">
+        <strong>{workingCount}</strong>
+        <span>{$t("tab_working")}</span>
+      </span>
+      <span class="dashboard-summary-pill dashboard-summary-data">
+        <strong>{formatBytes(dashboardSummaryBytes)}</strong>
+        <span>{$t("dashboard_total_data")}</span>
+      </span>
+      <span class="dashboard-summary-chevron">
+        <ChevronRightIcon />
+      </span>
+    </button>
 
-        {#if currentTab !== "dashboard"}
-          <!-- 검색 필터 -->
-          <div class="search-container">
-            <input
-              type="text"
-              class="search-input"
-              placeholder={$t("search_placeholder")}
-              bind:value={searchQuery}
-              on:input={handleSearchInput}
-            />
-            {#if searchQuery && searchQuery.trim()}
-              <button
-                type="button"
-                class="search-clear-btn"
-                on:click={clearSearch}
-                title="검색어 지우기"
-                aria-label="검색어 지우기"
-              >
-                <CloseIcon />
-              </button>
-            {:else}
-              <div class="search-icon">
-                <SearchIcon />
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
-
-      {#if currentTab === "dashboard"}
-        <div class="gauge-container">
+    {#if dashboardExpanded}
+      <div class="dashboard-drawer">
+        <div class="gauge-container dashboard-gauges">
           <div class="gauge-item">
             <ProxyGauge
               totalProxies={proxyStats.totalProxies}
@@ -1851,7 +1860,6 @@
           </div>
         </div>
 
-        <!-- Dashboard Section -->
         <Dashboard
           {dashboardStats}
           {dashboardPeriod}
@@ -1864,7 +1872,74 @@
           on:customApply={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
           on:pageChange={(e) => { dashboardCurrentPage = e.detail; fetchDashboardHistory(); }}
         />
-      {:else}
+      </div>
+    {/if}
+
+    <div class="downloads-section">
+      <div class="tabs-container">
+        <div class="tabs">
+          <button
+            class="tab"
+            class:active={currentTab === "working"}
+            on:click={() => onTabChange("working")}
+            title={$t("tab_working")}
+          >
+            <span class="tab-icon"><DownloadIcon /></span>
+            <span class="tab-label">{$t("tab_working")} ({workingCount})</span>
+            <span class="tab-count">{workingCount}</span>
+          </button>
+          <button
+            class="tab"
+            class:active={currentTab === "completed"}
+            on:click={() => onTabChange("completed")}
+            title={$t("tab_completed")}
+          >
+            <span class="tab-icon"><CheckCircleIcon /></span>
+            <span class="tab-label">{$t("tab_completed")} ({completedCount})</span>
+            <span class="tab-count">{completedCount}</span>
+          </button>
+        </div>
+
+        <!-- 검색 필터 -->
+        <div class="search-actions" class:expanded={searchExpanded}>
+            <button
+              type="button"
+              class="button-icon search-toggle-btn"
+              on:click={openSearch}
+              title={$t("search_placeholder")}
+              aria-label={$t("search_placeholder")}
+            >
+              <SearchIcon />
+            </button>
+            <div class="search-container">
+            <input
+              type="text"
+              class="search-input"
+              placeholder={$t("search_placeholder")}
+              bind:this={searchInputEl}
+              bind:value={searchQuery}
+              on:input={handleSearchInput}
+              on:focus={() => (searchExpanded = true)}
+            />
+            {#if searchQuery && searchQuery.trim()}
+              <button
+                type="button"
+                class="search-clear-btn"
+                on:click={clearSearch}
+                title="검색어 지우기"
+                aria-label="검색어 지우기"
+              >
+                <CloseIcon />
+              </button>
+            {:else}
+              <div class="search-icon">
+                <SearchIcon />
+              </div>
+            {/if}
+            </div>
+        </div>
+      </div>
+
       <div
         class="table-container"
         class:empty-table={filteredDownloads.length === 0}
@@ -2376,7 +2451,6 @@
         </div>
       {/if}
       </div>
-      {/if}
     </div>
   {/if}
 
