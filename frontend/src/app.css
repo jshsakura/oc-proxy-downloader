@@ -744,67 +744,93 @@ h1 {
 .dashboard-summary-strip {
   width: 100%;
   display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  margin: 1rem 0 0 0;
-  padding: 0.65rem 1rem;
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  background: var(--bg-secondary);
+  align-items: stretch;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0 0;
+  padding: 0;
+  border: none;
+  background: none;
   color: var(--text-primary);
   box-shadow: none;
-  cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  cursor: default;
+  transition: none;
 }
 
 .dashboard-summary-strip:hover,
 .dashboard-summary-strip.expanded {
-  border-color: rgba(var(--primary-color-rgb), 0.35);
-  background: rgba(var(--primary-color-rgb), 0.04);
+  border-color: transparent;
+  background: transparent;
 }
 
-.dashboard-summary-icon,
-.dashboard-summary-chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary-color);
-  flex-shrink: 0;
+.dashboard-summary-icon {
+  display: none;
 }
 
 .dashboard-summary-pills {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex: 1;
-  gap: 0;
+  gap: 0.5rem;
 }
 
 .dashboard-summary-pill {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   flex: 1;
   line-height: 1.2;
+  padding: 0.5rem 0.4rem;
+  background: var(--card-background);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dashboard-summary-pill:hover {
+  border-color: rgba(var(--primary-color-rgb), 0.3);
+  box-shadow: var(--shadow-light);
 }
 
 .dashboard-summary-pill strong {
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .dashboard-summary-pill span {
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   color: var(--text-secondary);
   white-space: nowrap;
 }
 
-.dashboard-summary-chevron {
+.dashboard-summary-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-width: 36px;
+  background: var(--card-background);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
   flex-shrink: 0;
+}
+
+.dashboard-summary-toggle:hover {
+  border-color: rgba(var(--primary-color-rgb), 0.3);
+  color: var(--primary-color);
+  background: rgba(var(--primary-color-rgb), 0.04);
+}
+
+.dashboard-summary-toggle .chevron-icon {
   transition: transform 0.2s ease;
 }
 
-.dashboard-summary-strip.expanded .dashboard-summary-chevron {
+.dashboard-summary-strip.expanded .dashboard-summary-toggle .chevron-icon {
   transform: rotate(90deg);
 }
 
@@ -963,8 +989,8 @@ select.input option {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1.5rem;
-  margin-top: 1rem;
+  margin-bottom: 1rem;
+  margin-top: 0.5rem;
   text-align: center;
   position: relative;
   padding: 0 0.5rem;
@@ -980,9 +1006,8 @@ select.input option {
   color: var(--text-primary);
 }
 .logo {
-  width: 50px;
-  height: 50px;
-  /* Removed margin-right: 1rem; */
+  width: 38px;
+  height: 38px;
 }
 .header h1 {
   /* Added specific style for h1 in header */
@@ -1964,10 +1989,10 @@ html.dracula .system-theme-card {
 
 /* Pagination button styles */
 .page-number-btn {
-  min-width: 2.5rem;
-  height: 2.5rem;
-  padding: 0.5rem;
-  font-size: 0.9rem;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0.25rem;
+  font-size: 0.8rem;
   font-weight: 600;
   border-radius: 6px;
   border: 1px solid var(--card-border);
@@ -2251,13 +2276,12 @@ table th:first-child {
   margin-bottom: 0;
 }
 
-/* Pagination Footer - 테이블 바로 밑에 붙이기 */
 .pagination-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.5rem;
-  min-height: 60px;
+  padding: 0.5rem 1rem;
+  min-height: 44px;
   background-color: var(--card-background);
   border: 1px solid var(--card-border);
   border-top: none;
@@ -2287,14 +2311,14 @@ table th:first-child {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border: 1px solid var(--card-border);
   background: var(--card-background);
   color: var(--text-primary);
   border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }

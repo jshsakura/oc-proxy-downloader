@@ -1782,37 +1782,37 @@
         </div>
       </form>
 
-      <button
-        type="button"
+      <div
         class="dashboard-summary-strip"
         class:expanded={dashboardExpanded}
-        on:click={toggleDashboard}
-        aria-expanded={dashboardExpanded}
-        aria-label={$t("tab_dashboard")}
       >
-        <span class="dashboard-summary-icon"><BarChartIcon /></span>
         <span class="dashboard-summary-pills">
-          <span class="dashboard-summary-pill">
+          <span class="dashboard-summary-pill" on:click={toggleDashboard} role="button" tabindex="0">
             <strong>{dashboardSummaryTotal.toLocaleString()}</strong>
             <span>{$t("dashboard_total_downloads")}</span>
           </span>
-          <span class="dashboard-summary-pill">
+          <span class="dashboard-summary-pill" on:click={toggleDashboard} role="button" tabindex="0">
             <strong>{dashboardSummarySuccessRate.toFixed(0)}%</strong>
             <span>{$t("dashboard_success_rate")}</span>
           </span>
-          <span class="dashboard-summary-pill">
+          <span class="dashboard-summary-pill" on:click={toggleDashboard} role="button" tabindex="0">
             <strong>{workingCount}</strong>
             <span>{$t("tab_working")}</span>
           </span>
-          <span class="dashboard-summary-pill dashboard-summary-data">
+          <span class="dashboard-summary-pill dashboard-summary-data" on:click={toggleDashboard} role="button" tabindex="0">
             <strong>{formatBytes(dashboardSummaryBytes)}</strong>
             <span>{$t("dashboard_total_data")}</span>
           </span>
         </span>
-        <span class="dashboard-summary-chevron">
-          <ChevronRightIcon />
-        </span>
-      </button>
+        <button
+          type="button"
+          class="dashboard-summary-toggle"
+          on:click={toggleDashboard}
+          aria-label={$t("tab_dashboard")}
+        >
+          <span class="chevron-icon"><ChevronRightIcon /></span>
+        </button>
+      </div>
 
       {#if dashboardExpanded}
         <div class="dashboard-drawer">

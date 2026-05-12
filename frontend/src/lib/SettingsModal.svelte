@@ -1977,16 +1977,16 @@
   .theme-card {
     border: 2px solid var(--card-border, #e5e7eb);
     border-radius: 8px;
-    padding: 0.4rem 0.25rem;
+    padding: 0.75rem 0.5rem;
     text-align: center;
     transition: all 0.2s ease;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 500;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.5rem;
     background: var(--card-background);
     color: var(--text-primary);
   }
@@ -2011,36 +2011,44 @@
   }
 
   .light-theme-card {
-    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%) !important;
-    color: #1e293b !important;
+    background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%) !important;
+    color: #334155 !important;
+    border-color: #cbd5e1 !important;
   }
   .dark-theme-card {
     background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
-    color: #f8fafc !important;
+    color: #e2e8f0 !important;
+    border-color: #334155 !important;
   }
   .dracula-theme-card {
-    background: linear-gradient(135deg, #282a36 0%, #21222c 100%) !important;
+    background: linear-gradient(135deg, #282a36 0%, #1d1f27 100%) !important;
     color: #f8f8f2 !important;
+    border-color: #44475a !important;
   }
   .system-theme-card {
-    background: linear-gradient(135deg, #64748b 0%, #475569 100%) !important;
-    color: white !important;
+    background: linear-gradient(135deg, #475569 0%, #334155 100%) !important;
+    color: #f1f5f9 !important;
+    border-color: #64748b !important;
   }
   .nord-theme-card {
     background: linear-gradient(135deg, #2e3440 0%, #3b4252 100%) !important;
     color: #eceff4 !important;
+    border-color: #434c5e !important;
   }
   .solarized-theme-card {
     background: linear-gradient(135deg, #002b36 0%, #073642 100%) !important;
-    color: #fdf6e3 !important;
+    color: #eee8d5 !important;
+    border-color: #586e75 !important;
   }
   .monokai-theme-card {
     background: linear-gradient(135deg, #272822 0%, #1e1f1c 100%) !important;
     color: #f8f8f2 !important;
+    border-color: #49483e !important;
   }
   .ocean-theme-card {
     background: linear-gradient(135deg, #0a192f 0%, #112240 100%) !important;
     color: #ccd6f6 !important;
+    border-color: #233554 !important;
   }
 
   .modal-footer {
