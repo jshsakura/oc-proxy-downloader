@@ -1791,21 +1791,23 @@
         aria-label={$t("tab_dashboard")}
       >
         <span class="dashboard-summary-icon"><BarChartIcon /></span>
-        <span class="dashboard-summary-pill">
-          <strong>{dashboardSummaryTotal.toLocaleString()}</strong>
-          <span>{$t("dashboard_total_downloads")}</span>
-        </span>
-        <span class="dashboard-summary-pill">
-          <strong>{dashboardSummarySuccessRate.toFixed(0)}%</strong>
-          <span>{$t("dashboard_success_rate")}</span>
-        </span>
-        <span class="dashboard-summary-pill">
-          <strong>{workingCount}</strong>
-          <span>{$t("tab_working")}</span>
-        </span>
-        <span class="dashboard-summary-pill dashboard-summary-data">
-          <strong>{formatBytes(dashboardSummaryBytes)}</strong>
-          <span>{$t("dashboard_total_data")}</span>
+        <span class="dashboard-summary-pills">
+          <span class="dashboard-summary-pill">
+            <strong>{dashboardSummaryTotal.toLocaleString()}</strong>
+            <span>{$t("dashboard_total_downloads")}</span>
+          </span>
+          <span class="dashboard-summary-pill">
+            <strong>{dashboardSummarySuccessRate.toFixed(0)}%</strong>
+            <span>{$t("dashboard_success_rate")}</span>
+          </span>
+          <span class="dashboard-summary-pill">
+            <strong>{workingCount}</strong>
+            <span>{$t("tab_working")}</span>
+          </span>
+          <span class="dashboard-summary-pill dashboard-summary-data">
+            <strong>{formatBytes(dashboardSummaryBytes)}</strong>
+            <span>{$t("dashboard_total_data")}</span>
+          </span>
         </span>
         <span class="dashboard-summary-chevron">
           <ChevronRightIcon />
