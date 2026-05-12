@@ -17,6 +17,11 @@
   import PaletteIcon from "../icons/PaletteIcon.svelte";
   import WaveIcon from "../icons/WaveIcon.svelte";
   import MonitorIcon from "../icons/MonitorIcon.svelte";
+  import ExternalLinkIcon from "../icons/ExternalLinkIcon.svelte";
+  import HeartIcon from "../icons/HeartIcon.svelte";
+  import ZapIcon from "../icons/ZapIcon.svelte";
+  import LeafIcon from "../icons/LeafIcon.svelte";
+  import SunsetIcon from "../icons/SunsetIcon.svelte";
   import {
     authRequired,
     isAuthenticated,
@@ -31,6 +36,8 @@
 
   let settings = {};
   let selectedTheme = "system";
+  let originalTheme = "system";
+  let savedOnClose = false;
   let selectedLocale = "ko";
 
   let userProxies = [];
@@ -286,15 +293,25 @@
       fichier_password: currentSettings.fichier_password || "",
     };
     selectedTheme = settings.theme || $theme;
+    originalTheme = $theme;
     selectedLocale = localStorage.getItem("lang") || "ko";
+    savedOnClose = false;
     isInitialized = true;
+  }
+
+  $: if (isInitialized && selectedTheme) {
+    theme.set(selectedTheme);
   }
 
   // Reset settings when modal is closed to allow re-initialization next time
   $: if (!showModal) {
+    if (!savedOnClose && originalTheme) {
+      theme.set(originalTheme);
+    }
     settings = {};
     isInitialized = false;
     fichierEditMode = false;
+    savedOnClose = false;
   }
 
   $: if (showModal) {
@@ -302,6 +319,7 @@
   }
 
   async function saveSettings() {
+    savedOnClose = true;
     theme.set(selectedTheme);
 
     const settingsToSave = {
@@ -750,6 +768,62 @@
                 <input
                   type="radio"
                   bind:group={selectedTheme}
+                  value="rose"
+                  hidden
+                />
+                <div class="theme-card rose-theme-card">
+                  <span class="theme-icon" aria-label={$t("theme_rose_aria")}
+                    ><HeartIcon /></span
+                  >
+                  <span>{$t("theme_rose")}</span>
+                </div>
+              </label>
+              <label class="theme-option-label">
+                <input
+                  type="radio"
+                  bind:group={selectedTheme}
+                  value="neon"
+                  hidden
+                />
+                <div class="theme-card neon-theme-card">
+                  <span class="theme-icon" aria-label={$t("theme_neon_aria")}
+                    ><ZapIcon /></span
+                  >
+                  <span>{$t("theme_neon")}</span>
+                </div>
+              </label>
+              <label class="theme-option-label">
+                <input
+                  type="radio"
+                  bind:group={selectedTheme}
+                  value="forest"
+                  hidden
+                />
+                <div class="theme-card forest-theme-card">
+                  <span class="theme-icon" aria-label={$t("theme_forest_aria")}
+                    ><LeafIcon /></span
+                  >
+                  <span>{$t("theme_forest")}</span>
+                </div>
+              </label>
+              <label class="theme-option-label">
+                <input
+                  type="radio"
+                  bind:group={selectedTheme}
+                  value="sunset"
+                  hidden
+                />
+                <div class="theme-card sunset-theme-card">
+                  <span class="theme-icon" aria-label={$t("theme_sunset_aria")}
+                    ><SunsetIcon /></span
+                  >
+                  <span>{$t("theme_sunset")}</span>
+                </div>
+              </label>
+              <label class="theme-option-label">
+                <input
+                  type="radio"
+                  bind:group={selectedTheme}
                   value="system"
                   hidden
                 />
@@ -1064,7 +1138,7 @@
                             target="_blank"
                             rel="noopener"
                             class="fichier-inline-link"
-                          >{$t("fichier_create_account")}</a>
+                          >{$t("fichier_create_account")} <ExternalLinkIcon /></a>
                         </small>
                       </div>
 
@@ -1566,7 +1640,7 @@
       var(--primary-hover, #1e40af) 100%
     );
     color: white;
-    padding: 1.5rem 2rem;
+    padding: 0.875rem 1.25rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     flex-shrink: 0;
   }
@@ -1586,10 +1660,10 @@
   }
 
   .icon-wrapper {
-    width: 44px;
-    height: 44px;
+    width: 34px;
+    height: 34px;
     background: rgba(255, 255, 255, 0.15);
-    border-radius: 12px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1598,21 +1672,21 @@
   }
 
   .icon-wrapper :global(svg) {
-    width: 22px;
-    height: 22px;
+    width: 18px;
+    height: 18px;
     color: white;
   }
 
   .title-text h2 {
     margin: 0;
-    font-size: 1.5rem;
+    font-size: 1.15rem;
     font-weight: 700;
     color: white;
   }
 
   .title-text .subtitle {
-    margin: 0.25rem 0 0 0;
-    font-size: 0.875rem;
+    margin: 0.15rem 0 0 0;
+    font-size: 0.75rem;
     color: rgba(255, 255, 255, 0.8);
     font-weight: 400;
   }
@@ -1621,12 +1695,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2rem;
+    height: 2rem;
     border: none;
     background: rgba(255, 255, 255, 0.1);
     color: white;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
     flex-shrink: 0;
@@ -1637,8 +1711,8 @@
   }
 
   .close-button :global(svg) {
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 1rem;
+    height: 1rem;
     color: white;
   }
 
@@ -1964,9 +2038,15 @@
 
   .theme-options {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0.5rem;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.4rem;
     margin-top: 0.75rem;
+  }
+
+  @media (max-width: 480px) {
+    .theme-options {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
 
   .theme-option-label {
@@ -1977,16 +2057,15 @@
   .theme-card {
     border: 2px solid var(--card-border, #e5e7eb);
     border-radius: 8px;
-    padding: 0.75rem 0.5rem;
-    text-align: center;
+    padding: 0.4rem 0.6rem;
     transition: all 0.2s ease;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 500;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 22px 1fr;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.35rem;
     background: var(--card-background);
     color: var(--text-primary);
   }
@@ -2008,6 +2087,16 @@
     justify-content: center;
     width: 20px;
     height: 20px;
+    flex-shrink: 0;
+  }
+
+  .theme-icon :global(svg) {
+    width: 15px;
+    height: 15px;
+  }
+
+  .theme-card > :last-child {
+    text-align: center;
   }
 
   .light-theme-card {
@@ -2050,9 +2139,29 @@
     color: #ccd6f6 !important;
     border-color: #233554 !important;
   }
+  .rose-theme-card {
+    background: linear-gradient(135deg, #261a22 0%, #191015 100%) !important;
+    color: #fce7f3 !important;
+    border-color: #3d2434 !important;
+  }
+  .neon-theme-card {
+    background: linear-gradient(135deg, #141425 0%, #0a0a0f 100%) !important;
+    color: #e0e0ff !important;
+    border-color: #252540 !important;
+  }
+  .forest-theme-card {
+    background: linear-gradient(135deg, #152118 0%, #0d1a0f 100%) !important;
+    color: #dcfce7 !important;
+    border-color: #1e3322 !important;
+  }
+  .sunset-theme-card {
+    background: linear-gradient(135deg, #261a12 0%, #1a0f0a 100%) !important;
+    color: #fff7ed !important;
+    border-color: #3d2818 !important;
+  }
 
   .modal-footer {
-    padding: 1.25rem 2rem;
+    padding: 0.75rem 1.25rem;
     border-top: 1px solid var(--card-border, #e5e7eb);
     background: linear-gradient(
       135deg,
@@ -2299,7 +2408,7 @@
     }
 
     .theme-options {
-      grid-template-columns: repeat(4, 1fr);
+      gap: 0.3rem;
     }
 
     .button {
@@ -2530,20 +2639,16 @@
   }
 
   .test-telegram-button {
-    padding: 0.75rem 1.5rem;
-    font-size: 0.875rem;
-    min-height: 2.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    min-height: 2rem;
   }
 
-  /* 1fichier 저장된 자격증명 카드 — 테마 변수만 사용 */
   .fichier-saved {
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    padding: 1rem 1.25rem;
-    background: var(--card-background);
-    border: 1px solid var(--card-border);
-    border-radius: 10px;
+    padding: 0;
   }
   .fichier-saved-row {
     display: flex;

@@ -1781,7 +1781,37 @@
           </button>
         </div>
       </form>
+    </div>
 
+    <div class="gauge-container">
+      <div class="gauge-item">
+        <ProxyGauge
+            totalProxies={proxyStats.totalProxies}
+            availableProxies={proxyStats.availableProxies}
+            usedProxies={proxyStats.usedProxies}
+            successCount={proxyStats.successCount}
+            failCount={proxyStats.failCount}
+            currentProxy={proxyStats.currentProxy || ""}
+            currentStep={proxyStats.currentStep || ""}
+            status={proxyStats.status || ""}
+            currentIndex={proxyStats.currentIndex || 0}
+            totalAttempting={proxyStats.totalAttempting || 0}
+            lastError={proxyStats.lastError || ""}
+            activeDownloadCount={activeProxyDownloadCount}
+            statusMessage={proxyStats.status_message || ""}
+            on:resetProxyStatus={handleResetProxyStatus}
+          />
+        </div>
+
+        <div class="gauge-item">
+          <LocalGauge
+            localDownloadCount={localStats.localDownloadCount}
+            localStatus={localStats.localStatus}
+          />
+        </div>
+      </div>
+
+    <div class="card card-dashboard">
       <div
         class="dashboard-summary-strip"
         class:expanded={dashboardExpanded}
@@ -1816,34 +1846,6 @@
 
       {#if dashboardExpanded}
         <div class="dashboard-drawer">
-          <div class="gauge-container dashboard-gauges">
-            <div class="gauge-item">
-              <ProxyGauge
-                totalProxies={proxyStats.totalProxies}
-                availableProxies={proxyStats.availableProxies}
-                usedProxies={proxyStats.usedProxies}
-                successCount={proxyStats.successCount}
-                failCount={proxyStats.failCount}
-                currentProxy={proxyStats.currentProxy || ""}
-                currentStep={proxyStats.currentStep || ""}
-                status={proxyStats.status || ""}
-                currentIndex={proxyStats.currentIndex || 0}
-                totalAttempting={proxyStats.totalAttempting || 0}
-                lastError={proxyStats.lastError || ""}
-                activeDownloadCount={activeProxyDownloadCount}
-                statusMessage={proxyStats.status_message || ""}
-                on:resetProxyStatus={handleResetProxyStatus}
-              />
-            </div>
-
-            <div class="gauge-item">
-              <LocalGauge
-                localDownloadCount={localStats.localDownloadCount}
-                localStatus={localStats.localStatus}
-              />
-            </div>
-          </div>
-
           <Dashboard
             {dashboardStats}
             {dashboardPeriod}
@@ -1870,8 +1872,10 @@
             title={$t("tab_working")}
           >
             <span class="tab-icon"><DownloadIcon /></span>
-            <span class="tab-label">{$t("tab_working")} ({workingCount})</span>
-            <span class="tab-count">{workingCount}</span>
+            <span class="tab-label">{$t("tab_working")}</span>
+            {#if workingCount > 0}
+              <span class="tab-count">{workingCount}</span>
+            {/if}
           </button>
           <button
             class="tab"
@@ -1880,8 +1884,10 @@
             title={$t("tab_completed")}
           >
             <span class="tab-icon"><CheckCircleIcon /></span>
-            <span class="tab-label">{$t("tab_completed")} ({completedCount})</span>
-            <span class="tab-count">{completedCount}</span>
+            <span class="tab-label">{$t("tab_completed")}</span>
+            {#if completedCount > 0}
+              <span class="tab-count">{completedCount}</span>
+            {/if}
           </button>
         </div>
 

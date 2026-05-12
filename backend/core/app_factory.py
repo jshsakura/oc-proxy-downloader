@@ -16,6 +16,7 @@ from api.middleware import log_requests
 from api.routes import downloads, settings, events, auth, locales
 from api.routes.proxy import router as proxy_router
 from api.routes.history import router as history_router
+from api.routes.system import router as system_router
 from core.db import engine
 from core.models import Base
 from core.i18n import load_all_translations
@@ -156,6 +157,7 @@ def create_app() -> FastAPI:
     api_router.include_router(proxy_router)
     api_router.include_router(events.router)
     api_router.include_router(locales.router)
+    api_router.include_router(system_router)
 
     app.include_router(api_router)
     

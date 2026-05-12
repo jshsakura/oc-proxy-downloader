@@ -13,8 +13,8 @@ const createThemeStore = () => {
     if (typeof document !== 'undefined') {
       
       // Remove all theme classes first
-      document.documentElement.classList.remove('dark', 'dracula', 'nord', 'solarized', 'monokai', 'ocean');
-      document.body.classList.remove('dark', 'dracula', 'nord', 'solarized', 'monokai', 'ocean');
+      document.documentElement.classList.remove('dark', 'dracula', 'nord', 'solarized', 'monokai', 'ocean', 'rose', 'neon', 'forest', 'sunset');
+      document.body.classList.remove('dark', 'dracula', 'nord', 'solarized', 'monokai', 'ocean', 'rose', 'neon', 'forest', 'sunset');
 
       if (currentTheme === 'dark') {
         document.documentElement.classList.add('dark');
@@ -34,6 +34,18 @@ const createThemeStore = () => {
       } else if (currentTheme === 'ocean') {
         document.documentElement.classList.add('ocean');
         document.body.classList.add('ocean');
+      } else if (currentTheme === 'rose') {
+        document.documentElement.classList.add('rose');
+        document.body.classList.add('rose');
+      } else if (currentTheme === 'neon') {
+        document.documentElement.classList.add('neon');
+        document.body.classList.add('neon');
+      } else if (currentTheme === 'forest') {
+        document.documentElement.classList.add('forest');
+        document.body.classList.add('forest');
+      } else if (currentTheme === 'sunset') {
+        document.documentElement.classList.add('sunset');
+        document.body.classList.add('sunset');
       } else if (currentTheme === 'system') {
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
           document.documentElement.classList.add('dark');
