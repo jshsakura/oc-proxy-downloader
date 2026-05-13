@@ -77,6 +77,51 @@ def clean_1fichier_url(url):
     return urlunparse(parsed._replace(query=file_id))
 
 
+# 1fichier 파일 페이지의 ID 쿼리(예: ``?7abc...``) 만 뽑기. 다운로드 호스트면
+# 마지막 경로 세그먼트가 ID 처럼 동작하므로 그것을 쓴다.
+_FICHIER_PATH_ID_RE = re.compile(r"/(?:c/)?([A-Za-z0-9_-]{6,})/?$")
+
+
+def derive_display_name(url: str) -> str:
+    """파싱 전에도 사용자에게 보여줄 수 있는 식별자를 URL 에서 즉시 추출한다.
+
+    파일명을 알기 전 단계에서 ``Unknown`` 같은 폴백을 노출하지 않기 위함.
+    1fichier 의 경우 파일 ID 를 ``1fichier:<id>`` 형태로, 그 외는 경로의
+    마지막 세그먼트 또는 호스트명을 반환한다. 항상 비어있지 않은 짧은
+    문자열을 돌려준다.
+    """
+    if not url:
+        return "(no url)"
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return url[:64]
+
+    host = (parsed.hostname or "").lower()
+
+    if "1fichier.com" in host:
+        # 파일 페이지: 1fichier.com/?XXXX
+        if parsed.query:
+            file_id = parsed.query.split("&", 1)[0].strip()
+            if file_id:
+                return f"1fichier:{file_id}"
+        # 다운로드 서버: a-1.1fichier.com/c/XXXX
+        m = _FICHIER_PATH_ID_RE.search(parsed.path or "")
+        if m:
+            return f"1fichier:{m.group(1)}"
+
+    # 일반 URL: 경로 마지막 세그먼트 → 그것도 없으면 호스트
+    path = (parsed.path or "").rstrip("/")
+    if path:
+        last = path.rsplit("/", 1)[-1]
+        if last:
+            return last
+    if host:
+        return host
+    return url[:64]
+
+
 def detect_block_reason(html_content):
     """1fichier 응답 HTML 에서 명시적인 차단/만료 사유를 식별.
 

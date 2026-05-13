@@ -18,9 +18,43 @@ from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
 from core.download_core import download_core
 from core.parser import fichier_parser
-from core.simple_parser import parse_1fichier_simple_sync, clean_1fichier_url
+from core.simple_parser import parse_1fichier_simple_sync, clean_1fichier_url, derive_display_name
+from core.config import get_config
+from core.error_messages import (
+    classify_failure_text,
+    is_terminal_failure,
+    is_auth_required_failure,
+    KIND_DEAD,
+    KIND_AUTH_REQUIRED,
+)
 from services.sse_manager import sse_manager
 from services.ouo_unwrap_service import is_ouo_url, unwrap_if_ouo
+
+
+def _has_fichier_credentials() -> bool:
+    """설정에 1fichier 계정이 등록돼 있는지 검사.
+
+    auth_required 분류된 실패를 재시도해도 의미 없을 때 일괄 재시작에서 건너뛰는
+    기준으로 쓴다.
+    """
+    cfg = get_config()
+    email = (cfg.get("fichier_email") or "").strip()
+    password = cfg.get("fichier_password") or ""
+    return bool(email and password)
+
+
+def _should_skip_retry(req: DownloadRequest, has_credentials: bool) -> Optional[str]:
+    """배치/단건 재시도 시 건너뛸 사유 문자열을 반환. 건너뛸 필요 없으면 None.
+
+    - 영구 실패(``dead``): 항상 건너뜀.
+    - 로그인 필요(``auth_required``): 계정 미설정 시에만 건너뜀.
+    """
+    err = req.error or ""
+    if is_terminal_failure(err):
+        return "dead"
+    if not has_credentials and is_auth_required_failure(err):
+        return "auth_required"
+    return None
 
 router = APIRouter(prefix="/api", tags=["downloads"])
 
@@ -60,12 +94,16 @@ async def add_download(
 
         # 새 다운로드 요청 생성. ouo 우회로 들어온 URL은 원본 ouo 링크를
         # original_url에 보존하여 추후 진단/재우회에 사용 가능하게 함.
+        # 파일명은 파싱 전에도 식별자가 노출되도록 URL 에서 잠정 이름을 박아둔다 —
+        # 사전파싱이 성공하면 진짜 파일명으로 덮어쓰기 때문에 placeholder 가
+        # 영구히 남는 건 dead 한 케이스뿐이고, 그것도 "Unknown" 보다 훨씬 식별 가능.
         new_request = DownloadRequest(
             url=url,
             original_url=original_ouo_url or (url if "1fichier.com" in url else None),
             password=password if password else None,
             use_proxy=use_proxy,
-            status=StatusEnum.pending
+            status=StatusEnum.pending,
+            file_name=derive_display_name(original_ouo_url or url),
         )
 
         db.add(new_request)
@@ -210,6 +248,20 @@ async def retry_download(
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot retry in current status: {req.status}"
+            )
+
+        # 영구 실패 — 재요청해도 같은 결과. 클라이언트가 무심코 호출하더라도
+        # 1fichier 에 부하만 주고 사용자에겐 동일한 실패가 다시 떨어지므로 차단.
+        skip_reason = _should_skip_retry(req, _has_fichier_credentials())
+        if skip_reason == "dead":
+            raise HTTPException(
+                status_code=409,
+                detail="retry_blocked_dead",
+            )
+        if skip_reason == "auth_required":
+            raise HTTPException(
+                status_code=409,
+                detail="retry_blocked_auth_required",
             )
 
         # 만료된 링크에 대한 로깅 (URL 복원 불필요 - 파싱 시 original_url 자동 사용)
@@ -674,9 +726,27 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
     """실패/정지된 다운로드 재시작"""
     try:
         # 실패 또는 정지 상태인 다운로드 찾기
-        failed_downloads = db.query(DownloadRequest).filter(
+        all_failed = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped])
         ).all()
+
+        # 영구 실패/로그인 필요 항목은 일괄 재시작 대상에서 제외
+        has_creds = _has_fichier_credentials()
+        skipped_dead = 0
+        skipped_auth = 0
+        failed_downloads = []
+        for d in all_failed:
+            reason = _should_skip_retry(d, has_creds)
+            if reason == "dead":
+                skipped_dead += 1
+            elif reason == "auth_required":
+                skipped_auth += 1
+            else:
+                failed_downloads.append(d)
+        if skipped_dead or skipped_auth:
+            print(
+                f"[LOG] 일괄 재시작 필터링: dead={skipped_dead}, auth_required={skipped_auth} 건 건너뜀"
+            )
 
         restarted_count = 0
         # 배치 처리로 DB 연결 절약 (10개씩 처리)
@@ -712,7 +782,9 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
         return {
             "success": True,
             "message": f"{restarted_count}개 다운로드가 재시작되었습니다.",
-            "restarted_count": restarted_count
+            "restarted_count": restarted_count,
+            "skipped_dead": skipped_dead,
+            "skipped_auth_required": skipped_auth,
         }
 
     except Exception as e:
@@ -792,10 +864,28 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
     """실패/정지된 로컬 다운로드 재시작"""
     try:
         # 실패 또는 정지 상태인 로컬 다운로드 찾기 (use_proxy=False)
-        failed_local_downloads = db.query(DownloadRequest).filter(
+        all_failed = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
             DownloadRequest.use_proxy == False
         ).all()
+
+        # 영구 실패/로그인 필요 항목 제외
+        has_creds = _has_fichier_credentials()
+        skipped_dead = 0
+        skipped_auth = 0
+        failed_local_downloads = []
+        for d in all_failed:
+            reason = _should_skip_retry(d, has_creds)
+            if reason == "dead":
+                skipped_dead += 1
+            elif reason == "auth_required":
+                skipped_auth += 1
+            else:
+                failed_local_downloads.append(d)
+        if skipped_dead or skipped_auth:
+            print(
+                f"[LOG] 로컬 일괄 재시작 필터링: dead={skipped_dead}, auth_required={skipped_auth} 건 건너뜀"
+            )
 
         # 모든 다운로드를 pending 상태로 변경 (한 번에 처리)
         for download in failed_local_downloads:
@@ -852,7 +942,9 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
         return {
             "success": True,
             "message": f"{restarted_count}개 로컬 다운로드가 재시작되었습니다.",
-            "restarted_count": restarted_count
+            "restarted_count": restarted_count,
+            "skipped_dead": skipped_dead,
+            "skipped_auth_required": skipped_auth,
         }
 
     except Exception as e:
@@ -918,10 +1010,28 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
     """실패/정지된 프록시 다운로드 재시작"""
     try:
         # 실패 또는 정지 상태인 프록시 다운로드 찾기 (use_proxy=True)
-        failed_proxy_downloads = db.query(DownloadRequest).filter(
+        all_failed = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
             DownloadRequest.use_proxy == True
         ).all()
+
+        # 영구 실패/로그인 필요 항목 제외
+        has_creds = _has_fichier_credentials()
+        skipped_dead = 0
+        skipped_auth = 0
+        failed_proxy_downloads = []
+        for d in all_failed:
+            reason = _should_skip_retry(d, has_creds)
+            if reason == "dead":
+                skipped_dead += 1
+            elif reason == "auth_required":
+                skipped_auth += 1
+            else:
+                failed_proxy_downloads.append(d)
+        if skipped_dead or skipped_auth:
+            print(
+                f"[LOG] 프록시 일괄 재시작 필터링: dead={skipped_dead}, auth_required={skipped_auth} 건 건너뜀"
+            )
 
         restarted_count = 0
         # 배치 처리로 DB 연결 절약 (10개씩 처리)
@@ -957,7 +1067,9 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
         return {
             "success": True,
             "message": f"{restarted_count}개 프록시 다운로드가 재시작되었습니다.",
-            "restarted_count": restarted_count
+            "restarted_count": restarted_count,
+            "skipped_dead": skipped_dead,
+            "skipped_auth_required": skipped_auth,
         }
 
     except Exception as e:

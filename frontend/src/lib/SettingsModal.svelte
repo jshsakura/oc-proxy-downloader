@@ -9,6 +9,10 @@
   import ExternalLinkIcon from "../icons/ExternalLinkIcon.svelte";
   import GitHubIcon from "../icons/GitHubIcon.svelte";
   import DockerIcon from "../icons/DockerIcon.svelte";
+  import BarChartIcon from "../icons/BarChartIcon.svelte";
+  import HistoryPeriodControls from "./HistoryPeriodControls.svelte";
+  import TrendChart from "./TrendChart.svelte";
+  import StatusDonutChart from "./StatusDonutChart.svelte";
   import { toast } from "svelte-sonner";
   import ConfirmModal from "./ConfirmModal.svelte";
   import {
@@ -22,6 +26,43 @@
 
   export let showModal;
   export let currentSettings;
+
+  // ── 통계 탭에서 사용 ──
+  export let dashboardStats = null;
+  export let summaryTotal = 0;
+  export let summarySuccessRate = 0;
+  export let summaryWorking = 0;
+  export let summaryBytes = 0;
+  export let statsPeriod = "30d";
+  export let statsStartDate = "";
+  export let statsEndDate = "";
+
+  // 탭 상태 — 일반(general) / 통계(stats)
+  let activeTab = "general";
+
+  function setTab(tab) {
+    activeTab = tab;
+  }
+
+  function onStatsPeriodChange(e) {
+    statsPeriod = e.detail;
+    dispatch("statsPeriodChange", e.detail);
+  }
+  function onStatsCustomApply() {
+    dispatch("statsPeriodChange", statsPeriod);
+  }
+
+  function fmtBytes(bytes) {
+    if (!bytes || bytes === 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const val = bytes / Math.pow(1024, i);
+    return val.toFixed(i === 0 ? 0 : 1) + " " + units[i];
+  }
+
+  $: dailyTrend = (dashboardStats && dashboardStats.daily_trend) || [];
+  $: byStatus = (dashboardStats && dashboardStats.by_status) || {};
+  $: statsHasData = dashboardStats && dashboardStats.total > 0;
 
   let settings = {};
   let selectedTheme = "system";
@@ -546,7 +587,33 @@
           </div>
         </div>
 
-        <div class="modal-body">
+        <!-- 설정 탭 바 — 일반 / 통계. -->
+        <div class="settings-tabs" role="tablist">
+          <button
+            type="button"
+            class="settings-tab"
+            class:active={activeTab === "general"}
+            role="tab"
+            aria-selected={activeTab === "general"}
+            on:click={() => setTab("general")}
+          >
+            <SettingsIcon />
+            <span>{$t("settings_title")}</span>
+          </button>
+          <button
+            type="button"
+            class="settings-tab"
+            class:active={activeTab === "stats"}
+            role="tab"
+            aria-selected={activeTab === "stats"}
+            on:click={() => setTab("stats")}
+          >
+            <BarChartIcon />
+            <span>{$t("tab_dashboard")}</span>
+          </button>
+        </div>
+
+        <div class="modal-body" class:tab-hidden={activeTab !== "general"}>
           {#if $authRequired && $isAuthenticated}
             <div class="form-group">
               <div class="auth-info-card">
@@ -1463,6 +1530,99 @@
           </fieldset>
         </div>
 
+        <!-- 통계 탭 — KPI 카드 + 기간 선택 + 트렌드 / 상태 도넛. -->
+        <div class="modal-body stats-body" class:tab-hidden={activeTab !== "stats"}>
+          <div class="stats-kpi">
+            <div class="stats-kpi-card">
+              <div class="stats-kpi-icon stats-kpi-icon-total">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              </div>
+              <div class="stats-kpi-body">
+                <span class="stats-kpi-val">{(summaryTotal || 0).toLocaleString()}</span>
+                <span class="stats-kpi-lbl">{$t("dashboard_total_downloads")}</span>
+              </div>
+            </div>
+            <div class="stats-kpi-card">
+              <div class="stats-kpi-icon stats-kpi-icon-ok">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+              </div>
+              <div class="stats-kpi-body">
+                <span class="stats-kpi-val stats-kpi-val-ok">{(summarySuccessRate || 0).toFixed(0)}%</span>
+                <span class="stats-kpi-lbl">{$t("dashboard_success_rate")}</span>
+                <div class="stats-kpi-bar">
+                  <div class="stats-kpi-bar-fill" style="width:{Math.max(0, Math.min(100, summarySuccessRate || 0))}%"></div>
+                </div>
+              </div>
+            </div>
+            <div class="stats-kpi-card">
+              <div class="stats-kpi-icon stats-kpi-icon-total">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9"/>
+                  <path d="M12 7v5l3 2"/>
+                </svg>
+              </div>
+              <div class="stats-kpi-body">
+                <span class="stats-kpi-val">{(summaryWorking || 0).toLocaleString()}</span>
+                <span class="stats-kpi-lbl">{$t("tab_working")}</span>
+              </div>
+            </div>
+            <div class="stats-kpi-card">
+              <div class="stats-kpi-icon stats-kpi-icon-warn">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                </svg>
+              </div>
+              <div class="stats-kpi-body">
+                <span class="stats-kpi-val stats-kpi-val-warn">{fmtBytes(summaryBytes || 0)}</span>
+                <span class="stats-kpi-lbl">{$t("dashboard_total_data")}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats-period">
+            <HistoryPeriodControls
+              bind:period={statsPeriod}
+              bind:startDate={statsStartDate}
+              bind:endDate={statsEndDate}
+              hideToday={true}
+              on:periodChange={onStatsPeriodChange}
+              on:customApply={onStatsCustomApply}
+            />
+          </div>
+
+          {#if statsHasData}
+            <div class="stats-charts">
+              <div class="stats-chart-card">
+                <div class="stats-chart-title">{$t("dashboard_trend_title")}</div>
+                <TrendChart data={dailyTrend} />
+              </div>
+              <div class="stats-chart-card">
+                <div class="stats-chart-title">{$t("dashboard_status_distribution")}</div>
+                <StatusDonutChart {byStatus} />
+              </div>
+            </div>
+          {:else}
+            <div class="stats-empty">
+              <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3">
+                <path d="M18 20V10"/>
+                <path d="M12 20V4"/>
+                <path d="M6 20v-6"/>
+              </svg>
+              <div>{$t("dashboard_no_data")}</div>
+            </div>
+          {/if}
+        </div>
+
         <div class="modal-footer">
           <button class="button button-secondary" on:click={closeModal}>
             {$t("button_cancel")}
@@ -1829,6 +1989,174 @@
     min-height: 0;
   }
 
+  .tab-hidden {
+    display: none !important;
+  }
+
+  /* ── 설정 탭 바 (일반 / 통계) ── */
+  .settings-tabs {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.5rem 1rem 0;
+    background: var(--card-background);
+    border-bottom: 1px solid var(--card-border);
+    flex-shrink: 0;
+  }
+  .settings-tab {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.5rem 0.9rem 0.6rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-bottom: 2px solid transparent;
+    transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+    border-radius: 6px 6px 0 0;
+  }
+  .settings-tab :global(svg) {
+    width: 15px;
+    height: 15px;
+  }
+  .settings-tab:hover {
+    color: var(--text-primary);
+    background: rgba(var(--primary-color-rgb, 99, 102, 241), 0.06);
+  }
+  .settings-tab.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+  }
+
+  /* ── 통계 탭 본문 ── */
+  .stats-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .stats-kpi {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.6rem;
+  }
+  .stats-kpi-card {
+    background: var(--dashboard-card-bg, var(--card-background));
+    border: 1px solid var(--dashboard-card-border, var(--card-border));
+    border-radius: 12px;
+    padding: 0.7rem 0.85rem;
+    box-shadow: var(--shadow-light);
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-height: 68px;
+  }
+  .stats-kpi-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .stats-kpi-icon-total {
+    background: rgba(var(--primary-color-rgb, 99, 102, 241), 0.12);
+    color: var(--primary-color);
+  }
+  .stats-kpi-icon-ok {
+    background: rgba(52, 211, 153, 0.15);
+    color: var(--success-color);
+  }
+  .stats-kpi-icon-warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning-color, #f59e0b);
+  }
+  .stats-kpi-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+    flex: 1;
+  }
+  .stats-kpi-val {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stats-kpi-val-ok { color: var(--success-color); }
+  .stats-kpi-val-warn { color: var(--warning-color, #f59e0b); }
+  .stats-kpi-lbl {
+    font-size: 0.66rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stats-kpi-bar {
+    margin-top: 0.3rem;
+    height: 3px;
+    background: var(--chart-grid);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .stats-kpi-bar-fill {
+    height: 100%;
+    background: var(--success-color);
+    transition: width 0.6s ease;
+  }
+
+  .stats-charts {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 0.6rem;
+  }
+  .stats-chart-card {
+    background: var(--dashboard-card-bg, var(--card-background));
+    border: 1px solid var(--dashboard-card-border, var(--card-border));
+    border-radius: 12px;
+    padding: 0.85rem;
+    box-shadow: var(--shadow-light);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .stats-chart-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .stats-empty {
+    text-align: center;
+    padding: 2.5rem 1rem;
+    color: var(--text-secondary);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    background: var(--dashboard-card-bg, var(--card-background));
+    border: 1px solid var(--dashboard-card-border, var(--card-border));
+    border-radius: 12px;
+  }
+  @media (max-width: 720px) {
+    .stats-kpi {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .stats-charts {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .form-group {
     margin-bottom: 1.5rem;
   }
@@ -1947,16 +2275,19 @@
     height: 1rem;
   }
 
+  /* 테마 카드 — 좌측 색상 스워치, 중앙에 정렬된 이름. 한 줄당 카드 둘 (PC),
+   * 모바일에선 한 카드 한 줄 풀폭. 그라데이션 배경이 박혀 있던 기존 변형들도
+   * 잔잔하게 톤다운. */
   .theme-options {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.35rem;
-    margin-top: 0.75rem;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.4rem;
+    margin-top: 0.5rem;
   }
 
-  @media (max-width: 480px) {
+  @media (max-width: 540px) {
     .theme-options {
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: 1fr;
     }
   }
 
@@ -1966,32 +2297,51 @@
   }
 
   .theme-card {
-    border: 2px solid var(--card-border, #e5e7eb);
-    border-radius: 8px;
-    padding: 0.45rem 0.6rem;
-    transition: all 0.2s ease;
-    font-size: 0.72rem;
+    position: relative;
+    border: 1px solid var(--card-border, #e5e7eb);
+    border-radius: 10px;
+    padding: 0.5rem 0.75rem;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+    font-size: 0.82rem;
     font-weight: 500;
-    display: flex;
+    display: grid;
+    grid-template-columns: 18px 1fr 18px;
     align-items: center;
-    gap: 0.4rem;
-    overflow: hidden;
+    gap: 0.6rem;
+    background: var(--card-background);
+    color: var(--text-primary);
+    min-height: 40px;
   }
 
   .theme-card:hover {
     border-color: var(--primary-color);
+    background: rgba(var(--primary-color-rgb, 99, 102, 241), 0.04);
   }
 
   .theme-option-label input[type="radio"]:checked + .theme-card {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb, 59, 130, 246), 0.2);
+    background: rgba(var(--primary-color-rgb, 99, 102, 241), 0.08);
+    box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb, 99, 102, 241), 0.18);
+  }
+
+  /* 체크 표시 — 선택된 카드 우측에 작은 ✓ 노출 */
+  .theme-option-label input[type="radio"]:checked + .theme-card::after {
+    content: "";
+    grid-column: 3;
+    width: 14px;
+    height: 14px;
+    background: var(--primary-color);
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 3px var(--card-background);
   }
 
   .theme-color-swatch {
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
     flex-shrink: 0;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
   }
 
   .theme-name {
@@ -1999,68 +2349,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+    text-align: center;
+    font-weight: 600;
+    letter-spacing: 0.01em;
   }
 
-  .light-theme-card {
-    background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%) !important;
-    color: #334155 !important;
-    border-color: #cbd5e1 !important;
-  }
-  .dark-theme-card {
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
-    color: #e2e8f0 !important;
-    border-color: #334155 !important;
-  }
-  .dracula-theme-card {
-    background: linear-gradient(135deg, #282a36 0%, #1d1f27 100%) !important;
-    color: #f8f8f2 !important;
-    border-color: #44475a !important;
-  }
-  .system-theme-card {
-    background: linear-gradient(135deg, #475569 0%, #334155 100%) !important;
-    color: #f1f5f9 !important;
-    border-color: #64748b !important;
-  }
-  .nord-theme-card {
-    background: linear-gradient(135deg, #2e3440 0%, #3b4252 100%) !important;
-    color: #eceff4 !important;
-    border-color: #434c5e !important;
-  }
-  .solarized-theme-card {
-    background: linear-gradient(135deg, #002b36 0%, #073642 100%) !important;
-    color: #eee8d5 !important;
-    border-color: #586e75 !important;
-  }
-  .monokai-theme-card {
-    background: linear-gradient(135deg, #272822 0%, #1e1f1c 100%) !important;
-    color: #f8f8f2 !important;
-    border-color: #49483e !important;
-  }
-  .ocean-theme-card {
-    background: linear-gradient(135deg, #0a192f 0%, #112240 100%) !important;
-    color: #ccd6f6 !important;
-    border-color: #233554 !important;
-  }
-  .rose-theme-card {
-    background: linear-gradient(135deg, #261a22 0%, #191015 100%) !important;
-    color: #fce7f3 !important;
-    border-color: #3d2434 !important;
-  }
-  .neon-theme-card {
-    background: linear-gradient(135deg, #141425 0%, #0a0a0f 100%) !important;
-    color: #e0e0ff !important;
-    border-color: #252540 !important;
-  }
-  .forest-theme-card {
-    background: linear-gradient(135deg, #152118 0%, #0d1a0f 100%) !important;
-    color: #dcfce7 !important;
-    border-color: #1e3322 !important;
-  }
-  .sunset-theme-card {
-    background: linear-gradient(135deg, #261a12 0%, #1a0f0a 100%) !important;
-    color: #fff7ed !important;
-    border-color: #3d2818 !important;
-  }
+  /* (구) 테마별 그라데이션 카드 배경 override 제거 — 새 디자인은 좌측 swatch 만으로
+   * 테마 색을 표현하므로 카드 배경은 일관된 카드 톤 유지가 더 깔끔하다. */
 
   .modal-footer {
     padding: 0.75rem 1.25rem;
@@ -2703,10 +2998,10 @@
   }
 
   .telegram-link:hover {
-    transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(var(--primary-color-rgb, 59, 130, 246), 0.3);
     color: white;
     text-decoration: none;
+    filter: brightness(1.08);
   }
 
   .botfather-link {
@@ -3026,7 +3321,6 @@
     background-color: var(--primary-color);
     color: white;
     border-color: var(--primary-color);
-    transform: scale(1.05);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
   }
 
@@ -3075,7 +3369,7 @@
   }
 
   .proxy-action-btn:hover {
-    transform: scale(1.05);
+    background: rgba(var(--primary-color-rgb, 99, 102, 241), 0.12);
   }
 
   .toggle-btn.active {

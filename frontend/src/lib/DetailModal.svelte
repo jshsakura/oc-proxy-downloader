@@ -507,7 +507,6 @@
     background-color: var(--primary-color);
     color: white;
     border-color: var(--primary-color);
-    transform: scale(1.05);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
   }
 

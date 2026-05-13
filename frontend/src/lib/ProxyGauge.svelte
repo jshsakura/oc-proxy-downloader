@@ -293,14 +293,18 @@
   .proxy-label {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     background-color: #ffb74d;
     color: white;
-    padding: 4px 15px;
-    border-radius: 16px;
+    padding: 4px 14px;
+    border-radius: 999px;
     font-size: 12px;
-    font-weight: 500;
-    min-height: 26px;
+    font-weight: 600;
+    line-height: 1;
+    height: 26px;
+    min-width: 70px;
+    box-sizing: border-box;
   }
 
   .label-icon {
@@ -411,16 +415,18 @@
     animation: spin 1s linear infinite;
   }
 
-  /* 게이지 바 스타일 */
+  /* 게이지 바 — local 카드의 count 칩과 사이즈/모양 통일을 위해 24px 높이의
+   * slim pill 로. fail% 표시는 우측 inset fill 로 유지. */
   .gauge-bar {
     flex: 1;
     min-width: 0;
-    height: 30px;
-    border-radius: 5px;
+    height: 24px;
+    border-radius: 999px;
     overflow: hidden;
     display: flex;
     position: relative;
     border: 1px solid var(--card-border);
+    background: var(--input-inner-bg, var(--card-background));
     margin-right: 0.5rem;
   }
 
@@ -502,6 +508,8 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    min-height: 38px;
+    box-sizing: border-box;
     transition: background-color 0.3s ease;
   }
 

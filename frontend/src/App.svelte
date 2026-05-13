@@ -46,6 +46,7 @@
   import ProxyGauge from "./lib/ProxyGauge.svelte";
   import LocalGauge from "./lib/LocalGauge.svelte";
   import Dashboard from "./lib/Dashboard.svelte";
+  import HistoryPeriodControls from "./lib/HistoryPeriodControls.svelte";
   import { EventSourceManager } from "./EventSource.js";
 
   console.log(
@@ -162,7 +163,7 @@
   let dashboardHistory = [];
   let dashboardTotalPages = 0;
   let dashboardCurrentPage = 1;
-  let dashboardExpanded = false;
+  // dashboardExpanded 제거 — 대시보드는 항상 노출.
   let systemStats = null;
   let systemStatsInterval = null;
 
@@ -213,6 +214,15 @@
       fetchActiveDownloads();
       fetchProxyStatus();
       checkProxyAvailability();
+
+      // 대시보드는 항상 노출이라 마운트 시점에 즉시 초기 데이터 로드 + 시스템
+      // 모니터링 폴링 시작. 이전엔 펼침 토글에서만 시작했지만 토글이 사라졌음.
+      fetchDashboardStats();
+      fetchDashboardHistory();
+      fetchSystemStats();
+      if (!systemStatsInterval) {
+        systemStatsInterval = setInterval(fetchSystemStats, 5000);
+      }
     }
 
     // 대기시간 실시간 업데이트 타이머 시작
@@ -1149,11 +1159,28 @@
         
         console.log(`API 호출 성공: ${endpoint}`);
       } else {
+        // 재시도 차단 사유는 별도 메시지로 분기 (영구 실패 / 로그인 필요)
+        if (response.status === 409 && endpoint.includes("/retry/")) {
+          let detail = "";
+          try {
+            const data = await response.json();
+            detail = data.detail || "";
+          } catch (_) { /* JSON 아님 — 폴백 메시지 사용 */ }
+          if (detail === "retry_blocked_dead") {
+            toast.error($t("retry_blocked_dead"));
+            return;
+          }
+          if (detail === "retry_blocked_auth_required") {
+            toast.error($t("retry_blocked_auth_required"));
+            return;
+          }
+        }
+
         // 에러 메시지 표시
         const action = endpoint.includes("/stop/") ? $t("action_stop") :
                      endpoint.includes("/resume/") ? $t("action_resume_action") :
                      endpoint.includes("/retry/") ? $t("action_retry_action") : $t("action_work");
-        
+
         toast.error(`${action} 요청에 실패했습니다.`);
         console.error(`API 호출 실패: ${endpoint}, 상태: ${response.status}`);
       }
@@ -1579,20 +1606,7 @@
     searchExpanded = false;
   }
 
-  function toggleDashboard() {
-    dashboardExpanded = !dashboardExpanded;
-    if (dashboardExpanded) {
-      fetchDashboardStats();
-      fetchDashboardHistory();
-      fetchSystemStats();
-      systemStatsInterval = setInterval(fetchSystemStats, 5000);
-    } else {
-      if (systemStatsInterval) {
-        clearInterval(systemStatsInterval);
-        systemStatsInterval = null;
-      }
-    }
-  }
+  // (구) toggleDashboard — 대시보드는 항상 펼쳐져 있으므로 토글 제거.
 
   // 통합 필터링 및 카운팅 (한 번의 순회로 모든 계산 완료)
   let filteredDownloads = [];
@@ -1806,9 +1820,14 @@
       </form>
     </div>
 
-    <div class="gauge-container">
-      <div class="gauge-item">
-        <ProxyGauge
+    <!-- 통합 대시보드 — KPI/차트는 설정 "통계" 탭으로 이동. 메인은 라이브(프록시·로컬
+         합본 카드) + 시스템 모니터링만. 조회 조건(기간) 은 그리드 헤더로 이동. -->
+    <Dashboard {systemStats}>
+      <!-- 프록시 + 로컬을 하나의 카드 안에서 두 분할로. 시각적으로 한 가족이
+           되고, 카드 외곽선/그림자/모서리도 dashboard 카드와 같음. -->
+      <div slot="gauges" class="live-card">
+        <div class="live-pane live-pane-proxy">
+          <ProxyGauge
             totalProxies={proxyStats.totalProxies}
             availableProxies={proxyStats.availableProxies}
             usedProxies={proxyStats.usedProxies}
@@ -1825,68 +1844,34 @@
             on:resetProxyStatus={handleResetProxyStatus}
           />
         </div>
-
-        <div class="gauge-item">
+        <div class="live-pane live-pane-local">
           <LocalGauge
             localDownloadCount={localStats.localDownloadCount}
             localStatus={localStats.localStatus}
           />
         </div>
       </div>
-
-    <div class="card card-dashboard">
-      <div
-        class="dashboard-summary-strip"
-        class:expanded={dashboardExpanded}
-      >
-        <span class="dashboard-summary-pills">
-          <span class="dashboard-summary-pill" on:click={toggleDashboard} role="button" tabindex="0">
-            <strong>{dashboardSummaryTotal.toLocaleString()}</strong>
-            <span>{$t("dashboard_total_downloads")}</span>
-          </span>
-          <span class="dashboard-summary-pill" on:click={toggleDashboard} role="button" tabindex="0">
-            <strong>{dashboardSummarySuccessRate.toFixed(0)}%</strong>
-            <span>{$t("dashboard_success_rate")}</span>
-          </span>
-          <span class="dashboard-summary-pill" on:click={toggleDashboard} role="button" tabindex="0">
-            <strong>{workingCount}</strong>
-            <span>{$t("tab_working")}</span>
-          </span>
-          <span class="dashboard-summary-pill dashboard-summary-data" on:click={toggleDashboard} role="button" tabindex="0">
-            <strong>{formatBytes(dashboardSummaryBytes)}</strong>
-            <span>{$t("dashboard_total_data")}</span>
-          </span>
-        </span>
-        <button
-          type="button"
-          class="dashboard-summary-toggle"
-          on:click={toggleDashboard}
-          aria-label={$t("tab_dashboard")}
-        >
-          <span class="chevron-icon"><ChevronRightIcon /></span>
-        </button>
-      </div>
-
-      {#if dashboardExpanded}
-        <div class="dashboard-drawer">
-          <Dashboard
-            {dashboardStats}
-            {systemStats}
-            {dashboardPeriod}
-            {dashboardStartDate}
-            {dashboardEndDate}
-            {dashboardHistory}
-            {dashboardTotalPages}
-            dashboardCurrentPage={dashboardCurrentPage}
-            on:periodChange={(e) => { dashboardPeriod = e.detail; }}
-            on:customApply={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
-            on:pageChange={(e) => { dashboardCurrentPage = e.detail; fetchDashboardHistory(); }}
-          />
-        </div>
-      {/if}
-    </div>
+    </Dashboard>
 
     <div class="downloads-section">
+      <!-- 조회 조건(기간) — 그리드 위 별도 줄. PC 는 중앙 정렬, 모바일은 풀폭. -->
+      <div class="grid-period-bar">
+        <HistoryPeriodControls
+          bind:period={dashboardPeriod}
+          bind:startDate={dashboardStartDate}
+          bind:endDate={dashboardEndDate}
+          on:periodChange={(e) => {
+            dashboardPeriod = e.detail;
+            fetchDashboardStats();
+            fetchDashboardHistory();
+          }}
+          on:customApply={() => {
+            fetchDashboardStats();
+            fetchDashboardHistory();
+          }}
+        />
+      </div>
+
       <div class="tabs-container">
         <div class="tabs">
           <button
@@ -2211,14 +2196,36 @@
                         </button>
                       {/if}
                       {#if download.status?.toLowerCase() === "failed"}
-                        <button
-                          class="button-icon"
-                          title={$t("action_retry")}
-                          on:click={() => callApi(`/api/retry/${download.id}`)}
-                          aria-label={$t("action_retry")}
-                        >
-                          <RetryIcon />
-                        </button>
+                        {#if download.failure_kind === "dead"}
+                          <!-- 원본이 사라진 파일 — 클릭 자체를 막아 의미 없는 재요청을 차단 -->
+                          <button
+                            class="button-icon is-disabled"
+                            title={$t("retry_blocked_dead")}
+                            on:click={() => toast.error($t("retry_blocked_dead"))}
+                            aria-label={$t("retry_blocked_dead")}
+                            aria-disabled="true"
+                          >
+                            <RetryIcon />
+                          </button>
+                        {:else if download.failure_kind === "auth_required"}
+                          <button
+                            class="button-icon is-warn"
+                            title={$t("retry_blocked_auth_required")}
+                            on:click={() => callApi(`/api/retry/${download.id}`)}
+                            aria-label={$t("retry_blocked_auth_required")}
+                          >
+                            <RetryIcon />
+                          </button>
+                        {:else}
+                          <button
+                            class="button-icon"
+                            title={$t("action_retry")}
+                            on:click={() => callApi(`/api/retry/${download.id}`)}
+                            aria-label={$t("action_retry")}
+                          >
+                            <RetryIcon />
+                          </button>
+                        {/if}
                       {/if}
                       <button
                         class="button-icon"
@@ -2483,8 +2490,17 @@
     <SettingsModal
       showModal={showSettingsModal}
       {currentSettings}
+      {dashboardStats}
+      summaryTotal={dashboardSummaryTotal}
+      summarySuccessRate={dashboardSummarySuccessRate}
+      summaryWorking={workingCount}
+      summaryBytes={dashboardSummaryBytes}
+      bind:statsPeriod={dashboardPeriod}
+      bind:statsStartDate={dashboardStartDate}
+      bind:statsEndDate={dashboardEndDate}
       on:settingsChanged={handleSettingsChanged}
       on:proxyChanged={checkProxyAvailability}
+      on:statsPeriodChange={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
       on:close={() => (showSettingsModal = false)}
     />
   {/if}

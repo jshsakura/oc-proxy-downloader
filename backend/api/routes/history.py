@@ -11,6 +11,16 @@ from typing import List, Optional
 
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
+from core.error_messages import classify_failure_text
+from core.simple_parser import derive_display_name
+
+
+def _display_filename(download: DownloadRequest) -> str:
+    """Unknown 절대 노출 금지 — DB 의 file_name 이 비어 있으면 URL 로부터 유도."""
+    name = (download.file_name or "").strip()
+    if name:
+        return name
+    return derive_display_name(download.url or "")
 
 router = APIRouter(prefix="/api", tags=["history"])
 
@@ -45,13 +55,14 @@ async def get_download_history(
             history.append({
                 "id": download.id,
                 "url": download.url,
-                "filename": download.file_name or "Unknown",
+                "filename": _display_filename(download),
                 "status": download.status.value if download.status else "unknown",
                 "progress": round((download.downloaded_size / download.total_size * 100), 1) if download.total_size and download.total_size > 0 else 0,
                 "use_proxy": download.use_proxy or False,
                 "created_at": download.requested_at.isoformat() if download.requested_at else None,
                 "finished_at": download.finished_at.isoformat() if download.finished_at else None,
                 "error_message": download.error,
+                "failure_kind": classify_failure_text(download.error),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size
             })
@@ -97,11 +108,12 @@ async def get_working_downloads(
             download_list.append({
                 "id": download.id,
                 "url": download.url,
-                "filename": download.file_name or "Unknown",
+                "filename": _display_filename(download),
                 "status": download.status.value if download.status else "unknown",
                 "progress": round((download.downloaded_size / download.total_size * 100), 1) if download.total_size and download.total_size > 0 else 0,
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
+                "failure_kind": classify_failure_text(download.error),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
@@ -157,11 +169,12 @@ async def get_completed_downloads(
             download_list.append({
                 "id": download.id,
                 "url": download.url,
-                "filename": download.file_name or "Unknown",
+                "filename": _display_filename(download),
                 "status": download.status.value if download.status else "unknown",
                 "progress": 100,  # 완료된 건은 항상 100%
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
+                "failure_kind": classify_failure_text(download.error),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
@@ -205,11 +218,12 @@ async def get_active_downloads(db: Session = Depends(get_db)):
             downloads.append({
                 "id": download.id,
                 "url": download.url,
-                "filename": download.file_name or "Unknown",
+                "filename": _display_filename(download),
                 "status": download.status.value if download.status else "unknown",
                 "progress": round((download.downloaded_size / download.total_size * 100), 1) if download.total_size and download.total_size > 0 else 0,
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
+                "failure_kind": classify_failure_text(download.error),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size  # 사전파싱에서 얻은 파일 크기 정보

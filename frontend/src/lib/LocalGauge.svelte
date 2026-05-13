@@ -178,14 +178,18 @@
   .local-label {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    justify-content: center;
+    gap: 6px;
     background-color: var(--primary-color);
     color: white;
-    padding: 4px 15px;
-    border-radius: 15px;
+    padding: 4px 14px;
+    border-radius: 999px;
     font-size: 12px;
-    font-weight: 500;
-    min-height: 26px;
+    font-weight: 600;
+    line-height: 1;
+    height: 26px;
+    min-width: 70px;
+    box-sizing: border-box;
   }
 
   .label-icon {
@@ -198,9 +202,24 @@
     line-height: 1;
   }
 
+  /* proxy 의 gauge-bar 와 동일한 사이즈/모양 chip — count 표시도 24px pill. */
   .local-count {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+    padding: 0 0.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--card-border);
+    background: var(--input-inner-bg, var(--card-background));
+    display: inline-flex;
+    align-items: center;
     color: var(--text-secondary);
-    min-width: 80px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .local-indicator {
@@ -247,7 +266,8 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    min-height: 34px;
+    min-height: 38px;
+    box-sizing: border-box;
     transition: background-color 0.3s ease;
   }
 
