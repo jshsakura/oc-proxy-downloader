@@ -319,6 +319,7 @@
     align-items: center;
     gap: 1rem;
     width: 100%;
+    min-height: 40px;
   }
 
   .status-left {

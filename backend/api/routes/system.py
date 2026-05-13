@@ -1,8 +1,29 @@
 # -*- coding: utf-8 -*-
+import time
 import psutil
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api", tags=["system"])
+
+
+class ClientError(BaseModel):
+    msg: str = ""
+    src: str = ""
+    line: int = 0
+    col: int = 0
+    stack: str = ""
+
+
+@router.post("/log-error")
+async def log_client_error(err: ClientError):
+    with open("/tmp/client-errors.log", "a") as f:
+        f.write(f"\n=== CLIENT ERROR ===\n")
+        f.write(f"msg={err.msg}\n")
+        f.write(f"src={err.src}:{err.line}:{err.col}\n")
+        if err.stack:
+            f.write(f"stack={err.stack}\n")
+    return {"ok": True}
 
 
 @router.get("/system/stats")

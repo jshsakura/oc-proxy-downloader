@@ -7,6 +7,10 @@
   import SettingsIcon from "../icons/SettingsIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
   import ExternalLinkIcon from "../icons/ExternalLinkIcon.svelte";
+  import GitHubIcon from "../icons/GitHubIcon.svelte";
+  import DockerIcon from "../icons/DockerIcon.svelte";
+  import { toast } from "svelte-sonner";
+  import ConfirmModal from "./ConfirmModal.svelte";
   import {
     authRequired,
     isAuthenticated,
@@ -469,10 +473,21 @@
     }
   }
 
-  onMount(async () => {
-    document.body.style.overflow = "hidden";
+  let bodyOverflowSaved = null;
 
-    // 환경 정보 로드
+  $: if (showModal) {
+    if (bodyOverflowSaved === null) {
+      bodyOverflowSaved = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+  } else {
+    if (bodyOverflowSaved !== null) {
+      document.body.style.overflow = bodyOverflowSaved;
+      bodyOverflowSaved = null;
+    }
+  }
+
+  onMount(async () => {
     try {
       const response = await fetch("/api/default_download_path");
       if (response.ok) {
@@ -484,14 +499,9 @@
       }
     } catch (error) {
       console.warn("[WARN] Failed to load environment info:", error);
-      // 기본값 유지
     }
 
-    // 버전 정보 로드
     loadVersionInfo();
-  });
-  onDestroy(() => {
-    document.body.style.overflow = "";
   });
 </script>
 

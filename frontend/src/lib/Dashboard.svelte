@@ -5,6 +5,7 @@
   import StatusDonutChart from "./StatusDonutChart.svelte";
 
   export let dashboardStats = null;
+  export let systemStats = null;
   export let dashboardPeriod = "30d";
   export let dashboardStartDate = "";
   export let dashboardEndDate = "";
@@ -23,9 +24,20 @@
     return val.toFixed(i === 0 ? 0 : 1) + " " + units[i];
   }
 
+  function formatUptime(seconds) {
+    if (!seconds) return "0s";
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return d + "d " + h + "h";
+    if (h > 0) return h + "h " + m + "m";
+    return m + "m";
+  }
+
   $: dailyTrend = (dashboardStats && dashboardStats.daily_trend) || [];
   $: byStatus = (dashboardStats && dashboardStats.by_status) || {};
   $: hasData = dashboardStats && dashboardStats.total > 0;
+  $: hasSystem = systemStats !== null;
 
   function onPeriodChange(e) {
     dispatch("periodChange", e.detail);
@@ -39,6 +51,68 @@
 </script>
 
 <section class="dashboard-section">
+  {#if hasSystem}
+    <div class="system-grid">
+      <div class="sys-card">
+        <div class="sys-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+          <span class="sys-title">CPU</span>
+        </div>
+        <div class="sys-bar-wrap">
+          <div class="sys-bar">
+            <div class="sys-bar-fill cpu" style="width: {systemStats.cpu.percent}%"></div>
+          </div>
+          <span class="sys-pct">{systemStats.cpu.percent}%</span>
+        </div>
+        <div class="sys-meta">{systemStats.cpu.count_physical}C / {systemStats.cpu.count_logical}T &middot; L: {systemStats.cpu.load_avg_1}</div>
+      </div>
+
+      <div class="sys-card">
+        <div class="sys-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19v-8a6 6 0 0 1 12 0v8"/><path d="M6 19h12"/><path d="M6 11h12"/></svg>
+          <span class="sys-title">RAM</span>
+        </div>
+        <div class="sys-bar-wrap">
+          <div class="sys-bar">
+            <div class="sys-bar-fill ram" style="width: {systemStats.memory.percent}%"></div>
+          </div>
+          <span class="sys-pct">{systemStats.memory.percent}%</span>
+        </div>
+        <div class="sys-meta">{formatBytes(systemStats.memory.used)} / {formatBytes(systemStats.memory.total)}</div>
+      </div>
+
+      <div class="sys-card">
+        <div class="sys-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          <span class="sys-title">{$t("sys_disk")}</span>
+        </div>
+        <div class="sys-bar-wrap">
+          <div class="sys-bar">
+            <div class="sys-bar-fill disk" style="width: {systemStats.disk.percent}%"></div>
+          </div>
+          <span class="sys-pct">{systemStats.disk.percent}%</span>
+        </div>
+        <div class="sys-meta">{formatBytes(systemStats.disk.used)} / {formatBytes(systemStats.disk.total)}</div>
+      </div>
+
+      <div class="sys-card">
+        <div class="sys-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="10"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
+          <span class="sys-title">{$t("sys_network")}</span>
+        </div>
+        <div class="sys-net-row">
+          <span class="sys-net-label">↑</span>
+          <span class="sys-net-val">{formatBytes(systemStats.network.bytes_sent)}</span>
+        </div>
+        <div class="sys-net-row">
+          <span class="sys-net-label">↓</span>
+          <span class="sys-net-val">{formatBytes(systemStats.network.bytes_recv)}</span>
+        </div>
+        <div class="sys-meta">{$t("sys_uptime")}: {formatUptime(systemStats.uptime)}</div>
+      </div>
+    </div>
+  {/if}
+
   <HistoryPeriodControls
     bind:period={dashboardPeriod}
     bind:startDate={dashboardStartDate}
@@ -112,6 +186,113 @@
 <style>
   .dashboard-section {
     margin-bottom: 1rem;
+  }
+
+  .system-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.6rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .sys-card {
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-card-border);
+    border-radius: 10px;
+    padding: 0.6rem 0.75rem;
+    box-shadow: var(--shadow-light);
+  }
+
+  .sys-header {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .sys-header :global(svg) {
+    width: 13px;
+    height: 13px;
+    opacity: 0.6;
+  }
+
+  .sys-title {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .sys-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .sys-bar {
+    flex: 1;
+    height: 6px;
+    background: rgba(var(--primary-color-rgb, 99, 102, 241), 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .sys-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease;
+  }
+
+  .sys-bar-fill.cpu {
+    background: var(--primary-color);
+  }
+
+  .sys-bar-fill.ram {
+    background: #34d399;
+  }
+
+  .sys-bar-fill.disk {
+    background: #f59e0b;
+  }
+
+  .sys-pct {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    min-width: 2.5rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sys-meta {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sys-net-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-bottom: 0.15rem;
+  }
+
+  .sys-net-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    width: 14px;
+    text-align: center;
+  }
+
+  .sys-net-val {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
   }
 
   .dashboard-stats-grid {
@@ -240,6 +421,9 @@
   }
 
   @media (max-width: 768px) {
+    .system-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
     .dashboard-charts-row {
       grid-template-columns: 1fr;
     }
@@ -249,6 +433,9 @@
   }
 
   @media (max-width: 480px) {
+    .system-grid {
+      grid-template-columns: 1fr;
+    }
     .dashboard-stats-grid {
       grid-template-columns: 1fr;
     }

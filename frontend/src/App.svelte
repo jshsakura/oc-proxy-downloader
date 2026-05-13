@@ -163,6 +163,8 @@
   let dashboardTotalPages = 0;
   let dashboardCurrentPage = 1;
   let dashboardExpanded = false;
+  let systemStats = null;
+  let systemStatsInterval = null;
 
   function openConfirm({
     message,
@@ -185,7 +187,6 @@
   }
 
   onMount(async () => {
-    // 초기 화면 크기에 따한 항목 수 설정
     itemsPerPage = calculateItemsPerPage();
 
     // 먼저 언어 설정부터 처리
@@ -383,6 +384,10 @@
       batchRafId = null;
       pendingStateUpdates = [];
     }
+    if (systemStatsInterval) {
+      clearInterval(systemStatsInterval);
+      systemStatsInterval = null;
+    }
   });
 
   function handleLoginSuccess() {
@@ -502,6 +507,17 @@
       }
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);
+    }
+  }
+
+  async function fetchSystemStats() {
+    try {
+      const response = await fetch("/api/system/stats");
+      if (response.ok) {
+        systemStats = await response.json();
+      }
+    } catch (error) {
+      console.error("Error fetching system stats:", error);
     }
   }
 
@@ -1568,6 +1584,13 @@
     if (dashboardExpanded) {
       fetchDashboardStats();
       fetchDashboardHistory();
+      fetchSystemStats();
+      systemStatsInterval = setInterval(fetchSystemStats, 5000);
+    } else {
+      if (systemStatsInterval) {
+        clearInterval(systemStatsInterval);
+        systemStatsInterval = null;
+      }
     }
   }
 
@@ -1848,6 +1871,7 @@
         <div class="dashboard-drawer">
           <Dashboard
             {dashboardStats}
+            {systemStats}
             {dashboardPeriod}
             {dashboardStartDate}
             {dashboardEndDate}

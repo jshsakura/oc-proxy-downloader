@@ -247,6 +247,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    min-height: 34px;
     transition: background-color 0.3s ease;
   }
 
@@ -485,7 +486,6 @@
   @media (max-width: 759px) {
     .local-gauge {
       padding: 0.75rem;
-      margin-bottom: 1rem;
     }
 
     .local-info {

@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noImplicitAny": false,
+    "strict": false,
+    "strictNullChecks": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "target": "ESNext",
+    "module": "ESNext"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}
