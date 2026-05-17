@@ -17,6 +17,7 @@ from api.routes import downloads, settings, events, auth, locales
 from api.routes.proxy import router as proxy_router
 from api.routes.history import router as history_router
 from api.routes.system import router as system_router
+from api.routes.audit import router as audit_router
 from core.db import engine
 from core.models import Base
 from core.i18n import load_all_translations
@@ -158,6 +159,7 @@ def create_app() -> FastAPI:
     api_router.include_router(events.router)
     api_router.include_router(locales.router)
     api_router.include_router(system_router)
+    api_router.include_router(audit_router)
 
     app.include_router(api_router)
     
@@ -278,24 +280,49 @@ def create_app() -> FastAPI:
 
 
 async def _run_migrations():
-    """데이터베이스 마이그레이션 실행"""
+    """데이터베이스 마이그레이션 실행.
+
+    SQLite 는 ALTER TABLE 로 컬럼만 추가 가능 (드롭/타입변경 불가). 모든
+    추가 컬럼은 nullable 또는 기본값 있어야 한다. 호출은 idempotent —
+    이미 존재하는 컬럼은 PRAGMA table_info 로 걸러서 SKIP.
+    """
+    # (column_name, ALTER TABLE 뒤에 붙는 DDL 조각)
+    required_columns = [
+        ("started_at", "DATETIME"),
+        # 실패 분류 / 재시도 정책 (2026-05 추가)
+        ("failure_kind", "VARCHAR"),
+        ("attempt_count", "INTEGER DEFAULT 0"),
+        ("next_retry_at", "DATETIME"),
+        ("last_probed_at", "DATETIME"),
+        ("attempts_json", "TEXT"),
+    ]
+
     try:
         db = next(get_db())
-
-        # started_at 컬럼이 없는 경우 추가
         try:
-            # 컬럼 존재 여부 확인
             result = db.execute(text("PRAGMA table_info(download_requests)"))
-            columns = [row[1] for row in result.fetchall()]
+            existing = {row[1] for row in result.fetchall()}
 
-            if 'started_at' not in columns:
-                print("[LOG] Adding started_at column to download_requests table")
-                db.execute(text("ALTER TABLE download_requests ADD COLUMN started_at DATETIME"))
+            for col_name, ddl in required_columns:
+                if col_name in existing:
+                    continue
+                print(f"[LOG] Adding {col_name} column to download_requests")
+                db.execute(text(
+                    f"ALTER TABLE download_requests ADD COLUMN {col_name} {ddl}"
+                ))
                 db.commit()
-                print("[LOG] Migration completed: started_at column added")
-            else:
-                print("[LOG] started_at column already exists")
+                print(f"[LOG] Migration completed: {col_name} column added")
 
+            # 자주 쓰는 필터 (실패+다음 재시도 시각) 용 인덱스 — idempotent
+            db.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_download_requests_failure_kind "
+                "ON download_requests(failure_kind)"
+            ))
+            db.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_download_requests_next_retry_at "
+                "ON download_requests(next_retry_at)"
+            ))
+            db.commit()
         except Exception as e:
             print(f"[ERROR] Migration failed: {e}")
             db.rollback()

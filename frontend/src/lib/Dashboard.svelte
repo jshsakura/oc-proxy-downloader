@@ -1,5 +1,6 @@
 <script>
   import { t } from "./i18n.js";
+  import Skeleton from "./Skeleton.svelte";
 
   export let systemStats = null;
   // 기간(조회 조건) 은 그리드 헤더로 이동. Dashboard 는 라이브 상태 + 시스템
@@ -331,6 +332,21 @@
           </svg>
         </div>
       </div>
+    </div>
+  {:else}
+    <div class="monitor-grid">
+      {#each Array(4) as _}
+        <div class="monitor-card">
+          <div class="monitor-head">
+            <Skeleton width="45%" height="11px" radius="3px" />
+            <Skeleton width="30%" height="10px" radius="3px" />
+          </div>
+          <div class="monitor-body">
+            <Skeleton width="86px" height="86px" circle={true} />
+            <Skeleton width="100%" height="44px" radius="4px" />
+          </div>
+        </div>
+      {/each}
     </div>
   {/if}
 

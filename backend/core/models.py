@@ -77,6 +77,16 @@ class DownloadRequest(_AsDictMixin, Base):
     password = Column(String, nullable=True)
     use_proxy = Column(Boolean, default=True)  # 프록시 사용 여부
 
+    # 실패 분류 / 재시도 정책 영구 저장 (error_messages.KIND_* 와 동일 값)
+    # 텍스트 재분류만으로는 분류 룰을 바꿀 때마다 의미가 변하고, 단일
+    # 관측치만으로 dead 박제되는 문제를 막기 위한 컬럼들.
+    failure_kind = Column(String, nullable=True, index=True)
+    attempt_count = Column(Integer, default=0)
+    next_retry_at = Column(DateTime, nullable=True, index=True)
+    last_probed_at = Column(DateTime, nullable=True)
+    # 최근 시도 N=5 회 링버퍼 (JSON 배열, 각 원소 {ts, stage, kind, raw, proxy})
+    attempts_json = Column(Text, nullable=True)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # progress 는 DB 컬럼이 아닌 transient 필드 — 정지/재개 시 SSE

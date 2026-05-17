@@ -24,6 +24,7 @@ from core.error_messages import (
     classify_failure_text,
     is_terminal_failure,
     is_auth_required_failure,
+    is_retry_blocked_now,
     KIND_DEAD,
     KIND_AUTH_REQUIRED,
 )
@@ -44,17 +45,17 @@ def _has_fichier_credentials() -> bool:
 
 
 def _should_skip_retry(req: DownloadRequest, has_credentials: bool) -> Optional[str]:
-    """배치/단건 재시도 시 건너뛸 사유 문자열을 반환. 건너뛸 필요 없으면 None.
+    """배치/단건 재시도 시 건너뛸 사유 — 없으면 None.
 
-    - 영구 실패(``dead``): 항상 건너뜀.
-    - 로그인 필요(``auth_required``): 계정 미설정 시에만 건너뜀.
+    우선 ``failure_kind`` / ``next_retry_at`` 컬럼을 보고, 마이그레이션 이전
+    레코드(컬럼 NULL)는 ``error`` 텍스트로 폴백.
+
+    반환:
+      - ``dead``: 항상 차단. UI 도 재시도 버튼 비활성화.
+      - ``auth_required``: 계정 미설정 시에만.
+      - ``cooldown``: 다음 재시도 시각 미도래. 시간이 지나면 자연스럽게 풀림.
     """
-    err = req.error or ""
-    if is_terminal_failure(err):
-        return "dead"
-    if not has_credentials and is_auth_required_failure(err):
-        return "auth_required"
-    return None
+    return is_retry_blocked_now(req, has_credentials)
 
 router = APIRouter(prefix="/api", tags=["downloads"])
 
@@ -263,6 +264,11 @@ async def retry_download(
                 status_code=409,
                 detail="retry_blocked_auth_required",
             )
+        if skip_reason == "cooldown":
+            # cooldown 은 시간이 풀리면 일괄 재시작에서 자동으로 잡히지만,
+            # 수동 단건 재시도일 때는 사용자가 강제 시도하는 의도이므로
+            # 컬럼 초기화 후 통과시킨다.
+            req.next_retry_at = None
 
         # 만료된 링크에 대한 로깅 (URL 복원 불필요 - 파싱 시 original_url 자동 사용)
         if req.error and "410" in str(req.error):
@@ -271,9 +277,16 @@ async def retry_download(
         if req.url and "1fichier.com/c" in req.url:
             print(f"[LOG] 1fichier 직접 다운로드 링크, 재파싱으로 새 링크 획득 예정")
 
-        # 상태를 pending으로 변경하고 오류 메시지 초기화
+        # 상태를 pending으로 변경하고 오류 메시지 초기화. 분류/cooldown 컬럼도
+        # 비우고, attempt_count/attempts_json 도 리셋 — 사용자 의도가 "강제 재시도"
+        # 이므로 backoff 누적치를 들고 가면 안 됨 (다음 실패가 즉시 30분 cooldown
+        # 받는 회귀를 막는다).
         req.status = StatusEnum.pending
         req.error = None
+        req.failure_kind = None
+        req.next_retry_at = None
+        req.attempt_count = 0
+        req.attempts_json = None
         req.downloaded_size = 0  # 처음부터 다시 시작
         req.finished_at = None
         db.commit()
@@ -486,6 +499,59 @@ async def delete_download(download_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"[ERROR] 다운로드 삭제 API 오류: {e}")
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+
+@router.post("/downloads/bulk-delete")
+async def bulk_delete_downloads(
+    request: dict,
+    db: Session = Depends(get_db),
+):
+    """선택한 다운로드들을 한 번에 삭제. audit 결과 보고 관리자가 정리할 때 사용.
+
+    body: ``{"ids": [int, ...]}``. 실행 중 다운로드는 먼저 stop 후 삭제.
+    """
+    ids = request.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="ids 가 비어있습니다")
+    # 정수 변환 + 중복 제거
+    try:
+        ids = sorted({int(i) for i in ids})
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="ids 는 정수 리스트여야 합니다")
+
+    rows = db.query(DownloadRequest).filter(DownloadRequest.id.in_(ids)).all()
+    if not rows:
+        return {"success": True, "deleted_count": 0, "ids": []}
+
+    deleted_ids: List[int] = []
+    active_statuses = {
+        StatusEnum.parsing, StatusEnum.downloading, StatusEnum.waiting,
+        StatusEnum.proxying,
+    }
+    for r in rows:
+        if r.status in active_statuses:
+            try:
+                await download_core.stop_download_async(r.id, db)
+            except Exception as e:
+                print(f"[WARNING] bulk-delete: 중지 중 오류 (id={r.id}): {e}")
+        db.delete(r)
+        deleted_ids.append(r.id)
+    db.commit()
+
+    # 일괄 SSE 통지 — 행 갱신이 비싼 케이스를 피하려고 단일 force_refresh.
+    await sse_manager.broadcast_message("downloads_bulk_deleted", {
+        "ids": deleted_ids,
+        "count": len(deleted_ids),
+    })
+    await sse_manager.broadcast_message("force_refresh", {
+        "message": f"{len(deleted_ids)}개 다운로드가 삭제되었습니다",
+    })
+
+    return {
+        "success": True,
+        "deleted_count": len(deleted_ids),
+        "ids": deleted_ids,
+    }
 
 
 @router.post("/downloads/force-refresh")
@@ -730,10 +796,12 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped])
         ).all()
 
-        # 영구 실패/로그인 필요 항목은 일괄 재시작 대상에서 제외
+        # 영구 실패/로그인 필요/cooldown 항목은 일괄 재시작 대상에서 제외.
+        # cooldown 은 시간이 풀리면 다음 호출에서 자연스럽게 잡힌다 — 영구 차단 아님.
         has_creds = _has_fichier_credentials()
         skipped_dead = 0
         skipped_auth = 0
+        skipped_cooldown = 0
         failed_downloads = []
         for d in all_failed:
             reason = _should_skip_retry(d, has_creds)
@@ -741,11 +809,14 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
                 skipped_dead += 1
             elif reason == "auth_required":
                 skipped_auth += 1
+            elif reason == "cooldown":
+                skipped_cooldown += 1
             else:
                 failed_downloads.append(d)
-        if skipped_dead or skipped_auth:
+        if skipped_dead or skipped_auth or skipped_cooldown:
             print(
-                f"[LOG] 일괄 재시작 필터링: dead={skipped_dead}, auth_required={skipped_auth} 건 건너뜀"
+                f"[LOG] 일괄 재시작 필터링: dead={skipped_dead}, "
+                f"auth_required={skipped_auth}, cooldown={skipped_cooldown} 건 건너뜀"
             )
 
         restarted_count = 0
@@ -754,9 +825,13 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
         for i in range(0, len(failed_downloads), batch_size):
             batch = failed_downloads[i:i + batch_size]
             for download in batch:
-                # 상태를 pending으로 변경
+                # 상태를 pending으로 변경. 분류/cooldown/누적횟수도 함께 리셋.
                 download.status = StatusEnum.pending
                 download.error = None
+                download.failure_kind = None
+                download.next_retry_at = None
+                download.attempt_count = 0
+                download.attempts_json = None
                 download.downloaded_size = 0  # 다운로드 크기 초기화
 
             # 배치 단위로 커밋
@@ -785,6 +860,7 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
             "restarted_count": restarted_count,
             "skipped_dead": skipped_dead,
             "skipped_auth_required": skipped_auth,
+            "skipped_cooldown": skipped_cooldown,
         }
 
     except Exception as e:
@@ -869,10 +945,11 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
             DownloadRequest.use_proxy == False
         ).all()
 
-        # 영구 실패/로그인 필요 항목 제외
+        # 영구 실패/로그인 필요/cooldown 항목 제외
         has_creds = _has_fichier_credentials()
         skipped_dead = 0
         skipped_auth = 0
+        skipped_cooldown = 0
         failed_local_downloads = []
         for d in all_failed:
             reason = _should_skip_retry(d, has_creds)
@@ -880,11 +957,14 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
                 skipped_dead += 1
             elif reason == "auth_required":
                 skipped_auth += 1
+            elif reason == "cooldown":
+                skipped_cooldown += 1
             else:
                 failed_local_downloads.append(d)
-        if skipped_dead or skipped_auth:
+        if skipped_dead or skipped_auth or skipped_cooldown:
             print(
-                f"[LOG] 로컬 일괄 재시작 필터링: dead={skipped_dead}, auth_required={skipped_auth} 건 건너뜀"
+                f"[LOG] 로컬 일괄 재시작 필터링: dead={skipped_dead}, "
+                f"auth_required={skipped_auth}, cooldown={skipped_cooldown} 건 건너뜀"
             )
 
         # 모든 다운로드를 pending 상태로 변경 (한 번에 처리)
@@ -894,6 +974,10 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
             # 속성은 DB 에 persist 되지 않던 버그라 None 으로 비우는 것도
             # 의미가 없었음. 정상 컬럼으로 교정.
             download.error = None
+            download.failure_kind = None
+            download.next_retry_at = None
+            download.attempt_count = 0
+            download.attempts_json = None
             download.downloaded_size = 0  # 다운로드 크기 초기화
 
         # 한 번에 커밋
@@ -945,6 +1029,7 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
             "restarted_count": restarted_count,
             "skipped_dead": skipped_dead,
             "skipped_auth_required": skipped_auth,
+            "skipped_cooldown": skipped_cooldown,
         }
 
     except Exception as e:
@@ -1019,6 +1104,7 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
         has_creds = _has_fichier_credentials()
         skipped_dead = 0
         skipped_auth = 0
+        skipped_cooldown = 0
         failed_proxy_downloads = []
         for d in all_failed:
             reason = _should_skip_retry(d, has_creds)
@@ -1026,11 +1112,14 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
                 skipped_dead += 1
             elif reason == "auth_required":
                 skipped_auth += 1
+            elif reason == "cooldown":
+                skipped_cooldown += 1
             else:
                 failed_proxy_downloads.append(d)
-        if skipped_dead or skipped_auth:
+        if skipped_dead or skipped_auth or skipped_cooldown:
             print(
-                f"[LOG] 프록시 일괄 재시작 필터링: dead={skipped_dead}, auth_required={skipped_auth} 건 건너뜀"
+                f"[LOG] 프록시 일괄 재시작 필터링: dead={skipped_dead}, "
+                f"auth_required={skipped_auth}, cooldown={skipped_cooldown} 건 건너뜀"
             )
 
         restarted_count = 0
@@ -1039,9 +1128,13 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
         for i in range(0, len(failed_proxy_downloads), batch_size):
             batch = failed_proxy_downloads[i:i + batch_size]
             for download in batch:
-                # 상태를 pending으로 변경
+                # 상태를 pending으로 변경. 분류/cooldown/누적횟수도 함께 리셋.
                 download.status = StatusEnum.pending
                 download.error = None
+                download.failure_kind = None
+                download.next_retry_at = None
+                download.attempt_count = 0
+                download.attempts_json = None
                 download.downloaded_size = 0  # 다운로드 크기 초기화
 
             # 배치 단위로 커밋
@@ -1070,6 +1163,7 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
             "restarted_count": restarted_count,
             "skipped_dead": skipped_dead,
             "skipped_auth_required": skipped_auth,
+            "skipped_cooldown": skipped_cooldown,
         }
 
     except Exception as e:

@@ -43,11 +43,13 @@
   import ChevronRightIcon from "./icons/ChevronRightIcon.svelte";
   import { Toaster, toast } from 'svelte-sonner';
   import ConfirmModal from "./lib/ConfirmModal.svelte";
+  import AuditModal from "./lib/AuditModal.svelte";
   import ProxyGauge from "./lib/ProxyGauge.svelte";
   import LocalGauge from "./lib/LocalGauge.svelte";
   import Dashboard from "./lib/Dashboard.svelte";
   import HistoryPeriodControls from "./lib/HistoryPeriodControls.svelte";
   import { EventSourceManager } from "./EventSource.js";
+  import Skeleton from "./lib/Skeleton.svelte";
 
   console.log(
     "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
@@ -85,6 +87,17 @@
   let prevLang = null;
   let useProxy = false;
   let proxyAvailable = false;
+
+  // 링크 검수(audit) 진행 상태 — 헤더 버튼/토스트가 함께 참조.
+  let auditRunning = false;
+  let auditDone = 0;
+  let auditTotal = 0;
+  let showAuditModal = false;
+  // 다중선택 모드 — 실패/정지 row 에 체크박스 컬럼 노출.
+  let selectMode = false;
+  let selectedIds = new Set();
+  let showBulkDeleteConfirm = false;
+  let pendingBulkDelete = []; // confirm 모달에서 사용
 
   let proxyStats = {
     totalProxies: 0,
@@ -903,6 +916,47 @@
         // 전체 다운로드 목록을 다시 불러오기
         fetchDownloads();
       }
+
+      // 단건 probe 결과 — 행 갱신만 가볍게.
+      if (message.type === "probe_result") {
+        const { id, failure_kind, next_retry_at, kind, summary } = message.data;
+        queueStateUpdate(() => {
+          downloads = downloads.map((d) =>
+            d.id === id
+              ? { ...d, failure_kind, next_retry_at }
+              : d
+          );
+        });
+        if (kind === "alive") {
+          toast.success($t("probe_alive_message"));
+        } else if (kind === "dead") {
+          toast.warning($t("probe_dead_message"));
+        } else if (summary) {
+          toast.info(summary);
+        }
+      }
+
+      // 배치 audit 진행률 — 시작/단계/완료 단계 토스트.
+      if (message.type === "audit_progress") {
+        const { status, done, total, counts } = message.data;
+        if (status === "start") {
+          auditTotal = total;
+          auditDone = 0;
+          auditRunning = true;
+          toast.info($t("audit_started", { total }));
+        } else if (status === "step") {
+          auditDone = done;
+          auditTotal = total;
+        } else if (status === "done") {
+          auditRunning = false;
+          auditDone = done;
+          const alive = counts?.alive ?? 0;
+          const dead = counts?.dead ?? 0;
+          const other = total - alive - dead;
+          toast.success($t("audit_done", { alive, dead, other }));
+          fetchDownloads(); // 박제 해제된 항목들을 화면에 반영
+        }
+      }
     });
   }
 
@@ -1132,6 +1186,92 @@
     } catch (error) {
       console.error("Error fetching active downloads:", error);
     }
+  }
+
+  async function startAudit(payload = null) {
+    // payload 없이 호출되면 모달 열기 — 헤더 버튼 클릭 시.
+    if (payload === null) {
+      if (auditRunning) {
+        toast.warning($t("audit_already_running"));
+        return;
+      }
+      showAuditModal = true;
+      return;
+    }
+
+    // 모달에서 'start' 이벤트로 받은 페이로드 그대로 전송.
+    try {
+      const response = await fetch("/api/downloads/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (response.status === 409) {
+        toast.warning($t("audit_already_running"));
+        return;
+      }
+      const data = await response.json();
+      if (!data.started) {
+        toast.info($t("audit_no_targets"));
+        return;
+      }
+      // started=true 면 곧 SSE audit_progress(start) 가 들어와서 토스트가 뜬다.
+    } catch (e) {
+      console.error("audit 시작 실패:", e);
+      toast.error(`audit error: ${e.message}`);
+    }
+  }
+
+  function auditSelected() {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    startAudit({ ids });
+  }
+
+  async function bulkDeleteSelected() {
+    if (selectedIds.size === 0) return;
+    pendingBulkDelete = Array.from(selectedIds);
+    showBulkDeleteConfirm = true;
+  }
+
+  async function performBulkDelete() {
+    const ids = pendingBulkDelete;
+    pendingBulkDelete = [];
+    try {
+      const response = await fetch("/api/downloads/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!response.ok) {
+        let detail = response.statusText;
+        try {
+          const data = await response.json();
+          detail = data.detail || detail;
+        } catch (_) {}
+        toast.error($t("bulk_delete_failed", { detail }));
+        return;
+      }
+      const data = await response.json();
+      toast.success($t("bulk_delete_success", { count: data.deleted_count }));
+      selectedIds = new Set();
+      selectMode = false;
+      fetchDownloads();
+    } catch (e) {
+      console.error("bulk delete error:", e);
+      toast.error(`bulk delete error: ${e.message}`);
+    }
+  }
+
+  function toggleSelect(id) {
+    if (selectedIds.has(id)) selectedIds.delete(id);
+    else selectedIds.add(id);
+    selectedIds = new Set(selectedIds);
+  }
+
+  function exitSelectMode() {
+    selectMode = false;
+    selectedIds = new Set();
   }
 
   async function callApi(endpoint, downloadId = null) {
@@ -1576,6 +1716,10 @@
     if (currentTab !== newTab) {
       currentTab = newTab;
       searchExpanded = false;
+      // 탭 이동 시 선택 모드는 자동 해제 — 다른 탭의 id 가 섞이지 않게.
+      if (selectMode || selectedIds.size > 0) {
+        exitSelectMode();
+      }
       // 검색어는 탭 전환 시에도 유지
       currentPage = 1; // 탭 전환 시 첫 페이지로 이동
       // 탭 전환 시 조용한 데이터 새로고침
@@ -1705,9 +1849,70 @@
 
 <main>
   {#if $authLoading || $isLoading}
-    <div class="loading-container">
-      <div class="modal-spinner"></div>
-      <p>Loading...</p>
+    <div class="skeleton-page">
+      <!-- Header -->
+      <div class="skeleton-header">
+        <Skeleton width="38px" height="38px" circle={true} />
+        <div class="skeleton-header-title">
+          <Skeleton width="180px" height="26px" radius="6px" />
+        </div>
+        <Skeleton width="36px" height="36px" radius="8px" />
+      </div>
+      <!-- Form card -->
+      <div class="skeleton-card">
+        <Skeleton width="100%" height="42px" radius="8px" />
+        <div class="skeleton-form-row">
+          <Skeleton width="72px" height="36px" radius="20px" />
+          <Skeleton width="140px" height="36px" radius="8px" />
+        </div>
+      </div>
+      <!-- Live gauges -->
+      <div class="skeleton-live-card">
+        {#each Array(2) as _}
+          <div class="skeleton-live-pane">
+            <Skeleton width="55%" height="13px" radius="3px" />
+            <Skeleton width="100%" height="56px" radius="8px" />
+            <Skeleton width="80%" height="10px" radius="3px" />
+          </div>
+        {/each}
+      </div>
+      <!-- Monitor grid -->
+      <div class="skeleton-monitor-grid">
+        {#each Array(4) as _}
+          <div class="skeleton-monitor-card">
+            <Skeleton width="45%" height="11px" radius="3px" />
+            <div class="skeleton-monitor-body">
+              <Skeleton width="86px" height="86px" circle={true} />
+              <Skeleton width="100%" height="44px" radius="4px" />
+            </div>
+          </div>
+        {/each}
+      </div>
+      <!-- Tabs -->
+      <div class="skeleton-tabs-row">
+        <Skeleton width="90px" height="32px" radius="6px" />
+        <Skeleton width="90px" height="32px" radius="6px" />
+      </div>
+      <!-- Table -->
+      <div class="skeleton-table">
+        <div class="skeleton-table-header">
+          {#each Array(8) as _}
+            <Skeleton width="70%" height="12px" radius="3px" />
+          {/each}
+        </div>
+        {#each Array(5) as _}
+          <div class="skeleton-table-row">
+            <Skeleton width="85%" height="14px" radius="3px" />
+            <Skeleton width="64px" height="22px" radius="10px" />
+            <Skeleton width="52px" height="14px" radius="3px" />
+            <Skeleton width="100%" height="8px" radius="4px" />
+            <Skeleton width="52px" height="14px" radius="3px" />
+            <Skeleton width="82px" height="14px" radius="3px" />
+            <Skeleton width="44px" height="22px" radius="10px" />
+            <Skeleton width="76px" height="28px" radius="6px" />
+          </div>
+        {/each}
+      </div>
     </div>
   {:else if $needsLogin}
     <LoginScreen on:login={handleLoginSuccess} />
@@ -1723,6 +1928,27 @@
       </button>
       <h1>{$t("title")}</h1>
       <div class="header-actions">
+        <button
+          on:click={() => (selectMode ? exitSelectMode() : (selectMode = true))}
+          class="button-icon select-mode-button"
+          class:active={selectMode}
+          title={selectMode ? $t("select_mode_exit") : $t("select_mode_enter")}
+          aria-label={selectMode ? $t("select_mode_exit") : $t("select_mode_enter")}
+        >
+          ☑
+        </button>
+        <button
+          on:click={() => startAudit()}
+          class="button-icon audit-button"
+          class:is-running={auditRunning}
+          disabled={auditRunning}
+          title={auditRunning
+            ? $t("action_audit_running") + ` (${auditDone}/${auditTotal})`
+            : $t("action_audit")}
+          aria-label={$t("action_audit")}
+        >
+          <InfoIcon />
+        </button>
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
@@ -1973,14 +2199,20 @@
           </thead>
           <tbody>
             {#if isDownloadsLoading}
-              <tr>
-                <td colspan={currentTab === "completed" ? 7 : 8}>
-                  <div class="table-loading-container">
-                    <div class="modal-spinner"></div>
-                    <div class="modal-loading-text">{$t("loading")}</div>
-                  </div>
-                </td>
-              </tr>
+              {#each Array(5) as _}
+                <tr class="skeleton-row">
+                  <td><Skeleton width="80%" height="14px" radius="3px" /></td>
+                  <td class="center-align"><Skeleton width="64px" height="22px" radius="10px" /></td>
+                  <td class="center-align"><Skeleton width="52px" height="14px" radius="3px" /></td>
+                  <td class="center-align"><Skeleton width="100%" height="8px" radius="4px" /></td>
+                  {#if currentTab !== "completed"}
+                    <td class="center-align"><Skeleton width="52px" height="14px" radius="3px" /></td>
+                  {/if}
+                  <td class="center-align"><Skeleton width="82px" height="14px" radius="3px" /></td>
+                  <td class="center-align"><Skeleton width="44px" height="22px" radius="10px" /></td>
+                  <td class="center-align"><Skeleton width="76px" height="28px" radius="6px" /></td>
+                </tr>
+              {/each}
             {:else if filteredDownloads.length === 0}
               <tr class="empty-row">
                 <td
@@ -1994,11 +2226,20 @@
               </tr>
             {:else}
               {#each paginatedDownloads as download (download.id)}
-                <tr>
+                <tr class:is-selected={selectMode && selectedIds.has(download.id)}>
                   <td
                     class="filename"
                     title={download.filename || $t("file_name_na")}
                   >
+                    {#if selectMode}
+                      <input
+                        type="checkbox"
+                        class="row-select"
+                        checked={selectedIds.has(download.id)}
+                        on:change={() => toggleSelect(download.id)}
+                        aria-label="row {download.id}"
+                      />
+                    {/if}
                     <span class="filename-text"
                       >{download.filename || $t("file_name_na")}</span
                     >
@@ -2033,6 +2274,13 @@
                         {/if}
                       {/if}
                     </span>
+                    {#if download.status.toLowerCase() === "failed" && download.failure_kind}
+                      <!-- 실패 분류 칩: dead 는 빨강, auth/rate/cloudflare/proxy_blocked 는 주황, 일시류는 회색 -->
+                      <span
+                        class="kind-chip kind-chip-{download.failure_kind}"
+                        title={download.error_message || $t("kind_" + download.failure_kind)}
+                      >{$t("kind_" + download.failure_kind)}</span>
+                    {/if}
                   </td>
                   <td class="center-align">
                     {download.total_size
@@ -2196,8 +2444,8 @@
                         </button>
                       {/if}
                       {#if download.status?.toLowerCase() === "failed"}
-                        {#if download.failure_kind === "dead"}
-                          <!-- 원본이 사라진 파일 — 클릭 자체를 막아 의미 없는 재요청을 차단 -->
+                        {#if download.failure_kind === "dead" || download.failure_kind === "unknown_terminal"}
+                          <!-- 원본이 사라진 파일 / 반복 실패 — 클릭 자체를 막아 의미 없는 재요청을 차단 -->
                           <button
                             class="button-icon is-disabled"
                             title={$t("retry_blocked_dead")}
@@ -2216,14 +2464,35 @@
                           >
                             <RetryIcon />
                           </button>
+                        {:else if download.next_retry_at && new Date(download.next_retry_at).getTime() > Date.now()}
+                          <!-- cooldown 상태 — 강제 재시도는 허용 (서버에서 cooldown 만 초기화) -->
+                          <button
+                            class="button-icon is-cooldown"
+                            title={$t("retry_cooldown", { when: new Date(download.next_retry_at).toLocaleTimeString() })}
+                            on:click={() => callApi(`/api/retry/${download.id}`)}
+                            aria-label={$t("retry_cooldown", { when: new Date(download.next_retry_at).toLocaleTimeString() })}
+                          >
+                            <RetryIcon />
+                          </button>
                         {:else}
                           <button
                             class="button-icon"
-                            title={$t("action_retry")}
+                            title={download.failure_kind ? $t("kind_" + download.failure_kind) : $t("action_retry")}
                             on:click={() => callApi(`/api/retry/${download.id}`)}
                             aria-label={$t("action_retry")}
                           >
                             <RetryIcon />
+                          </button>
+                        {/if}
+                        <!-- 단건 검수: 살아있는지 즉시 확인 (1fichier 만 의미) -->
+                        {#if (download.original_url || download.url || "").includes("1fichier.com")}
+                          <button
+                            class="button-icon"
+                            title={$t("action_audit")}
+                            on:click={() => callApi(`/api/downloads/${download.id}/probe`, "POST")}
+                            aria-label={$t("action_audit")}
+                          >
+                            <InfoIcon />
                           </button>
                         {/if}
                       {/if}
@@ -2521,6 +2790,23 @@
     />
   {/if}
 
+  {#if selectMode && selectedIds.size > 0}
+    <div class="bulk-action-bar">
+      <span class="bulk-count">{$t("select_count", { count: selectedIds.size })}</span>
+      <div class="bulk-actions">
+        <button class="button button-secondary" on:click={auditSelected}>
+          {$t("bulk_action_audit")}
+        </button>
+        <button class="button button-danger" on:click={bulkDeleteSelected}>
+          {$t("bulk_action_delete")}
+        </button>
+        <button class="button button-secondary" on:click={exitSelectMode}>
+          {$t("select_mode_exit")}
+        </button>
+      </div>
+    </div>
+  {/if}
+
   {#if !$isLoading}
     <ConfirmModal
       bind:showModal={showConfirm}
@@ -2530,6 +2816,20 @@
       confirmText={confirmButtonText}
       cancelText={cancelButtonText}
       on:confirm={confirmAction}
+    />
+
+    <AuditModal
+      bind:showModal={showAuditModal}
+      on:start={(e) => startAudit(e.detail)}
+    />
+
+    <ConfirmModal
+      bind:showModal={showBulkDeleteConfirm}
+      title={$t("bulk_action_delete")}
+      message={$t("bulk_delete_confirm", { count: pendingBulkDelete.length })}
+      confirmText={$t("bulk_action_delete")}
+      isDeleteAction={true}
+      on:confirm={performBulkDelete}
     />
   {/if}
 </main>

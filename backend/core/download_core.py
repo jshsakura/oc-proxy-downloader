@@ -34,7 +34,7 @@ from core.simple_parser import (
     preparse_1fichier_standalone,
     clean_1fichier_url,
 )
-from core.error_messages import format_error
+from core.error_messages import apply_failure_to_request
 from core import fichier_auth
 from core import cancel_signal
 from core.config import get_config
@@ -437,15 +437,17 @@ class DownloadCore:
             print(f"[ERROR] 다운로드 태스크 오류: {e}")
             req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
             if req:
-                user_message = format_error("다운로드", str(e))
+                verdict = apply_failure_to_request(req, "다운로드", str(e))
                 req.status = StatusEnum.failed
-                req.error = user_message
                 db.commit()
                 await self.send_download_update(req_id, {
                     "status": "failed",
-                    "message": user_message,
+                    "message": verdict.user_message,
                     "stage": "다운로드",
                     "raw_error": str(e),
+                    "failure_kind": verdict.kind,
+                    "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
+                    "attempt_count": verdict.attempt_count,
                 })
         finally:
             db.close()
@@ -909,18 +911,20 @@ class DownloadCore:
             # (내부 함수가 status를 failed로 바꾼 후 re-raise 할 수 있어
             # req.status가 아닌 자체 플래그로 판단해야 함)
             stage = "다운로드" if download_started else "파싱"
-            user_message = format_error(stage, str(e))
+            verdict = apply_failure_to_request(req, stage, str(e))
 
             req.status = StatusEnum.failed
-            req.error = user_message
             req.finished_at = datetime.datetime.now()
             db.commit()
 
             await self.send_download_update(req.id, {
                 "status": "failed",
-                "message": user_message,
+                "message": verdict.user_message,
                 "stage": stage,
                 "raw_error": str(e),
+                "failure_kind": verdict.kind,
+                "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
+                "attempt_count": verdict.attempt_count,
             })
             return False
 
@@ -1125,9 +1129,9 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 직접 다운로드 실패: {e}")
-            user_message = format_error("다운로드", str(e))
+            verdict = apply_failure_to_request(req, "다운로드", str(e))
+            user_message = verdict.user_message
             req.status = StatusEnum.failed
-            req.error = user_message
             req.finished_at = datetime.datetime.now()
             db.commit()
 
@@ -1136,6 +1140,9 @@ class DownloadCore:
                 "message": user_message,
                 "stage": "다운로드",
                 "raw_error": str(e),
+                "failure_kind": verdict.kind,
+                "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
+                "attempt_count": verdict.attempt_count,
             })
 
             # 텔레그램 실패 알림
@@ -1441,9 +1448,9 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 파일 다운로드 실패: {e}")
-            user_message = format_error("다운로드", str(e))
+            verdict = apply_failure_to_request(req, "다운로드", str(e))
+            user_message = verdict.user_message
             req.status = StatusEnum.failed
-            req.error = user_message
             req.finished_at = datetime.datetime.now()
             db.commit()
 
@@ -1452,6 +1459,9 @@ class DownloadCore:
                 "message": user_message,
                 "stage": "다운로드",
                 "raw_error": str(e),
+                "failure_kind": verdict.kind,
+                "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
+                "attempt_count": verdict.attempt_count,
             })
 
             # 텔레그램 실패 알림
@@ -1492,14 +1502,19 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 로컬 다운로드 실패: {e}")
+            verdict = apply_failure_to_request(req, "다운로드", str(e))
             req.status = StatusEnum.failed
-            req.error = str(e)
             req.finished_at = datetime.datetime.now()
             db.commit()
 
             await self.send_download_update(req.id, {
                 "status": "failed",
-                "message": f"로컬 다운로드 실패: {str(e)}"
+                "message": verdict.user_message,
+                "stage": "다운로드",
+                "raw_error": str(e),
+                "failure_kind": verdict.kind,
+                "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
+                "attempt_count": verdict.attempt_count,
             })
             raise Exception(f"로컬 다운로드 실패: {e}")
 
