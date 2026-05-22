@@ -1,29 +1,34 @@
 # -*- coding: utf-8 -*-
-"""다운로드/파싱 실패 원인을 사용자가 알기 쉬운 메시지로 변환 + 분류.
+"""Translate download/parse failure causes into user-friendly messages + classify them.
 
-원본 예외 메시지(``HTTP 404: Not Found`` 등) 만으로는 일반 사용자가 무엇을
-어떻게 해야 할지 알 수 없으므로, 알려진 에러 패턴을 분류해서 다음 형식의
-메시지로 통일한다::
+The raw exception message alone (e.g. ``HTTP 404: Not Found``) does not tell an
+ordinary user what went wrong or what to do, so known error patterns are
+classified and normalized into the following format::
 
-    [<단계>] <원인 요약> (<원본 메시지>)
-    조치: <사용자가 할 수 있는 행동>
+    [<stage>] <cause summary> (<raw message>)
+    Action: <what the user can do>
 
-추가로 각 실패에 ``kind`` 라벨을 붙여 일괄/단건 재시도가 의미 없는 호출을
-건너뛰고, 종류별로 다른 cooldown 을 적용할 수 있게 한다.
+In addition, each failure is tagged with a ``kind`` label so that pointless
+batch/single retries can be skipped and a different cooldown can be applied per
+kind.
 
-분류(kind) 값:
+Classification (kind) values:
 
-- ``dead``: 1fichier 가 본문에서 파일 삭제/신고/존재없음을 명시한 결정적
-  실패. 재시도해도 결과 같음. 단일 관측만으로도 박제 가능.
-- ``auth_required``: 1fichier 계정 로그인 없으면 통과 못 함.
-- ``rate_limited``: 명시적 대기 요구(429, "you must wait", 무료 한도 초과
-  안내). ``retry_after_seconds`` 가 있으면 그 시간 이후에 자동 재시도.
-- ``cloudflare``: Cloudflare 챌린지 우회 실패. 시간/네트워크 교체로 회수.
-- ``proxy_blocked``: VPS/VPN/Professional infrastructure 차단. 다른 프록시나
-  주거용 회선에서 시도하면 통과 가능.
-- ``blocked``: 분류는 됐지만 위 둘 어디에도 안 맞는 일시 차단. 짧은 cooldown.
-- ``transient``: 네트워크/타임아웃/5xx/단발 404·410 류. 지수 backoff.
-- ``unknown``: 분류 실패. 누적 시도 후 격리.
+- ``dead``: a definitive failure where 1fichier states in the body that the file
+  was deleted/reported/does not exist. Retrying yields the same result. Can be
+  pinned permanently from a single observation.
+- ``auth_required``: cannot pass without logging into a 1fichier account.
+- ``rate_limited``: explicit wait requirement (429, "you must wait", free-quota
+  exceeded notice). If ``retry_after_seconds`` is set, it auto-retries after that
+  time.
+- ``cloudflare``: failed to bypass the Cloudflare challenge. Recoverable by
+  waiting / switching network.
+- ``proxy_blocked``: VPS/VPN/Professional infrastructure block. May pass on a
+  different proxy or a residential line.
+- ``blocked``: classified but matches none of the above two — a temporary block.
+  Short cooldown.
+- ``transient``: network/timeout/5xx/one-off 404·410 cases. Exponential backoff.
+- ``unknown``: classification failed. Quarantined after accumulated attempts.
 """
 
 from dataclasses import dataclass
@@ -34,7 +39,7 @@ import re
 from typing import List, Optional, Tuple
 
 
-# kind 상수
+# kind constants
 KIND_DEAD = "dead"
 KIND_AUTH_REQUIRED = "auth_required"
 KIND_RATE_LIMITED = "rate_limited"
@@ -44,42 +49,44 @@ KIND_BLOCKED = "blocked"
 KIND_TRANSIENT = "transient"
 KIND_UNKNOWN = "unknown"
 
-# 재시도 정책 — `_compute_next_retry_at` 가 참조.
-# (단순한 dict 비교용 상수: KIND → backoff seconds)
+# Retry policy — referenced by `_compute_next_retry_at`.
+# (Simple constants for dict comparison: KIND → backoff seconds)
 _TRANSIENT_BACKOFF = (30, 120, 480, 1800, 1800, 1800)  # 30s→2m→8m→30m capped
-_UNKNOWN_MAX_ATTEMPTS = 3  # 그 이상 누적되면 'unknown_terminal' 로 격리
+_UNKNOWN_MAX_ATTEMPTS = 3  # beyond this many accumulated attempts, quarantine as 'unknown_terminal'
 _TRANSIENT_MAX_ATTEMPTS = len(_TRANSIENT_BACKOFF)
-_ATTEMPTS_RING_SIZE = 5  # attempts_json 링버퍼 길이
+_ATTEMPTS_RING_SIZE = 5  # attempts_json ring-buffer length
 
 
 @dataclass(frozen=True)
 class ClassifiedError:
-    stage: str  # "파싱" | "다운로드"
-    summary: str  # 한국어 원인 요약
-    action: str  # 사용자가 취할 행동
-    raw: str  # 원본 메시지
+    stage: str  # "파싱" (parse) | "다운로드" (download)
+    summary: str  # Korean cause summary
+    action: str  # action for the user to take
+    raw: str  # raw message
     kind: str = KIND_UNKNOWN
-    # 본문 마커로 확신된 실패면 True — 단일 관측만으로도 영구 박제 가능.
-    # HTTP 코드 기반 추정은 False (단일 관측 불충분).
+    # True if the failure is confirmed by a body marker — can be pinned
+    # permanently from a single observation.
+    # HTTP-code-based inference is False (a single observation is insufficient).
     definitive: bool = False
-    # 명시적으로 알려진 대기 시간 (초). 1fichier 가 본문에서 "you must wait
-    # N seconds" 를 줬을 때만 채워짐. 없으면 None.
+    # Explicitly known wait time (seconds). Populated only when 1fichier returns
+    # "you must wait N seconds" in the body. None otherwise.
     retry_after_seconds: Optional[int] = None
 
     def to_user_message(self) -> str:
         return f"[{self.stage} 실패] {self.summary} ({self.raw})\n조치: {self.action}"
 
 
-# 분류 규칙 — 위에서부터 매칭되는 첫 항목 사용. 키워드는 소문자 substring 매칭.
-# 형식: (keyword, summary, action, kind, definitive)
+# Classification rules — the first matching entry from the top is used. Keywords
+# are matched as lowercase substrings.
+# Format: (keyword, summary, action, kind, definitive)
 #
-# 정렬 원칙:
-#   1. 본문 마커 기반 결정적 사유 (definitive=True) 가 가장 먼저 — HTTP 코드
-#      문자열에 우연히 같이 박혀도 정확한 사유로 잡히도록.
-#   2. 그 다음 1fichier 자체 차단 메시지(parser 가 던지는 한국어 prefix).
-#   3. 마지막에 일반 HTTP/네트워크 패턴.
+# Ordering principles:
+#   1. Definitive body-marker reasons (definitive=True) come first — so the exact
+#      reason is caught even if it happens to co-occur in an HTTP-code string.
+#   2. Then 1fichier's own block messages (the Korean prefix the parser raises).
+#   3. Finally, generic HTTP/network patterns.
 _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
-    # --- definitive dead: 1fichier 본문 마커 ---
+    # --- definitive dead: 1fichier body marker ---
     ("1fichier 차단: 파일 삭제됨", "1fichier 측에서 파일이 삭제되었습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
@@ -109,7 +116,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
 
-    # --- auth_required: 게스트 슬롯/등록자 한정 ---
+    # --- auth_required: guest slots / registered-user only ---
     ("rapidgator 무료 모드는 500 mb 초과",
      "Rapidgator 무료 모드 제한으로 이 파일을 받을 수 없습니다",
      "Rapidgator 프리미엄 계정/쿠키 지원이 추가되기 전에는 다른 미러를 사용하세요.",
@@ -128,7 +135,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "(계정이 없으면 https://1fichier.com/register.pl 에서 무료 가입 후 사용하세요.)",
      KIND_AUTH_REQUIRED, True),
 
-    # --- proxy_blocked: VPS/VPN 본문 마커 ---
+    # --- proxy_blocked: VPS/VPN body marker ---
     ("1fichier 차단: vps/vpn",
      "이 서버 IP 가 1fichier 의 VPS/VPN 차단 목록에 있어 접근이 거부됩니다",
      "주거용 인터넷에서 직접 시도하거나, 설정에서 다른 프록시를 켜고 다시 시도하세요.",
@@ -138,7 +145,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "주거용 회선 또는 다른 프록시로 시도하세요.",
      KIND_PROXY_BLOCKED, True),
 
-    # --- rate_limited: 명시적 대기/한도 메시지 ---
+    # --- rate_limited: explicit wait/quota messages ---
     ("1fichier 차단: 무료 다운로드 한도 초과",
      "1fichier 무료 다운로드 한도에 걸렸습니다",
      "프록시 모드를 켜거나 한도가 풀릴 때까지 기다리세요.",
@@ -174,7 +181,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "잠시 후 다시 시도하거나 다른 네트워크/프록시로 시도하세요.",
      KIND_CLOUDFLARE, False),
 
-    # --- blocked: 그 외 차단 ---
+    # --- blocked: other blocks ---
     ("1fichier 폼 제출 거부",
      "1fichier 가 폼 제출을 거부하고 홈페이지를 반환했습니다",
      "통신사 CGNAT/공유 IP 가 비주거용으로 분류된 경우가 많습니다. "
@@ -200,9 +207,9 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "잠시 후 다시 시도하거나 다른 네트워크/프록시로 시도하세요.",
      KIND_BLOCKED, False),
 
-    # --- transient: 단발 HTTP/네트워크 (단독 관측은 dead 확정 못 함) ---
-    # 핵심 변경: HTTP 404/410 / Not Found / Gone 은 transient. 진짜 dead 는
-    # 위쪽 본문 마커 규칙에서만 잡힌다.
+    # --- transient: one-off HTTP/network (a lone observation cannot confirm dead) ---
+    # Key change: HTTP 404/410 / Not Found / Gone are transient. A true dead is
+    # caught only by the body-marker rules above.
     ("http 404", "응답이 404 였습니다 (링크 만료 / 일시 세션 손실 / 파일 삭제 가능성)",
      "다시 시도해주세요. 반복되면 '전체 링크 검수' 로 진짜 죽었는지 확인.",
      KIND_TRANSIENT, False),
@@ -242,7 +249,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
 )
 
 
-# "you must wait N seconds" / "wait N min" 류 본문에서 retry_after 초 단위 추출.
+# Extract retry_after in seconds from bodies like "you must wait N seconds" / "wait N min".
 _WAIT_PATTERNS = (
     re.compile(r"you must wait\s+(\d+)\s*minute", re.IGNORECASE),
     re.compile(r"wait\s+(\d+)\s*minute", re.IGNORECASE),
@@ -251,7 +258,7 @@ _WAIT_PATTERNS = (
 
 
 def _extract_retry_after(text: str) -> Optional[int]:
-    """본문에서 명시적 대기시간(초)을 추출. 없으면 None."""
+    """Extract the explicit wait time (seconds) from the body. None if absent."""
     if not text:
         return None
     lowered = text.lower()
@@ -262,7 +269,7 @@ def _extract_retry_after(text: str) -> Optional[int]:
                 return int(m.group(1)) * 60
             except ValueError:
                 continue
-    # "you must wait 30 seconds" 류
+    # cases like "you must wait 30 seconds"
     m = re.search(r"you must wait\s+(\d+)\s*second", lowered)
     if m:
         try:
@@ -273,7 +280,7 @@ def _extract_retry_after(text: str) -> Optional[int]:
 
 
 def classify_error(stage: str, raw_message: str) -> ClassifiedError:
-    """원본 에러 메시지를 사용자 친화적인 형태로 분류."""
+    """Classify a raw error message into a user-friendly form."""
     text = (raw_message or "").lower()
     retry_after = _extract_retry_after(raw_message or "")
     for keyword, summary, action, kind, definitive in _RULES:
@@ -296,15 +303,15 @@ def classify_error(stage: str, raw_message: str) -> ClassifiedError:
 
 
 def format_error(stage: str, raw_message: Optional[str]) -> str:
-    """``classify_error`` 의 ``to_user_message`` 를 한 번에 호출하는 단축 함수."""
+    """Shortcut that calls ``classify_error`` then ``to_user_message`` in one step."""
     return classify_error(stage, raw_message or "").to_user_message()
 
 
 def classify_failure_text(error_text: Optional[str]) -> str:
-    """DB 에 저장된 ``error`` 본문에서 kind 만 추출.
+    """Extract only the kind from the ``error`` body stored in the DB.
 
-    ``failure_kind`` 컬럼이 NULL 인 마이그레이션 이전 레코드에 fallback 으로
-    쓰인다. 새 코드는 컬럼을 우선 참조해야 한다.
+    Used as a fallback for pre-migration records whose ``failure_kind`` column is
+    NULL. New code should reference the column first.
     """
     if not error_text:
         return KIND_UNKNOWN
@@ -312,46 +319,47 @@ def classify_failure_text(error_text: Optional[str]) -> str:
 
 
 def is_terminal_failure(error_text: Optional[str]) -> bool:
-    """재시도해도 결과가 바뀌지 않는 실패인지 판정 (텍스트 기반 폴백)."""
+    """Decide whether the failure won't change on retry (text-based fallback)."""
     return classify_failure_text(error_text) == KIND_DEAD
 
 
 def is_auth_required_failure(error_text: Optional[str]) -> bool:
-    """1fichier 계정 로그인이 있어야만 통과 가능한 실패 (텍스트 기반 폴백)."""
+    """A failure that can only pass with a 1fichier account login (text-based fallback)."""
     return classify_failure_text(error_text) == KIND_AUTH_REQUIRED
 
 
 # ---------------------------------------------------------------------------
-# 실패 적용 헬퍼
+# Failure-application helpers
 # ---------------------------------------------------------------------------
 
-# kind 가 영구 박제(재시도 차단) 인지 — `next_retry_at` 가 None 이라는 사실
-# 자체가 시그널이지만, 명시적 헬퍼가 호출처에서 읽기 좋다.
+# Whether a kind is permanently pinned (retry-blocked) — the fact that
+# `next_retry_at` is None is itself a signal, but an explicit helper reads
+# better at the call site.
 TERMINAL_KINDS = frozenset({KIND_DEAD, KIND_AUTH_REQUIRED, "unknown_terminal"})
 
 
 def _compute_next_retry_at(kind: str, attempt_count: int,
                            retry_after_seconds: Optional[int]) -> Optional[datetime]:
-    """``kind`` + 과거 시도 횟수로 다음 재시도 가능 시각 계산.
+    """Compute the next retry-allowed time from ``kind`` + past attempt count.
 
-    None 이면 자동 재시도 안 함 (수동 또는 외부 트리거 필요).
+    None means no automatic retry (a manual or external trigger is required).
     """
     now = datetime.now()
     if kind in TERMINAL_KINDS:
         return None
 
     if kind == KIND_RATE_LIMITED:
-        # 1fichier 가 명시한 대기 시간이 있으면 그것 + 60s 여유.
-        # 없으면 600s (10분).
+        # If 1fichier specified a wait time, use it + a 60s margin.
+        # Otherwise 600s (10 minutes).
         wait = (retry_after_seconds or 600) + 60
         return now + timedelta(seconds=wait)
 
     if kind == KIND_CLOUDFLARE:
-        # 5분 + 0~60s jitter
+        # 5 minutes + 0-60s jitter
         return now + timedelta(seconds=300 + random.randint(0, 60))
 
     if kind == KIND_PROXY_BLOCKED:
-        # 같은 프록시 풀이 또 같은 IP 를 줄 수 있으니 짧게.
+        # Keep it short since the same proxy pool may hand out the same IP again.
         return now + timedelta(seconds=30)
 
     if kind == KIND_BLOCKED:
@@ -363,7 +371,7 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
 
     if kind == KIND_UNKNOWN:
         if attempt_count >= _UNKNOWN_MAX_ATTEMPTS:
-            return None  # 격리 (호출자가 kind 를 'unknown_terminal' 로 승급)
+            return None  # quarantine (caller promotes kind to 'unknown_terminal')
         return now + timedelta(seconds=60 * attempt_count)
 
     return None
@@ -387,7 +395,7 @@ def _dump_attempts(attempts: List[dict]) -> str:
 
 @dataclass(frozen=True)
 class FailureVerdict:
-    """``apply_failure_to_request`` 의 결과 — 호출자가 SSE 등에 그대로 노출."""
+    """Result of ``apply_failure_to_request`` — the caller exposes it directly via SSE etc."""
     user_message: str
     kind: str
     next_retry_at: Optional[datetime]
@@ -395,7 +403,7 @@ class FailureVerdict:
     definitive: bool
 
 
-_DUPLICATE_APPLY_WINDOW_SEC = 10  # 같은 raw 가 10초 내 재유입되면 중복 호출로 간주
+_DUPLICATE_APPLY_WINDOW_SEC = 10  # treat the same raw re-arriving within 10s as a duplicate call
 
 
 def apply_failure_to_request(
@@ -404,26 +412,29 @@ def apply_failure_to_request(
     raw_error: str,
     proxy_addr: Optional[str] = None,
 ) -> FailureVerdict:
-    """실패 1건의 모든 후속 처리(분류·attempts 링버퍼·next_retry_at·error 텍스트)를
-    한 번에 수행하고 ``req`` 의 관련 컬럼을 수정한다. ``db.commit()`` 은 호출자
-    책임.
+    """Perform all follow-up handling for a single failure (classification,
+    attempts ring buffer, next_retry_at, error text) at once and update the
+    relevant columns on ``req``. ``db.commit()`` is the caller's responsibility.
 
-    Dead 승급 정책:
-    - 이번 분류가 ``definitive=True`` 인 DEAD/AUTH_REQUIRED 면 즉시 박제.
-    - 그렇지 않으면 누적된 시도 중 last 2 회가 모두 동일한 non-transient
-      kind 이고 그 중 한 번이라도 ``definitive=True`` 면 그 kind 로 박제.
-    - 평소엔 분류 결과 그대로.
+    Dead promotion policy:
+    - If this classification is a DEAD/AUTH_REQUIRED with ``definitive=True``, pin
+      it immediately.
+    - Otherwise, if the last 2 of the accumulated attempts are all the same
+      non-transient kind and at least one of them was ``definitive=True``, pin
+      that kind.
+    - Normally, keep the classification result as-is.
 
-    중복 호출 가드:
-    - 핸들러 체인(``_download_file_directly`` 가 raise 후 ``_download_with_proxy_async``
-      가 잡는 케이스 등)에서 같은 ``raw_error`` 가 10초 내 두 번 들어오면 마지막
-      attempts 엔트리 정보로 verdict 만 재구성해서 반환 — 컬럼/링버퍼 변경 없음.
+    Duplicate-call guard:
+    - In a handler chain (e.g. ``_download_file_directly`` raises and
+      ``_download_with_proxy_async`` catches it), if the same ``raw_error``
+      arrives twice within 10s, only the verdict is reconstructed from the last
+      attempts entry and returned — no column/ring-buffer change.
     """
     classified = classify_error(stage, raw_error or "")
     now = datetime.now()
     raw_truncated = (raw_error or "")[:500]
 
-    # 중복 호출 가드 — 직전 attempt 가 같은 raw 이고 시간 차가 짧으면 skip.
+    # Duplicate-call guard — skip if the previous attempt has the same raw and the time gap is short.
     prior_attempts = _load_attempts(getattr(req, "attempts_json", None))
     if prior_attempts:
         last = prior_attempts[-1]
@@ -444,7 +455,7 @@ def apply_failure_to_request(
                 definitive=classified.definitive,
             )
 
-    # attempts_json 링버퍼 갱신
+    # Update the attempts_json ring buffer
     attempts = list(prior_attempts)
     attempts.append({
         "ts": now.isoformat(),
@@ -458,10 +469,10 @@ def apply_failure_to_request(
 
     attempt_count = (getattr(req, "attempt_count", 0) or 0) + 1
 
-    # Dead 승급 결정
+    # Decide on Dead promotion
     kind = classified.kind
     if not classified.definitive and kind not in (KIND_DEAD, KIND_AUTH_REQUIRED):
-        # 단발 관측만으로 박제 금지 — 직전 시도(들) 의 일관성 확인.
+        # Do not pin from a single observation — check consistency of the previous attempt(s).
         recent = attempts[-2:]
         if len(recent) == 2 and recent[0]["kind"] == recent[1]["kind"]:
             agreed_kind = recent[0]["kind"]
@@ -469,7 +480,7 @@ def apply_failure_to_request(
             if had_definitive and agreed_kind in (KIND_DEAD, KIND_AUTH_REQUIRED):
                 kind = agreed_kind
 
-    # unknown 누적 격리
+    # Quarantine accumulated unknowns
     if kind == KIND_UNKNOWN and attempt_count >= _UNKNOWN_MAX_ATTEMPTS:
         kind = "unknown_terminal"
 
@@ -479,7 +490,7 @@ def apply_failure_to_request(
 
     user_message = classified.to_user_message()
 
-    # 컬럼 반영 (호환: 새 컬럼이 모델에 없는 환경에서도 setattr 안전하게)
+    # Reflect to columns (compat: setattr stays safe even where new columns are absent from the model)
     req.error = user_message
     if hasattr(req, "failure_kind"):
         req.failure_kind = kind
@@ -500,20 +511,20 @@ def apply_failure_to_request(
 
 
 def is_retry_blocked_now(req, has_credentials: bool) -> Optional[str]:
-    """배치/단건 재시도 시 ``req`` 를 건너뛸 사유 — 없으면 None.
+    """Reason to skip ``req`` on a batch/single retry — None if there is none.
 
-    우선 영구 컬럼(``failure_kind`` / ``next_retry_at``) 을 보고, 없으면 텍스트
-    기반 폴백. 반환값:
-      - "dead": 영구 실패. 항상 차단.
-      - "auth_required": 계정 미설정.
-      - "cooldown": 다음 재시도 시각 미도래.
-      - None: 재시도 가능.
+    Looks at the persistent columns (``failure_kind`` / ``next_retry_at``) first,
+    and falls back to text-based detection if absent. Return values:
+      - "dead": permanent failure. Always blocked.
+      - "auth_required": account not configured.
+      - "cooldown": the next retry time has not arrived yet.
+      - None: retry is possible.
     """
     kind = getattr(req, "failure_kind", None)
     next_retry = getattr(req, "next_retry_at", None)
 
     if not kind:
-        # 마이그레이션 이전 레코드 — 텍스트로 폴백
+        # Pre-migration record — fall back to text
         err = req.error or ""
         text_kind = classify_failure_text(err)
         if text_kind == KIND_DEAD:

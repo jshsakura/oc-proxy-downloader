@@ -9,12 +9,12 @@ from typing import Optional
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
-# JWT 설정
+# JWT configuration
 JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'fallback-secret-key')
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_HOURS = 24
 
-# 인증 설정
+# Authentication configuration
 AUTH_USERNAME = os.getenv('AUTH_USERNAME')
 AUTH_PASSWORD = os.getenv('AUTH_PASSWORD')
 AUTHENTICATION_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
@@ -32,7 +32,7 @@ class LoginResponse(BaseModel):
     username: str
 
 def create_access_token(data: dict):
-    """JWT 토큰 생성"""
+    """Create a JWT token"""
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
     to_encode.update({"exp": expire})
@@ -41,7 +41,7 @@ def create_access_token(data: dict):
     return encoded_jwt
 
 def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    """JWT 토큰 검증"""
+    """Verify a JWT token"""
     if not AUTHENTICATION_ENABLED:
         return {"username": "guest", "authenticated": False}
     
@@ -69,7 +69,7 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
 
 @router.post("/login", response_model=LoginResponse)
 async def login(login_request: LoginRequest):
-    """로그인 처리"""
+    """Handle login"""
     if not AUTHENTICATION_ENABLED:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -93,7 +93,7 @@ async def login(login_request: LoginRequest):
 
 @router.get("/status")
 async def auth_status():
-    """인증 상태 확인"""
+    """Check authentication status"""
     return {
         "authentication_enabled": AUTHENTICATION_ENABLED,
         "username_configured": bool(AUTH_USERNAME),
@@ -102,7 +102,7 @@ async def auth_status():
 
 @router.get("/verify")
 async def verify_auth(current_user: dict = Depends(verify_token)):
-    """토큰 검증"""
+    """Verify the token"""
     return {
         "valid": True,
         "user": current_user

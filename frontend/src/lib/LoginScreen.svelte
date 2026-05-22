@@ -28,7 +28,7 @@
       const result = await authManager.login(username, password);
       
       if (result.success) {
-        // 로그인 성공 이벤트 발송
+        // Dispatch the login-success event
         dispatch('login', {
           token: result.data.access_token,
           username: result.data.username
@@ -36,7 +36,7 @@
       } else {
         error = result.error || $t('login_failed');
         
-        // 차단 시간이 있는 경우 카운트다운 시작
+        // Start the countdown if there is a lockout time
         if (result.remainingTime) {
           remainingLockoutTime = result.remainingTime;
           startLockoutTimer();

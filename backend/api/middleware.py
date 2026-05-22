@@ -5,19 +5,19 @@ from fastapi.responses import JSONResponse
 
 
 async def log_requests(request: Request, call_next):
-    """요청 로깅 미들웨어"""
+    """Request logging middleware"""
     start_time = time.time()
-    
-    # 요청 로그
+
+    # Request log
     print(f"[LOG] {request.method} {request.url}")
-    
+
     try:
         response = await call_next(request)
-        
-        # 응답 시간 계산
+
+        # Calculate response time
         process_time = time.time() - start_time
-        
-        # 응답 로그 (긴 요청만)
+
+        # Response log (slow requests only)
         if process_time > 1.0:
             print(f"[LOG] {request.method} {request.url} - {response.status_code} ({process_time:.2f}s)")
             

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""``core.fichier_auth`` 동작 검증 (네트워크 없이 cloudscraper 모킹)."""
+"""Behavior verification for ``core.fichier_auth`` (no network; cloudscraper mocked)."""
 
 from unittest.mock import MagicMock
 
@@ -10,7 +10,7 @@ from core import fichier_auth
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
-    """각 테스트 시작 시 모듈 전역 캐시를 비운다."""
+    """Clear the module-global cache at the start of each test."""
     fichier_auth.clear_cached_session()
     yield
     fichier_auth.clear_cached_session()
@@ -31,7 +31,7 @@ def _scraper_with(login_html: str, console_html: str, status: int = 200):
     console_response.text = console_html
 
     scraper.get.side_effect = [login_response, console_response]
-    scraper.post.return_value = login_response  # 로그인 POST 응답
+    scraper.post.return_value = login_response  # login POST response
     return scraper
 
 
@@ -45,7 +45,7 @@ class TestLogin:
 
         s1 = fichier_auth.get_authenticated_scraper("user@x.com", "pw1")
         s2 = fichier_auth.get_authenticated_scraper("user@x.com", "pw1")
-        assert s1 is s2  # 캐시 재사용
+        assert s1 is s2  # cache reuse
 
     def test_login_invalid_credentials_raises(self, monkeypatch):
         scraper = _scraper_with(
@@ -60,7 +60,7 @@ class TestLogin:
     def test_session_validation_fails_when_console_unrelated(self, monkeypatch):
         scraper = _scraper_with(
             login_html="<html>welcome</html>",
-            console_html="<html>Login required</html>",  # 콘솔로 못 들어감
+            console_html="<html>Login required</html>",  # cannot reach the console
         )
         monkeypatch.setattr(fichier_auth.cloudscraper, "create_scraper", lambda **kw: scraper)
 
@@ -82,7 +82,7 @@ class TestLogin:
         assert cookies == {"SID": "abc123"}
 
     def test_force_refresh_invalidates_cache(self, monkeypatch):
-        # 첫 호출
+        # First call
         scraper1 = _scraper_with(
             login_html="ok",
             console_html='<a href="/console/index.pl">My account</a>',

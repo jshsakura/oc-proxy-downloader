@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""MegaUp/DataNodes 등 사이트별 호스팅 파서 테스트."""
+"""Tests for per-site hoster parsers such as MegaUp/DataNodes."""
 
 import pytest
 

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""``core.simple_parser`` 단위 테스트.
+"""``core.simple_parser`` unit tests.
 
-네트워크 / DB 의존이 없는 순수 함수들 (URL 정리, 다운로드 링크 후보 검증,
-파일 정보·대기시간 추출, HTML 다운로드 링크 선택) 을 모두 검증한다.
+Covers all the pure functions that have no network/DB dependencies (URL
+cleanup, download-link candidate validation, file-info / wait-time extraction,
+and HTML download-link selection).
 """
 
 import pytest
@@ -47,7 +48,7 @@ class TestClean1fichierUrl:
         assert sp.clean_1fichier_url(url) == url
 
     def test_does_not_strip_token_from_download_host(self):
-        """다운로드 서버 호스트의 토큰은 절대 잘라내면 안 된다 (404 의 원인)."""
+        """The token on a download-server host must never be stripped (cause of 404s)."""
         url = "https://a-1.1fichier.com/p38234d8d/file?key=tok&ts=999"
         assert sp.clean_1fichier_url(url) == url
 
@@ -159,7 +160,7 @@ class TestPickDownloadLinkFromHtml:
         assert link == "https://download.1fichier.com/abcdef/file"
 
     def test_skips_promo_download_links_pointing_at_homepage(self):
-        """'Download our app' 같은 홍보 링크는 절대 선택하지 않아야 한다."""
+        """Promo links like 'Download our app' must never be selected."""
         html = """
         <html><body>
             <a href="https://1fichier.com/console/upload.pl">Upload your file</a>
@@ -185,7 +186,7 @@ class TestPickDownloadLinkFromHtml:
         assert sp.pick_download_link_from_html(BeautifulSoup("", "html.parser")) is None
 
     def test_anchor_with_standard_id_ok(self):
-        """1fichier 표준 다운로드 버튼 id='ok' 가 있으면 그 링크 우선."""
+        """If the standard 1fichier download button id='ok' is present, prefer that link."""
         html = """
         <html><body>
             <a id="ok" href="https://example-file-host.1fichier.com/aaaabbbbccc/movie.mkv">Get</a>
@@ -224,8 +225,8 @@ class TestPickDownloadLinkFromHtml:
         </body></html>
         """
         soup = BeautifulSoup(html, "html.parser")
-        # relative path 는 1fichier.com 메인 도메인 + 경로가 되므로
-        # is_likely_download_url 에서 다운로드 호스트가 아니라 거절됨 → None
+        # A relative path resolves to the 1fichier.com main domain + path, so
+        # is_likely_download_url rejects it as not a download host → None
         assert sp.pick_download_link_from_html(soup, html) is None
 
 
@@ -270,7 +271,7 @@ class TestExtractFileInfo:
 
     def test_returns_none_for_homepage(self):
         info = sp.extract_file_info_simple("<html><title>1fichier.com: Cloud Storage</title></html>")
-        # 'cloud storage' 는 필터링되므로 name 없음 → None
+        # 'cloud storage' is filtered out, so there is no name → None
         assert info is None or info.get("name") is None
 
 
@@ -287,14 +288,14 @@ class TestExtractWaitTime:
         assert sp.extract_wait_time_from_button("var ct = 90;") == 90
 
     def test_javascript_simple_form_below_60_is_ignored(self):
-        # 60초 미만은 카운트다운 변수일 수 있어 무시
+        # Values under 60 seconds may be countdown variables, so ignore them
         assert sp.extract_wait_time_from_button("var ct = 30;") is None
 
     def test_minutes_text(self):
         assert sp.extract_wait_time_from_button("You must wait 5 minutes.") == 300
 
     def test_button_text_form(self):
-        # 분 표기가 없으면 button 패턴이 잡힘 — 60 이하라도 정상 반환
+        # Without a minutes notation the button pattern matches — even values <= 60 return normally
         assert sp.extract_wait_time_from_button("Free download in 45 seconds") == 45
 
     def test_no_match_returns_none(self):

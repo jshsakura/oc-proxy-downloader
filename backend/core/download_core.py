@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-비동기 다운로드 코어 모듈
-- SSE 통합 메시징
-- 비동기 다운로드 로직
-- 상태 실시간 업데이트
+Async download core module
+- Unified SSE messaging
+- Async download logic
+- Real-time status updates
 """
 
 import asyncio
@@ -52,28 +52,28 @@ DEFAULT_DOWNLOAD_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-# 재시도 상한
-# - 프록시 파싱: 사용자 프록시 수가 많아도 100 회 이상은 무의미
-# - 프록시 다운로드: 한 다운로드에 너무 많은 프록시 시도하면 시간 낭비
-# - 로컬 다운로드: 망 자체가 끊긴 게 아니면 3 회면 대부분 회수됨
+# Retry caps
+# - Proxy parsing: more than 100 attempts is pointless even with many user proxies
+# - Proxy download: trying too many proxies for one download wastes time
+# - Local download: unless the network itself is down, 3 attempts recover most cases
 MAX_PROXY_PARSE_RETRIES_CAP = 100
 MAX_DOWNLOAD_RETRIES_PROXY_CAP = 20
 MAX_DOWNLOAD_RETRIES_LOCAL = 3
 
-# SSE callback 이 main 루프 이벤트 큐에 메시지 푸시할 때 대기 한도.
-# 너무 길면 sync executor 스레드가 막히고, 너무 짧으면 헤비 부하 시 SSE 누락.
+# Wait limit for when the SSE callback pushes a message to the main loop's event queue.
+# Too long blocks the sync executor thread; too short drops SSE under heavy load.
 SSE_CALLBACK_TIMEOUT_SEC = 1.0
 
-# 다운로드 태스크 cancel 응답 대기 한도.
+# Wait limit for a download task to respond to cancellation.
 TASK_CANCEL_TIMEOUT_SEC = 1.0
 
 
 def _build_proxy_dict(proxy_addr: Optional[str]) -> Optional[Dict[str, str]]:
-    """``proxy_addr`` (e.g. ``1.2.3.4:8080``) 를 requests/aiohttp 가 받는
-    proxies dict 로 변환. None 이면 None 반환.
+    """Convert ``proxy_addr`` (e.g. ``1.2.3.4:8080``) into the proxies dict that
+    requests/aiohttp accept. Returns None if given None.
 
-    HTTPS 트래픽도 HTTP 프록시를 통해 CONNECT 터널링하므로 https 키도
-    ``http://`` 스킴으로 둠.
+    HTTPS traffic is also CONNECT-tunneled through the HTTP proxy, so the https
+    key keeps the ``http://`` scheme.
     """
     if not proxy_addr:
         return None
@@ -82,9 +82,9 @@ def _build_proxy_dict(proxy_addr: Optional[str]) -> Optional[Dict[str, str]]:
 
 
 def get_fichier_account_cookies() -> Dict[str, str]:
-    """설정에 저장된 1fichier 자격증명으로 로그인해 세션 쿠키 dict 를 반환.
+    """Log in with the 1fichier credentials saved in the config and return the session cookies dict.
 
-    자격증명이 없거나 로그인 실패 시 빈 dict 반환 (호출자는 게스트로 진행).
+    Returns an empty dict if there are no credentials or login fails (the caller proceeds as a guest).
     """
     try:
         cfg = get_config()
@@ -102,11 +102,11 @@ def get_fichier_account_cookies() -> Dict[str, str]:
 
 
 def build_download_headers(user_agent: Optional[str] = None, referer: Optional[str] = None) -> Dict[str, str]:
-    """파싱 세션과 동일한 컨텍스트로 다운로드 요청을 보내기 위한 헤더 생성.
+    """Build headers to send the download request in the same context as the parsing session.
 
-    1fichier 의 a-X.1fichier.com 같은 다운로드 서버는 User-Agent / Referer 가
-    없으면 404 를 내려 보내는 경우가 많다. 호출부는 파싱 단계에서 사용한
-    값을 그대로 전달하면 된다.
+    1fichier download servers like a-X.1fichier.com often return a 404 when the
+    User-Agent / Referer are missing. The caller should pass the same values it
+    used during the parsing stage.
     """
     headers = {
         "User-Agent": user_agent or DEFAULT_DOWNLOAD_USER_AGENT,
@@ -120,14 +120,14 @@ def build_download_headers(user_agent: Optional[str] = None, referer: Optional[s
 
 
 def _should_replace_file_name(current_name: Optional[str], new_name: Optional[str]) -> bool:
-    """실제 파일명이 있으면 비어 있거나 placeholder 인 이름을 교체."""
+    """Replace an empty or placeholder name when an actual file name is available."""
     return bool(new_name) and (
         not current_name or is_1fichier_placeholder_name(current_name)
     )
 
 
 def _size_text_to_bytes(size_text: Optional[str]) -> int:
-    """``2.19 GB`` 같은 표시 용량을 바이트로 변환. 실패 시 0."""
+    """Convert a displayed size like ``2.19 GB`` into bytes. Returns 0 on failure."""
     if not size_text:
         return 0
     match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', size_text, re.IGNORECASE)
@@ -140,27 +140,27 @@ def _size_text_to_bytes(size_text: Optional[str]) -> int:
 
 
 class DownloadCore:
-    """비동기 다운로드 코어"""
+    """Async download core"""
 
     def __init__(self):
         self.download_tasks: Dict[int, asyncio.Task] = {}
-        # 1fichier 로컬 다운로드 동시실행 제한 (무료 제한 회피용)
+        # Concurrency limit for 1fichier local downloads (to work around the free-tier limit)
         self.MAX_FICHIER_LOCAL_DOWNLOADS = 1
         self.fichier_local_semaphore = asyncio.Semaphore(self.MAX_FICHIER_LOCAL_DOWNLOADS)
-        # 프록시 및 일반 다운로드 동시실행 제한
+        # Concurrency limit for proxy and general downloads
         self.MAX_GENERAL_DOWNLOADS = 5
         self.general_download_semaphore = asyncio.Semaphore(self.MAX_GENERAL_DOWNLOADS)
-        # SSE 메시지 빈도 제한용
-        self.last_sse_time: Dict[int, float] = {}  # 각 다운로드별 마지막 SSE 전송 시간
-        self.SSE_THROTTLE_INTERVAL = 10.0  # 10초마다만 SSE 전송
-        self.SSE_THROTTLE_COUNT = 50  # 50개 실패마다만 SSE 전송
+        # For throttling SSE message frequency
+        self.last_sse_time: Dict[int, float] = {}  # Last SSE send time per download
+        self.SSE_THROTTLE_INTERVAL = 10.0  # Send SSE only every 10 seconds
+        self.SSE_THROTTLE_COUNT = 50  # Send SSE only every 50 failures
 
     def should_send_sse(self, req_id: int, retry_count: int) -> bool:
-        """SSE 전송 여부 결정 (시간 + 카운트 기반 throttling)"""
+        """Decide whether to send SSE (time + count based throttling)"""
         current_time = time.time()
         last_time = self.last_sse_time.get(req_id, 0)
 
-        # 첫 번째 시도이거나, 50개마다이거나, 10초가 지났을 때만 전송
+        # Send only on the first attempt, every 50, or once 10 seconds have passed
         if (retry_count == 1 or
             retry_count % self.SSE_THROTTLE_COUNT == 0 or
             current_time - last_time >= self.SSE_THROTTLE_INTERVAL):
@@ -169,7 +169,7 @@ class DownloadCore:
         return False
 
     async def send_download_update(self, req_id: int, update_data: Dict[str, Any]):
-        """통합 다운로드 상태 업데이트 SSE 전송"""
+        """Send a unified download-status-update SSE"""
         try:
             await sse_manager.broadcast_message("status_update", {
                 "id": req_id,
@@ -180,14 +180,14 @@ class DownloadCore:
 
     @staticmethod
     def _make_thread_safe_sse_callback(main_loop):
-        """sync executor 스레드에서 호출 가능한 SSE 콜백 생성.
+        """Create an SSE callback that can be called from the sync executor thread.
 
-        ``parse_1fichier_simple_sync`` 가 별도 스레드에서 실행되므로,
-        해당 스레드는 main asyncio 루프에 직접 접근할 수 없다. 이 헬퍼는
-        ``run_coroutine_threadsafe`` 로 이벤트를 main 루프로 위임한다.
+        Since ``parse_1fichier_simple_sync`` runs in a separate thread, that
+        thread cannot directly access the main asyncio loop. This helper
+        delegates events to the main loop via ``run_coroutine_threadsafe``.
 
-        과거에 두 군데 (로컬/프록시 파싱) 에 동일한 내부 함수가 복사돼
-        있던 것을 단일 헬퍼로 합침.
+        Consolidates into a single helper what used to be the same inner
+        function duplicated in two places (local/proxy parsing).
         """
         def sse_callback(msg_type, data):
             try:
@@ -201,8 +201,8 @@ class DownloadCore:
         return sse_callback
 
     async def _perform_preparse(self, req: DownloadRequest, db: Session):
-        """사전파싱 수행 (세마포어 밖에서 실행)"""
-        # 이미 파일 정보가 있으면 사전파싱 건너뜀
+        """Run preparsing (executed outside the semaphore)"""
+        # Skip preparsing if file info is already present
         if req.file_name and req.file_size and req.total_size and req.total_size > 0:
             print(f"[LOG] 파일 정보가 이미 있음, 사전파싱 건너뜀: {req.id} - {req.file_name} ({req.file_size})")
             return
@@ -213,8 +213,8 @@ class DownloadCore:
             if not parse_url:
                 print(f"[WARNING] 사전파싱 건너뜀: 원본 1fichier 파일 페이지 URL 없음 (id={req.id})")
                 return
-            # 1fichier URL 정리: 파일 페이지(1fichier.com/?id) 의 affiliate 등 제거.
-            # 다운로드 서버 호스트는 보존됨.
+            # Clean the 1fichier URL: strip affiliate, etc. from the file page (1fichier.com/?id).
+            # The download server host is preserved.
             print(f"[LOG] 사전파싱 시작: {req.id}")
 
             try:
@@ -230,7 +230,7 @@ class DownloadCore:
                         req.file_size = preparse_info['size']
                         print(f"[LOG] 사전파싱 파일크기: {req.file_size}")
 
-                        # file_size 문자열을 total_size 정수로 변환
+                        # Convert the file_size string into a total_size integer
                         try:
                             size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', req.file_size, re.IGNORECASE)
                             if size_match:
@@ -249,10 +249,10 @@ class DownloadCore:
 
                     db.commit()
 
-                    # DB 커밋 후 상태 확인
+                    # Check the state after the DB commit
                     print(f"[DEBUG] DB 커밋 후 상태: req.id={req.id}, file_name='{req.file_name}', file_size='{req.file_size}', total_size={req.total_size}")
 
-                    # 즉시 SSE로 파일 정보 전송
+                    # Send the file info over SSE immediately
                     sse_data = {
                         "id": req.id,
                         "filename": req.file_name,
@@ -265,7 +265,7 @@ class DownloadCore:
                 print(f"[WARNING] 사전파싱 실패: {preparse_error}")
 
     async def send_download_log(self, req_id: int, message: str, level: str = "info"):
-        """다운로드 로그 SSE 전송"""
+        """Send a download-log SSE"""
         try:
             await sse_manager.broadcast_message("download_log", {
                 "id": req_id,
@@ -277,28 +277,28 @@ class DownloadCore:
             print(f"[ERROR] SSE 로그 전송 실패: {e}")
 
     async def start_download_async(self, req: DownloadRequest, db: Session) -> bool:
-        """비동기 다운로드 시작"""
+        """Start an async download"""
         try:
-            # 정지 후 재시작 케이스 — 이전 cancel signal 이 set 채로 남아
-            # 있으면 새 다운로드의 카운트다운이 즉시 깨어나는 버그가 됨.
+            # Stop-then-restart case — if a previous cancel signal is left set,
+            # it becomes a bug where the new download's countdown wakes up immediately.
             cancel_signal.clear(req.id)
 
-            # 파일 정보가 이미 있으면 파싱 건너뛰고 바로 다운로드 시작
-            # 단, 1fichier의 경우 대기시간 확인과 새 다운로드 링크 획득을 위해 사전파싱 필요
+            # If file info is already present, skip parsing and start downloading right away.
+            # However, for 1fichier, preparsing is needed to check the wait time and obtain a new download link.
             is_1fichier = "1fichier.com" in req.url
             is_special_hoster = is_special_hoster_url(req.url)
             has_file_info = req.file_name and req.file_size and req.total_size and req.total_size > 0
 
-            # 최초 추가시 (파일명 없음) → 무조건 사전파싱 필요
-            # 재시작시 (파일명 있음) → 일반 직링만 건너뛰기.
-            # 1fichier/MegaUp/DataNodes 같은 호스팅 페이지는 만료성 최종 링크를
-            # 다시 받아야 하므로 파일 정보가 있어도 resolve 단계가 필요하다.
+            # On first add (no file name) → preparsing is always required.
+            # On restart (file name present) → skip only for plain direct links.
+            # Hosting pages like 1fichier/MegaUp/DataNodes need their expiring final link
+            # re-fetched, so a resolve step is required even when file info is present.
             skip_parsing = has_file_info and not is_1fichier and not is_special_hoster
 
-            # 1fichier 로컬 다운로드이고 파일명이 있는 경우 (재시작) 세마포어 확인
+            # For a 1fichier local download with a file name present (restart), check the semaphore
             if is_1fichier and not req.use_proxy and has_file_info:
                 if self.fichier_local_semaphore._value == 0:
-                    # 세마포어가 없으면 pending 상태로 대기
+                    # If the semaphore is unavailable, wait in the pending state
                     req.status = StatusEnum.pending
                     await self.send_download_update(req.id, {
                         "status": "pending",
@@ -318,7 +318,7 @@ class DownloadCore:
                     "message": "다운로드 시작 중..."
                 })
             else:
-                # 상태를 parsing으로 변경
+                # Change the status to parsing
                 req.status = StatusEnum.parsing
                 await self.send_download_update(req.id, {
                     "status": "parsing",
@@ -326,8 +326,8 @@ class DownloadCore:
                     "message": "파싱 시작 중..."
                 })
 
-            # downloaded_size는 이어받기가 아닌 경우에만 초기화
-            # 기존에 total_size나 downloaded_size가 있으면 보존
+            # Reset downloaded_size only when this is not a resume
+            # Preserve existing total_size or downloaded_size if present
             if (not req.total_size or req.total_size == 0) and (not req.downloaded_size or req.downloaded_size == 0):
                 req.downloaded_size = 0
                 print(f"[LOG] 새 다운로드: downloaded_size를 0으로 초기화")
@@ -335,11 +335,11 @@ class DownloadCore:
                 print(f"[LOG] 기존 다운로드 정보 보존: total_size={req.total_size}, downloaded_size={req.downloaded_size}")
             db.commit()
 
-            # 비동기 다운로드 태스크 생성
+            # Create the async download task
             task = asyncio.create_task(self._download_task(req.id, skip_parsing))
             self.download_tasks[req.id] = task
 
-            # 태스크 완료 콜백 등록
+            # Register the task completion callback
             task.add_done_callback(lambda t, req_id=req.id: self._task_cleanup(req_id))
 
             return True
@@ -353,7 +353,7 @@ class DownloadCore:
             return False
 
     async def _download_task(self, req_id: int, skip_parsing: bool = False):
-        """실제 다운로드 수행 태스크"""
+        """Task that performs the actual download"""
         db = SessionLocal()
         try:
             req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
@@ -363,28 +363,28 @@ class DownloadCore:
 
             print(f"[DEBUG] 다운로드 태스크 시작: ID={req_id}, URL={req.url}, USE_PROXY={req.use_proxy}")
 
-            # 다운로드 진행 - URL과 프록시 설정 기준으로 분기
+            # Proceed with the download - branch based on URL and proxy settings
             is_1fichier = "1fichier.com" in req.url
 
             if is_1fichier and not req.use_proxy:
-                # 1fichier 로컬 다운로드 (무료 제한 회피용 - 최대 1개)
+                # 1fichier local download (to work around the free-tier limit - max 1)
                 print(f"[DEBUG] 1fichier 로컬 다운로드 시작: {req_id}")
 
-                # 파싱 건너뛰기 조건 확인 후 사전파싱 실행
+                # Run preparsing after checking the skip-parsing condition
                 if not skip_parsing:
                     await self._perform_preparse(req, db)
                 else:
                     print(f"[LOG] 파일 정보 존재로 사전파싱 건너뜀: {req_id}")
 
-                # 1fichier 로컬 다운로드 동시실행 제한 적용
-                # 세마포어 대기 여부 확인
-                if self.fichier_local_semaphore._value == 0:  # 세마포어가 이미 사용 중인 경우
+                # Apply the 1fichier local download concurrency limit
+                # Check whether to wait on the semaphore
+                if self.fichier_local_semaphore._value == 0:  # The semaphore is already in use
                     print(f"[DEBUG] 1fichier 로컬 다운로드 제한 도달, 순서 대기 중: {req_id}")
                     await self.send_download_update(req_id, {
                         "status": "pending",
                         "message": f"다운로드 순서를 기다리는 중... (최대 {self.MAX_FICHIER_LOCAL_DOWNLOADS}개 동시 실행)"
                     })
-                    # 상태 DB 업데이트
+                    # Update the status in the DB
                     req.status = StatusEnum.pending
                     db.commit()
 
@@ -392,14 +392,14 @@ class DownloadCore:
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 획득: {req_id}")
 
                     if skip_parsing:
-                        # 파일 정보가 있어서 파싱을 건너뛰는 경우 바로 다운로드 시작
+                        # File info is present, so skip parsing and start downloading immediately
                         await self.send_download_update(req_id, {
                             "status": "downloading",
                             "message": "다운로드 시작 중..."
                         })
                         req.status = StatusEnum.downloading
                     else:
-                        # 파싱이 필요한 경우
+                        # When parsing is required
                         await self.send_download_update(req_id, {
                             "status": "parsing",
                             "message": "대기 완료, 1fichier 로컬 다운로드 시작 중..."
@@ -407,25 +407,25 @@ class DownloadCore:
                         req.status = StatusEnum.parsing
                     db.commit()
 
-                    await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 파싱 건너뛰기 여부에 따라
+                    await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # Depends on whether parsing is skipped
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
             else:
-                # 일반 다운로드 (1fichier 프록시 포함, 일반 URL 포함 - 최대 5개)
+                # General download (includes 1fichier proxy and plain URLs - max 5)
                 if is_1fichier:
                     download_type = "1fichier 프록시"
                 else:
                     download_type = "일반"
                 print(f"[DEBUG] {download_type} 다운로드 시작: {req_id}")
 
-                # 일반 다운로드 동시실행 제한 적용
-                # 세마포어 대기 여부 확인
-                if self.general_download_semaphore._value == 0:  # 세마포어가 이미 사용 중인 경우
+                # Apply the general download concurrency limit
+                # Check whether to wait on the semaphore
+                if self.general_download_semaphore._value == 0:  # The semaphore is already in use
                     print(f"[DEBUG] {download_type} 다운로드 제한 도달, 순서 대기 중: {req_id}")
                     await self.send_download_update(req_id, {
                         "status": "pending",
                         "message": f"다운로드 순서를 기다리는 중... (최대 {self.MAX_GENERAL_DOWNLOADS}개 동시 실행)"
                     })
-                    # 상태 DB 업데이트
+                    # Update the status in the DB
                     req.status = StatusEnum.pending
                     db.commit()
 
@@ -433,14 +433,14 @@ class DownloadCore:
                     print(f"[DEBUG] {download_type} 다운로드 세마포어 획득: {req_id}")
 
                     if skip_parsing:
-                        # 파일 정보가 있어서 파싱을 건너뛰는 경우 바로 다운로드 시작
+                        # File info is present, so skip parsing and start downloading immediately
                         await self.send_download_update(req_id, {
                             "status": "downloading",
                             "message": f"{download_type} 다운로드 시작 중..."
                         })
                         req.status = StatusEnum.downloading
                     else:
-                        # 파싱이 필요한 경우
+                        # When parsing is required
                         await self.send_download_update(req_id, {
                             "status": "parsing",
                             "message": f"대기 완료, {download_type} 다운로드 시작 중..."
@@ -449,13 +449,13 @@ class DownloadCore:
                     db.commit()
 
                     if is_1fichier:
-                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 1fichier 프록시 다운로드
+                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 1fichier proxy download
                     else:
-                        await self._download_local_async(req, db)  # 일반 URL 다운로드
+                        await self._download_local_async(req, db)  # Plain URL download
                     print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
 
         except asyncio.CancelledError:
-            # 다운로드 취소됨
+            # Download cancelled
             req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
             if req:
                 req.status = StatusEnum.stopped
@@ -484,40 +484,40 @@ class DownloadCore:
             db.close()
 
     async def _download_with_proxy_async(self, req: DownloadRequest, db: Session, skip_preparse: bool = False):
-        """1fichier 프록시 다운로드 (원래 함수명)"""
+        """1fichier proxy download (original function name)"""
         print(f"[DEBUG] _download_with_proxy_async 시작: {req.id}")
         await self.send_download_log(req.id, "1fichier 다운로드 시작")
 
-        # 단계 추적용 플래그 — 다운로드 단계 진입 후 실패한 경우와
-        # 파싱 단계에서 실패한 경우를 라벨링에서 구분하기 위함.
+        # Flag for stage tracking — used to distinguish, in labeling, a failure
+        # after entering the download stage from a failure during the parsing stage.
         download_started = False
 
-        # 초기 상태 설정
+        # Set the initial status
         print(f"[DEBUG] 초기 상태 설정: {req.id}")
         if req.use_proxy:
-            # 프록시 모드: proxying -> parsing -> waiting -> downloading
+            # Proxy mode: proxying -> parsing -> waiting -> downloading
             await self.send_download_update(req.id, {
                 "status": "proxying",
                 "progress": 0
             })
         else:
-            # 로컬 모드: parsing -> waiting -> downloading
+            # Local mode: parsing -> waiting -> downloading
             await self.send_download_update(req.id, {
                 "status": "parsing",
                 "progress": 0
             })
 
-        # 실제 1fichier 파싱 로직 실행
+        # Run the actual 1fichier parsing logic
         try:
-            # 프록시 설정 - 실패한 프록시 제외하고 다음 프록시 선택
+            # Proxy setup - exclude failed proxies and pick the next one
             proxies = None
             proxy_addr = None
             if req.use_proxy:
                 try:
-                    # 프록시 매니저에서 프록시 가져오기
+                    # Get proxies from the proxy manager
                     proxy_list = await proxy_manager.get_user_proxy_list(db)
                     if proxy_list:
-                        # 사용 가능한 프록시 선택 (실패한 프록시 제외)
+                        # Pick an available proxy (excluding failed ones)
                         proxy_addr = await proxy_manager.get_next_available_proxy(db, req.id)
                         if proxy_addr:
                             proxies = _build_proxy_dict(proxy_addr)
@@ -529,19 +529,19 @@ class DownloadCore:
                 except Exception as e:
                     print(f"[ERROR] 프록시 설정 실패: {e}")
 
-            # 1fichier 파싱 실행 (이미 비동기 함수)
-            # 1fichier인 경우에만 original_url 사용, 일반 다운로드는 현재 url 사용
-            # 1fichier 로컬의 경우 재시작 시에도 대기시간 확인을 위해 파싱 필요
+            # Run 1fichier parsing (already an async function)
+            # Use original_url only for 1fichier; plain downloads use the current url
+            # For local 1fichier, parsing is needed even on restart to check the wait time
             is_1fichier = "1fichier.com" in (req.original_url or req.url)
             is_local_1fichier = is_1fichier and not req.use_proxy
 
-            # 로컬 1fichier는 항상 파싱 필요, 프록시 1fichier는 파일 정보가 있으면 건너뛰기 가능
+            # Local 1fichier always needs parsing; proxy 1fichier can skip it when file info is present
             should_skip_preparse = skip_preparse
 
             if should_skip_preparse and "1fichier.com" in (req.original_url or req.url):
                 print(f"[LOG] 파일 정보가 이미 있음, 전체 파싱 건너뛰고 바로 다운로드: {req.id} - {req.file_name} ({req.file_size})")
 
-                # 파싱을 건너뛰고 바로 다운로드 시작
+                # Skip parsing and start downloading immediately
                 await self.send_download_update(req.id, {
                     "status": "downloading",
                     "progress": 0,
@@ -550,7 +550,7 @@ class DownloadCore:
                 req.status = StatusEnum.downloading
                 db.commit()
 
-                # 기존 다운로드 URL이 있으면 사용, 없으면 원본 URL 사용
+                # Use the existing download URL if present, otherwise the original URL
                 download_url = req.original_url if req.original_url else req.url
                 await self._perform_file_download_async(req, db, download_url, proxy_addr)
                 return
@@ -561,7 +561,7 @@ class DownloadCore:
                     raise Exception("원본 1fichier 파일 페이지 URL을 찾을 수 없음")
                 print(f"[DEBUG] 1fichier 파싱 URL: {parse_url}")
 
-                # 즉시 사전파싱으로 파일명/크기 추출
+                # Extract the file name/size via immediate preparsing
                 print(f"[LOG] 사전파싱 시작: {req.id}")
                 try:
                     loop = asyncio.get_event_loop()
@@ -576,7 +576,7 @@ class DownloadCore:
                             req.file_size = preparse_info['size']
                             print(f"[LOG] 사전파싱 파일크기: {req.file_size}")
 
-                            # file_size 문자열을 total_size 정수로 변환
+                            # Convert the file_size string into a total_size integer
                             try:
                                 size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', req.file_size, re.IGNORECASE)
                                 if size_match:
@@ -595,10 +595,10 @@ class DownloadCore:
 
                         db.commit()
 
-                        # DB 커밋 후 상태 확인
+                        # Check the state after the DB commit
                         print(f"[DEBUG] DB 커밋 후 상태: req.id={req.id}, file_name='{req.file_name}', file_size='{req.file_size}', total_size={req.total_size}")
 
-                        # 즉시 SSE로 파일 정보 전송
+                        # Send the file info over SSE immediately
                         sse_data = {
                             "id": req.id,
                             "filename": req.file_name,
@@ -613,7 +613,7 @@ class DownloadCore:
                 parse_url = req.url
                 print(f"[DEBUG] 일반 다운로드 URL: {parse_url}")
 
-                # 일반 다운로드도 URL에서 파일명 추출 시도
+                # For plain downloads, also try to extract the file name from the URL
                 print(f"[LOG] 일반 다운로드 파일명 추출 시작: {parse_url}")
                 try:
                     from urllib.parse import urlparse, unquote
@@ -627,7 +627,7 @@ class DownloadCore:
                         db.commit()
                         print(f"[LOG] 일반 다운로드 파일명 추출: {filename}")
 
-                        # SSE로 파일 정보 전송
+                        # Send the file info over SSE
                         await sse_manager.broadcast_message("filename_update", {
                             "id": req.id,
                             "filename": req.file_name,
@@ -636,12 +636,12 @@ class DownloadCore:
                 except Exception as url_parse_error:
                     print(f"[WARNING] URL 파일명 추출 실패: {url_parse_error}")
 
-            # 1fichier만 파싱 로직 실행 - 사용 가능한 프록시가 있는 동안 재시도
+            # Run the parsing logic for 1fichier only - retry while available proxies remain
             if "1fichier.com" in parse_url:
                 parse_result = None
                 retry_count = 0
 
-                # 프록시 모드가 아니면 일반 망으로 한 번만 시도
+                # If not in proxy mode, try only once over the regular network
                 if not req.use_proxy:
                     print(f"[LOG] 일반 망으로 파싱 시도")
 
@@ -649,8 +649,8 @@ class DownloadCore:
                     sse_callback = self._make_thread_safe_sse_callback(main_loop)
                     loop = main_loop
 
-                    # 1fichier 계정 자격증명이 있으면 로그인된 세션 쿠키 확보
-                    # (게스트 슬롯 부족/CGNAT/광고검증 우회용)
+                    # If 1fichier account credentials exist, obtain logged-in session cookies
+                    # (to work around insufficient guest slots / CGNAT / ad verification)
                     account_cookies = await loop.run_in_executor(
                         None, get_fichier_account_cookies
                     )
@@ -662,32 +662,32 @@ class DownloadCore:
                         lambda: parse_1fichier_simple_sync(
                             parse_url,
                             req.password,
-                            None,  # 프록시 없음
-                            None,  # 프록시 주소 없음
+                            None,  # No proxy
+                            None,  # No proxy address
                             req.id,
                             sse_callback,
                             account_cookies=account_cookies,
                         )
                     )
                 else:
-                    # 프록시 모드일 때는 프록시가 있어야만 시도
+                    # In proxy mode, only attempt if a proxy is available
                     if not proxy_addr:
                         raise Exception("프록시 모드이지만 사용 가능한 프록시가 없음")
 
-                    # 프록시 연결 완료, 파싱 단계로 전환
+                    # Proxy connection done, transition to the parsing stage
                     await self.send_download_update(req.id, {
                         "status": "parsing",
                         "progress": 0
                     })
 
-                    # 총 프록시 개수와 실패 건수 추적
+                    # Track the total proxy count and failure count
                     total_proxy_list = await proxy_manager.get_user_proxy_list(db)
                     total_proxies = len(total_proxy_list) if total_proxy_list else 0
                     failed_count = 0
                     MAX_PROXY_PARSE_RETRIES = min(MAX_PROXY_PARSE_RETRIES_CAP, total_proxies)
 
                     while parse_result is None and proxy_addr and retry_count < MAX_PROXY_PARSE_RETRIES:
-                        # 다운로드 정지 상태 체크
+                        # Check the download-stopped state
                         db.refresh(req)
                         if req.status == StatusEnum.stopped:
                             print(f"[LOG] 다운로드 정지됨, 프록시 파싱 중단: {req.id}")
@@ -696,16 +696,16 @@ class DownloadCore:
                         try:
                             print(f"[LOG] 프록시 파싱 시도 {retry_count + 1}: {proxy_addr}")
 
-                            # 프록시 시도 시작 - proxying 상태로 변경
+                            # Starting a proxy attempt - change to the proxying state
                             await self.send_download_update(req.id, {
                                 "status": "proxying",
                                 "progress": 0
                             })
 
-                            # 전체 실패 개수 조회
+                            # Query the total failure count
                             total_failed_count = await proxy_manager.get_total_failed_count(db)
 
-                            # 기존 proxy_trying 메시지 시스템 사용
+                            # Use the existing proxy_trying message system
                             await sse_manager.broadcast_message("proxy_trying", {
                                 "id": req.id,
                                 "proxy": proxy_addr,
@@ -735,11 +735,11 @@ class DownloadCore:
                                 )
                             )
 
-                            # 성공하면 즉시 루프 종료 (다른 프록시 시도 중단)
+                            # On success, exit the loop immediately (stop trying other proxies)
                             if parse_result:
                                 print(f"[LOG] 프록시 파싱 성공: {proxy_addr} - 다른 프록시 시도 중단")
 
-                                # 프록시 파싱 성공 시 프록시 상태 창 업데이트 (대기중으로 변경)
+                                # On proxy parsing success, update the proxy status panel (change to waiting)
                                 try:
                                     config = get_config()
                                     user_language = config.get("language", "ko")
@@ -761,13 +761,13 @@ class DownloadCore:
                             print(f"[ERROR] 프록시 파싱 실패 ({retry_count + 1}): {proxy_parse_error}")
 
                             if req.use_proxy and proxy_addr:
-                                # 실패한 프록시 기록 및 실패 건수 증가
+                                # Record the failed proxy and increment the failure count
                                 await proxy_manager.mark_proxy_failed(db, proxy_addr)
                                 failed_count += 1
 
-                                # SSE 전송 빈도 제한 (50개마다 또는 10초마다)
+                                # Throttle SSE frequency (every 50, or every 10 seconds)
                                 if self.should_send_sse(req.id, retry_count + 1):
-                                    # 전체 실패 개수 조회
+                                    # Query the total failure count
                                     total_failed_count = await proxy_manager.get_total_failed_count(db)
 
                                     await sse_manager.broadcast_message("proxy_trying", {
@@ -782,7 +782,7 @@ class DownloadCore:
                                 else:
                                     print(f"[LOG] SSE 파싱실패 스킵: {retry_count + 1}/{total_proxies} (실패: {total_failed_count})")
 
-                                # 다음 프록시 가져오기
+                                # Get the next proxy
                                 proxy_addr = await proxy_manager.get_next_available_proxy(db, req.id)
                                 if proxy_addr:
                                     proxies = _build_proxy_dict(proxy_addr)
@@ -796,13 +796,13 @@ class DownloadCore:
 
                         retry_count += 1
 
-                        # 최대 재시도 횟수 체크
+                        # Check the max retry count
                         if retry_count >= MAX_PROXY_PARSE_RETRIES:
                             print(f"[ERROR] 최대 프록시 파싱 재시도 횟수({MAX_PROXY_PARSE_RETRIES}) 초과")
                             break
 
                 if not parse_result:
-                    # 프록시 파싱 실패 시 프록시 상태 초기화
+                    # On proxy parsing failure, reset the proxy status
                     if req.use_proxy:
                         try:
                             config = get_config()
@@ -825,14 +825,14 @@ class DownloadCore:
                     else:
                         raise Exception("파싱 실패")
             else:
-                # 일반 다운로드는 파싱 없이 바로 다운로드
+                # Plain downloads go straight to downloading without parsing
                 parse_result = {
-                    'download_link': parse_url,  # 원본 URL을 다운로드 링크로 사용
+                    'download_link': parse_url,  # Use the original URL as the download link
                     'file_info': None,
                     'wait_time': None
                 }
 
-            # 1fichier 파일 정보가 있으면 즉시 저장 (사전파싱)
+            # If 1fichier file info is present, save it immediately (preparsing)
             if parse_result and parse_result.get('file_info'):
                 file_info = parse_result['file_info']
                 if _should_replace_file_name(req.file_name, file_info.get('name')):
@@ -845,7 +845,7 @@ class DownloadCore:
 
                 db.commit()
 
-                # SSE로 파일 정보 즉시 전송
+                # Send the file info over SSE immediately
                 print(f"[LOG] SSE로 파일 정보 전송 중: ID={req.id}, 파일명={req.file_name}, 크기={req.file_size}")
                 await sse_manager.broadcast_message("filename_update", {
                     "id": req.id,
@@ -855,17 +855,17 @@ class DownloadCore:
                 print(f"[LOG] SSE 파일 정보 전송 완료")
 
             if parse_result and parse_result.get('wait_time'):
-                # 대기시간은 이미 simple_parser에서 처리됨
+                # The wait time was already handled in simple_parser
                 wait_seconds = parse_result['wait_time']
                 print(f"[LOG] 대기시간은 이미 파싱 중에 처리됨: {wait_seconds}초")
 
-            # 다운로드 링크 확인
+            # Check the download link
             print(f"[DEBUG] parse_result 전체: {parse_result}")
             if parse_result and parse_result.get('download_link'):
                 download_url = parse_result['download_link']
-                # 파싱 세션의 쿠키/헤더를 다운로드에 함께 사용 (1fichier 세션 유지용)
-                # 파서 세션 쿠키 (Cloudflare 우회 토큰 등) + 1fichier 계정 쿠키 합치기.
-                # aiohttp 세션이 정확히 같은 인증/세션 컨텍스트를 사용하도록 한다.
+                # Use the parsing session's cookies/headers for the download too (to keep the 1fichier session)
+                # Merge the parser session cookies (Cloudflare bypass tokens, etc.) + the 1fichier account cookies.
+                # This makes the aiohttp session use exactly the same auth/session context.
                 session_cookies = dict(parse_result.get('cookies') or {})
                 try:
                     fichier_cookies = await asyncio.get_event_loop().run_in_executor(
@@ -879,13 +879,13 @@ class DownloadCore:
                 session_referer = parse_result.get('referer') or parse_url
                 print(f"[LOG] 다운로드 링크 획득: {download_url} (cookies={len(session_cookies)})")
 
-                # 1fichier인 경우 원본 파일 페이지를 보존한다. 다운로드 서버 링크는
-                # 짧게 만료되므로 original_url 로 저장하면 재시도 때 404 를 유발한다.
+                # For 1fichier, preserve the original file page. The download server link
+                # expires quickly, so saving it as original_url would cause a 404 on retry.
                 if "1fichier.com" in parse_url and req.original_url != parse_url:
                     req.original_url = parse_url
                     db.commit()
 
-                # URL은 변경하지 않고, 다운로드만 새로운 링크로 진행
+                # Don't change the URL; only the download proceeds with the new link
 
                 print(f"[DEBUG] 다운로드 상태를 downloading으로 변경: {req.id}")
             else:
@@ -901,32 +901,32 @@ class DownloadCore:
                 "message": "downloading_in_progress"
             })
 
-            # 즉시 파일 다운로드 시작
+            # Start the file download immediately
             req.status = StatusEnum.downloading
             db.commit()
-            download_started = True  # 이후 실패는 다운로드 단계 실패로 라벨링
+            download_started = True  # Label subsequent failures as download-stage failures
 
             print(f"[DEBUG] 로컬 방식으로 직접 다운로드 시작: {req.id}")
 
-            # 파일 저장 경로 설정
+            # Set the file save path
             if not req.save_path:
                 filename_to_use = req.file_name or f"download_{req.id}"
                 from utils.file_helpers import generate_file_path
                 req.save_path = generate_file_path(filename_to_use, is_temporary=True)
                 db.commit()
 
-            # 다운로드 시작 시간 설정
+            # Set the download start time
             if not req.started_at:
                 req.started_at = datetime.datetime.now()
                 db.commit()
 
-            # 로컬 다운로드 방식으로 직접 다운로드 (파서 세션의 쿠키/헤더 전달)
+            # Download directly using the local method (passing the parser session's cookies/headers)
             await self._download_file_directly(
                 req, db, download_url,
                 cookies=session_cookies,
                 user_agent=session_user_agent,
                 referer=session_referer,
-                parse_url=parse_url,  # 다운로드 도중 404/410 시 재파싱에 사용
+                parse_url=parse_url,  # Used for re-parsing on a 404/410 during download
             )
             print(f"[DEBUG] 직접 다운로드 완료: {req.id}")
             return True
@@ -935,15 +935,15 @@ class DownloadCore:
             print(f"[ERROR] 1fichier 처리 실패: {e}")
             print(f"[ERROR] 오류 상세:\n{traceback.format_exc()}")
 
-            # 현재 상태 확인 - 정지된 경우 상태 유지
+            # Check the current status - keep the status if it is stopped
             db.refresh(req)
             if req.status == StatusEnum.stopped:
                 print(f"[LOG] 다운로드 {req.id}가 이미 정지됨, 상태 유지")
                 return False
 
-            # 단계 라벨 결정: 다운로드 단계 진입 여부에 따라 구분
-            # (내부 함수가 status를 failed로 바꾼 후 re-raise 할 수 있어
-            # req.status가 아닌 자체 플래그로 판단해야 함)
+            # Decide the stage label based on whether the download stage was entered
+            # (an inner function may set status to failed and then re-raise, so we
+            # must judge by our own flag rather than req.status)
             stage = "다운로드" if download_started else "파싱"
             verdict = apply_failure_to_request(req, stage, str(e))
 
@@ -970,15 +970,15 @@ class DownloadCore:
         initial_size: int,
         download_mode: str,
     ):
-        """200/206 응답을 받은 뒤 본문을 받아서 완료 처리까지 한다."""
-        # Content-Length 갱신
+        """After receiving a 200/206 response, read the body and run completion handling."""
+        # Update Content-Length
         content_length = response.headers.get('Content-Length')
         if content_length and (not req.total_size or req.total_size == 0):
             req.total_size = int(content_length) + initial_size
             db.commit()
             print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
 
-        # 텔레그램 다운로드 시작 알림
+        # Telegram download-start notification
         try:
             file_name = req.file_name or "Unknown File"
             file_size = req.file_size
@@ -987,14 +987,14 @@ class DownloadCore:
         except Exception as telegram_error:
             print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
 
-        # 실제 파일 다운로드
+        # Actual file download
         print(f"[DEBUG] 파일 다운로드 시작 - 초기크기: {initial_size}, 총크기: {req.total_size}")
         downloaded_size = await download_file_content(
             response, req.save_path, initial_size, req.total_size, req, db
         )
         print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
 
-        # .part → 최종 파일명 리네임
+        # Rename .part → final file name
         final_path = get_final_file_path(req.save_path)
         if req.save_path != final_path:
             try:
@@ -1005,7 +1005,7 @@ class DownloadCore:
             except Exception as rename_error:
                 print(f"[WARNING] 파일 리네임 실패: {rename_error}")
 
-        # 완료 처리
+        # Completion handling
         print(f"[LOG] 다운로드 완료 처리 시작: {req.id}")
         req.status = StatusEnum.done
         req.downloaded_size = downloaded_size
@@ -1018,7 +1018,7 @@ class DownloadCore:
             "message": "다운로드 완료"
         })
 
-        # 텔레그램 성공 알림
+        # Telegram success notification
         try:
             processing_time = None
             if req.started_at and req.finished_at:
@@ -1034,7 +1034,7 @@ class DownloadCore:
         except Exception as telegram_error:
             print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
 
-        # 1fichier 연속 요청 방지를 위한 쿨다운
+        # Cooldown to avoid back-to-back 1fichier requests
         if "1fichier" in req.url.lower():
             print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
             await asyncio.sleep(5)
@@ -1047,10 +1047,10 @@ class DownloadCore:
         proxy_addr: Optional[str] = None,
         proxies: Optional[Dict[str, str]] = None,
     ):
-        """다운로드 도중 404/410 등으로 링크 만료가 감지됐을 때 다시 파싱한다.
+        """Re-parse when link expiry is detected during download (e.g. via 404/410).
 
-        반환값은 ``parse_1fichier_simple_sync`` 의 결과 dict 와 동일한 형식.
-        실패 시 ``None``.
+        The return value has the same format as the result dict of
+        ``parse_1fichier_simple_sync``. Returns ``None`` on failure.
         """
         parse_url = choose_1fichier_parse_url(parse_url)
         if not parse_url:
@@ -1082,22 +1082,22 @@ class DownloadCore:
         parse_url: Optional[str] = None,
         max_reparse: int = 1,
     ):
-        """직접 다운로드 (로컬 방식과 동일).
+        """Direct download (same as the local method).
 
-        cookies, user_agent, referer 는 파싱 단계에서 cloudscraper 가 사용한
-        세션 정보를 그대로 전달받기 위한 인자다. 1fichier 의 다운로드 서버는
-        파싱 세션과 동일한 쿠키/UA 가 없으면 404 를 반환하기 때문에 반드시
-        함께 전달해야 한다.
+        cookies, user_agent, referer are arguments for passing through the
+        session info that cloudscraper used during the parsing stage. The
+        1fichier download server returns a 404 without the same cookies/UA as
+        the parsing session, so they must be passed along.
 
-        ``parse_url`` 이 주어지면, 다운로드 도중 404/410 을 받았을 때 최대
-        ``max_reparse`` 회 자동으로 재파싱하여 새로운 download_url/세션을
-        받아 재시도한다. (1fichier 다운로드 링크는 발급 후 곧 만료되거나
-        세션 손실로 404 가 되는 일이 잦음.)
+        If ``parse_url`` is given, on receiving a 404/410 during download it
+        automatically re-parses up to ``max_reparse`` times to obtain a new
+        download_url/session and retry. (1fichier download links often expire
+        soon after issuance or 404 due to session loss.)
         """
         try:
             print(f"[LOG] 직접 다운로드 시작: {download_url}")
 
-            # 다운로드 시작 시간 설정 (중복 방지)
+            # Set the download start time (avoid duplicates)
             if not req.started_at:
                 req.started_at = datetime.datetime.now()
                 db.commit()
@@ -1118,7 +1118,7 @@ class DownloadCore:
                         headers = build_download_headers(user_agent=current_ua, referer=current_referer)
                         initial_size = 0
 
-                        # 기존 파일 확인 (이어받기 지원)
+                        # Check for an existing file (resume support)
                         if os.path.exists(req.save_path):
                             initial_size = os.path.getsize(req.save_path)
                             headers['Range'] = f'bytes={initial_size}-'
@@ -1151,13 +1151,13 @@ class DownloadCore:
                                 raise Exception(
                                     "호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함"
                                 )
-                            # 응답 처리는 아래 with-블록 외부의 코드를 그대로 사용하기 위해
-                            # 같은 들여쓰기 레벨에서 이어서 처리한다.
+                            # Continue handling the response at the same indentation level so we
+                            # can reuse the code that lives outside the with-block below.
                             await self._consume_response_and_finish(
                                 req, db, response, initial_size,
                                 download_mode="proxy" if req.use_proxy else "local",
                             )
-                            return  # 성공 시 즉시 종료
+                            return  # Exit immediately on success
                 except Exception as e:
                     err_text = str(e)
                     expired = ("HTTP 404" in err_text or "HTTP 410" in err_text
@@ -1185,7 +1185,7 @@ class DownloadCore:
                     current_ua = new_result.get('user_agent') or current_ua
                     current_referer = new_result.get('referer') or current_referer
                     print(f"[LOG] 재파싱으로 새 다운로드 링크 획득: {current_url}")
-                    # 다음 루프에서 재시도
+                    # Retry on the next loop iteration
 
         except Exception as e:
             print(f"[ERROR] 직접 다운로드 실패: {e}")
@@ -1205,9 +1205,9 @@ class DownloadCore:
                 "attempt_count": verdict.attempt_count,
             })
 
-            # 텔레그램 실패 알림
+            # Telegram failure notification
             try:
-                # 처리 시간 계산 (실패 시에도)
+                # Compute the processing time (even on failure)
                 processing_time = None
                 if req.started_at and req.finished_at:
                     time_diff = req.finished_at - req.started_at
@@ -1224,7 +1224,7 @@ class DownloadCore:
             raise e
 
     async def _download_local_async(self, req: DownloadRequest, db: Session):
-        """순수 로컬 다운로드 비동기 구현 (1fichier 제외)"""
+        """Pure local download async implementation (excluding 1fichier)"""
         print(f"[DEBUG] _download_local_async 시작: {req.id}")
         await self.send_download_log(req.id, "로컬 다운로드 시작")
 
@@ -1232,7 +1232,7 @@ class DownloadCore:
             await self._download_special_hoster_async(req, db)
             return
 
-        # 로컬 다운로드 로직
+        # Local download logic
         req.status = StatusEnum.downloading
         db.commit()
 
@@ -1242,7 +1242,7 @@ class DownloadCore:
             "message": "로컬 다운로드 중..."
         })
 
-        # 실제 로컬 다운로드 구현
+        # Actual local download implementation
         await self._perform_local_download_async(req, db)
 
     async def _perform_file_download_async(
@@ -1255,11 +1255,11 @@ class DownloadCore:
         user_agent: Optional[str] = None,
         referer: Optional[str] = None,
     ):
-        """실제 파일 다운로드 수행 (파싱 세션 컨텍스트 포함)."""
+        """Perform the actual file download (including the parsing session context)."""
         try:
             print(f"[DEBUG] 파일 다운로드 시작: {req.id}")
 
-            # 파일 저장 경로 생성 (.part 확장자 포함)
+            # Build the file save path (including the .part extension)
             print(f"[LOG] 다운로드 파일명 확인: req.file_name={req.file_name}, save_path={req.save_path}")
             if not req.save_path:
                 filename_to_use = req.file_name or f"download_{req.id}"
@@ -1268,33 +1268,33 @@ class DownloadCore:
                 print(f"[LOG] 생성된 저장 경로: '{req.save_path}'")
                 db.commit()
 
-            # 프록시 다운로드 재시도 로직 - 사용 가능한 프록시가 있는 동안 재시도
+            # Proxy download retry logic - retry while available proxies remain
             timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=300)
             download_success = False
             retry_count = 0
             proxy_addr = None
 
-            # 프록시 모드일 때 총 개수와 실패 건수 추적
+            # In proxy mode, track the total count and failure count
             total_proxies = 0
             failed_count = 0
             if req.use_proxy:
                 total_proxy_list = await proxy_manager.get_user_proxy_list(db)
                 total_proxies = len(total_proxy_list) if total_proxy_list else 0
 
-            # 프록시 다운로드: 프록시 수만큼, 일반 다운로드: 3회 재시도
+            # Proxy download: as many as the proxy count; general download: 3 retries
             MAX_DOWNLOAD_RETRIES = (
                 min(MAX_DOWNLOAD_RETRIES_PROXY_CAP, total_proxies)
                 if req.use_proxy else MAX_DOWNLOAD_RETRIES_LOCAL
             )
             while not download_success and retry_count < MAX_DOWNLOAD_RETRIES:
-                # 다운로드 정지 상태 체크
+                # Check the download-stopped state
                 db.refresh(req)
                 if req.status == StatusEnum.stopped:
                     print(f"[LOG] 다운로드 정지됨, 다운로드 중단: {req.id}")
                     return
 
                 if req.use_proxy:
-                    # 첫 시도는 파싱에 성공한 프록시 사용
+                    # On the first attempt, use the proxy that succeeded at parsing
                     if retry_count == 0 and success_proxy:
                         proxy_addr = success_proxy
                         print(f"[LOG] 파싱 성공 프록시 재사용: {proxy_addr}")
@@ -1305,12 +1305,12 @@ class DownloadCore:
                             raise Exception("모든 프록시 시도 실패")
 
                 try:
-                    # 프록시 설정
+                    # Proxy setup
                     connector = None
                     if req.use_proxy and proxy_addr:
                         print(f"[LOG] 다운로드 프록시 시도 {retry_count + 1}: {proxy_addr}")
 
-                        # SSE 전송 빈도 제한 (50개마다 또는 10초마다)
+                        # Throttle SSE frequency (every 50, or every 10 seconds)
                         if self.should_send_sse(req.id, retry_count + 1):
                             total_failed_count = await proxy_manager.get_total_failed_count(db)
                             await sse_manager.broadcast_message("proxy_trying", {
@@ -1338,7 +1338,7 @@ class DownloadCore:
                             headers = build_download_headers(user_agent=user_agent, referer=referer)
                             initial_size = 0
 
-                            # 기존 파일 확인 (이어받기 지원)
+                            # Check for an existing file (resume support)
                             if os.path.exists(req.save_path):
                                 initial_size = os.path.getsize(req.save_path)
                                 headers['Range'] = f'bytes={initial_size}-'
@@ -1349,14 +1349,14 @@ class DownloadCore:
                                 if response.status not in [200, 206]:
                                     raise Exception(f"HTTP {response.status}: {response.reason}")
 
-                    # Content-Length 가져오기 (사전파싱에서 얻은 total_size가 있으면 덮어쓰지 않음)
+                    # Get Content-Length (don't overwrite a total_size obtained during preparsing)
                     content_length = response.headers.get('Content-Length')
                     if content_length and (not req.total_size or req.total_size == 0):
                         req.total_size = int(content_length) + initial_size
                         db.commit()
                         print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
 
-                    # 텔레그램 다운로드 시작 알림 (HTTP 연결 성공 후)
+                    # Telegram download-start notification (after the HTTP connection succeeds)
                     try:
                         file_name = req.file_name or "Unknown File"
                         file_size = req.file_size
@@ -1366,25 +1366,25 @@ class DownloadCore:
                     except Exception as telegram_error:
                         print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
 
-                    # 실제 파일 다운로드
+                    # Actual file download
                     print(f"[DEBUG] 파일 다운로드 시작 - 초기크기: {initial_size}, 총크기: {req.total_size}")
                     downloaded_size = await download_file_content(
                         response, req.save_path, initial_size, req.total_size, req, db
                     )
                     print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
 
-                    # .part 파일을 최종 파일명으로 리네임
+                    # Rename the .part file to the final file name
                     final_path = get_final_file_path(req.save_path)
                     if req.save_path != final_path:
                         try:
                             shutil.move(req.save_path, final_path)
                             print(f"[DEBUG] 파일 리네임: {req.save_path} -> {final_path}")
                             req.save_path = final_path
-                            db.commit()  # 파일 경로 변경 즉시 커밋
+                            db.commit()  # Commit the file path change immediately
                         except Exception as rename_error:
                             print(f"[WARNING] 파일 리네임 실패: {rename_error}")
 
-                    # 완료 처리
+                    # Completion handling
                     print(f"[LOG] 다운로드 완료 처리 시작: {req.id}")
                     req.status = StatusEnum.done
                     req.downloaded_size = downloaded_size
@@ -1393,12 +1393,12 @@ class DownloadCore:
 
                     db.commit()
                     download_success = True
-                    break  # 성공하면 재시도 루프 종료
+                    break  # Exit the retry loop on success
 
                 except Exception as download_error:
                     print(f"[ERROR] 다운로드 실패 ({retry_count + 1}): {download_error}")
 
-                    # 404/410 모두 링크 만료 또는 세션 손실 신호 - 재파싱 시도
+                    # Both 404/410 signal link expiry or session loss - attempt re-parsing
                     err_text = str(download_error)
                     expired = (
                         "404" in err_text or "410" in err_text
@@ -1407,7 +1407,7 @@ class DownloadCore:
                     if expired:
                         print(f"[WARNING] 다운로드 링크 만료/세션 손실 감지 - 재파싱 시도")
                         try:
-                            # 재파싱
+                            # Re-parse
                             parse_url = choose_1fichier_parse_url(req.url, req.original_url)
                             if not parse_url:
                                 raise Exception("원본 1fichier 파일 페이지 URL을 찾을 수 없음")
@@ -1426,12 +1426,12 @@ class DownloadCore:
 
                             if new_parse_result and new_parse_result.get('download_link'):
                                 download_url = new_parse_result['download_link']
-                                # 재파싱으로 얻은 세션 컨텍스트도 갱신
+                                # Refresh the session context obtained from re-parsing too
                                 cookies = new_parse_result.get('cookies') or cookies
                                 user_agent = new_parse_result.get('user_agent') or user_agent
                                 referer = new_parse_result.get('referer') or referer
                                 print(f"[LOG] 재파싱 성공, 새 다운로드 링크: {download_url}")
-                                # 새 링크로 다시 시도하기 위해 continue
+                                # continue to retry with the new link
                                 continue
                             else:
                                 print(f"[ERROR] 재파싱 실패")
@@ -1439,13 +1439,13 @@ class DownloadCore:
                             print(f"[ERROR] 재파싱 오류: {reparse_error}")
 
                     if req.use_proxy and proxy_addr:
-                        # 실패한 프록시 기록 및 실패 건수 증가
+                        # Record the failed proxy and increment the failure count
                         await proxy_manager.mark_proxy_failed(db, proxy_addr)
                         failed_count += 1
                         retry_count += 1
                         print(f"[LOG] 다음 프록시로 재시도... ({retry_count}/{MAX_DOWNLOAD_RETRIES})")
 
-                        # SSE 전송 빈도 제한 (50개마다 또는 10초마다)
+                        # Throttle SSE frequency (every 50, or every 10 seconds)
                         if self.should_send_sse(req.id, retry_count):
                             total_failed_count = await proxy_manager.get_total_failed_count(db)
                             await sse_manager.broadcast_message("proxy_trying", {
@@ -1461,7 +1461,7 @@ class DownloadCore:
                             total_failed_count = await proxy_manager.get_total_failed_count(db)
                             print(f"[LOG] SSE 다운로드실패 스킵: {retry_count}/{total_proxies} (실패: {total_failed_count})")
 
-                        # 최대 재시도 횟수 체크
+                        # Check the max retry count
                         if retry_count >= MAX_DOWNLOAD_RETRIES:
                             print(f"[ERROR] 최대 다운로드 재시도 횟수({MAX_DOWNLOAD_RETRIES}) 초과")
                             break
@@ -1486,10 +1486,10 @@ class DownloadCore:
             })
             print(f"[LOG] SSE 완료 메시지 전송 완료")
 
-            # 텔레그램 성공 알림
+            # Telegram success notification
             print(f"[DEBUG] 텔레그램 성공 알림 전송 시작 (경로2): {req.file_name}")
             try:
-                # 처리 시간 계산
+                # Compute the processing time
                 processing_time = None
                 if req.started_at and req.finished_at:
                     time_diff = req.finished_at - req.started_at
@@ -1506,7 +1506,7 @@ class DownloadCore:
 
             print(f"[LOG] 다운로드 완료 처리 전체 완료: {req.save_path}")
 
-            # 1fichier 연속 요청 방지를 위한 쿨다운
+            # Cooldown to avoid back-to-back 1fichier requests
             if "1fichier" in req.url.lower():
                 print(f"[LOG] 1fichier 다운로드 완료 - 5초 쿨다운 시작")
                 await asyncio.sleep(5)
@@ -1530,9 +1530,9 @@ class DownloadCore:
                 "attempt_count": verdict.attempt_count,
             })
 
-            # 텔레그램 실패 알림
+            # Telegram failure notification
             try:
-                # 처리 시간 계산 (실패 시에도)
+                # Compute the processing time (even on failure)
                 processing_time = None
                 if req.started_at and req.finished_at:
                     time_diff = req.finished_at - req.started_at
@@ -1547,7 +1547,7 @@ class DownloadCore:
                 print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")
 
         finally:
-            # 강제 상태 확인 및 로그
+            # Force a status check and log
             try:
                 db.refresh(req)
                 print(f"[LOG] 최종 상태 확인: ID={req.id}, 상태={req.status}, 완료시간={req.finished_at}")
@@ -1555,15 +1555,15 @@ class DownloadCore:
                 print(f"[ERROR] 최종 상태 확인 실패: {final_error}")
 
     async def _perform_local_download_async(self, req: DownloadRequest, db: Session):
-        """로컬 다운로드 수행"""
+        """Perform a local download"""
         try:
             print(f"[DEBUG] 로컬 다운로드 시작: {req.id}")
 
-            # 파일명 추출 (아직 추출되지 않은 경우)
+            # Extract the file name (if not yet extracted)
             if not req.file_name:
                 await self._extract_filename_from_url(req, db)
 
-            # 실제 파일 다운로드 수행
+            # Perform the actual file download
             await self._perform_file_download_async(req, db)
 
         except Exception as e:
@@ -1585,7 +1585,7 @@ class DownloadCore:
             raise Exception(f"로컬 다운로드 실패: {e}")
 
     async def _download_special_hoster_async(self, req: DownloadRequest, db: Session):
-        """MegaUp/DataNodes 등 파일 호스팅 페이지를 최종 링크로 resolve 후 다운로드."""
+        """Resolve a file hosting page (MegaUp/DataNodes, etc.) to a final link, then download."""
         print(f"[DEBUG] 특수 호스팅 파싱 시작: {req.id} - {req.url}")
         await self.send_download_update(req.id, {
             "status": "parsing",
@@ -1667,15 +1667,15 @@ class DownloadCore:
             })
 
     async def stop_download_async(self, req_id: int, db: Session) -> bool:
-        """비동기 다운로드 중지"""
+        """Stop an async download"""
         try:
             print(f"[DEBUG] 다운로드 중지 시작 - ID: {req_id}")
 
-            # 0. cancel signal 즉시 set — 1fichier 카운트다운/대기 루프가
-            #    DB 폴링 없이 깨어남.
+            # 0. Set the cancel signal immediately — the 1fichier countdown/wait
+            #    loop wakes up without DB polling.
             cancel_signal.signal_cancel(req_id)
 
-            # 1. 실행 중인 태스크 즉시 취소
+            # 1. Cancel the running task immediately
             task_cancelled = False
             if req_id in self.download_tasks:
                 try:
@@ -1683,20 +1683,20 @@ class DownloadCore:
                     task.cancel()
                     print(f"[DEBUG] 태스크 취소 요청 완료: {req_id}")
 
-                    # 짧은 타임아웃으로 빠른 취소
+                    # Fast cancellation with a short timeout
                     try:
                         await asyncio.wait_for(task, timeout=TASK_CANCEL_TIMEOUT_SEC)
                     except (asyncio.CancelledError, asyncio.TimeoutError):
                         pass
 
-                    # 태스크 즉시 제거
+                    # Remove the task immediately
                     del self.download_tasks[req_id]
                     task_cancelled = True
                     print(f"[DEBUG] 태스크 정리 완료: {req_id}")
                 except Exception as e:
                     print(f"[ERROR] 태스크 취소 실패: {e}")
 
-            # 2. DB 상태 업데이트
+            # 2. Update the status in the DB
             try:
                 req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
                 if req:
@@ -1710,7 +1710,7 @@ class DownloadCore:
             except Exception as e:
                 print(f"[ERROR] DB 업데이트 실패: {e}")
 
-            # 3. SSE 업데이트 전송
+            # 3. Send the SSE update
             try:
                 await self.send_download_update(req_id, {
                     "status": "stopped",
@@ -1730,7 +1730,7 @@ class DownloadCore:
             return False
 
     async def _extract_filename_from_url(self, req: DownloadRequest, db: Session):
-        """URL에서 파일명 추출"""
+        """Extract the file name from the URL"""
         try:
             print(f"[LOG] URL에서 파일명 추출 시도: {req.url}")
 
@@ -1739,24 +1739,24 @@ class DownloadCore:
             parsed_url = urlparse(req.url)
             path = unquote(parsed_url.path)
 
-            # Opendrive 특수 처리
+            # Opendrive special handling
             if "opendrive.com" in req.url.lower():
-                # URL 패턴: https://www.opendrive.com/d/ODlfMzkzMTYwMTlf/Hollow%20Knight%20Silksong_U%201.0.28497%20%28Kor%29.nsp
-                # 파일명이 URL 경로에 포함되어 있음
+                # URL pattern: https://www.opendrive.com/d/ODlfMzkzMTYwMTlf/Hollow%20Knight%20Silksong_U%201.0.28497%20%28Kor%29.nsp
+                # The file name is included in the URL path
                 path_parts = path.split('/')
                 if len(path_parts) >= 3:
-                    filename = unquote(path_parts[-1])  # 마지막 부분이 파일명
+                    filename = unquote(path_parts[-1])  # The last part is the file name
                     if filename and '.' in filename:
                         req.file_name = filename
                         print(f"[LOG] Opendrive 파일명 추출: {filename}")
                         db.commit()
 
-                        # 새로운 파일명으로 저장 경로 재설정
+                        # Reset the save path with the new file name
                         req.save_path = generate_file_path(req.file_name, is_temporary=True)
                         print(f"[LOG] Opendrive 저장경로 재설정: {req.save_path}")
                         db.commit()
 
-                        # SSE로 파일명 업데이트 전송
+                        # Send the file name update over SSE
                         await sse_manager.broadcast_message("filename_update", {
                             "id": req.id,
                             "filename": req.file_name,
@@ -1764,19 +1764,19 @@ class DownloadCore:
                         })
                         return
 
-            # 일반적인 URL에서 파일명 추출
+            # Extract the file name from a typical URL
             if path and '/' in path:
                 filename = path.split('/')[-1]
                 if filename and '.' in filename:
                     req.file_name = filename
                     print(f"[LOG] 일반 URL 파일명 추출: {filename}")
 
-                    # 새로운 파일명으로 저장 경로 재설정
+                    # Reset the save path with the new file name
                     req.save_path = generate_file_path(req.file_name, is_temporary=True)
                     print(f"[LOG] 일반 URL 저장경로 재설정: {req.save_path}")
                     db.commit()
 
-                    # SSE로 파일명 업데이트 전송
+                    # Send the file name update over SSE
                     await sse_manager.broadcast_message("filename_update", {
                         "id": req.id,
                         "filename": req.file_name,
@@ -1784,7 +1784,7 @@ class DownloadCore:
                     })
                     return
 
-            # Content-Disposition 헤더에서 파일명 추출 시도
+            # Try extracting the file name from the Content-Disposition header
             try:
                 timeout = aiohttp.ClientTimeout(total=30, connect=10)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1800,12 +1800,12 @@ class DownloadCore:
                                         req.file_name = filename
                                         print(f"[LOG] Content-Disposition에서 파일명 추출: {filename}")
 
-                                        # 새로운 파일명으로 저장 경로 재설정
+                                        # Reset the save path with the new file name
                                         req.save_path = generate_file_path(req.file_name, is_temporary=True)
                                         print(f"[LOG] Content-Disposition 저장경로 재설정: {req.save_path}")
                                         db.commit()
 
-                                        # SSE로 파일명 업데이트 전송
+                                        # Send the file name update over SSE
                                         await sse_manager.broadcast_message("filename_update", {
                                             "id": req.id,
                                             "filename": req.file_name,
@@ -1821,15 +1821,15 @@ class DownloadCore:
             print(f"[ERROR] 파일명 추출 실패: {e}")
 
     def _task_cleanup(self, req_id: int):
-        """태스크 정리"""
-        # cancel signal 도 같이 정리해서 in-memory 누수 방지.
+        """Task cleanup"""
+        # Clear the cancel signal too, to prevent in-memory leaks.
         cancel_signal.clear(req_id)
 
         if req_id in self.download_tasks:
             del self.download_tasks[req_id]
             print(f"[LOG] 다운로드 태스크 정리: {req_id}")
 
-            # 정지된 다운로드인지 확인 후 자동시작 여부 결정
+            # Check whether the download was stopped before deciding to auto-start
             try:
                 db = SessionLocal()
                 req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
@@ -1841,17 +1841,17 @@ class DownloadCore:
             except Exception as e:
                 print(f"[WARNING] 상태 확인 실패, 자동시작 진행: {e}")
 
-            # 다운로드 완료 후 대기중인 다운로드 자동 시작 (약간의 지연을 두어 세마포어 해제 대기)
+            # After a download completes, auto-start a pending download (with a slight delay to let the semaphore release)
             asyncio.create_task(self._delayed_start_next_pending())
 
     async def _delayed_start_next_pending(self):
-        """세마포어 해제를 위한 지연 후 대기중인 다운로드 시작"""
+        """Start a pending download after a delay for the semaphore to release"""
         try:
-            # 세마포어 해제를 위해 잠시 대기 (async with 블록 종료 대기)
+            # Wait briefly for the semaphore to release (waiting for the async with block to exit)
             await asyncio.sleep(0.5)
             print(f"[DEBUG] 세마포어 해제 대기 완료, 자동 시작 체크")
 
-            # 현재 세마포어 상태 로깅
+            # Log the current semaphore state
             print(f"[DEBUG] 현재 세마포어 상태 - 1fichier: {self.fichier_local_semaphore._value}, 일반: {self.general_download_semaphore._value}")
 
             await self._start_next_pending_download()
@@ -1859,11 +1859,11 @@ class DownloadCore:
             print(f"[ERROR] 지연된 자동 시작 실패: {e}")
 
     async def _start_next_pending_download(self):
-        """대기중인 다운로드를 자동으로 시작 (요청시간 순서대로)"""
+        """Auto-start pending downloads (in request-time order)"""
         try:
             db = SessionLocal()
 
-            # 대기중인 모든 다운로드 조회 (요청시간 오름차순으로 정렬)
+            # Query all pending downloads (sorted by request time ascending)
             pending_downloads = db.query(DownloadRequest).filter(
                 DownloadRequest.status == StatusEnum.pending
             ).order_by(DownloadRequest.requested_at.asc()).all()
@@ -1878,22 +1878,22 @@ class DownloadCore:
                 is_1fichier = "1fichier.com" in req.url
 
                 if is_1fichier and not req.use_proxy:
-                    # 1fichier 로컬 다운로드 (최대 1개)
+                    # 1fichier local download (max 1)
                     if self.fichier_local_semaphore._value > 0:
                         success = await self.start_download_async(req, db)
                         if success:
                             started_count += 1
                             print(f"[LOG] 1fichier 로컬 자동 시작: {req.id}")
-                            break  # 1fichier 로컬은 최대 1개이므로 시작하면 중단
+                            break  # 1fichier local is limited to 1, so stop once started
                 else:
-                    # 일반 다운로드 (1fichier 프록시 포함, 최대 5개)
+                    # General download (includes 1fichier proxy, max 5)
                     if self.general_download_semaphore._value > 0:
                         success = await self.start_download_async(req, db)
                         if success:
                             started_count += 1
                             print(f"[LOG] 일반/프록시 다운로드 자동 시작: {req.id}")
 
-                            # 일반 다운로드 세마포어가 모두 사용되면 중단
+                            # Stop once the general download semaphore is fully used
                             if self.general_download_semaphore._value == 0:
                                 break
 
@@ -1906,11 +1906,11 @@ class DownloadCore:
             db.close()
 
     async def auto_start_pending_downloads(self):
-        """대기중인 다운로드들을 자동으로 시작 (공개 메서드)"""
+        """Auto-start pending downloads (public method)"""
         await self._start_next_pending_download()
 
     async def get_download_status(self, req_id: int) -> Dict[str, Any]:
-        """다운로드 상태 조회"""
+        """Query download status"""
         try:
             db = SessionLocal()
             req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
@@ -1932,7 +1932,7 @@ class DownloadCore:
             db.close()
 
     async def cleanup_all_tasks(self):
-        """모든 다운로드 태스크 정리"""
+        """Clean up all download tasks"""
         for req_id, task in list(self.download_tasks.items()):
             try:
                 task.cancel()
@@ -1946,5 +1946,5 @@ class DownloadCore:
         print(f"[LOG] 모든 다운로드 태스크 정리 완료")
 
 
-# 전역 인스턴스
+# Global instance
 download_core = DownloadCore()

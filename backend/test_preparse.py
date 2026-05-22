@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-1fichier 사전파싱 테스트
+1fichier pre-parsing test
 """
 
 import sys
 import os
 
-# 백엔드 경로 추가
+# Add the backend path
 backend_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, backend_path)
 
 from core.simple_parser import preparse_1fichier_standalone
 
 def test_preparse():
-    """사전파싱 테스트"""
+    """Pre-parsing test"""
     test_url = "https://1fichier.com/?dmfu8vpmkq67httu87o3"
 
     print("=" * 50)

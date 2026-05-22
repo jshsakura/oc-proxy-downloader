@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-대기시간 추적 스토어
-- 스레드 안전한 대기시간 관리
-- 다운로드 대기 상태 추적
+Wait-time tracking store
+- Thread-safe wait-time management
+- Tracks download wait states
 """
 
 import threading
@@ -10,14 +10,14 @@ import time
 
 
 class WaitTimeStore:
-    """스레드 안전한 대기시간 스토어"""
+    """Thread-safe wait-time store"""
     
     def __init__(self):
         self._wait_tasks = {}  # {download_id: {"start_time": timestamp, "total_wait": seconds, "url": url}}
         self._lock = threading.Lock()
     
     def start_wait(self, download_id, total_wait_seconds, url):
-        """대기 시작 등록"""
+        """Register the start of a wait"""
         with self._lock:
             self._wait_tasks[download_id] = {
                 "start_time": time.time(),
@@ -27,7 +27,7 @@ class WaitTimeStore:
             print(f"[STORE] 대기 추적 시작: ID {download_id}, 총 {total_wait_seconds}초")
     
     def finish_wait(self, download_id):
-        """대기 완료 - 추적에서 제거"""
+        """Finish a wait - remove it from tracking"""
         with self._lock:
             if download_id in self._wait_tasks:
                 del self._wait_tasks[download_id]
@@ -36,7 +36,7 @@ class WaitTimeStore:
             return False
     
     def get_remaining_time(self, download_id):
-        """남은 대기시간 계산 (초)"""
+        """Calculate the remaining wait time (seconds)"""
         with self._lock:
             if download_id not in self._wait_tasks:
                 return None
@@ -46,7 +46,7 @@ class WaitTimeStore:
             remaining_time = max(0, wait_info["total_wait"] - elapsed_time)
             
             if remaining_time <= 0:
-                # 대기 시간이 끝났으면 추적에서 제거
+                # Wait time is over, so remove it from tracking
                 del self._wait_tasks[download_id]
                 return None
             
@@ -57,7 +57,7 @@ class WaitTimeStore:
             }
     
     def get_all_active_waits(self):
-        """모든 진행 중인 대기 작업 반환"""
+        """Return all in-progress wait tasks"""
         with self._lock:
             result = {}
             expired_ids = []
@@ -69,12 +69,12 @@ class WaitTimeStore:
                 else:
                     expired_ids.append(download_id)
             
-            # 만료된 작업들 제거
+            # Remove expired tasks
             for expired_id in expired_ids:
                 self._wait_tasks.pop(expired_id, None)
             
             return result
 
 
-# 전역 대기시간 스토어 인스턴스
+# Global wait-time store instance
 wait_store = WaitTimeStore()

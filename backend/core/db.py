@@ -25,12 +25,12 @@ SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, 
     connect_args={"check_same_thread": False},
-    pool_size=10,  # 기본 풀 크기 증가
-    max_overflow=20,  # 오버플로우 허용
-    pool_timeout=60,  # 연결 대기 시간 증가
-    pool_recycle=3600,  # 1시간마다 연결 재활용
-    pool_pre_ping=True,  # 연결 유효성 사전 검사
-    echo=False  # SQL 로깅 비활성화
+    pool_size=10,  # increase the base pool size
+    max_overflow=20,  # allow overflow
+    pool_timeout=60,  # increase the connection wait time
+    pool_recycle=3600,  # recycle connections every hour
+    pool_pre_ping=True,  # pre-check connection validity
+    echo=False  # disable SQL logging
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

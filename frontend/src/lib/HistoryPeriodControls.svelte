@@ -4,7 +4,7 @@
   export let period = "30d";
   export let startDate = "";
   export let endDate = "";
-  // 좁은 영역(설정 모달 등) 에서는 "오늘" 을 숨길 수 있도록.
+  // Allow hiding "Today" in narrow areas (e.g. the settings modal).
   export let hideToday = false;
 
   $: periods = [
@@ -28,7 +28,7 @@
   function selectPeriod(p) {
     period = p;
     if (p === "custom") {
-      // 사용자 지정 진입 시 비어 있으면 한 달 전 ~ 오늘 자동 채움
+      // On entering custom mode, auto-fill one month ago ~ today if empty
       if (!startDate || !endDate) {
         const today = new Date();
         const monthAgo = new Date();
@@ -179,9 +179,10 @@
     box-shadow: 0 2px 8px rgba(var(--primary-color-rgb, 99, 102, 241), 0.35);
   }
 
-  /* 모바일 — 컴포넌트 자체 풀폭 풀어주는 게 가장 확실. 부모 wrapper 의 :global 보다
-   * scoped 가 강하다. 좌측 정렬 안되게 1) controls 가 row 100%, 2) segment 가
-   * 풀폭, 3) 버튼이 균등 1fr 로 펴짐. 사용자 지정 영역도 다음 줄 풀폭. */
+  /* Mobile — making the component itself full-width is the most reliable. Scoped
+   * styles win over the parent wrapper's :global. To prevent left alignment: 1) controls
+   * is a row at 100%, 2) the segment is full-width, 3) buttons stretch evenly at 1fr.
+   * The custom area is also full-width on the next line. */
   @media (max-width: 720px) {
     .period-controls {
       width: 100%;

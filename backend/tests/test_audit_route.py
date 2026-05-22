@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""audit 라우트의 락 관리 / 필터 셀렉터 단위 테스트.
+"""Unit tests for the audit route's lock management / filter selector.
 
-가장 중요한 회귀 방지:
-- 두 요청이 동시에 들어와도 한쪽만 통과 (락 race condition #2).
-- 빈 결과나 예외 시 락이 항상 해제되어 다음 요청이 받아들여짐.
-- ``_select_targets`` 가 ids/status/failure_kinds/since/until 필터를 AND 결합.
+Most important regression guards:
+- Even if two requests arrive at once, only one passes (lock race condition #2).
+- On empty results or exceptions, the lock is always released so the next request is accepted.
+- ``_select_targets`` AND-combines the ids/status/failure_kinds/since/until filters.
 """
 
 import asyncio
@@ -26,7 +26,7 @@ from api.routes.audit import (
 
 @pytest.fixture()
 def memory_db():
-    """단위 테스트용 격리된 in-memory SQLite 세션 + 샘플 데이터."""
+    """An isolated in-memory SQLite session + sample data for unit tests."""
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine)
@@ -60,7 +60,7 @@ def memory_db():
 
 @pytest.fixture(autouse=True)
 def reset_audit_lock():
-    """매 테스트 후 잠긴 락 해제 — 글로벌 싱글톤이라 누수되면 다음 테스트 깨짐."""
+    """Release a held lock after each test — it is a global singleton, so a leak breaks the next test."""
     yield
     if _audit_lock.locked():
         _audit_lock.release()
@@ -68,12 +68,12 @@ def reset_audit_lock():
 
 class TestSelectTargets:
     def test_default_filter_returns_failed_and_stopped(self, memory_db):
-        # failed (a, b) + stopped (c) — done (d) 제외
+        # failed (a, b) + stopped (c) — done (d) excluded
         ids = _select_targets(AuditRequest(), memory_db)
         assert len(ids) == 3
 
     def test_ids_overrides_other_filters(self, memory_db):
-        # status=done 인 d 만 id 지정 — 다른 status 필터 무시
+        # Specify only d (status=done) by id — other status filters ignored
         d = memory_db.query(DownloadRequest).filter_by(
             url="https://1fichier.com/?d"
         ).first()
@@ -83,7 +83,7 @@ class TestSelectTargets:
     def test_failure_kinds_filter(self, memory_db):
         req = AuditRequest(failure_kinds=["dead"])
         ids = _select_targets(req, memory_db)
-        # dead 만 매칭 — a 1개
+        # Only dead matches — just a (1)
         rows = memory_db.query(DownloadRequest).filter(
             DownloadRequest.id.in_(ids)
         ).all()
@@ -95,7 +95,7 @@ class TestSelectTargets:
         until = datetime.datetime(2026, 5, 3, 23, 59, 59)
         req = AuditRequest(since=since, until=until)
         ids = _select_targets(req, memory_db)
-        # b (5/2), c (5/3) — done 인 d 제외, a (5/1) 도 제외
+        # b (5/2), c (5/3) — d (done) excluded, a (5/1) also excluded
         rows = memory_db.query(DownloadRequest).filter(
             DownloadRequest.id.in_(ids)
         ).all()
@@ -109,11 +109,11 @@ class TestSelectTargets:
         rows = memory_db.query(DownloadRequest).filter(
             DownloadRequest.id.in_(ids)
         ).all()
-        # c 는 failure_kind=NULL 이라 제외
+        # c is excluded because failure_kind=NULL
         assert all(r.failure_kind is not None for r in rows)
 
     def test_failure_kinds_takes_precedence_over_only_with(self, memory_db):
-        # failure_kinds 가 지정되면 only_with_failure_kind 무시 (이미 더 좁힘)
+        # When failure_kinds is specified, only_with_failure_kind is ignored (already narrower)
         req = AuditRequest(
             failure_kinds=["cloudflare"], only_with_failure_kind=False
         )
@@ -131,16 +131,16 @@ class TestSelectTargets:
 
 
 class TestAuditLockRace:
-    """결함 #2 회귀 방지 — 동시 요청 시 한 쪽만 통과해야 함.
+    """Guards against defect #2 — only one side may pass on concurrent requests.
 
-    실제 백그라운드 태스크는 module-level ``SessionLocal`` 을 쓰므로 단위 테스트
-    환경에서 곧장 크래시한다 (테이블 없음). 그래서 락을 수동으로 잡고/풀어서
-    ``start_audit`` 의 게이팅 로직만 직접 검증.
+    The real background task uses the module-level ``SessionLocal``, so it crashes
+    immediately in the unit-test environment (no tables). Therefore we acquire/release
+    the lock manually and verify only the gating logic of ``start_audit`` directly.
     """
 
     @pytest.mark.asyncio
     async def test_locked_state_returns_409(self, memory_db):
-        # 외부에서 락이 이미 잡혀있다고 가정
+        # Assume the lock is already held externally
         await _audit_lock.acquire()
         try:
             with pytest.raises(HTTPException) as exc:
@@ -152,7 +152,7 @@ class TestAuditLockRace:
 
     @pytest.mark.asyncio
     async def test_no_targets_releases_lock(self):
-        """대상 0건 응답 직후엔 락이 풀려있어야 다음 요청을 받을 수 있다."""
+        """Right after a zero-target response, the lock must be released so the next request can be accepted."""
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
         Session = sessionmaker(bind=engine)
@@ -160,13 +160,13 @@ class TestAuditLockRace:
         db.add(DownloadRequest(url="https://x", status=StatusEnum.done))
         db.commit()
 
-        # 락이 안 잡힌 상태에서 시작 → 0건 → 락 즉시 해제
+        # Start with the lock not held → 0 targets → lock released immediately
         first = await start_audit(AuditRequest(), db)
         assert first["started"] is False
         assert first["total"] == 0
         assert not _audit_lock.locked()
 
-        # 다음 호출도 같은 결과로 통과 (락 누수 없음)
+        # The next call passes with the same result (no lock leak)
         second = await start_audit(AuditRequest(), db)
         assert second["started"] is False
         assert not _audit_lock.locked()

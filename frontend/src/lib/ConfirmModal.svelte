@@ -68,7 +68,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 20000; /* SettingsModal(10000)보다 높게 설정 */
+    z-index: 20000; /* Set higher than SettingsModal (10000) */
   }
 
   .modal {

@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-OC Proxy Downloader - 새 아키텍처
-- 웹소켓 완전 제거
-- SSE + asyncio 기반
-- 모듈화된 구조
+OC Proxy Downloader - new architecture
+- WebSockets fully removed
+- Based on SSE + asyncio
+- Modular structure
 """
 import sys
 import os
 
-# 스탠드얼론 환경 설정 (최우선 - 모든 임포트보다 먼저!)
+# Standalone environment setup (highest priority - before all imports!)
 if getattr(sys, 'frozen', False):
     from pathlib import Path
-    # 실행 파일과 같은 디렉토리에 config 폴더 생성
+    # Create a config folder in the same directory as the executable
     exe_dir = Path(sys.executable).parent
     config_dir = exe_dir / "config"
     config_dir.mkdir(exist_ok=True)
@@ -19,8 +19,8 @@ if getattr(sys, 'frozen', False):
     print(f"Loading OC Proxy Downloader...")
     print(f"[LOG] Standalone config directory: {config_dir}")
 
-# Python 경로 설정 (Docker 환경 대응)
-# 이 코드는 다른 모듈보다 먼저 실행되어야 합니다.
+# Python path setup (for the Docker environment)
+# This code must run before the other modules.
 backend_path = os.path.dirname(os.path.abspath(__file__))
 if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
@@ -40,12 +40,12 @@ from dotenv import load_dotenv
 from utils.logging import setup_logging, replace_print
 from core.app_factory import create_app
 
-# .env 파일 로드
+# Load the .env file
 if getattr(sys, 'frozen', False):
-    # 스탠드얼론: exe 디렉토리에서 찾기
+    # Standalone: look in the exe directory
     env_path = Path(sys.executable).parent / ".env"
 else:
-    # 개발환경: 루트 디렉토리에서 찾기
+    # Development: look in the root directory
     project_root = Path(__file__).parent.parent
     env_path = project_root / ".env"
 
@@ -55,11 +55,11 @@ if env_path.exists():
 else:
     print("[INFO] No .env file found")
 
-# 로깅 설정 (.env 로딩 후에)
+# Logging setup (after loading .env)
 setup_logging()
 replace_print()
 
-# 스탠드얼론 환경에서 로딩 표시
+# Show a loading indicator in the standalone environment
 def show_loading():
     """Display loading animation"""
     if not getattr(sys, 'frozen', False):
@@ -83,22 +83,22 @@ def show_loading():
     thread.start()
     return stop_loading
 
-# 로딩 시작
+# Start loading
 loading_stop = show_loading()
 
-# 메인 애플리케이션 생성 (.env 로딩 후에)
+# Create the main application (after loading .env)
 app = create_app()
 
-# 로딩 완료
+# Loading complete
 if loading_stop:
     loading_stop.set()
     print("\r✅ OC Proxy Downloader Ready!          ")  # Clear previous text with spaces
 
 
 def monitor_process_health():
-    """기본 프로세스 상태 체크 - 단순화"""
+    """Basic process health check - simplified"""
     try:
-        # 기본적인 상태만 체크
+        # Check only basic status
         return True
     except Exception as e:
         print(f"[LOG] Process monitoring error (ignored): {e}")
@@ -106,17 +106,17 @@ def monitor_process_health():
 
 
 def force_cleanup_threads():
-    """모든 스레드 강제 정리 - reentrant call 방지"""
+    """Force-clean up all threads - prevents reentrant calls"""
     try:
         print("[LOG] Starting thread cleanup...")
 
-        # 짧은 대기로 정상 종료 기회 제공
+        # A short wait to give a chance for normal shutdown
         time.sleep(0.2)
 
-        # 현재 스레드 확인
+        # Check the current threads
         active_threads = threading.enumerate()
 
-        # 정리할 스레드 타입들
+        # Thread types to clean up
         cleanup_threads = []
         for t in active_threads:
             if (('AnyIO worker thread' in t.name) or
@@ -128,7 +128,7 @@ def force_cleanup_threads():
         if cleanup_threads:
             print(f"[LOG] Found {len(cleanup_threads)} threads to cleanup")
 
-            # 강제 종료 시도 (daemon으로 변경)
+            # Attempt a forced shutdown (switch to daemon)
             for thread in cleanup_threads:
                 try:
                     thread.daemon = True
@@ -138,43 +138,43 @@ def force_cleanup_threads():
 
         print("[LOG] Thread cleanup completed")
     except:
-        # 예외 발생 시 조용히 무시 (reentrant call 방지)
+        # Silently ignore on exception (prevents reentrant calls)
         pass
 
 
 def main():
-    """메인 서버 시작 함수"""
+    """Main server start function"""
     print("=" * 60)
     print("🚀 OC Proxy Downloader v2.0")
     print("   - SSE + asyncio ✅")
     print("=" * 60)
 
-    # 종료 시 스레드 정리 등록 (다중 등록 방지)
+    # Register thread cleanup on exit (prevents multiple registrations)
     atexit.register(force_cleanup_threads)
 
-    # 강제 종료 핸들러 설정
+    # Set up the forced-shutdown handler
     def signal_handler(sig, frame):
         print(f"\n[LOG] 종료 신호 수신 ({sig}) - 즉시 강제 종료...")
         try:
-            # 빠른 정리
+            # Quick cleanup
             sys.exit(0)
         except:
-            os._exit(0)  # 강제 종료
+            os._exit(0)  # force exit
 
     signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
-    signal.signal(signal.SIGTERM, signal_handler)  # 종료 요청
+    signal.signal(signal.SIGTERM, signal_handler)  # shutdown request
 
-    # Windows에서 Ctrl+Break도 처리
+    # Also handle Ctrl+Break on Windows
     if hasattr(signal, 'SIGBREAK'):
         signal.signal(signal.SIGBREAK, signal_handler)
 
     try:
-        # 개발 서버 실행 - 빠른 종료 설정
-        # 환경별 포트 설정
+        # Run the dev server - fast-shutdown configuration
+        # Per-environment port configuration
         port = int(os.environ.get('OC_PORT', '8888' if getattr(sys, 'frozen', False) else '8000'))
 
         config = uvicorn.Config(
-            app,  # PyInstaller 환경에서는 직접 app 객체 전달
+            app,  # pass the app object directly in the PyInstaller environment
             host="0.0.0.0",
             port=port,
             reload=False,
@@ -182,9 +182,9 @@ def main():
             loop="asyncio",
             workers=1,
             access_log=False,
-            lifespan="on",  # 빠른 시작/종료
-            timeout_keep_alive=5,  # 연결 타임아웃 단축
-            timeout_graceful_shutdown=3,  # 종료 타임아웃 단축
+            lifespan="on",  # fast startup/shutdown
+            timeout_keep_alive=5,  # shorten the connection timeout
+            timeout_graceful_shutdown=3,  # shorten the shutdown timeout
         )
         server = uvicorn.Server(config)
 
@@ -194,7 +194,7 @@ def main():
         else:
             print("[LOG] Starting server - default configuration")
 
-        # 브라우저 자동 열기 (도커가 아닌 환경에서만)
+        # Auto-open the browser (only in non-Docker environments)
         if not os.getenv('DOCKER_CONTAINER'):
             def open_browser():
                 """Open browser after server starts"""
@@ -207,7 +207,7 @@ def main():
                     print(f"[WARNING] Failed to open browser: {e}")
                     print(f"[INFO] Please manually access http://localhost:{port} in your browser")
 
-            # 브라우저 열기를 별도 스레드에서 실행
+            # Open the browser in a separate thread
             browser_thread = threading.Thread(target=open_browser, daemon=True)
             browser_thread.start()
         else:

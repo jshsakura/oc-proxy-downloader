@@ -1,5 +1,5 @@
 """
-SSE 메시지 전송 유틸리티
+SSE message-sending utilities
 """
 
 import asyncio
@@ -8,15 +8,15 @@ from services.sse_manager import sse_manager
 
 
 def send_sse_message(message_type: str, data: dict):
-    """통합된 SSE 메시지 전송 함수"""
+    """Unified SSE message-sending function"""
     try:
-        # 현재 루프가 있는지 확인
+        # Check whether there is a current loop
         try:
             loop = asyncio.get_running_loop()
-            # 현재 루프에서 태스크 생성
+            # Create a task on the current loop
             loop.create_task(sse_manager.broadcast_message(message_type, data))
         except RuntimeError:
-            # 루프가 없으면 스레드에서 새 루프 생성
+            # No loop, so create a new loop in a thread
             def run_broadcast():
                 try:
                     loop = asyncio.new_event_loop()

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""``core.models`` 직렬화 헬퍼 단위 테스트."""
+"""Unit tests for the ``core.models`` serialization helpers."""
 
 import datetime
 
@@ -19,7 +19,7 @@ class TestSerializeColumnValue:
         assert _serialize_column_value("status", StatusEnum.done) == "done"
 
     def test_legacy_paused_status_migrates_to_stopped(self):
-        """구버전 DB 의 'paused' 문자열이 그대로 들어와도 'stopped' 로 노출."""
+        """Even a legacy DB 'paused' string is exposed as 'stopped'."""
         assert _serialize_column_value("status", "paused") == "stopped"
 
     def test_size_none_becomes_zero(self):
@@ -33,7 +33,7 @@ class TestSerializeColumnValue:
         assert _serialize_column_value("error", Exception("boom")) == "boom"
 
     def test_error_none_passthrough(self):
-        # error 가 falsy 면 분기 안 타고 그대로 통과
+        # If error is falsy, the branch is skipped and it passes through unchanged
         assert _serialize_column_value("error", None) is None
         assert _serialize_column_value("error", "") == ""
 
@@ -51,7 +51,7 @@ class TestAsDictMixin:
             status=StatusEnum.downloading,
         )
         d = req.as_dict()
-        # 핵심 필드가 직렬화돼서 들어가 있어야 함
+        # The core fields must be present and serialized
         assert d["url"] == "https://1fichier.com/?abc"
         assert d["file_name"] == "movie.mkv"
         assert d["status"] == "downloading"
@@ -64,7 +64,7 @@ class TestAsDictMixin:
 
     def test_size_columns_default_to_zero_when_none(self):
         req = DownloadRequest(url="x")
-        # downloaded_size/total_size 명시하지 않았을 때 None 일 수 있음
+        # downloaded_size/total_size may be None when not specified
         d = req.as_dict()
         assert d["downloaded_size"] in (0,)
         assert d["total_size"] in (0,)

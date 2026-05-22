@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-비동기 다운로드 API 라우터
-- 비동기 다운로드 시작/중지
-- SSE를 통한 실시간 상태 업데이트
-- 유기적 프론트엔드 통신
+Async download API router
+- Start/stop async downloads
+- Real-time status updates via SSE
+- Tightly integrated frontend communication
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,10 +34,10 @@ from services.ouo_unwrap_service import is_ouo_url, unwrap_if_ouo
 
 
 def _has_fichier_credentials() -> bool:
-    """설정에 1fichier 계정이 등록돼 있는지 검사.
+    """Check whether a 1fichier account is registered in the config.
 
-    auth_required 분류된 실패를 재시도해도 의미 없을 때 일괄 재시작에서 건너뛰는
-    기준으로 쓴다.
+    Used as the criterion for skipping auth_required failures in batch
+    restarts, since retrying them is pointless without credentials.
     """
     cfg = get_config()
     email = (cfg.get("fichier_email") or "").strip()
@@ -46,15 +46,16 @@ def _has_fichier_credentials() -> bool:
 
 
 def _should_skip_retry(req: DownloadRequest, has_credentials: bool) -> Optional[str]:
-    """배치/단건 재시도 시 건너뛸 사유 — 없으면 None.
+    """Reason to skip a batch/single retry — None if there is none.
 
-    우선 ``failure_kind`` / ``next_retry_at`` 컬럼을 보고, 마이그레이션 이전
-    레코드(컬럼 NULL)는 ``error`` 텍스트로 폴백.
+    Prefers the ``failure_kind`` / ``next_retry_at`` columns, falling back to
+    the ``error`` text for pre-migration records (columns NULL).
 
-    반환:
-      - ``dead``: 항상 차단. UI 도 재시도 버튼 비활성화.
-      - ``auth_required``: 계정 미설정 시에만.
-      - ``cooldown``: 다음 재시도 시각 미도래. 시간이 지나면 자연스럽게 풀림.
+    Returns:
+      - ``dead``: always blocked. The UI also disables the retry button.
+      - ``auth_required``: only when no account is configured.
+      - ``cooldown``: next retry time not yet reached. Clears naturally once
+        the time passes.
     """
     return is_retry_blocked_now(req, has_credentials)
 
@@ -67,7 +68,7 @@ async def add_download(
     request: dict,
     db: Session = Depends(get_db)
 ):
-    """새 다운로드 요청 추가"""
+    """Add a new download request"""
     try:
         url = request.get("url", "").strip()
         password = request.get("password", "")
@@ -76,8 +77,9 @@ async def add_download(
         if not url:
             raise HTTPException(status_code=400, detail="URL이 필요합니다")
 
-        # ouo.io / ouo.press 단축링크 자동 우회. 우회 결과가 진짜 다운로드 URL.
-        # 우회 실패 시 원본을 그대로 두고 사용자 측에서 재시도하게 함.
+        # Automatically unwrap ouo.io / ouo.press shortlinks. The unwrapped
+        # result is the real download URL. On failure, keep the original and
+        # let the user retry.
         original_ouo_url: Optional[str] = None
         if is_ouo_url(url):
             original_ouo_url = url
@@ -91,14 +93,17 @@ async def add_download(
                     detail=f"ouo 단축링크 우회 실패: {url} — 잠시 후 다시 시도해주세요",
                 )
 
-        # 1fichier URL 정리 (파일 페이지의 affiliate 등 제거, 다운로드 호스트는 보존)
+        # Clean up the 1fichier URL (strip affiliate params etc. from file
+        # pages, but preserve the download host).
         url = clean_1fichier_url(url)
 
-        # 새 다운로드 요청 생성. ouo 우회로 들어온 URL은 원본 ouo 링크를
-        # original_url에 보존하여 추후 진단/재우회에 사용 가능하게 함.
-        # 파일명은 파싱 전에도 식별자가 노출되도록 URL 에서 잠정 이름을 박아둔다 —
-        # 사전파싱이 성공하면 진짜 파일명으로 덮어쓰기 때문에 placeholder 가
-        # 영구히 남는 건 dead 한 케이스뿐이고, 그것도 "Unknown" 보다 훨씬 식별 가능.
+        # Create the new download request. For URLs that came in via ouo
+        # unwrap, preserve the original ouo link in original_url so it can be
+        # used later for diagnostics / re-unwrapping.
+        # Stamp a provisional name derived from the URL so an identifier is
+        # visible even before parsing — preparse overwrites it with the real
+        # filename on success, so the placeholder only persists in dead cases,
+        # and even then it's far more identifiable than "Unknown".
         preserved_original_url = url if (
             "1fichier.com" in url or should_preserve_original_url(url)
         ) else None
@@ -116,12 +121,12 @@ async def add_download(
         db.commit()
         db.refresh(new_request)
 
-        # 즉시 다운로드 시작
+        # Start the download immediately
         print(f"[LOG] 다운로드 즉시 시작: {new_request.id}")
         success = await download_core.start_download_async(new_request, db)
 
         if success:
-            # SSE로 다운로드 시작 알림
+            # Notify download start via SSE
             await sse_manager.broadcast_message("download_started", {
                 "id": new_request.id,
                 "url": url,
@@ -129,7 +134,7 @@ async def add_download(
                 "message": "다운로드가 시작되었습니다"
             })
         else:
-            # 실패 시에도 사용자에게 알림
+            # Notify the user on failure as well
             await sse_manager.broadcast_message("download_added", {
                 "id": new_request.id,
                 "url": url,
@@ -155,22 +160,22 @@ async def add_download(
 
 @router.post("/downloads/start/{download_id}")
 async def start_download(download_id: int, db: Session = Depends(get_db)):
-    """비동기 다운로드 시작"""
+    """Start an async download"""
     try:
-        # 다운로드 요청 조회
+        # Look up the download request
         req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
-        # 이미 실행 중인지 확인
+        # Check whether it is already running
         if req.status in [StatusEnum.parsing, StatusEnum.downloading, StatusEnum.waiting]:
             raise HTTPException(status_code=400, detail="이미 실행 중인 다운로드입니다")
 
-        # 비동기 다운로드 시작
+        # Start the async download
         success = await download_core.start_download_async(req, db)
 
         if success:
-            # SSE로 즉시 상태 알림
+            # Immediately notify status via SSE
             await sse_manager.broadcast_message("download_started", {
                 "id": download_id,
                 "status": "parsing",
@@ -194,30 +199,30 @@ async def start_download(download_id: int, db: Session = Depends(get_db)):
 
 @router.post("/resume/{download_id}")
 async def resume_download(download_id: int, use_proxy: Optional[bool] = None, db: Session = Depends(get_db)):
-    """비동기 다운로드 재시작/이어받기"""
+    """Restart / resume an async download"""
     try:
-        # 다운로드 요청 조회
+        # Look up the download request
         req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
-        # 이미 실행 중인지 확인
+        # Check whether it is already running
         if req.status in [StatusEnum.parsing, StatusEnum.downloading, StatusEnum.waiting]:
             raise HTTPException(status_code=400, detail="이미 실행 중인 다운로드입니다")
 
-        # 완료된 다운로드는 재시작 불가
+        # Completed downloads cannot be restarted
         if req.status == StatusEnum.done:
             raise HTTPException(status_code=400, detail="이미 완료된 다운로드입니다")
 
-        # 프록시 설정 업데이트 (요청에 포함된 경우)
+        # Update the proxy setting (if included in the request)
         if use_proxy is not None:
             req.use_proxy = use_proxy
 
-        # 비동기 다운로드 시작 (resume은 start와 동일한 로직)
+        # Start the async download (resume uses the same logic as start)
         success = await download_core.start_download_async(req, db)
 
         if success:
-            # SSE로 즉시 상태 알림
+            # Immediately notify status via SSE
             await sse_manager.broadcast_message("download_resumed", {
                 "id": download_id,
                 "status": "parsing",
@@ -244,7 +249,7 @@ async def retry_download(
     download_id: int,
     db: Session = Depends(get_db)
 ):
-    """실패한 다운로드 재시도"""
+    """Retry a failed download"""
     try:
         req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
         if not req:
@@ -256,8 +261,9 @@ async def retry_download(
                 detail=f"Cannot retry in current status: {req.status}"
             )
 
-        # 영구 실패 — 재요청해도 같은 결과. 클라이언트가 무심코 호출하더라도
-        # 1fichier 에 부하만 주고 사용자에겐 동일한 실패가 다시 떨어지므로 차단.
+        # Permanent failure — retrying yields the same result. Even if a
+        # client calls this carelessly it only loads 1fichier and hands the
+        # user the same failure again, so block it.
         skip_reason = _should_skip_retry(req, _has_fichier_credentials())
         if skip_reason == "dead":
             raise HTTPException(
@@ -270,37 +276,39 @@ async def retry_download(
                 detail="retry_blocked_auth_required",
             )
         if skip_reason == "cooldown":
-            # cooldown 은 시간이 풀리면 일괄 재시작에서 자동으로 잡히지만,
-            # 수동 단건 재시도일 때는 사용자가 강제 시도하는 의도이므로
-            # 컬럼 초기화 후 통과시킨다.
+            # A cooldown is picked up automatically by batch restarts once it
+            # clears, but a manual single retry means the user intends to force
+            # it, so clear the column and let it through.
             req.next_retry_at = None
 
-        # 만료된 링크에 대한 로깅 (URL 복원 불필요 - 파싱 시 original_url 자동 사용)
+        # Logging for expired links (no URL restore needed — parsing uses
+        # original_url automatically).
         if req.error and "410" in str(req.error):
             print(f"[LOG] 만료된 다운로드 링크 감지, 재파싱으로 새 링크 획득 예정")
 
         if req.url and "1fichier.com/c" in req.url:
             print(f"[LOG] 1fichier 직접 다운로드 링크, 재파싱으로 새 링크 획득 예정")
 
-        # 상태를 pending으로 변경하고 오류 메시지 초기화. 분류/cooldown 컬럼도
-        # 비우고, attempt_count/attempts_json 도 리셋 — 사용자 의도가 "강제 재시도"
-        # 이므로 backoff 누적치를 들고 가면 안 됨 (다음 실패가 즉시 30분 cooldown
-        # 받는 회귀를 막는다).
+        # Change status to pending and clear the error message. Also blank the
+        # classification/cooldown columns and reset attempt_count/attempts_json
+        # — the user's intent is a "forced retry", so carrying over accumulated
+        # backoff is wrong (this prevents a regression where the next failure
+        # immediately gets a 30-minute cooldown).
         req.status = StatusEnum.pending
         req.error = None
         req.failure_kind = None
         req.next_retry_at = None
         req.attempt_count = 0
         req.attempts_json = None
-        req.downloaded_size = 0  # 처음부터 다시 시작
+        req.downloaded_size = 0  # start over from the beginning
         req.finished_at = None
         db.commit()
 
-        # 비동기 다운로드 시작
+        # Start the async download
         success = await download_core.start_download_async(req, db)
 
         if success:
-            # SSE로 즉시 상태 알림
+            # Immediately notify status via SSE
             await sse_manager.broadcast_message("download_retried", {
                 "id": download_id,
                 "status": "parsing",
@@ -324,21 +332,21 @@ async def retry_download(
 
 @router.post("/downloads/stop/{download_id}")
 async def stop_download(download_id: int, db: Session = Depends(get_db)):
-    """비동기 다운로드 중지"""
+    """Stop an async download"""
     try:
-        # 다운로드 요청 조회
+        # Look up the download request
         req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
-        # 비동기 다운로드 중지
+        # Stop the async download
         success = await download_core.stop_download_async(download_id, db)
 
         if success:
-            # 최신 다운로드 상태 조회
+            # Look up the latest download status
             updated_req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
 
-            # SSE로 즉시 상태 알림
+            # Immediately notify status via SSE
             await sse_manager.broadcast_message("download_stopped", {
                 "id": download_id,
                 "status": "stopped",
@@ -346,7 +354,7 @@ async def stop_download(download_id: int, db: Session = Depends(get_db)):
                 "message": "다운로드가 중지되었습니다"
             })
 
-            # 추가로 download_updated 메시지도 전송하여 UI 즉시 갱신
+            # Also send a download_updated message so the UI refreshes immediately
             if updated_req:
                 await sse_manager.broadcast_message("download_updated", {
                     "id": download_id,
@@ -373,7 +381,7 @@ async def stop_download(download_id: int, db: Session = Depends(get_db)):
 
 @router.get("/downloads/status/{download_id}")
 async def get_download_status(download_id: int):
-    """비동기 다운로드 상태 조회"""
+    """Get async download status"""
     try:
         status = await download_core.get_download_status(download_id)
         return status
@@ -384,7 +392,7 @@ async def get_download_status(download_id: int):
 
 @router.post("/downloads/batch-start")
 async def start_batch_downloads(download_ids: List[int], db: Session = Depends(get_db)):
-    """배치 다운로드 시작"""
+    """Start batch downloads"""
     try:
         results = []
 
@@ -398,7 +406,7 @@ async def start_batch_downloads(download_ids: List[int], db: Session = Depends(g
                 results.append({"id": download_id, "success": False, "message": "이미 실행 중"})
                 continue
 
-            # 비동기 다운로드 시작
+            # Start the async download
             success = await download_core.start_download_async(req, db)
             results.append({
                 "id": download_id,
@@ -407,14 +415,14 @@ async def start_batch_downloads(download_ids: List[int], db: Session = Depends(g
             })
 
             if success:
-                # SSE 알림
+                # SSE notification
                 await sse_manager.broadcast_message("download_started", {
                     "id": download_id,
                     "status": "parsing",
                     "message": "배치 다운로드 시작"
                 })
 
-        # 배치 시작 완료 알림
+        # Notify batch start completion
         await sse_manager.broadcast_message("batch_started", {
             "message": f"{len([r for r in results if r['success']])}개 다운로드가 시작되었습니다",
             "results": results
@@ -433,7 +441,7 @@ async def start_batch_downloads(download_ids: List[int], db: Session = Depends(g
 
 @router.post("/downloads/batch-stop")
 async def stop_batch_downloads(download_ids: List[int], db: Session = Depends(get_db)):
-    """배치 다운로드 중지"""
+    """Stop batch downloads"""
     try:
         results = []
 
@@ -446,14 +454,14 @@ async def stop_batch_downloads(download_ids: List[int], db: Session = Depends(ge
             })
 
             if success:
-                # SSE 알림
+                # SSE notification
                 await sse_manager.broadcast_message("download_stopped", {
                     "id": download_id,
                     "status": "stopped",
                     "message": "배치 다운로드 중지"
                 })
 
-        # 배치 중지 완료 알림
+        # Notify batch stop completion
         await sse_manager.broadcast_message("batch_stopped", {
             "message": f"{len([r for r in results if r['success']])}개 다운로드가 중지되었습니다",
             "results": results
@@ -472,22 +480,22 @@ async def stop_batch_downloads(download_ids: List[int], db: Session = Depends(ge
 
 @router.delete("/delete/{download_id}")
 async def delete_download(download_id: int, db: Session = Depends(get_db)):
-    """다운로드 삭제"""
+    """Delete a download"""
     try:
-        # 다운로드 요청 조회
+        # Look up the download request
         req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
-        # 실행 중인 다운로드는 먼저 중지
+        # Stop running downloads first
         if req.status in [StatusEnum.parsing, StatusEnum.downloading, StatusEnum.waiting]:
             await download_core.stop_download_async(download_id, db)
 
-        # 데이터베이스에서 삭제
+        # Delete from the database
         db.delete(req)
         db.commit()
 
-        # SSE로 삭제 알림
+        # Notify deletion via SSE
         await sse_manager.broadcast_message("download_deleted", {
             "id": download_id,
             "message": "다운로드가 삭제되었습니다"
@@ -511,14 +519,15 @@ async def bulk_delete_downloads(
     request: dict,
     db: Session = Depends(get_db),
 ):
-    """선택한 다운로드들을 한 번에 삭제. audit 결과 보고 관리자가 정리할 때 사용.
+    """Delete the selected downloads in one call. Used when an admin cleans up
+    based on audit results.
 
-    body: ``{"ids": [int, ...]}``. 실행 중 다운로드는 먼저 stop 후 삭제.
+    body: ``{"ids": [int, ...]}``. Running downloads are stopped before deletion.
     """
     ids = request.get("ids") or []
     if not isinstance(ids, list) or not ids:
         raise HTTPException(status_code=400, detail="ids 가 비어있습니다")
-    # 정수 변환 + 중복 제거
+    # Convert to int + deduplicate
     try:
         ids = sorted({int(i) for i in ids})
     except (TypeError, ValueError):
@@ -543,7 +552,8 @@ async def bulk_delete_downloads(
         deleted_ids.append(r.id)
     db.commit()
 
-    # 일괄 SSE 통지 — 행 갱신이 비싼 케이스를 피하려고 단일 force_refresh.
+    # Batch SSE notification — a single force_refresh to avoid the expensive
+    # case of per-row updates.
     await sse_manager.broadcast_message("downloads_bulk_deleted", {
         "ids": deleted_ids,
         "count": len(deleted_ids),
@@ -561,7 +571,7 @@ async def bulk_delete_downloads(
 
 @router.post("/downloads/force-refresh")
 async def force_refresh_downloads():
-    """프론트엔드 강제 새로고침 요청"""
+    """Request a forced frontend refresh"""
     try:
         await sse_manager.broadcast_message("force_refresh", {
             "message": "다운로드 목록을 새로고침하세요",
@@ -580,22 +590,22 @@ async def force_refresh_downloads():
 
 @router.put("/downloads/{download_id}/proxy-toggle")
 async def toggle_proxy_mode(download_id: int, db: Session = Depends(get_db)):
-    """다운로드 프록시 모드 토글"""
+    """Toggle the download's proxy mode"""
     try:
-        # 다운로드 요청 조회
+        # Look up the download request
         req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
-        # 실행 중인 다운로드는 토글 불가
+        # Running downloads cannot be toggled
         if req.status in [StatusEnum.parsing, StatusEnum.downloading, StatusEnum.waiting]:
             raise HTTPException(status_code=400, detail="실행 중인 다운로드는 프록시 모드를 변경할 수 없습니다")
 
-        # 프록시 모드 토글
+        # Toggle proxy mode
         req.use_proxy = not req.use_proxy
         db.commit()
 
-        # SSE로 상태 변경 알림
+        # Notify the status change via SSE
         await sse_manager.broadcast_message("proxy_toggled", {
             "id": download_id,
             "use_proxy": req.use_proxy,
@@ -617,7 +627,7 @@ async def toggle_proxy_mode(download_id: int, db: Session = Depends(get_db)):
 
 @router.get("/downloads/health-check")
 async def download_health_check():
-    """다운로드 시스템 헬스 체크"""
+    """Download system health check"""
     try:
         active_tasks = len(download_core.download_tasks)
         sse_connections = len(sse_manager.connections)
@@ -646,23 +656,23 @@ async def download_health_check():
 
 
 async def _perform_pre_parsing(req: DownloadRequest, db: Session):
-    """파일 정보 사전 파싱 (파일명, 크기 추출)"""
+    """Preparse file info (extract filename and size)"""
     try:
         print(f"[LOG] 사전 파싱 시작: {req.url}")
 
-        # URL 타입 판단
+        # Determine the URL type
         is_1fichier = "1fichier.com" in req.url
 
         if is_1fichier:
-            # 1fichier 파싱 - 간단한 HTTP 요청으로 파일 정보만 추출
+            # 1fichier parsing — a simple HTTP request to extract file info only
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
 
-            # 프록시 설정
+            # Proxy configuration
             client_kwargs = {"headers": headers, "timeout": 10.0}
             if req.use_proxy:
-                # TODO: 프록시 설정이 필요하면 여기서 추가
+                # TODO: add proxy configuration here if needed
                 # client_kwargs["proxies"] = {"http": "proxy_url", "https": "proxy_url"}
                 pass
 
@@ -670,7 +680,7 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
                 response = await client.get(req.url)
 
                 if response.status_code == 200:
-                    # 파일 정보 추출
+                    # Extract file info
                     file_info = fichier_parser.extract_file_info(response.text)
 
                     if file_info and file_info.get('name'):
@@ -678,10 +688,10 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
                         print(f"[LOG] 파일명 추출: {req.file_name}")
 
                     if file_info and file_info.get('size'):
-                        # 크기 정보를 바이트로 변환
+                        # Convert the size info to bytes
                         size_str = file_info['size']
                         try:
-                            # "1.5 GB" -> 바이트 변환
+                            # "1.5 GB" -> convert to bytes
                             size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', size_str, re.IGNORECASE)
                             if size_match:
                                 size_value = float(size_match.group(1))
@@ -695,10 +705,10 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
                         except Exception as e:
                             print(f"[WARN] 크기 변환 실패: {e}")
 
-                    # DB 업데이트
+                    # Update the DB
                     db.commit()
 
-                    # SSE로 파일 정보 업데이트 알림
+                    # Notify file info update via SSE
                     await sse_manager.broadcast_message("file_info_updated", {
                         "id": req.id,
                         "filename": req.file_name,
@@ -711,7 +721,7 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
                     print(f"[WARN] HTTP {response.status_code}: 사전 파싱을 위한 페이지 로드 실패")
 
         else:
-            # 일반 다운로드 - URL에서 파일명 추출 시도
+            # General download — try to extract the filename from the URL
             print(f"[LOG] 일반 다운로드 파일명 추출 시작: {req.url}")
             parsed_url = urlparse(req.url)
             path = unquote(parsed_url.path)
@@ -724,7 +734,7 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
                 db.commit()
                 print(f"[LOG] 파일명 업데이트: {old_name} → {filename}")
 
-                # SSE로 파일 정보 업데이트 알림
+                # Notify file info update via SSE
                 await sse_manager.broadcast_message("filename_update", {
                     "id": req.id,
                     "filename": req.file_name,
@@ -742,9 +752,9 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
 
 @router.post("/downloads/stop-all")
 async def stop_all_downloads(db: Session = Depends(get_db)):
-    """모든 다운로드 정지"""
+    """Stop all downloads"""
     try:
-        # 진행 중인 모든 다운로드 찾기 (pending, downloading, parsing)
+        # Find all in-progress downloads (pending, downloading, parsing)
         active_downloads = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing])
         ).all()
@@ -755,7 +765,7 @@ async def stop_all_downloads(db: Session = Depends(get_db)):
             download.error = "사용자에 의해 일괄 정지됨"
             stopped_count += 1
 
-            # SSE로 정지 상태 전송
+            # Send stopped status via SSE
             await sse_manager.broadcast_message("status_update", {
                 "id": download.id,
                 "status": "stopped",
@@ -766,8 +776,8 @@ async def stop_all_downloads(db: Session = Depends(get_db)):
             db.commit()
             print(f"[LOG] {stopped_count}개 다운로드 일괄 정지 완료")
 
-        # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
-        # i18n 지원
+        # Notify that the bulk status update is complete (triggers a frontend refresh)
+        # i18n support
         from core.config import get_config
         from core.i18n import get_translations
         config = get_config()
@@ -794,15 +804,16 @@ async def stop_all_downloads(db: Session = Depends(get_db)):
 
 @router.post("/downloads/restart-failed")
 async def restart_failed_downloads(db: Session = Depends(get_db)):
-    """실패/정지된 다운로드 재시작"""
+    """Restart failed/stopped downloads"""
     try:
-        # 실패 또는 정지 상태인 다운로드 찾기
+        # Find downloads in failed or stopped status
         all_failed = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped])
         ).all()
 
-        # 영구 실패/로그인 필요/cooldown 항목은 일괄 재시작 대상에서 제외.
-        # cooldown 은 시간이 풀리면 다음 호출에서 자연스럽게 잡힌다 — 영구 차단 아님.
+        # Exclude permanent-failure / login-required / cooldown items from
+        # the batch restart. Cooldowns get picked up naturally on a later call
+        # once they clear — they are not a permanent block.
         has_creds = _has_fichier_credentials()
         skipped_dead = 0
         skipped_auth = 0
@@ -825,25 +836,25 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
             )
 
         restarted_count = 0
-        # 배치 처리로 DB 연결 절약 (10개씩 처리)
+        # Process in batches to conserve DB connections (10 at a time)
         batch_size = 10
         for i in range(0, len(failed_downloads), batch_size):
             batch = failed_downloads[i:i + batch_size]
             for download in batch:
-                # 상태를 pending으로 변경. 분류/cooldown/누적횟수도 함께 리셋.
+                # Change status to pending. Also reset classification/cooldown/attempt count.
                 download.status = StatusEnum.pending
                 download.error = None
                 download.failure_kind = None
                 download.next_retry_at = None
                 download.attempt_count = 0
                 download.attempts_json = None
-                download.downloaded_size = 0  # 다운로드 크기 초기화
+                download.downloaded_size = 0  # reset downloaded size
 
-            # 배치 단위로 커밋
+            # Commit per batch
             db.commit()
             print(f"[LOG] {len(batch)}개 다운로드 상태 업데이트 완료")
 
-            # 배치 내 다운로드들 시작
+            # Start the downloads in this batch
             for download in batch:
                 success = await download_core.start_download_async(download, db)
                 if success:
@@ -852,7 +863,7 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
                 else:
                     print(f"[WARNING] 다운로드 재시작 실패: {download.id}")
 
-            # 배치 간 잠깐 대기 (DB 부하 분산)
+            # Brief pause between batches (spread out DB load)
             if i + batch_size < len(failed_downloads):
                 await asyncio.sleep(0.1)
 
@@ -875,9 +886,9 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
 
 @router.post("/downloads/stop-all-local")
 async def stop_all_local_downloads(db: Session = Depends(get_db)):
-    """모든 로컬 다운로드 정지"""
+    """Stop all local downloads"""
     try:
-        # 진행 중인 로컬 다운로드 찾기 (use_proxy=False)
+        # Find in-progress local downloads (use_proxy=False)
         active_local_downloads = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
             DownloadRequest.use_proxy == False
@@ -896,14 +907,14 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
 
             print(f"[DEBUG] stop-all-local: 다운로드 ID {download.id} 상태 변경: {old_status} → {StatusEnum.stopped}")
 
-            # 실행 중인 태스크 강제 취소 (DB 업데이트는 이미 위에서 했으므로 태스크만 취소)
+            # Force-cancel the running task (the DB was already updated above, so cancel only the task)
             if download.id in download_core.download_tasks:
                 task = download_core.download_tasks[download.id]
                 task.cancel()
                 del download_core.download_tasks[download.id]
                 print(f"[DEBUG] 태스크 강제 취소: {download.id}")
 
-            # SSE로 정지 상태 전송
+            # Send stopped status via SSE
             await sse_manager.broadcast_message("status_update", {
                 "id": download.id,
                 "status": "stopped",
@@ -914,8 +925,8 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
             db.commit()
             print(f"[LOG] {stopped_count}개 로컬 다운로드 일괄 정지 완료")
 
-        # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
-        # i18n 지원
+        # Notify that the bulk status update is complete (triggers a frontend refresh)
+        # i18n support
         from core.config import get_config
         from core.i18n import get_translations
         config = get_config()
@@ -942,15 +953,15 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
 
 @router.post("/downloads/restart-failed-local")
 async def restart_failed_local_downloads(db: Session = Depends(get_db)):
-    """실패/정지된 로컬 다운로드 재시작"""
+    """Restart failed/stopped local downloads"""
     try:
-        # 실패 또는 정지 상태인 로컬 다운로드 찾기 (use_proxy=False)
+        # Find local downloads in failed or stopped status (use_proxy=False)
         all_failed = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
             DownloadRequest.use_proxy == False
         ).all()
 
-        # 영구 실패/로그인 필요/cooldown 항목 제외
+        # Exclude permanent-failure / login-required / cooldown items
         has_creds = _has_fichier_credentials()
         skipped_dead = 0
         skipped_auth = 0
@@ -972,24 +983,25 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
                 f"auth_required={skipped_auth}, cooldown={skipped_cooldown} 건 건너뜀"
             )
 
-        # 모든 다운로드를 pending 상태로 변경 (한 번에 처리)
+        # Change all downloads to pending status (in one pass)
         for download in failed_local_downloads:
             download.status = StatusEnum.pending
-            # 컬럼 이름은 ``error`` — ``error_message`` 로 쓰던 transient
-            # 속성은 DB 에 persist 되지 않던 버그라 None 으로 비우는 것도
-            # 의미가 없었음. 정상 컬럼으로 교정.
+            # The column name is ``error`` — the transient attribute formerly
+            # written as ``error_message`` never persisted to the DB (a bug),
+            # so clearing it to None was meaningless too. Corrected to the
+            # proper column.
             download.error = None
             download.failure_kind = None
             download.next_retry_at = None
             download.attempt_count = 0
             download.attempts_json = None
-            download.downloaded_size = 0  # 다운로드 크기 초기화
+            download.downloaded_size = 0  # reset downloaded size
 
-        # 한 번에 커밋
+        # Commit all at once
         db.commit()
         print(f"[LOG] {len(failed_local_downloads)}개 로컬 다운로드 상태 업데이트 완료")
 
-        # 전체 중에서 가장 오래된 다운로드 하나만 시작
+        # Start only the single oldest download among them
         restarted_count = 0
         if failed_local_downloads:
             oldest_download = min(failed_local_downloads, key=lambda d: d.requested_at)
@@ -1000,7 +1012,7 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
             else:
                 print(f"[WARNING] 가장 오래된 로컬 다운로드 시작 실패: {oldest_download.id}")
 
-            # 나머지 다운로드들은 pending 상태로 유지 (세마포어로 자동 관리됨)
+            # Keep the rest in pending status (managed automatically by the semaphore)
             pending_count = len(failed_local_downloads) - 1
             if pending_count > 0:
                 print(f"[LOG] {pending_count}개 로컬 다운로드가 대기 상태로 설정됨")
@@ -1008,8 +1020,8 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
         if restarted_count > 0:
             print(f"[LOG] {restarted_count}개 로컬 다운로드 재시작 완료")
 
-        # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
-        # i18n 지원
+        # Notify that the bulk status update is complete (triggers a frontend refresh)
+        # i18n support
         from core.config import get_config
         from core.i18n import get_translations
         config = get_config()
@@ -1023,8 +1035,8 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
             "timestamp": asyncio.get_event_loop().time()
         })
 
-        # 나머지 대기중인 다운로드들을 자동으로 시작
-        if len(failed_local_downloads) > 1:  # 2개 이상인 경우만
+        # Automatically start the remaining pending downloads
+        if len(failed_local_downloads) > 1:  # only when there are 2 or more
             print(f"[LOG] 나머지 {len(failed_local_downloads) - 1}개 대기중인 다운로드 자동 시작 트리거")
             await download_core.auto_start_pending_downloads()
 
@@ -1044,9 +1056,9 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
 
 @router.post("/downloads/stop-all-proxy")
 async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
-    """모든 프록시 다운로드 정지"""
+    """Stop all proxy downloads"""
     try:
-        # 진행 중인 프록시 다운로드 찾기 (use_proxy=True)
+        # Find in-progress proxy downloads (use_proxy=True)
         active_proxy_downloads = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
             DownloadRequest.use_proxy == True
@@ -1058,7 +1070,7 @@ async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
             download.error = "사용자에 의해 프록시 다운로드 일괄 정지됨"
             stopped_count += 1
 
-            # SSE로 정지 상태 전송
+            # Send stopped status via SSE
             await sse_manager.broadcast_message("status_update", {
                 "id": download.id,
                 "status": "stopped",
@@ -1069,8 +1081,8 @@ async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
             db.commit()
             print(f"[LOG] {stopped_count}개 프록시 다운로드 일괄 정지 완료")
 
-        # 전체 상태 업데이트 완료 알림 (프론트엔드 새로고침 트리거)
-        # i18n 지원
+        # Notify that the bulk status update is complete (triggers a frontend refresh)
+        # i18n support
         from core.config import get_config
         from core.i18n import get_translations
         config = get_config()
@@ -1097,15 +1109,15 @@ async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
 
 @router.post("/downloads/restart-failed-proxy")
 async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
-    """실패/정지된 프록시 다운로드 재시작"""
+    """Restart failed/stopped proxy downloads"""
     try:
-        # 실패 또는 정지 상태인 프록시 다운로드 찾기 (use_proxy=True)
+        # Find proxy downloads in failed or stopped status (use_proxy=True)
         all_failed = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
             DownloadRequest.use_proxy == True
         ).all()
 
-        # 영구 실패/로그인 필요 항목 제외
+        # Exclude permanent-failure / login-required items
         has_creds = _has_fichier_credentials()
         skipped_dead = 0
         skipped_auth = 0
@@ -1128,25 +1140,25 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
             )
 
         restarted_count = 0
-        # 배치 처리로 DB 연결 절약 (10개씩 처리)
+        # Process in batches to conserve DB connections (10 at a time)
         batch_size = 10
         for i in range(0, len(failed_proxy_downloads), batch_size):
             batch = failed_proxy_downloads[i:i + batch_size]
             for download in batch:
-                # 상태를 pending으로 변경. 분류/cooldown/누적횟수도 함께 리셋.
+                # Change status to pending. Also reset classification/cooldown/attempt count.
                 download.status = StatusEnum.pending
                 download.error = None
                 download.failure_kind = None
                 download.next_retry_at = None
                 download.attempt_count = 0
                 download.attempts_json = None
-                download.downloaded_size = 0  # 다운로드 크기 초기화
+                download.downloaded_size = 0  # reset downloaded size
 
-            # 배치 단위로 커밋
+            # Commit per batch
             db.commit()
             print(f"[LOG] {len(batch)}개 프록시 다운로드 상태 업데이트 완료")
 
-            # 배치 내 다운로드들 시작
+            # Start the downloads in this batch
             for download in batch:
                 success = await download_core.start_download_async(download, db)
                 if success:
@@ -1155,7 +1167,7 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
                 else:
                     print(f"[WARNING] 프록시 다운로드 재시작 실패: {download.id}")
 
-            # 배치 간 잠깐 대기 (DB 부하 분산)
+            # Brief pause between batches (spread out DB load)
             if i + batch_size < len(failed_proxy_downloads):
                 await asyncio.sleep(0.1)
 

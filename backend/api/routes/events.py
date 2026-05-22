@@ -10,12 +10,12 @@ router = APIRouter(prefix="/api", tags=["events"])
 
 @router.get("/events")
 async def stream_events(request: Request):
-    """SSE 이벤트 스트림"""
+    """SSE event stream"""
     try:
-        # 새 SSE 연결 생성
+        # Create a new SSE connection
         connection = await sse_manager.add_connection(request)
-        
-        # 스트림 응답 반환
+
+        # Return the stream response
         return StreamingResponse(
             connection.get_stream(),
             media_type="text/event-stream",
@@ -37,9 +37,9 @@ async def stream_events(request: Request):
 
 @router.post("/test-sse")
 async def test_sse():
-    """SSE 테스트"""
+    """Test SSE"""
     try:
-        # 테스트 메시지 브로드캐스트
+        # Broadcast a test message
         await sse_manager.broadcast_message("test_message", {
             "message": "SSE 연결 테스트 성공!",
             "timestamp": "현재시간"

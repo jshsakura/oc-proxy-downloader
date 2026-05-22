@@ -21,7 +21,7 @@ else:
     IS_STANDALONE = False
     print(f"[DEBUG] Local CONFIG_DIR: {CONFIG_DIR}")
 
-# CONFIG_DIR 생성 확보
+# Ensure CONFIG_DIR is created
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_FILE = CONFIG_DIR / "config.json"
 print(f"[DEBUG] CONFIG_FILE path: {CONFIG_FILE}")
@@ -73,7 +73,7 @@ DEFAULT_CONFIG = {
 }
 
 def get_config():
-    # CONFIG_DIR 생성
+    # Create CONFIG_DIR
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     
     if CONFIG_FILE.exists():
@@ -82,11 +82,11 @@ def get_config():
                 return json.load(f)
         except json.JSONDecodeError:
             print(f"[ERROR] config.json is corrupted or empty. Using default config.")
-            # 파일이 손상되었거나 비어있으면 기본값으로 덮어쓰기
+            # If the file is corrupted or empty, overwrite it with the defaults
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
             return DEFAULT_CONFIG.copy()
-    # 파일이 없으면 기본값으로 생성
+    # If the file is missing, create it with the defaults
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
     return DEFAULT_CONFIG.copy()

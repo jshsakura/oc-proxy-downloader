@@ -1,22 +1,22 @@
 import { writable, derived } from 'svelte/store';
 
-// 인증 상태 스토어
+// Authentication state stores
 export const isAuthenticated = writable(false);
 export const authToken = writable(null);
 export const authUser = writable(null);
 export const authLoading = writable(true);
-export const authRequired = writable(false); // 서버에서 인증이 필요한지 여부
+export const authRequired = writable(false); // Whether the server requires authentication
 
-// 토큰 유효성 검사
+// Validate the token
 function isTokenValid(token) {
     if (!token) return false;
     
     try {
-        // JWT 토큰의 페이로드 디코딩 (간단한 base64 디코딩)
+        // Decode the JWT token payload (simple base64 decode)
         const payload = JSON.parse(atob(token.split('.')[1]));
         const now = Date.now() / 1000;
         
-        // 만료 시간 확인
+        // Check the expiration time
         return payload.exp > now;
     } catch (error) {
         console.error('Token validation error:', error);
@@ -24,7 +24,7 @@ function isTokenValid(token) {
     }
 }
 
-// 인증 매니저 클래스
+// Authentication manager class
 class AuthManager {
     constructor() {
         this.checkAuthOnInit();
@@ -34,26 +34,26 @@ class AuthManager {
         authLoading.set(true);
         
         try {
-            // 서버에서 인증 필요 여부 확인
+            // Check with the server whether authentication is required
             const statusResponse = await fetch('/api/auth/status');
             const statusData = await statusResponse.json();
             
             authRequired.set(statusData.authentication_enabled);
             
             if (!statusData.authentication_enabled) {
-                // 인증이 비활성화된 경우
+                // When authentication is disabled
                 isAuthenticated.set(true);
                 authUser.set({ username: 'anonymous' });
                 authLoading.set(false);
                 return;
             }
 
-            // 로컬 스토리지에서 토큰 확인
+            // Check the token in local storage
             const token = localStorage.getItem('auth_token');
             const username = localStorage.getItem('auth_username');
 
             if (token && isTokenValid(token)) {
-                // 토큰이 유효한 경우 서버에서 재검증
+                // If the token is valid, re-verify it with the server
                 try {
                     const verifyResponse = await fetch('/api/auth/verify', {
                         method: 'GET',
@@ -64,12 +64,12 @@ class AuthManager {
                     });
 
                     if (verifyResponse.ok) {
-                        // 인증 성공
+                        // Authentication succeeded
                         authToken.set(token);
                         authUser.set({ username });
                         isAuthenticated.set(true);
                     } else {
-                        // 토큰이 서버에서 무효
+                        // The token is invalid on the server
                         this.logout();
                     }
                 } catch (error) {
@@ -77,12 +77,12 @@ class AuthManager {
                     this.logout();
                 }
             } else {
-                // 토큰이 없거나 만료된 경우
+                // When the token is missing or expired
                 this.logout();
             }
         } catch (error) {
             console.error('Auth initialization failed:', error);
-            // 네트워크 오류 등의 경우 기본값 유지
+            // Keep defaults on network errors and the like
             authRequired.set(false);
             isAuthenticated.set(true);
         } finally {
@@ -103,11 +103,11 @@ class AuthManager {
             if (response.ok) {
                 const data = await response.json();
                 
-                // 로컬 스토리지에 저장
+                // Save to local storage
                 localStorage.setItem('auth_token', data.access_token);
                 localStorage.setItem('auth_username', data.username);
                 
-                // 스토어 업데이트
+                // Update the stores
                 authToken.set(data.access_token);
                 authUser.set({ username: data.username });
                 isAuthenticated.set(true);
@@ -116,7 +116,7 @@ class AuthManager {
             } else {
                 const errorData = await response.json();
                 
-                // 차단된 경우 남은 시간 포함
+                // Include the remaining time when blocked
                 if (response.status === 429) {
                     const remainingTime = response.headers.get('X-RateLimit-Remaining-Time');
                     if (remainingTime) {
@@ -137,27 +137,27 @@ class AuthManager {
     }
 
     logout() {
-        // 로컬 스토리지 클리어
+        // Clear local storage
         localStorage.removeItem('auth_token');
         localStorage.removeItem('auth_username');
         
-        // 스토어 클리어
+        // Clear the stores
         authToken.set(null);
         authUser.set(null);
         isAuthenticated.set(false);
     }
 
-    // API 호출을 위한 인증 헤더 가져오기
+    // Get the authentication headers for API calls
     getAuthHeaders() {
         const token = localStorage.getItem('auth_token');
         return token ? { 'Authorization': `Bearer ${token}` } : {};
     }
 }
 
-// 전역 인증 매니저 인스턴스
+// Global authentication manager instance
 export const authManager = new AuthManager();
 
-// 파생 스토어 - 로그인이 필요한 상태인지
+// Derived store - whether a login is needed
 export const needsLogin = derived(
     [authRequired, isAuthenticated, authLoading],
     ([$authRequired, $isAuthenticated, $authLoading]) => {
@@ -165,7 +165,7 @@ export const needsLogin = derived(
     }
 );
 
-// API 요청에 인증 헤더를 추가하는 fetch 래퍼
+// A fetch wrapper that adds authentication headers to API requests
 export async function authenticatedFetch(url, options = {}) {
     const headers = {
         ...options.headers,

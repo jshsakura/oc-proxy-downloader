@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-"""``core.download_core`` 의 순수 헬퍼와 다운로드 컨텍스트 동작 검증.
+"""Verifies the pure helpers and download-context behavior of ``core.download_core``.
 
-특히 다음 두 가지 회귀를 막는다:
-  1. aiohttp 다운로드가 파서 세션의 쿠키/User-Agent/Referer 없이 호출되어
-     1fichier 다운로드 호스트가 ``HTTP 404: Not Found`` 를 반환하는 문제.
-  2. 다운로드 단계에서 발생한 404 가 외부에서 ``파싱 실패`` 로 라벨링되는 문제.
+In particular, it guards against these two regressions:
+  1. The aiohttp download being called without the parser session's
+     cookies/User-Agent/Referer, causing the 1fichier download host to return
+     ``HTTP 404: Not Found``.
+  2. A 404 raised during the download stage being labeled externally as
+     ``파싱 실패`` (parse failure).
 """
 
 import asyncio
@@ -32,8 +34,8 @@ class TestBuildDownloadHeaders:
         assert headers["Referer"] == "https://1fichier.com/?abc"
 
     def test_disables_compression_to_avoid_aiohttp_decoding_issues(self):
-        # 1fichier 가 트랜스퍼 인코딩을 추가로 적용하는 일이 있어
-        # ``Accept-Encoding: identity`` 를 명시한다.
+        # 1fichier sometimes applies an extra transfer encoding, so we
+        # specify ``Accept-Encoding: identity`` explicitly.
         assert build_download_headers()["Accept-Encoding"] == "identity"
 
 
@@ -62,7 +64,7 @@ class _FakeAioResponse:
 
 
 class _FakeAioSession:
-    """Session 호출을 캡처하기 위한 가짜 aiohttp 세션."""
+    """A fake aiohttp session used to capture session calls."""
 
     last_instance: "_FakeAioSession | None" = None
 
@@ -85,7 +87,7 @@ class _FakeAioSession:
 
 @pytest.fixture
 def fake_aiohttp(monkeypatch):
-    """aiohttp.ClientSession 을 가짜로 치환."""
+    """Replace aiohttp.ClientSession with a fake."""
 
     monkeypatch.setattr(dc.aiohttp, "ClientSession", _FakeAioSession)
     monkeypatch.setattr(dc.aiohttp, "ClientTimeout", lambda **kwargs: kwargs)
@@ -93,7 +95,7 @@ def fake_aiohttp(monkeypatch):
 
 
 class _FakeDownloadRequest:
-    """SQLAlchemy 모델을 사용하지 않는 가짜 요청 객체."""
+    """A fake request object that does not use the SQLAlchemy model."""
 
     def __init__(self):
         self.id = 1
@@ -113,7 +115,7 @@ class _FakeDownloadRequest:
 
 
 class _FakeDb:
-    """SQLAlchemy Session 의 commit/refresh 를 흉내내는 더미."""
+    """A dummy that mimics commit/refresh of a SQLAlchemy Session."""
 
     def commit(self):
         pass
@@ -127,7 +129,7 @@ class _FakeDb:
 
 @pytest.mark.asyncio
 async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypatch):
-    """파서가 넘긴 쿠키/UA/Referer 가 aiohttp 세션과 GET 요청에 모두 전달돼야 한다."""
+    """The cookies/UA/Referer passed by the parser must reach both the aiohttp session and the GET request."""
 
     core = dc.DownloadCore()
     req = _FakeDownloadRequest()
@@ -137,7 +139,7 @@ async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypa
     monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
     core.send_download_update = AsyncMock()
 
-    # 실제 파일 IO 회피
+    # Avoid real file IO
     import utils.file_helpers as fh
 
     monkeypatch.setattr(fh, "download_file_content", AsyncMock(return_value=0))
@@ -146,7 +148,7 @@ async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypa
     monkeypatch.setattr(dc, "get_final_file_path", lambda p: p)
     monkeypatch.setattr(dc.shutil, "move", lambda *a, **kw: None)
 
-    # 가짜 응답을 200 으로 설정
+    # Set the fake response to 200
     def session_factory(*args, **kwargs):
         s = _FakeAioSession(*args, **kwargs)
         s.response = _FakeAioResponse(200, "OK", headers={"Content-Length": "0"})
@@ -156,7 +158,7 @@ async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypa
 
     cookies = {"cf_clearance": "abc123", "PHPSESSID": "sess"}
     download_url = "https://a-1.1fichier.com/p38234d8d/movie.mkv"
-    # save_path 가 존재하지 않게 (이어받기 분기 회피)
+    # Make save_path not exist (avoid the resume branch)
     assert not __import__("os").path.exists(req.save_path)
 
     await core._download_file_directly(
@@ -180,7 +182,7 @@ async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypa
 
 @pytest.mark.asyncio
 async def test_direct_download_raises_with_aiohttp_style_404(fake_aiohttp, monkeypatch):
-    """다운로드 서버가 404 를 내면 ``HTTP 404: Not Found`` 형식으로 raise 된다."""
+    """When the download server returns 404, it raises in the ``HTTP 404: Not Found`` form."""
 
     core = dc.DownloadCore()
     req = _FakeDownloadRequest()
@@ -205,7 +207,7 @@ async def test_direct_download_raises_with_aiohttp_style_404(fake_aiohttp, monke
 
 @pytest.mark.asyncio
 async def test_special_hoster_direct_download_rejects_html_response(monkeypatch):
-    """호스팅 최종 링크가 보안/중간 HTML 페이지면 파일로 저장하지 않는다."""
+    """If the hoster's final link is a security/interstitial HTML page, do not save it as a file."""
 
     core = dc.DownloadCore()
     req = _FakeDownloadRequest()
@@ -244,7 +246,7 @@ async def test_special_hoster_direct_download_rejects_html_response(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_special_hoster_403_uses_flaresolverr_cookies_then_retries(monkeypatch):
-    """특수 호스팅 최종 링크 403은 FlareSolverr 쿠키 확보 후 한 번 재시도."""
+    """A 403 on a special hoster's final link is retried once after obtaining FlareSolverr cookies."""
 
     core = dc.DownloadCore()
     req = _FakeDownloadRequest()
@@ -299,7 +301,7 @@ async def test_special_hoster_403_uses_flaresolverr_cookies_then_retries(monkeyp
 
 @pytest.mark.asyncio
 async def test_direct_download_auto_reparses_on_404(monkeypatch):
-    """404 발생 시 parse_url 이 주어지면 자동 재파싱 후 새 링크로 재시도한다."""
+    """On a 404, if parse_url is given, automatically re-parse and retry with the new link."""
 
     core = dc.DownloadCore()
     req = _FakeDownloadRequest()
@@ -309,7 +311,7 @@ async def test_direct_download_auto_reparses_on_404(monkeypatch):
     monkeypatch.setattr(dc, "send_telegram_start_notification", lambda *a, **kw: None)
     core.send_download_update = AsyncMock()
 
-    # 파일 IO mocking
+    # File IO mocking
     import utils.file_helpers as fh
     monkeypatch.setattr(fh, "download_file_content", AsyncMock(return_value=0))
     monkeypatch.setattr(dc, "download_file_content", AsyncMock(return_value=0))
@@ -317,7 +319,7 @@ async def test_direct_download_auto_reparses_on_404(monkeypatch):
     monkeypatch.setattr(dc, "get_final_file_path", lambda p: p)
     monkeypatch.setattr(dc.shutil, "move", lambda *a, **kw: None)
 
-    # 첫 시도 → 404, 두 번째 시도 → 200
+    # First attempt → 404, second attempt → 200
     call_seq = {"i": 0}
 
     def session_factory(*args, **kwargs):
@@ -331,7 +333,7 @@ async def test_direct_download_auto_reparses_on_404(monkeypatch):
 
     monkeypatch.setattr(dc.aiohttp, "ClientSession", session_factory)
 
-    # 재파싱 결과 fake
+    # Fake re-parse result
     async def fake_reparse(req, parse_url, **kw):
         return {
             "download_link": "https://a-2.1fichier.com/p2/movie.mkv",
@@ -352,13 +354,13 @@ async def test_direct_download_auto_reparses_on_404(monkeypatch):
         parse_url="https://1fichier.com/?abc123",
     )
 
-    # 두 번 시도(첫 실패, 둘째 성공) 했어야 함
+    # Should have attempted twice (first failed, second succeeded)
     assert call_seq["i"] == 2
 
 
 @pytest.mark.asyncio
 async def test_direct_download_does_not_reparse_when_parse_url_missing(monkeypatch):
-    """parse_url 이 없으면 404 를 받아도 재파싱하지 않고 그대로 raise."""
+    """Without parse_url, a 404 raises as-is without re-parsing."""
 
     core = dc.DownloadCore()
     req = _FakeDownloadRequest()
@@ -389,7 +391,7 @@ async def test_direct_download_does_not_reparse_when_parse_url_missing(monkeypat
 
 @pytest.mark.asyncio
 async def test_reparse_for_retry_rejects_download_host(monkeypatch):
-    """만료된 다운로드 호스트 URL만 있으면 재파싱에 쓰지 않는다."""
+    """If only an expired download-host URL is available, do not use it for re-parsing."""
 
     core = dc.DownloadCore()
     req = _FakeDownloadRequest()
