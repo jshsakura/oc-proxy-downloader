@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "Parado",
   "dashboard_status_downloading": "Baixando",
   "dashboard_trend_title": "Tendência de downloads",
-  "dashboard_status_distribution": "Distribuição por status"
+  "dashboard_status_distribution": "Distribuição por status",
+  "proxy_failed_count_suffix": " (Falhas: {count})",
+  "action_request_failed": "Falha na solicitação de {action}.",
+  "auto_retry_interval_notice": "Repetição automática a cada 3 minutos.",
+  "search_clear": "Limpar pesquisa",
+  "search_close": "Fechar pesquisa",
+  "proxy_mode_change_failed": "Falha ao alterar o modo de proxy.",
+  "audit_modal_limit_placeholder": "0 = ilimitado",
+  "folder_select_docker_unsupported": "A seleção de pastas não é compatível em ambientes Docker",
+  "folder_select_failed": "Falha ao selecionar a pasta",
+  "folder_select_error": "Ocorreu um erro ao selecionar a pasta",
+  "folder_select": "Selecionar pasta",
+  "proxy_page_range": "{start}-{end} exibidos"
 }

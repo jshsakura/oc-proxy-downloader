@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "Stopped",
   "dashboard_status_downloading": "Downloading",
   "dashboard_trend_title": "Download Trend",
-  "dashboard_status_distribution": "Status Distribution"
+  "dashboard_status_distribution": "Status Distribution",
+  "proxy_failed_count_suffix": " (Failed: {count})",
+  "action_request_failed": "{action} request failed.",
+  "auto_retry_interval_notice": "Auto-retry every 3 minutes.",
+  "search_clear": "Clear search",
+  "search_close": "Close search",
+  "proxy_mode_change_failed": "Failed to change proxy mode.",
+  "audit_modal_limit_placeholder": "0 = unlimited",
+  "folder_select_docker_unsupported": "Folder selection is not supported in Docker environments",
+  "folder_select_failed": "Failed to select folder",
+  "folder_select_error": "An error occurred while selecting the folder",
+  "folder_select": "Select Folder",
+  "proxy_page_range": "{start}-{end} shown"
 }

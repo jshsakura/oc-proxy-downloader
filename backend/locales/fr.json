@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "Arrêté",
   "dashboard_status_downloading": "Téléchargement",
   "dashboard_trend_title": "Tendance des téléchargements",
-  "dashboard_status_distribution": "Répartition des statuts"
+  "dashboard_status_distribution": "Répartition des statuts",
+  "proxy_failed_count_suffix": " (Échecs : {count})",
+  "action_request_failed": "Échec de la requête {action}.",
+  "auto_retry_interval_notice": "Nouvelle tentative automatique toutes les 3 minutes.",
+  "search_clear": "Effacer la recherche",
+  "search_close": "Fermer la recherche",
+  "proxy_mode_change_failed": "Échec du changement de mode proxy.",
+  "audit_modal_limit_placeholder": "0 = illimité",
+  "folder_select_docker_unsupported": "La sélection de dossier n'est pas prise en charge dans les environnements Docker",
+  "folder_select_failed": "Échec de la sélection du dossier",
+  "folder_select_error": "Une erreur s'est produite lors de la sélection du dossier",
+  "folder_select": "Sélectionner un dossier",
+  "proxy_page_range": "{start}-{end} affichés"
 }

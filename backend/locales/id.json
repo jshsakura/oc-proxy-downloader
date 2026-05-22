@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "Dihentikan",
   "dashboard_status_downloading": "Mengunduh",
   "dashboard_trend_title": "Tren Unduhan",
-  "dashboard_status_distribution": "Distribusi Status"
+  "dashboard_status_distribution": "Distribusi Status",
+  "proxy_failed_count_suffix": " (Gagal: {count})",
+  "action_request_failed": "Permintaan {action} gagal.",
+  "auto_retry_interval_notice": "Coba ulang otomatis setiap 3 menit.",
+  "search_clear": "Hapus pencarian",
+  "search_close": "Tutup pencarian",
+  "proxy_mode_change_failed": "Gagal mengubah mode proxy.",
+  "audit_modal_limit_placeholder": "0 = tidak terbatas",
+  "folder_select_docker_unsupported": "Pemilihan folder tidak didukung di lingkungan Docker",
+  "folder_select_failed": "Gagal memilih folder",
+  "folder_select_error": "Terjadi kesalahan saat memilih folder",
+  "folder_select": "Pilih folder",
+  "proxy_page_range": "Menampilkan {start}-{end}"
 }

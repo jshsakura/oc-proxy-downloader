@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "已停止",
   "dashboard_status_downloading": "下載中",
   "dashboard_trend_title": "下載趨勢",
-  "dashboard_status_distribution": "狀態分布"
+  "dashboard_status_distribution": "狀態分布",
+  "proxy_failed_count_suffix": " (失敗: {count})",
+  "action_request_failed": "{action}請求失敗。",
+  "auto_retry_interval_notice": "每3分鐘自動重試。",
+  "search_clear": "清除搜尋",
+  "search_close": "關閉搜尋",
+  "proxy_mode_change_failed": "變更代理模式失敗。",
+  "audit_modal_limit_placeholder": "0 = 無限制",
+  "folder_select_docker_unsupported": "Docker 環境不支援選擇資料夾",
+  "folder_select_failed": "選擇資料夾失敗",
+  "folder_select_error": "選擇資料夾時發生錯誤",
+  "folder_select": "選擇資料夾",
+  "proxy_page_range": "顯示 {start}-{end}"
 }

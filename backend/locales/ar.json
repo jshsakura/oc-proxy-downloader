@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "متوقف",
   "dashboard_status_downloading": "جارٍ التنزيل",
   "dashboard_trend_title": "اتجاه التنزيل",
-  "dashboard_status_distribution": "توزيع الحالة"
+  "dashboard_status_distribution": "توزيع الحالة",
+  "proxy_failed_count_suffix": " (فشل: {count})",
+  "action_request_failed": "فشل طلب {action}.",
+  "auto_retry_interval_notice": "إعادة المحاولة تلقائيًا كل 3 دقائق.",
+  "search_clear": "مسح البحث",
+  "search_close": "إغلاق البحث",
+  "proxy_mode_change_failed": "فشل تغيير وضع الوكيل.",
+  "audit_modal_limit_placeholder": "0 = غير محدود",
+  "folder_select_docker_unsupported": "تحديد المجلد غير مدعوم في بيئات Docker",
+  "folder_select_failed": "فشل تحديد المجلد",
+  "folder_select_error": "حدث خطأ أثناء تحديد المجلد",
+  "folder_select": "تحديد مجلد",
+  "proxy_page_range": "عرض {start}-{end}"
 }

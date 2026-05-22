@@ -739,7 +739,7 @@
           if (id) {
             const download = downloads.find(d => d.id === id);
             if (download) {
-              const failedText = failed > 0 ? ` (실패: ${failed})` : '';
+              const failedText = failed > 0 ? $t("proxy_failed_count_suffix", { count: failed }) : '';
               download.proxy_message = `${step} - ${proxy} (${current}/${total})${failedText}`;
               downloads = [...downloads];
             }
@@ -1371,7 +1371,7 @@
                      endpoint.includes("/resume/") ? $t("action_resume_action") :
                      endpoint.includes("/retry/") ? $t("action_retry_action") : $t("action_work");
 
-        toast.error(`${action} 요청에 실패했습니다.`);
+        toast.error($t("action_request_failed", { action }));
         console.error(`API 호출 실패: ${endpoint}, 상태: ${response.status}`);
       }
     } catch (error) {
@@ -1460,7 +1460,7 @@
       download.error_message &&
       download.error_message.includes($t("auto_retry_in_progress"))
     ) {
-      return download.error_message + "\n3분마다 자동 재시도됩니다.";
+      return download.error_message + "\n" + $t("auto_retry_interval_notice");
     }
 
     if (download.status.toLowerCase() === "failed" && download.error_message) {
@@ -2206,8 +2206,8 @@
                 type="button"
                 class="search-clear-btn"
                 on:click={clearSearch}
-                title="검색어 지우기"
-                aria-label="검색어 지우기"
+                title={$t("search_clear")}
+                aria-label={$t("search_clear")}
               >
                 <CloseIcon />
               </button>
@@ -2216,8 +2216,8 @@
                 type="button"
                 class="search-clear-btn search-collapse-btn"
                 on:click={closeSearch}
-                title="검색창 닫기"
-                aria-label="검색창 닫기"
+                title={$t("search_close")}
+                aria-label={$t("search_close")}
               >
                 <CloseIcon />
               </button>
@@ -2415,7 +2415,7 @@
                             );
                           } else {
                             toast.error(
-                              "프록시 모드 변경에 실패했습니다."
+                              $t("proxy_mode_change_failed")
                             );
                           }
                         } catch (error) {

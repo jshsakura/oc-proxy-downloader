@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "Đã dừng",
   "dashboard_status_downloading": "Đang tải xuống",
   "dashboard_trend_title": "Xu hướng tải xuống",
-  "dashboard_status_distribution": "Phân bố trạng thái"
+  "dashboard_status_distribution": "Phân bố trạng thái",
+  "proxy_failed_count_suffix": " (Thất bại: {count})",
+  "action_request_failed": "Yêu cầu {action} thất bại.",
+  "auto_retry_interval_notice": "Tự động thử lại sau mỗi 3 phút.",
+  "search_clear": "Xóa tìm kiếm",
+  "search_close": "Đóng tìm kiếm",
+  "proxy_mode_change_failed": "Không thể thay đổi chế độ proxy.",
+  "audit_modal_limit_placeholder": "0 = không giới hạn",
+  "folder_select_docker_unsupported": "Không hỗ trợ chọn thư mục trong môi trường Docker",
+  "folder_select_failed": "Không thể chọn thư mục",
+  "folder_select_error": "Đã xảy ra lỗi khi chọn thư mục",
+  "folder_select": "Chọn thư mục",
+  "proxy_page_range": "Hiển thị {start}-{end}"
 }

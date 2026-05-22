@@ -432,7 +432,7 @@
 
   async function selectFolder() {
     if (environmentInfo.is_docker) {
-      toast.error("폴더 선택은 도커 환경에서 지원되지 않습니다");
+      toast.error($t("folder_select_docker_unsupported"));
       return;
     }
 
@@ -449,11 +449,11 @@
         }
       } else {
         const errorData = await response.json();
-        toast.error(errorData.detail || "폴더 선택에 실패했습니다");
+        toast.error(errorData.detail || $t("folder_select_failed"));
       }
     } catch (error) {
       console.error("Folder selection error:", error);
-      toast.error("폴더 선택 중 오류가 발생했습니다");
+      toast.error($t("folder_select_error"));
     }
   }
 
@@ -668,8 +668,8 @@
                     type="button"
                     class="input-icon-button"
                     on:click={selectFolder}
-                    title="폴더 선택"
-                    aria-label="폴더 선택"
+                    title={$t("folder_select")}
+                    aria-label={$t("folder_select")}
                   >
                     <svg
                       width="16"
@@ -990,10 +990,10 @@
                   </div>
                   {#if totalPages > 1}
                     <div class="proxy-page-info">
-                      {(currentPage - 1) * itemsPerPage + 1}~{Math.min(
-                        currentPage * itemsPerPage,
-                        userProxies.length
-                      )} 표시
+                      {$t("proxy_page_range", {
+                        start: (currentPage - 1) * itemsPerPage + 1,
+                        end: Math.min(currentPage * itemsPerPage, userProxies.length),
+                      })}
                     </div>
                   {/if}
                 </div>

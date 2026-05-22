@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "Gestoppt",
   "dashboard_status_downloading": "Wird heruntergeladen",
   "dashboard_trend_title": "Download-Trend",
-  "dashboard_status_distribution": "Statusverteilung"
+  "dashboard_status_distribution": "Statusverteilung",
+  "proxy_failed_count_suffix": " (Fehlgeschlagen: {count})",
+  "action_request_failed": "{action}-Anfrage fehlgeschlagen.",
+  "auto_retry_interval_notice": "Automatischer Wiederholungsversuch alle 3 Minuten.",
+  "search_clear": "Suche löschen",
+  "search_close": "Suche schließen",
+  "proxy_mode_change_failed": "Ändern des Proxy-Modus fehlgeschlagen.",
+  "audit_modal_limit_placeholder": "0 = unbegrenzt",
+  "folder_select_docker_unsupported": "Die Ordnerauswahl wird in Docker-Umgebungen nicht unterstützt",
+  "folder_select_failed": "Ordnerauswahl fehlgeschlagen",
+  "folder_select_error": "Beim Auswählen des Ordners ist ein Fehler aufgetreten",
+  "folder_select": "Ordner auswählen",
+  "proxy_page_range": "{start}-{end} angezeigt"
 }

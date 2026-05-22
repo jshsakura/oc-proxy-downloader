@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "Gestopt",
   "dashboard_status_downloading": "Bezig met downloaden",
   "dashboard_trend_title": "Downloadtrend",
-  "dashboard_status_distribution": "Statusverdeling"
+  "dashboard_status_distribution": "Statusverdeling",
+  "proxy_failed_count_suffix": " (Mislukt: {count})",
+  "action_request_failed": "{action}-verzoek mislukt.",
+  "auto_retry_interval_notice": "Automatisch opnieuw proberen elke 3 minuten.",
+  "search_clear": "Zoekopdracht wissen",
+  "search_close": "Zoeken sluiten",
+  "proxy_mode_change_failed": "Kan proxymodus niet wijzigen.",
+  "audit_modal_limit_placeholder": "0 = onbeperkt",
+  "folder_select_docker_unsupported": "Mapselectie wordt niet ondersteund in Docker-omgevingen",
+  "folder_select_failed": "Map selecteren mislukt",
+  "folder_select_error": "Er is een fout opgetreden bij het selecteren van de map",
+  "folder_select": "Map selecteren",
+  "proxy_page_range": "{start}-{end} weergegeven"
 }

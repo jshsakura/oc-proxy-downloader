@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "หยุดแล้ว",
   "dashboard_status_downloading": "กำลังดาวน์โหลด",
   "dashboard_trend_title": "แนวโน้มการดาวน์โหลด",
-  "dashboard_status_distribution": "การกระจายสถานะ"
+  "dashboard_status_distribution": "การกระจายสถานะ",
+  "proxy_failed_count_suffix": " (ล้มเหลว: {count})",
+  "action_request_failed": "คำขอ {action} ล้มเหลว",
+  "auto_retry_interval_notice": "ลองใหม่อัตโนมัติทุก 3 นาที",
+  "search_clear": "ล้างการค้นหา",
+  "search_close": "ปิดการค้นหา",
+  "proxy_mode_change_failed": "เปลี่ยนโหมดพร็อกซีไม่สำเร็จ",
+  "audit_modal_limit_placeholder": "0 = ไม่จำกัด",
+  "folder_select_docker_unsupported": "ไม่รองรับการเลือกโฟลเดอร์ในสภาพแวดล้อม Docker",
+  "folder_select_failed": "เลือกโฟลเดอร์ไม่สำเร็จ",
+  "folder_select_error": "เกิดข้อผิดพลาดขณะเลือกโฟลเดอร์",
+  "folder_select": "เลือกโฟลเดอร์",
+  "proxy_page_range": "แสดง {start}-{end}"
 }

@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "Остановлено",
   "dashboard_status_downloading": "Загрузка",
   "dashboard_trend_title": "Тренд загрузок",
-  "dashboard_status_distribution": "Распределение по статусам"
+  "dashboard_status_distribution": "Распределение по статусам",
+  "proxy_failed_count_suffix": " (Ошибок: {count})",
+  "action_request_failed": "Не удалось выполнить запрос {action}.",
+  "auto_retry_interval_notice": "Автоповтор каждые 3 минуты.",
+  "search_clear": "Очистить поиск",
+  "search_close": "Закрыть поиск",
+  "proxy_mode_change_failed": "Не удалось изменить режим прокси.",
+  "audit_modal_limit_placeholder": "0 = без ограничений",
+  "folder_select_docker_unsupported": "Выбор папки не поддерживается в средах Docker",
+  "folder_select_failed": "Не удалось выбрать папку",
+  "folder_select_error": "Произошла ошибка при выборе папки",
+  "folder_select": "Выбрать папку",
+  "proxy_page_range": "Показано {start}-{end}"
 }

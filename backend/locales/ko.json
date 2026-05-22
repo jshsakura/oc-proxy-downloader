@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "정지",
   "dashboard_status_downloading": "다운로드중",
   "dashboard_trend_title": "다운로드 추이",
-  "dashboard_status_distribution": "상태 분포"
+  "dashboard_status_distribution": "상태 분포",
+  "proxy_failed_count_suffix": " (실패: {count})",
+  "action_request_failed": "{action} 요청에 실패했습니다.",
+  "auto_retry_interval_notice": "3분마다 자동 재시도됩니다.",
+  "search_clear": "검색어 지우기",
+  "search_close": "검색창 닫기",
+  "proxy_mode_change_failed": "프록시 모드 변경에 실패했습니다.",
+  "audit_modal_limit_placeholder": "0 = 무제한",
+  "folder_select_docker_unsupported": "폴더 선택은 도커 환경에서 지원되지 않습니다",
+  "folder_select_failed": "폴더 선택에 실패했습니다",
+  "folder_select_error": "폴더 선택 중 오류가 발생했습니다",
+  "folder_select": "폴더 선택",
+  "proxy_page_range": "{start}~{end} 표시"
 }

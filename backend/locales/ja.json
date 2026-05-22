@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "停止",
   "dashboard_status_downloading": "ダウンロード中",
   "dashboard_trend_title": "ダウンロード傾向",
-  "dashboard_status_distribution": "状態の分布"
+  "dashboard_status_distribution": "状態の分布",
+  "proxy_failed_count_suffix": " (失敗: {count})",
+  "action_request_failed": "{action}リクエストに失敗しました。",
+  "auto_retry_interval_notice": "3分ごとに自動再試行します。",
+  "search_clear": "検索をクリア",
+  "search_close": "検索を閉じる",
+  "proxy_mode_change_failed": "プロキシモードの変更に失敗しました。",
+  "audit_modal_limit_placeholder": "0 = 無制限",
+  "folder_select_docker_unsupported": "Docker環境ではフォルダ選択はサポートされていません",
+  "folder_select_failed": "フォルダの選択に失敗しました",
+  "folder_select_error": "フォルダの選択中にエラーが発生しました",
+  "folder_select": "フォルダを選択",
+  "proxy_page_range": "{start}-{end} を表示"
 }

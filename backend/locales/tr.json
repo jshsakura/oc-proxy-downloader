@@ -412,5 +412,17 @@
   "dashboard_status_stopped": "Durduruldu",
   "dashboard_status_downloading": "İndiriliyor",
   "dashboard_trend_title": "İndirme Eğilimi",
-  "dashboard_status_distribution": "Durum Dağılımı"
+  "dashboard_status_distribution": "Durum Dağılımı",
+  "proxy_failed_count_suffix": " (Başarısız: {count})",
+  "action_request_failed": "{action} isteği başarısız oldu.",
+  "auto_retry_interval_notice": "Her 3 dakikada bir otomatik yeniden deneme.",
+  "search_clear": "Aramayı temizle",
+  "search_close": "Aramayı kapat",
+  "proxy_mode_change_failed": "Proxy modu değiştirilemedi.",
+  "audit_modal_limit_placeholder": "0 = sınırsız",
+  "folder_select_docker_unsupported": "Klasör seçimi Docker ortamlarında desteklenmiyor",
+  "folder_select_failed": "Klasör seçilemedi",
+  "folder_select_error": "Klasör seçilirken bir hata oluştu",
+  "folder_select": "Klasör seç",
+  "proxy_page_range": "{start}-{end} gösteriliyor"
 }

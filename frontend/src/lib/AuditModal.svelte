@@ -200,7 +200,7 @@
             class="limit-input"
             type="number"
             min="1"
-            placeholder="0 = 무제한"
+            placeholder={$t("audit_modal_limit_placeholder")}
             bind:value={limit}
           />
         </section>
