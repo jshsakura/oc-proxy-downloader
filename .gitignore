@@ -149,3 +149,6 @@ docker-compose.override.yml
 # Playwright/Local verification artifacts
 .playwright-mcp/
 verify-*.png
+
+# Local live-test notes (manual verification only, not release artifacts)
+docs/live-test-notes.md
