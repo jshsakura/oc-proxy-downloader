@@ -1228,6 +1228,56 @@
     startAudit({ ids });
   }
 
+  function failedDownloadIds() {
+    if (!Array.isArray(downloads)) return [];
+    return downloads
+      .filter((d) => {
+        const status = d.status?.toLowerCase?.() || "";
+        return status === "failed";
+      })
+      .map((d) => d.id)
+      .filter((id) => id && !isNaN(parseInt(id)));
+  }
+
+  function deleteFailedDownloads() {
+    const ids = failedDownloadIds();
+    if (ids.length === 0) {
+      toast.info($t("delete_failed_empty"));
+      return;
+    }
+
+    openConfirm({
+      title: $t("confirm_delete_title"),
+      message: $t("delete_failed_confirm", { count: ids.length }),
+      confirmText: $t("delete_failed_downloads"),
+      cancelText: $t("button_cancel"),
+      onConfirm: async () => {
+        try {
+          const response = await fetch("/api/downloads/bulk-delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids }),
+          });
+          if (!response.ok) {
+            let detail = response.statusText;
+            try {
+              const data = await response.json();
+              detail = data.detail || detail;
+            } catch (_) {}
+            toast.error($t("bulk_delete_failed", { detail }));
+            return;
+          }
+          const data = await response.json();
+          toast.success($t("bulk_delete_success", { count: data.deleted_count }));
+          fetchDownloads();
+        } catch (e) {
+          console.error("failed delete error:", e);
+          toast.error(`failed delete error: ${e.message}`);
+        }
+      },
+    });
+  }
+
   async function bulkDeleteSelected() {
     if (selectedIds.size === 0) return;
     pendingBulkDelete = Array.from(selectedIds);
@@ -1837,6 +1887,7 @@
       d.use_proxy &&
       ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
   ).length : 0;
+  $: failedDownloadCount = failedDownloadIds().length;
   $: dashboardSummaryTotal = dashboardStats?.total ?? downloads.length;
   $: dashboardSummarySuccessRate = dashboardStats?.success_rate ?? (downloads.length > 0
     ? (completedCount / downloads.length) * 100
@@ -1948,6 +1999,15 @@
           aria-label={$t("action_audit")}
         >
           <InfoIcon />
+        </button>
+        <button
+          on:click={deleteFailedDownloads}
+          class="button-icon"
+          disabled={failedDownloadCount === 0}
+          title={$t("delete_failed_downloads")}
+          aria-label={$t("delete_failed_downloads")}
+        >
+          <DeleteIcon />
         </button>
         <button
           on:click={() => (showSettingsModal = true)}

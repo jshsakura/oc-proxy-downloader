@@ -37,6 +37,17 @@ class TestBuildDownloadHeaders:
         assert build_download_headers()["Accept-Encoding"] == "identity"
 
 
+class TestFileNameReplacement:
+    def test_replaces_1fichier_placeholder_with_real_name(self):
+        assert dc._should_replace_file_name(
+            "1fichier:526sy7th2mb9xhrny46x",
+            "movie.mkv",
+        ) is True
+
+    def test_keeps_existing_real_name(self):
+        assert dc._should_replace_file_name("movie.mkv", "other.mkv") is False
+
+
 class _FakeAioResponse:
     def __init__(self, status, reason="OK", headers=None):
         self.status = status
@@ -243,8 +254,8 @@ async def test_direct_download_auto_reparses_on_404(monkeypatch):
         "https://a-1.1fichier.com/p1/movie.mkv",
         cookies={"old": "cookie"},
         user_agent="UA-old",
-        referer="https://1fichier.com/?abc",
-        parse_url="https://1fichier.com/?abc",
+        referer="https://1fichier.com/?abc123",
+        parse_url="https://1fichier.com/?abc123",
     )
 
     # 두 번 시도(첫 실패, 둘째 성공) 했어야 함
@@ -280,3 +291,27 @@ async def test_direct_download_does_not_reparse_when_parse_url_missing(monkeypat
             referer=None,
             parse_url=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_reparse_for_retry_rejects_download_host(monkeypatch):
+    """만료된 다운로드 호스트 URL만 있으면 재파싱에 쓰지 않는다."""
+
+    core = dc.DownloadCore()
+    req = _FakeDownloadRequest()
+    called = False
+
+    def fake_parse(*args, **kwargs):
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(dc, "parse_1fichier_simple_sync", fake_parse)
+
+    result = await core._reparse_for_retry(
+        req,
+        "https://a-1.1fichier.com/p1expired/movie.mkv",
+    )
+
+    assert result is None
+    assert called is False

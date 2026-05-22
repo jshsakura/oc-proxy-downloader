@@ -130,7 +130,13 @@
     return "var(--primary-color)";
   }
 
+  function formatCpuPercent(pct) {
+    if (pct < 10) return pct.toFixed(1);
+    return pct.toFixed(0);
+  }
+
   $: cpuPct = (systemStats && systemStats.cpu && systemStats.cpu.percent) || 0;
+  $: appCpuPct = (systemStats && systemStats.process && systemStats.process.cpu_percent) || 0;
   $: ramPct = (systemStats && systemStats.memory && systemStats.memory.percent) || 0;
   $: diskPct = (systemStats && systemStats.disk && systemStats.disk.percent) || 0;
 
@@ -166,12 +172,12 @@
             <text x={GAUGE_CX} y={GAUGE_CY - 2} text-anchor="middle"
               dominant-baseline="middle"
               style="font-size:18px;font-weight:700;fill:var(--dashboard-stat-value);">
-              {cpuPct.toFixed(0)}<tspan style="font-size:10px;fill:var(--chart-muted);">%</tspan>
+              {formatCpuPercent(cpuPct)}<tspan style="font-size:10px;fill:var(--chart-muted);">%</tspan>
             </text>
             <text x={GAUGE_CX} y={GAUGE_CY + 14} text-anchor="middle"
               dominant-baseline="middle"
               style="font-size:8px;fill:var(--chart-muted);letter-spacing:0.08em;">
-              LOAD {systemStats.cpu.load_avg_1}
+              APP {formatCpuPercent(appCpuPct)}%
             </text>
           </svg>
           <div class="spark">

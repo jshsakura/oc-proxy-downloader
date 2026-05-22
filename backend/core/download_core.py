@@ -32,7 +32,8 @@ from core.models import ProxyStatus
 from core.simple_parser import (
     parse_1fichier_simple_sync,
     preparse_1fichier_standalone,
-    clean_1fichier_url,
+    choose_1fichier_parse_url,
+    is_1fichier_placeholder_name,
 )
 from core.error_messages import apply_failure_to_request
 from core import fichier_auth
@@ -113,6 +114,13 @@ def build_download_headers(user_agent: Optional[str] = None, referer: Optional[s
     return headers
 
 
+def _should_replace_file_name(current_name: Optional[str], new_name: Optional[str]) -> bool:
+    """실제 파일명이 있으면 비어 있거나 1fichier placeholder 인 이름을 교체."""
+    return bool(new_name) and (
+        not current_name or is_1fichier_placeholder_name(current_name)
+    )
+
+
 class DownloadCore:
     """비동기 다운로드 코어"""
 
@@ -183,10 +191,12 @@ class DownloadCore:
 
         if "1fichier.com" in req.url:
 
-            parse_url = req.original_url if req.original_url else req.url
+            parse_url = choose_1fichier_parse_url(req.url, req.original_url)
+            if not parse_url:
+                print(f"[WARNING] 사전파싱 건너뜀: 원본 1fichier 파일 페이지 URL 없음 (id={req.id})")
+                return
             # 1fichier URL 정리: 파일 페이지(1fichier.com/?id) 의 affiliate 등 제거.
             # 다운로드 서버 호스트는 보존됨.
-            parse_url = clean_1fichier_url(parse_url)
             print(f"[LOG] 사전파싱 시작: {req.id}")
 
             try:
@@ -194,7 +204,7 @@ class DownloadCore:
                 preparse_info = await loop.run_in_executor(None, preparse_1fichier_standalone, parse_url)
 
                 if preparse_info:
-                    if preparse_info.get('name') and not req.file_name:
+                    if _should_replace_file_name(req.file_name, preparse_info.get('name')):
                         req.file_name = preparse_info['name']
                         print(f"[LOG] 사전파싱 파일명: {req.file_name}")
 
@@ -525,7 +535,9 @@ class DownloadCore:
                 return
 
             elif "1fichier.com" in (req.original_url or req.url) and not should_skip_preparse:
-                parse_url = req.original_url if req.original_url else req.url
+                parse_url = choose_1fichier_parse_url(req.url, req.original_url)
+                if not parse_url:
+                    raise Exception("원본 1fichier 파일 페이지 URL을 찾을 수 없음")
                 print(f"[DEBUG] 1fichier 파싱 URL: {parse_url}")
 
                 # 즉시 사전파싱으로 파일명/크기 추출
@@ -535,7 +547,7 @@ class DownloadCore:
                     preparse_info = await loop.run_in_executor(None, preparse_1fichier_standalone, parse_url)
 
                     if preparse_info:
-                        if preparse_info.get('name') and not req.file_name:
+                        if _should_replace_file_name(req.file_name, preparse_info.get('name')):
                             req.file_name = preparse_info['name']
                             print(f"[LOG] 사전파싱 파일명: {req.file_name}")
 
@@ -802,7 +814,7 @@ class DownloadCore:
             # 1fichier 파일 정보가 있으면 즉시 저장 (사전파싱)
             if parse_result and parse_result.get('file_info'):
                 file_info = parse_result['file_info']
-                if file_info.get('name') and not req.file_name:
+                if _should_replace_file_name(req.file_name, file_info.get('name')):
                     req.file_name = file_info['name']
                     print(f"[LOG] 파일명 저장: {req.file_name}")
 
@@ -846,9 +858,10 @@ class DownloadCore:
                 session_referer = parse_result.get('referer') or parse_url
                 print(f"[LOG] 다운로드 링크 획득: {download_url} (cookies={len(session_cookies)})")
 
-                # 1fichier인 경우에만 원본 URL 저장 (처음 한 번만)
-                if not req.original_url and "1fichier.com" in parse_url:
-                    req.original_url = download_url  # 파싱된 다운로드 링크를 저장
+                # 1fichier인 경우 원본 파일 페이지를 보존한다. 다운로드 서버 링크는
+                # 짧게 만료되므로 original_url 로 저장하면 재시도 때 404 를 유발한다.
+                if "1fichier.com" in parse_url and req.original_url != parse_url:
+                    req.original_url = parse_url
                     db.commit()
 
                 # URL은 변경하지 않고, 다운로드만 새로운 링크로 진행
@@ -1018,7 +1031,8 @@ class DownloadCore:
         반환값은 ``parse_1fichier_simple_sync`` 의 결과 dict 와 동일한 형식.
         실패 시 ``None``.
         """
-        if not parse_url or "1fichier.com" not in parse_url:
+        parse_url = choose_1fichier_parse_url(parse_url)
+        if not parse_url:
             return None
         try:
             loop = asyncio.get_event_loop()
@@ -1074,6 +1088,7 @@ class DownloadCore:
             current_cookies = cookies or {}
             current_ua = user_agent
             current_referer = referer
+            reparse_url = choose_1fichier_parse_url(parse_url)
 
             while True:
                 try:
@@ -1102,10 +1117,9 @@ class DownloadCore:
                     expired = ("HTTP 404" in err_text or "HTTP 410" in err_text
                                or "Not Found" in err_text or "Gone" in err_text)
                     can_reparse = (
-                        parse_url
+                        reparse_url
                         and expired
                         and reparse_attempted < max_reparse
-                        and "1fichier.com" in parse_url
                     )
                     if not can_reparse:
                         raise
@@ -1115,7 +1129,7 @@ class DownloadCore:
                           f"재파싱 시도 {reparse_attempted}/{max_reparse}")
 
                     new_result = await self._reparse_for_retry(
-                        req, parse_url, proxy_addr=None, proxies=None,
+                        req, reparse_url, proxy_addr=None, proxies=None,
                     )
                     if not new_result or not new_result.get('download_link'):
                         raise Exception("재파싱 실패: 새 다운로드 링크를 얻지 못함")
@@ -1344,7 +1358,9 @@ class DownloadCore:
                         print(f"[WARNING] 다운로드 링크 만료/세션 손실 감지 - 재파싱 시도")
                         try:
                             # 재파싱
-                            parse_url = req.original_url if req.original_url else req.url
+                            parse_url = choose_1fichier_parse_url(req.url, req.original_url)
+                            if not parse_url:
+                                raise Exception("원본 1fichier 파일 페이지 URL을 찾을 수 없음")
 
                             loop = asyncio.get_event_loop()
                             new_parse_result = await loop.run_in_executor(

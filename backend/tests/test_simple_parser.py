@@ -29,6 +29,15 @@ class TestClean1fichierUrl:
         url = "https://1fichier.com/?abc123&af=1&utm=2&ref=3"
         assert sp.clean_1fichier_url(url) == "https://1fichier.com/?abc123"
 
+    def test_strips_accidentally_concatenated_duplicate_url(self):
+        url = (
+            "https://1fichier.com/?526sy7th2mb9xhrny46x"
+            "https://1fichier.com/?526sy7th2mb9xhrny46x"
+        )
+        assert sp.clean_1fichier_url(url) == (
+            "https://1fichier.com/?526sy7th2mb9xhrny46x"
+        )
+
     def test_returns_url_untouched_when_no_query(self):
         url = "https://1fichier.com/abc123"
         assert sp.clean_1fichier_url(url) == url
@@ -49,6 +58,31 @@ class TestClean1fichierUrl:
     def test_empty_input_returns_input(self):
         assert sp.clean_1fichier_url("") == ""
         assert sp.clean_1fichier_url(None) is None
+
+
+# ---------------------------------------------------------------------------
+# derive_display_name / choose_1fichier_parse_url
+# ---------------------------------------------------------------------------
+
+
+class TestFichierUrlHelpers:
+    def test_derive_display_name_uses_only_first_id_from_concatenated_url(self):
+        url = (
+            "https://1fichier.com/?526sy7th2mb9xhrny46x"
+            "https://1fichier.com/?526sy7th2mb9xhrny46x"
+        )
+        assert sp.derive_display_name(url) == "1fichier:526sy7th2mb9xhrny46x"
+
+    def test_choose_parse_url_prefers_file_page_over_expired_download_link(self):
+        direct = "https://a-1.1fichier.com/p1expired/movie.mkv"
+        page = "https://1fichier.com/?526sy7th2mb9xhrny46x&af=123"
+        assert sp.choose_1fichier_parse_url(direct, page) == (
+            "https://1fichier.com/?526sy7th2mb9xhrny46x"
+        )
+
+    def test_choose_parse_url_rejects_download_host_only(self):
+        direct = "https://a-1.1fichier.com/p1expired/movie.mkv"
+        assert sp.choose_1fichier_parse_url(direct) == ""
 
 
 # ---------------------------------------------------------------------------

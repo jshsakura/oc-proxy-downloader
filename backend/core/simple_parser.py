@@ -48,6 +48,32 @@ _EXCLUDE_PATH_KEYWORDS = (
 )
 
 
+_FICHIER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,}")
+
+
+def _extract_1fichier_file_id(raw_query: str) -> str:
+    """1fichier raw query 에서 파일 ID 만 안전하게 추출한다.
+
+    같은 URL 을 공백 없이 두 번 붙여 넣으면 query 가
+    ``<id>https://1fichier.com/?<id>`` 형태가 된다. 이 경우 두 번째 URL
+    앞에서 잘라야 404 를 유발하는 잘못된 파일 ID 를 만들지 않는다.
+    """
+    value = (raw_query or "").strip()
+    if not value:
+        return ""
+
+    value = value.split("&", 1)[0].strip()
+    lower = value.lower()
+    for marker in ("https://", "http://"):
+        idx = lower.find(marker, 1)
+        if idx > 0:
+            value = value[:idx].strip()
+            lower = value.lower()
+
+    match = _FICHIER_ID_RE.match(value)
+    return match.group(0) if match else ""
+
+
 def clean_1fichier_url(url):
     """1fichier URL 에서 첫 번째 쿼리 파라미터(파일 ID) 만 남기고 나머지 제거.
 
@@ -70,8 +96,8 @@ def clean_1fichier_url(url):
     if not parsed.query:
         return url
 
-    file_id = parsed.query.split("&", 1)[0]
-    if not file_id or file_id == parsed.query:
+    file_id = _extract_1fichier_file_id(parsed.query)
+    if not file_id:
         return url
 
     return urlunparse(parsed._replace(query=file_id))
@@ -80,6 +106,33 @@ def clean_1fichier_url(url):
 # 1fichier 파일 페이지의 ID 쿼리(예: ``?7abc...``) 만 뽑기. 다운로드 호스트면
 # 마지막 경로 세그먼트가 ID 처럼 동작하므로 그것을 쓴다.
 _FICHIER_PATH_ID_RE = re.compile(r"/(?:c/)?([A-Za-z0-9_-]{6,})/?$")
+
+
+def is_1fichier_placeholder_name(name: str) -> bool:
+    """URL 에서 만든 임시 표시명(``1fichier:<id>``)인지 확인."""
+    return isinstance(name, str) and name.strip().lower().startswith("1fichier:")
+
+
+def is_1fichier_file_page_url(url: str) -> bool:
+    """재파싱 가능한 1fichier 파일 페이지 URL인지 확인."""
+    try:
+        parsed = urlparse(url or "")
+    except ValueError:
+        return False
+
+    host = (parsed.hostname or "").lower()
+    return host == "1fichier.com" and bool(_extract_1fichier_file_id(parsed.query))
+
+
+def choose_1fichier_parse_url(*urls: str) -> str:
+    """후보 URL들 중 재파싱에 쓸 원본 1fichier 파일 페이지를 고른다."""
+    for candidate in urls:
+        if not candidate or "1fichier.com" not in candidate:
+            continue
+        cleaned = clean_1fichier_url(candidate)
+        if is_1fichier_file_page_url(cleaned):
+            return cleaned
+    return ""
 
 
 def derive_display_name(url: str) -> str:
@@ -103,7 +156,7 @@ def derive_display_name(url: str) -> str:
     if "1fichier.com" in host:
         # 파일 페이지: 1fichier.com/?XXXX
         if parsed.query:
-            file_id = parsed.query.split("&", 1)[0].strip()
+            file_id = _extract_1fichier_file_id(parsed.query)
             if file_id:
                 return f"1fichier:{file_id}"
         # 다운로드 서버: a-1.1fichier.com/c/XXXX

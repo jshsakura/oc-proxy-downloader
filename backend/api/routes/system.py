@@ -5,6 +5,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api", tags=["system"])
+_PROCESS = psutil.Process()
+_PROCESS.cpu_percent(interval=None)
 
 
 class ClientError(BaseModel):
@@ -31,6 +33,8 @@ async def get_system_stats():
     cpu_percent = psutil.cpu_percent(interval=0.5)
     cpu_count = psutil.cpu_count(logical=True)
     cpu_count_physical = psutil.cpu_count(logical=False)
+    process_cpu_percent = _PROCESS.cpu_percent(interval=None)
+    process_mem = _PROCESS.memory_info()
 
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
@@ -69,6 +73,10 @@ async def get_system_stats():
             "bytes_recv": net.bytes_recv,
             "packets_sent": net.packets_sent,
             "packets_recv": net.packets_recv,
+        },
+        "process": {
+            "cpu_percent": process_cpu_percent,
+            "rss": process_mem.rss,
         },
         "uptime": uptime_seconds,
     }
