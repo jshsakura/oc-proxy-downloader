@@ -223,8 +223,129 @@ def test_rapidgator_large_free_file_is_reported_as_premium_required(monkeypatch)
 def test_blocked_hosts_are_identified():
     assert hp.is_special_hoster_url("https://gofile.io/d/abc") is True
     assert hp.is_special_hoster_url("https://send.now/abc") is True
-    with pytest.raises(hp.HosterParseError, match="Gofile"):
-        hp.parse_special_hoster_sync("https://gofile.io/d/abc")
+
+
+def _patch_gofile_tokens(monkeypatch):
+    monkeypatch.setattr(hp, "_gofile_session", lambda: object())
+    monkeypatch.setattr(hp, "_gofile_guest_token", lambda session: "guest-tok")
+
+
+def test_gofile_content_id_extraction():
+    assert hp._gofile_content_id("https://gofile.io/d/6uARDV") == "6uARDV"
+    assert hp._gofile_content_id("https://gofile.io/6uARDV") == "6uARDV"
+    assert hp._gofile_content_id("https://gofile.io/d/6uARDV/") == "6uARDV"
+    assert hp._gofile_content_id("https://gofile.io/") == ""
+
+
+def test_gofile_single_file_resolves_direct_link(monkeypatch):
+    _patch_gofile_tokens(monkeypatch)
+    contents = {
+        "status": "ok",
+        "data": {
+            "type": "folder",
+            "children": {
+                "abc": {
+                    "type": "file",
+                    "name": "movie.rar",
+                    "size": 2353388182,
+                    "link": "https://store1.gofile.io/download/abc/movie.rar",
+                },
+            },
+        },
+    }
+    monkeypatch.setattr(hp, "_gofile_fetch_contents", lambda *a, **k: contents)
+
+    result = hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
+
+    assert result["download_link"] == "https://store1.gofile.io/download/abc/movie.rar"
+    assert result["cookies"] == {"accountToken": "guest-tok"}
+    assert result["file_info"]["name"] == "movie.rar"
+    assert result["file_info"]["size"] == "2.19 GB"
+
+
+def test_gofile_top_level_file_resolves_direct_link(monkeypatch):
+    _patch_gofile_tokens(monkeypatch)
+    contents = {
+        "status": "ok",
+        "data": {
+            "type": "file",
+            "name": "single.zip",
+            "link": "https://store2.gofile.io/download/xyz/single.zip",
+        },
+    }
+    monkeypatch.setattr(hp, "_gofile_fetch_contents", lambda *a, **k: contents)
+
+    result = hp.parse_special_hoster_sync("https://gofile.io/d/abc")
+
+    assert result["download_link"] == "https://store2.gofile.io/download/xyz/single.zip"
+    assert result["file_info"]["name"] == "single.zip"
+
+
+def test_gofile_datacenter_ip_block_is_reported(monkeypatch):
+    _patch_gofile_tokens(monkeypatch)
+    monkeypatch.setattr(
+        hp, "_gofile_fetch_contents",
+        lambda *a, **k: {"status": "error-notPremium", "data": {}},
+    )
+
+    with pytest.raises(hp.HosterParseError, match="목록 조회 차단"):
+        hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
+
+
+def test_gofile_contents_call_omits_wt_and_uses_web_params(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        def json(self):
+            return {"status": "ok", "data": {"type": "file", "name": "f.bin",
+                                             "link": "https://store.gofile.io/download/web/x/f.bin"}}
+
+    class _Sess:
+        headers = {}
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            captured["url"] = url
+            captured["params"] = params
+            captured["headers"] = headers
+            return _Resp()
+
+    monkeypatch.setattr(hp, "_gofile_session", lambda: _Sess())
+    monkeypatch.setattr(hp, "_gofile_guest_token", lambda session: "guest-tok")
+
+    hp.parse_special_hoster_sync("https://gofile.io/d/abc")
+
+    assert "wt" not in (captured["params"] or {})
+    assert captured["params"]["pageSize"] == "1000"
+    assert captured["headers"]["Authorization"] == "Bearer guest-tok"
+
+
+def test_gofile_missing_content_is_reported_as_dead(monkeypatch):
+    _patch_gofile_tokens(monkeypatch)
+    monkeypatch.setattr(
+        hp, "_gofile_fetch_contents",
+        lambda *a, **k: {"status": "error-notFound", "data": {}},
+    )
+
+    with pytest.raises(hp.HosterParseError, match="없음 또는 삭제"):
+        hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
+
+
+def test_gofile_multi_file_folder_is_reported(monkeypatch):
+    _patch_gofile_tokens(monkeypatch)
+    contents = {
+        "status": "ok",
+        "data": {
+            "type": "folder",
+            "children": {
+                "a": {"type": "file", "name": "a.rar", "link": "https://x/a"},
+                "b": {"type": "file", "name": "b.rar", "link": "https://x/b"},
+            },
+        },
+    }
+    monkeypatch.setattr(hp, "_gofile_fetch_contents", lambda *a, **k: contents)
+
+    with pytest.raises(hp.HosterParseError, match="여러 개"):
+        hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
 
 
 def test_flaresolverr_cookie_bootstrap_uses_origin_not_file_url(monkeypatch):

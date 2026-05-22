@@ -30,6 +30,19 @@ DEFAULT_FLARESOLVERR_URL = os.environ.get("FLARESOLVERR_URL", "http://localhost:
 FLARESOLVERR_MAX_TIMEOUT_MS = int(os.environ.get("FLARESOLVERR_MAX_TIMEOUT_MS", "60000"))
 FLARESOLVERR_REQUEST_TIMEOUT_S = int(os.environ.get("FLARESOLVERR_REQUEST_TIMEOUT_S", "80"))
 
+GOFILE_API_BASE = "https://api.gofile.io"
+_GOFILE_ID_RE = re.compile(r"/(?:d/)?([A-Za-z0-9]+)/?$")
+# Query params the GoFile web client sends for a folder listing (captured live).
+# Note: the listing API is gated by datacenter IP — it returns error-notPremium
+# from cloud/VPS IPs but works from residential IPs (e.g. a home NAS).
+_GOFILE_CONTENTS_PARAMS = {
+    "contentFilter": "",
+    "page": "1",
+    "pageSize": "1000",
+    "sortField": "name",
+    "sortDirection": "1",
+}
+
 
 class HosterParseError(Exception):
     """A host page could not be resolved into a downloadable file URL."""
@@ -103,6 +116,14 @@ def size_to_bytes(size_text: Optional[str]) -> int:
         "TB": 1024 ** 4,
     }
     return int(value * multipliers.get(unit, 1))
+
+
+def _format_size_bytes(num_bytes: int) -> str:
+    units = (("TB", 1024 ** 4), ("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024))
+    for label, factor in units:
+        if num_bytes >= factor:
+            return f"{num_bytes / factor:.2f} {label}"
+    return f"{num_bytes} B"
 
 
 def _scraper():
@@ -624,12 +645,104 @@ def parse_rapidgator_constraints_sync(url: str) -> Dict[str, object]:
     )
 
 
+def _gofile_content_id(url: str) -> str:
+    path = urlparse(url or "").path or ""
+    match = _GOFILE_ID_RE.search(path)
+    return match.group(1) if match else ""
+
+
+def _gofile_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update({"User-Agent": DEFAULT_HOSTER_USER_AGENT})
+    return session
+
+
+def _gofile_guest_token(session: requests.Session) -> str:
+    response = session.post(f"{GOFILE_API_BASE}/accounts", timeout=30)
+    payload = response.json() or {}
+    if payload.get("status") != "ok":
+        return ""
+    return (payload.get("data") or {}).get("token") or ""
+
+
+def _gofile_fetch_contents(
+    session: requests.Session, content_id: str, token: str
+) -> Dict[str, object]:
+    response = session.get(
+        f"{GOFILE_API_BASE}/contents/{content_id}",
+        params=_GOFILE_CONTENTS_PARAMS,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    return response.json() or {}
+
+
+def _gofile_pick_file_node(data: Dict[str, object]) -> Dict[str, object]:
+    if data.get("type") == "file":
+        return data
+    children = data.get("children") or {}
+    files = [
+        child for child in children.values()
+        if isinstance(child, dict) and child.get("type") == "file"
+    ]
+    if not files:
+        raise HosterParseError("Gofile 폴더에 다운로드할 파일이 없음")
+    if len(files) > 1:
+        raise HosterParseError(
+            f"Gofile 폴더에 파일이 여러 개({len(files)}개) 있어 자동 다운로드 대상을 특정할 수 없음"
+        )
+    return files[0]
+
+
+def _gofile_result(node: Dict[str, object], token: str) -> Dict[str, object]:
+    link = node.get("link") or ""
+    if not link:
+        raise HosterParseError("Gofile 다운로드 링크를 찾을 수 없음")
+
+    file_info: Dict[str, str] = {}
+    name = node.get("name")
+    if name:
+        file_info["name"] = str(name)
+    size = node.get("size")
+    if isinstance(size, (int, float)) and size > 0:
+        file_info["size"] = _format_size_bytes(int(size))
+
+    return HosterParseResult(
+        download_link=str(link),
+        file_info=file_info or None,
+        cookies={"accountToken": token},
+        user_agent=DEFAULT_HOSTER_USER_AGENT,
+        referer="https://gofile.io/",
+    ).as_parse_result()
+
+
+def parse_gofile_sync(url: str) -> Dict[str, object]:
+    content_id = _gofile_content_id(url)
+    if not content_id:
+        raise HosterParseError("Gofile 링크에서 콘텐츠 ID를 찾을 수 없음")
+
+    session = _gofile_session()
+    token = _gofile_guest_token(session)
+    if not token:
+        raise HosterParseError("Gofile 게스트 토큰 발급 실패")
+
+    payload = _gofile_fetch_contents(session, content_id, token)
+    status = str(payload.get("status") or "")
+    if status == "error-notPremium":
+        raise HosterParseError(
+            "Gofile 목록 조회 차단 (데이터센터 IP) — 가정용 IP/NAS에서 실행 시 정상 동작"
+        )
+    if status in {"error-notFound", "error-notExist"}:
+        raise HosterParseError("Gofile 파일 없음 또는 삭제됨")
+    if status != "ok":
+        raise HosterParseError(f"Gofile 콘텐츠 조회 실패 (status={status or 'unknown'})")
+
+    node = _gofile_pick_file_node(payload.get("data") or {})
+    return _gofile_result(node, token)
+
+
 def parse_blocked_hoster_sync(url: str) -> Dict[str, object]:
     host = _host(url)
-    if "gofile.io" in host:
-        raise HosterParseError(
-            "Gofile은 콘텐츠 권한/프리미엄 정책에 따라 API 토큰이 필요할 수 있어 현재 자동 다운로드를 지원하지 않음"
-        )
     if "send.now" in host:
         fs_page = _get_page_with_flaresolverr(url)
         if not fs_page:
@@ -665,6 +778,8 @@ def parse_special_hoster_sync(url: str, password: Optional[str] = None) -> Dict[
         return parse_datanodes_sync(url)
     if host in {"rapidgator.net", "www.rapidgator.net"}:
         return parse_rapidgator_constraints_sync(url)
-    if host in {"gofile.io", "www.gofile.io", "send.now", "www.send.now"}:
+    if host in {"gofile.io", "www.gofile.io"}:
+        return parse_gofile_sync(url)
+    if host in {"send.now", "www.send.now"}:
         return parse_blocked_hoster_sync(url)
     raise HosterParseError("지원하지 않는 호스팅 사이트")

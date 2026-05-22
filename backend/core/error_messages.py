@@ -105,6 +105,9 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("datanodes 파일 없음", "DataNodes 측에서 파일이 삭제되었거나 존재하지 않습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
+    ("gofile 파일 없음", "Gofile 측에서 파일이 삭제되었거나 존재하지 않습니다",
+     "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
+     KIND_DEAD, True),
 
     # --- auth_required: 게스트 슬롯/등록자 한정 ---
     ("rapidgator 무료 모드는 500 mb 초과",
@@ -115,6 +118,10 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "Gofile 콘텐츠 권한 또는 프리미엄 정책에 막혔습니다",
      "공개 권한이 있는 링크인지 확인하거나 다른 미러를 사용하세요.",
      KIND_AUTH_REQUIRED, True),
+    ("gofile 목록 조회 차단",
+     "Gofile 이 이 서버(데이터센터) IP 의 목록 조회를 차단했습니다",
+     "가정용 IP(NAS 등)에서 실행하거나 residential 프록시를 사용하면 통과합니다. (다운로드 자체는 IP 무관)",
+     KIND_PROXY_BLOCKED, True),
     ("게스트 슬롯이 가득",
      "1fichier 가 무료 게스트 슬롯 부족으로 다운로드를 거부했습니다",
      "설정에서 1fichier 무료 계정으로 로그인하면 즉시 다운로드 가능합니다. "
