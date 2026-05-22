@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { t, loadTranslations } from './i18n.js';
+  import { t, loadTranslations, availableLanguages } from './i18n.js';
   import { authManager } from './auth.js';
   
   const dispatch = createEventDispatcher();
@@ -191,8 +191,9 @@
     
     <div class="language-selector">
       <select bind:value={selectedLocale} on:change={changeLocale}>
-        <option value="ko">{$t('language_korean')}</option>
-        <option value="en">{$t('language_english')}</option>
+        {#each $availableLanguages as lang (lang.code)}
+          <option value={lang.code}>{lang.name}</option>
+        {/each}
       </select>
     </div>
   </div>

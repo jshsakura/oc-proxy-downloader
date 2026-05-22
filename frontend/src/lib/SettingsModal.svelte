@@ -1,7 +1,7 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from "svelte";
   import { theme } from "./theme.js";
-  import { t, loadTranslations, isLoading } from "./i18n.js";
+  import { t, loadTranslations, isLoading, availableLanguages } from "./i18n.js";
   import HomeIcon from "../icons/HomeIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
@@ -233,23 +233,13 @@
 
   function formatDate(dateString) {
     if (!dateString) return "-";
+    // Use the active language code as the BCP-47 locale so every language is localized.
     const currentLocale = localStorage.getItem("lang") || "en";
-    const date = new Date(dateString);
-    const localeCode = currentLocale === "ko" ? "ko-KR" : "en-US";
-
-    if (currentLocale === "ko") {
-      return date.toLocaleDateString(localeCode, {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
-    } else {
-      return date.toLocaleDateString(localeCode, {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      });
-    }
+    return new Date(dateString).toLocaleDateString(currentLocale, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
   }
 
   async function copyToClipboard(text) {
@@ -720,8 +710,9 @@
               bind:value={selectedLocale}
               on:change={changeLocale}
             >
-              <option value="ko">{$t("language_korean")}</option>
-              <option value="en">{$t("language_english")}</option>
+              {#each $availableLanguages as lang (lang.code)}
+                <option value={lang.code}>{lang.name}</option>
+              {/each}
             </select>
           </div>
 

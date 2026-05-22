@@ -7,9 +7,15 @@ from sqlalchemy.orm import Session
 
 from core.config import get_config, save_config, get_download_path
 from core.db import get_db
-from core.i18n import get_translations, reload_translations
+from core.i18n import get_translations, reload_translations, get_available_languages
 
 router = APIRouter(prefix="/api", tags=["locales"])
+
+
+@router.get("/locales")
+async def list_locales():
+    """Return available languages as [{code, name, rtl}], sorted by display name."""
+    return {"languages": get_available_languages()}
 
 
 @router.get("/locales/{lang}.json")

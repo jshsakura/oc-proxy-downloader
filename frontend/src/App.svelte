@@ -1515,30 +1515,24 @@
 
   function formatDate(dateString) {
     if (!dateString) return "-";
+    // Use the active language code as the BCP-47 locale for localized output.
     const currentLocale = localStorage.getItem("lang") || "en";
     const date = new Date(dateString);
     const today = new Date();
 
-    // 오늘이면 시간만 표시
+    // Same day: show time only
     if (date.toDateString() === today.toDateString()) {
-      return date.toLocaleTimeString(
-        currentLocale === "ko" ? "ko-KR" : "en-US",
-        {
-          hour: "2-digit",
-          minute: "2-digit",
-        }
-      );
-    }
-
-    // 어제 이전이면 간단한 날짜 형식
-    if (currentLocale === "ko") {
-      return `${date.getMonth() + 1}월 ${date.getDate()}일`;
-    } else {
-      return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
+      return date.toLocaleTimeString(currentLocale, {
+        hour: "2-digit",
+        minute: "2-digit",
       });
     }
+
+    // Otherwise: short, localized date
+    return date.toLocaleDateString(currentLocale, {
+      month: "short",
+      day: "numeric",
+    });
   }
 
   function formatFullDateTime(dateString) {

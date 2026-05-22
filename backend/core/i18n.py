@@ -1,54 +1,97 @@
+import glob
 import json
 import os
 
-# 번역 캐시
+# Translation cache: { lang_code: { key: text } }
 _translations_cache = {}
 
+# Absolute path to the locales directory
+LOCALES_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "locales"
+)
+
+# Language code -> display name written in that language (native name).
+# When locales/{code}.json exists, its display name is looked up here.
+# Codes missing from this table fall back to using the code itself.
+LANGUAGE_NAMES = {
+    "ko": "한국어",
+    "en": "English",
+    "ja": "日本語",
+    "zh-CN": "简体中文",
+    "zh-TW": "繁體中文",
+    "es": "Español",
+    "fr": "Français",
+    "de": "Deutsch",
+    "ru": "Русский",
+    "pt-BR": "Português (Brasil)",
+    "it": "Italiano",
+    "vi": "Tiếng Việt",
+    "id": "Bahasa Indonesia",
+    "th": "ไทย",
+    "tr": "Türkçe",
+    "pl": "Polski",
+    "ar": "العربية",
+    "nl": "Nederlands",
+}
+
+# RTL (right-to-left) language codes. Used by the frontend to apply dir="rtl".
+RTL_LANGUAGES = {"ar"}
+
+# Default language (fallback when the requested language is unavailable)
+DEFAULT_LANG = "en"
+
+
 def load_all_translations():
-    """서버 시작 시 모든 번역 파일을 메모리에 로드"""
+    """Load every locales/{lang}.json into memory at server startup.
+
+    Scans the folder instead of using a hardcoded language list, so a new
+    language is recognized automatically by just adding its JSON file.
+    """
     global _translations_cache
-    
-    # Get the absolute path to the locales directory
-    locales_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'locales')
-    
-    # 기본 fallback 번역 (최소한만 유지, JSON 파일이 우선됨)
-    fallback_translations = {
-        "ko": {},
-        "en": {}
-    }
-    
-    # 먼저 fallback 번역으로 초기화
-    _translations_cache = fallback_translations.copy()
+    _translations_cache = {}
 
-    # 파일에서 번역 로드하여 fallback과 병합
-    for lang in ['ko', 'en']:
-        locale_file_path = os.path.join(locales_dir, f"{lang}.json")
-        try:
-            with open(locale_file_path, encoding="utf-8") as f:
-                file_translations = json.load(f)
-                # 언어별 캐시가 없으면 생성
-                if lang not in _translations_cache:
-                    _translations_cache[lang] = {}
-                # fallback과 파일 번역 병합 (파일 번역이 우선)
-                _translations_cache[lang].update(file_translations)
-                print(f"[i18n] Loaded {len(file_translations)} translations from {lang}.json")
-        except Exception as e:
-            print(f"[i18n] Failed to load {lang}.json: {e}")
-    
-    print(f"[i18n] Translation cache initialized with {len(_translations_cache)} languages")
+    for locale_file_path in sorted(glob.glob(os.path.join(LOCALES_DIR, "*.json"))):
+        lang = os.path.splitext(os.path.basename(locale_file_path))[0]
+        with open(locale_file_path, encoding="utf-8") as f:
+            file_translations = json.load(f)
+        if not isinstance(file_translations, dict):
+            print(f"[i18n] Skipped {lang}.json: not a JSON object")
+            continue
+        _translations_cache[lang] = file_translations
+        print(f"[i18n] Loaded {len(file_translations)} translations from {lang}.json")
 
-def get_translations(lang="ko"):
-    """특정 언어의 모든 번역을 반환"""
-    return _translations_cache.get(lang, _translations_cache.get("en", {}))
+    print(
+        f"[i18n] Translation cache initialized with {len(_translations_cache)} "
+        f"languages: {', '.join(sorted(_translations_cache)) or '(none)'}"
+    )
 
-def get_message(key, lang="ko"):
-    """특정 키의 번역 메시지를 반환"""
+
+def get_translations(lang=DEFAULT_LANG):
+    """Return all translations for a language, falling back to the default."""
+    return _translations_cache.get(lang, _translations_cache.get(DEFAULT_LANG, {}))
+
+
+def get_message(key, lang=DEFAULT_LANG):
+    """Return the translated message for a key, or the key itself if missing."""
     translations = get_translations(lang)
     return translations.get(key, key)
 
+
+def get_available_languages():
+    """Return loaded languages as [{code, name, rtl}], sorted by display name."""
+    languages = [
+        {
+            "code": code,
+            "name": LANGUAGE_NAMES.get(code, code),
+            "rtl": code in RTL_LANGUAGES,
+        }
+        for code in _translations_cache
+    ]
+    return sorted(languages, key=lambda item: item["name"])
+
+
 def reload_translations():
-    """번역 캐시를 다시 로드"""
-    global _translations_cache
+    """Reload the translation cache from disk."""
     print("[i18n] Reloading translations...")
     load_all_translations()
-    return True 
+    return True
