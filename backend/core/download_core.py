@@ -35,6 +35,11 @@ from core.simple_parser import (
     choose_1fichier_parse_url,
     is_1fichier_placeholder_name,
 )
+from core.hoster_parsers import (
+    get_flaresolverr_context_for_url,
+    is_special_hoster_url,
+    parse_special_hoster_sync,
+)
 from core.error_messages import apply_failure_to_request
 from core import fichier_auth
 from core import cancel_signal
@@ -115,10 +120,23 @@ def build_download_headers(user_agent: Optional[str] = None, referer: Optional[s
 
 
 def _should_replace_file_name(current_name: Optional[str], new_name: Optional[str]) -> bool:
-    """실제 파일명이 있으면 비어 있거나 1fichier placeholder 인 이름을 교체."""
+    """실제 파일명이 있으면 비어 있거나 placeholder 인 이름을 교체."""
     return bool(new_name) and (
         not current_name or is_1fichier_placeholder_name(current_name)
     )
+
+
+def _size_text_to_bytes(size_text: Optional[str]) -> int:
+    """``2.19 GB`` 같은 표시 용량을 바이트로 변환. 실패 시 0."""
+    if not size_text:
+        return 0
+    match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', size_text, re.IGNORECASE)
+    if not match:
+        return 0
+    value = float(match.group(1))
+    unit = match.group(2).upper()
+    multipliers = {'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
+    return int(value * multipliers.get(unit, 1))
 
 
 class DownloadCore:
@@ -268,11 +286,14 @@ class DownloadCore:
             # 파일 정보가 이미 있으면 파싱 건너뛰고 바로 다운로드 시작
             # 단, 1fichier의 경우 대기시간 확인과 새 다운로드 링크 획득을 위해 사전파싱 필요
             is_1fichier = "1fichier.com" in req.url
+            is_special_hoster = is_special_hoster_url(req.url)
             has_file_info = req.file_name and req.file_size and req.total_size and req.total_size > 0
 
             # 최초 추가시 (파일명 없음) → 무조건 사전파싱 필요
-            # 재시작시 (파일명 있음) → 일반파일은 건너뛰기, 1fichier는 사전파싱 필요
-            skip_parsing = has_file_info and not is_1fichier
+            # 재시작시 (파일명 있음) → 일반 직링만 건너뛰기.
+            # 1fichier/MegaUp/DataNodes 같은 호스팅 페이지는 만료성 최종 링크를
+            # 다시 받아야 하므로 파일 정보가 있어도 resolve 단계가 필요하다.
+            skip_parsing = has_file_info and not is_1fichier and not is_special_hoster
 
             # 1fichier 로컬 다운로드이고 파일명이 있는 경우 (재시작) 세마포어 확인
             if is_1fichier and not req.use_proxy and has_file_info:
@@ -1089,6 +1110,7 @@ class DownloadCore:
             current_ua = user_agent
             current_referer = referer
             reparse_url = choose_1fichier_parse_url(parse_url)
+            flaresolverr_cookie_attempted = False
 
             while True:
                 try:
@@ -1103,8 +1125,32 @@ class DownloadCore:
                             print(f"[DEBUG] 이어받기: {initial_size} bytes")
 
                         async with session.get(current_url, headers=headers) as response:
+                            if (
+                                response.status == 403
+                                and is_special_hoster_url(req.original_url or req.url)
+                                and not flaresolverr_cookie_attempted
+                            ):
+                                flaresolverr_cookie_attempted = True
+                                cf_context = await asyncio.get_event_loop().run_in_executor(
+                                    None,
+                                    lambda: get_flaresolverr_context_for_url(
+                                        current_url,
+                                        referer=current_referer or req.url,
+                                    ),
+                                )
+                                cf_cookies = cf_context.get("cookies") or {}
+                                if cf_cookies:
+                                    current_cookies = {**current_cookies, **cf_cookies}
+                                    current_ua = cf_context.get("user_agent") or current_ua
+                                    print(f"[LOG] FlareSolverr 쿠키 확보, 호스팅 최종 링크 재시도: {list(cf_cookies.keys())}")
+                                    continue
                             if response.status not in [200, 206]:
                                 raise Exception(f"HTTP {response.status}: {response.reason}")
+                            content_type = (response.headers.get("Content-Type") or "").lower()
+                            if is_special_hoster_url(req.original_url or req.url) and "text/html" in content_type:
+                                raise Exception(
+                                    "호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함"
+                                )
                             # 응답 처리는 아래 with-블록 외부의 코드를 그대로 사용하기 위해
                             # 같은 들여쓰기 레벨에서 이어서 처리한다.
                             await self._consume_response_and_finish(
@@ -1181,6 +1227,10 @@ class DownloadCore:
         """순수 로컬 다운로드 비동기 구현 (1fichier 제외)"""
         print(f"[DEBUG] _download_local_async 시작: {req.id}")
         await self.send_download_log(req.id, "로컬 다운로드 시작")
+
+        if is_special_hoster_url(req.url):
+            await self._download_special_hoster_async(req, db)
+            return
 
         # 로컬 다운로드 로직
         req.status = StatusEnum.downloading
@@ -1533,6 +1583,88 @@ class DownloadCore:
                 "attempt_count": verdict.attempt_count,
             })
             raise Exception(f"로컬 다운로드 실패: {e}")
+
+    async def _download_special_hoster_async(self, req: DownloadRequest, db: Session):
+        """MegaUp/DataNodes 등 파일 호스팅 페이지를 최종 링크로 resolve 후 다운로드."""
+        print(f"[DEBUG] 특수 호스팅 파싱 시작: {req.id} - {req.url}")
+        await self.send_download_update(req.id, {
+            "status": "parsing",
+            "progress": 0,
+            "message": "호스팅 페이지 파싱 중..."
+        })
+        req.status = StatusEnum.parsing
+        db.commit()
+
+        try:
+            loop = asyncio.get_event_loop()
+            parse_result = await loop.run_in_executor(
+                None,
+                lambda: parse_special_hoster_sync(req.url, req.password),
+            )
+
+            file_info = parse_result.get("file_info") or {}
+            if _should_replace_file_name(req.file_name, file_info.get("name")):
+                req.file_name = file_info["name"]
+                print(f"[LOG] 호스팅 파일명 저장: {req.file_name}")
+            if file_info.get("size") and not req.file_size:
+                req.file_size = file_info["size"]
+                total_size = _size_text_to_bytes(req.file_size)
+                if total_size and (not req.total_size or req.total_size == 0):
+                    req.total_size = total_size
+                print(f"[LOG] 호스팅 파일크기 저장: {req.file_size}")
+
+            if req.original_url != req.url:
+                req.original_url = req.url
+            db.commit()
+
+            await sse_manager.broadcast_message("filename_update", {
+                "id": req.id,
+                "filename": req.file_name,
+                "file_size": req.file_size
+            })
+
+            download_url = parse_result.get("download_link")
+            if not download_url:
+                raise Exception("호스팅 파싱 결과에서 다운로드 링크를 찾을 수 없음")
+
+            req.status = StatusEnum.downloading
+            await self.send_download_update(req.id, {
+                "status": "downloading",
+                "progress": 0,
+                "message": "다운로드 중..."
+            })
+            db.commit()
+
+            if not req.save_path:
+                filename_to_use = req.file_name or f"download_{req.id}"
+                req.save_path = generate_file_path(filename_to_use, is_temporary=True)
+                db.commit()
+
+            await self._download_file_directly(
+                req,
+                db,
+                download_url,
+                cookies=parse_result.get("cookies") or {},
+                user_agent=parse_result.get("user_agent"),
+                referer=parse_result.get("referer") or req.url,
+                parse_url=req.url,
+                max_reparse=0,
+            )
+        except Exception as e:
+            print(f"[ERROR] 특수 호스팅 처리 실패: {e}")
+            verdict = apply_failure_to_request(req, "파싱", str(e))
+            req.status = StatusEnum.failed
+            req.finished_at = datetime.datetime.now()
+            db.commit()
+            await self.send_download_update(req.id, {
+                "status": "failed",
+                "message": verdict.user_message,
+                "stage": "파싱",
+                "raw_error": str(e),
+                "failure_kind": verdict.kind,
+                "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
+                "attempt_count": verdict.attempt_count,
+            })
 
     async def stop_download_async(self, req_id: int, db: Session) -> bool:
         """비동기 다운로드 중지"""

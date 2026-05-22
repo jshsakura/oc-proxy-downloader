@@ -204,6 +204,100 @@ async def test_direct_download_raises_with_aiohttp_style_404(fake_aiohttp, monke
 
 
 @pytest.mark.asyncio
+async def test_special_hoster_direct_download_rejects_html_response(monkeypatch):
+    """호스팅 최종 링크가 보안/중간 HTML 페이지면 파일로 저장하지 않는다."""
+
+    core = dc.DownloadCore()
+    req = _FakeDownloadRequest()
+    req.url = "https://megaup.net/code/movie.rar"
+    req.original_url = req.url
+    db = _FakeDb()
+
+    monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
+    monkeypatch.setattr(dc, "send_telegram_start_notification", lambda *a, **kw: None)
+    core.send_download_update = AsyncMock()
+
+    def session_factory(*args, **kwargs):
+        s = _FakeAioSession(*args, **kwargs)
+        s.response = _FakeAioResponse(
+            200,
+            "OK",
+            headers={"Content-Type": "text/html; charset=UTF-8"},
+        )
+        return s
+
+    monkeypatch.setattr(dc.aiohttp, "ClientSession", session_factory)
+    monkeypatch.setattr(dc.aiohttp, "ClientTimeout", lambda **kwargs: kwargs)
+
+    with pytest.raises(Exception) as excinfo:
+        await core._download_file_directly(
+            req,
+            db,
+            "https://download.megaup.net/?url=token",
+            cookies={},
+            user_agent="UA",
+            referer=req.url,
+        )
+
+    assert "파일 대신 HTML" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_special_hoster_403_uses_flaresolverr_cookies_then_retries(monkeypatch):
+    """특수 호스팅 최종 링크 403은 FlareSolverr 쿠키 확보 후 한 번 재시도."""
+
+    core = dc.DownloadCore()
+    req = _FakeDownloadRequest()
+    req.url = "https://megaup.net/code/movie.rar"
+    req.original_url = req.url
+    db = _FakeDb()
+
+    monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
+    monkeypatch.setattr(dc, "send_telegram_start_notification", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        dc,
+        "get_flaresolverr_context_for_url",
+        lambda *a, **kw: {"cookies": {"cf_clearance": "ok"}, "user_agent": "Chrome/142"},
+    )
+    core.send_download_update = AsyncMock()
+
+    import utils.file_helpers as fh
+    monkeypatch.setattr(fh, "download_file_content", AsyncMock(return_value=0))
+    monkeypatch.setattr(dc, "download_file_content", AsyncMock(return_value=0))
+    monkeypatch.setattr(fh, "get_final_file_path", lambda p: p)
+    monkeypatch.setattr(dc, "get_final_file_path", lambda p: p)
+    monkeypatch.setattr(dc.shutil, "move", lambda *a, **kw: None)
+
+    class SequenceSession(_FakeAioSession):
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            SequenceSession.instances.append(self)
+            self.response = (
+                _FakeAioResponse(403, "Forbidden")
+                if len(SequenceSession.instances) == 1
+                else _FakeAioResponse(200, "OK", headers={"Content-Length": "0"})
+            )
+
+    monkeypatch.setattr(dc.aiohttp, "ClientSession", SequenceSession)
+    monkeypatch.setattr(dc.aiohttp, "ClientTimeout", lambda **kwargs: kwargs)
+
+    await core._download_file_directly(
+        req,
+        db,
+        "https://download.megaup.net/?url=token",
+        cookies={},
+        user_agent="UA",
+        referer=req.url,
+    )
+
+    assert len(SequenceSession.instances) == 2
+    assert SequenceSession.instances[1].kwargs["cookies"] == {"cf_clearance": "ok"}
+    assert SequenceSession.instances[1].captured_get["headers"]["User-Agent"] == "Chrome/142"
+
+
+@pytest.mark.asyncio
 async def test_direct_download_auto_reparses_on_404(monkeypatch):
     """404 발생 시 parse_url 이 주어지면 자동 재파싱 후 새 링크로 재시도한다."""
 

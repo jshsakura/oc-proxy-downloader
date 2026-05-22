@@ -140,6 +140,18 @@ class TestKindClassification:
         assert is_terminal_failure(msg) is False
 
     @pytest.mark.parametrize("raw,expected_kind", [
+        ("MegaUp 파일 없음 또는 삭제됨", KIND_DEAD),
+        ("DataNodes 파일 없음 또는 삭제됨", KIND_DEAD),
+        ("Rapidgator 무료 모드는 500 MB 초과 파일 다운로드 불가", KIND_AUTH_REQUIRED),
+        ("Gofile은 콘텐츠 권한 또는 프리미엄 정책에 따라 API 토큰이 필요", KIND_AUTH_REQUIRED),
+        ("Send.now는 Cloudflare 챌린지로 인해 브라우저 세션 없이 자동 다운로드를 지원하지 않음", KIND_CLOUDFLARE),
+        ("Send.now Turnstile 검증 필요", KIND_CLOUDFLARE),
+        ("호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함", KIND_CLOUDFLARE),
+    ])
+    def test_other_hoster_constraints_are_classified(self, raw, expected_kind):
+        assert classify_failure_text(raw) == expected_kind
+
+    @pytest.mark.parametrize("raw,expected_kind", [
         ("HTTP 503: Service Unavailable", KIND_TRANSIENT),
         ("Read timeout occurred", KIND_TRANSIENT),
         ("HTTP 429: Too Many Requests", KIND_RATE_LIMITED),

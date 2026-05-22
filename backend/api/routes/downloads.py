@@ -19,6 +19,7 @@ from core.models import DownloadRequest, StatusEnum
 from core.download_core import download_core
 from core.parser import fichier_parser
 from core.simple_parser import parse_1fichier_simple_sync, clean_1fichier_url, derive_display_name
+from core.hoster_parsers import should_preserve_original_url
 from core.config import get_config
 from core.error_messages import (
     classify_failure_text,
@@ -98,9 +99,13 @@ async def add_download(
         # 파일명은 파싱 전에도 식별자가 노출되도록 URL 에서 잠정 이름을 박아둔다 —
         # 사전파싱이 성공하면 진짜 파일명으로 덮어쓰기 때문에 placeholder 가
         # 영구히 남는 건 dead 한 케이스뿐이고, 그것도 "Unknown" 보다 훨씬 식별 가능.
+        preserved_original_url = url if (
+            "1fichier.com" in url or should_preserve_original_url(url)
+        ) else None
+
         new_request = DownloadRequest(
             url=url,
-            original_url=original_ouo_url or (url if "1fichier.com" in url else None),
+            original_url=original_ouo_url or preserved_original_url,
             password=password if password else None,
             use_proxy=use_proxy,
             status=StatusEnum.pending,
