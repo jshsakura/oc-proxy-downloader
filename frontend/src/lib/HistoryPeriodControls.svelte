@@ -84,9 +84,17 @@
 </div>
 
 <style>
+  /* Shared control height so every control (segment, date inputs, apply)
+   * lines up on a single baseline. */
+  :root {
+    --period-control-height: 34px;
+  }
+
   .period-controls {
     display: flex;
     align-items: center;
+    /* Left-aligned on desktop; centered only on mobile (see media query). */
+    justify-content: flex-start;
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
@@ -95,7 +103,9 @@
   .period-segment {
     display: inline-flex;
     align-items: stretch;
+    height: var(--period-control-height);
     padding: 3px;
+    box-sizing: border-box;
     background: var(--bg-secondary, var(--card-background));
     border: 1px solid var(--card-border);
     border-radius: 999px;
@@ -110,7 +120,7 @@
     font-size: 0.78rem;
     font-weight: 600;
     line-height: 1;
-    padding: 0.45rem 0.85rem;
+    padding: 0 0.85rem;
     border-radius: 999px;
     cursor: pointer;
     transition: background-color 0.18s ease, color 0.18s ease;
@@ -131,8 +141,10 @@
   .period-custom {
     display: inline-flex;
     align-items: center;
+    height: var(--period-control-height);
+    box-sizing: border-box;
     gap: 0.4rem;
-    padding: 0.25rem 0.5rem;
+    padding: 0 0.5rem;
     border: 1px solid var(--card-border);
     border-radius: 999px;
     background: var(--card-background);
@@ -144,6 +156,7 @@
     background: transparent;
     color: var(--text-primary);
     font-size: 0.78rem;
+    line-height: 1;
     padding: 0.25rem 0.35rem;
     border-radius: 6px;
     color-scheme: light dark;
@@ -163,12 +176,15 @@
 
   .period-apply {
     appearance: none;
-    border: none;
+    border: 1px solid var(--card-border);
+    height: var(--period-control-height);
+    box-sizing: border-box;
     background: var(--primary-color);
     color: #fff;
-    font-size: 0.75rem;
+    font-size: 0.78rem;
     font-weight: 600;
-    padding: 0.4rem 0.8rem;
+    line-height: 1;
+    padding: 0 0.9rem;
     border-radius: 999px;
     cursor: pointer;
     transition: background-color 0.18s ease, box-shadow 0.18s ease;
@@ -183,9 +199,11 @@
    * styles win over the parent wrapper's :global. To prevent left alignment: 1) controls
    * is a row at 100%, 2) the segment is full-width, 3) buttons stretch evenly at 1fr.
    * The custom area is also full-width on the next line. */
-  @media (max-width: 720px) {
+  /* Mobile — center the control group and let it span full width. */
+  @media (max-width: 768px) {
     .period-controls {
       width: 100%;
+      justify-content: center;
       gap: 0.4rem;
       margin-bottom: 0;
     }
@@ -198,7 +216,7 @@
     }
     .period-seg-btn {
       flex: 1 1 0;
-      padding: 0.6rem 0.2rem;
+      padding: 0 0.2rem;
       font-size: 0.78rem;
       text-align: center;
     }
@@ -208,17 +226,13 @@
       flex: 1 1 100%;
       justify-content: space-between;
       gap: 0.3rem;
-      padding: 0.3rem 0.5rem;
+      padding: 0 0.5rem;
     }
     .period-date {
       flex: 1 1 0;
       min-width: 0;
       font-size: 0.82rem;
       padding: 0.4rem 0.3rem;
-    }
-    .period-apply {
-      padding: 0.45rem 0.9rem;
-      font-size: 0.78rem;
     }
   }
 </style>

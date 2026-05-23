@@ -152,7 +152,8 @@
   }
 
   .local-info {
-    min-height: 30px;
+    /* Match ProxyGauge header row height so the two cards line up */
+    min-height: 40px;
     display: flex;
     align-items: center;
     justify-content: space-between;

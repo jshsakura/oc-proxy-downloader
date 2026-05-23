@@ -50,6 +50,7 @@
   import HistoryPeriodControls from "./lib/HistoryPeriodControls.svelte";
   import { EventSourceManager } from "./EventSource.js";
   import Skeleton from "./lib/Skeleton.svelte";
+  import Checkbox from "./lib/Checkbox.svelte";
 
   console.log(
     "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
@@ -93,8 +94,7 @@
   let auditDone = 0;
   let auditTotal = 0;
   let showAuditModal = false;
-  // Multi-select mode — show a checkbox column on failed/stopped rows.
-  let selectMode = false;
+  // Multi-select — checkboxes are always visible in the leading table column.
   let selectedIds = new Set();
   let showBulkDeleteConfirm = false;
   let pendingBulkDelete = []; // Used by the confirm modal
@@ -1229,56 +1229,6 @@
     startAudit({ ids });
   }
 
-  function failedDownloadIds() {
-    if (!Array.isArray(downloads)) return [];
-    return downloads
-      .filter((d) => {
-        const status = d.status?.toLowerCase?.() || "";
-        return status === "failed";
-      })
-      .map((d) => d.id)
-      .filter((id) => id && !isNaN(parseInt(id)));
-  }
-
-  function deleteFailedDownloads() {
-    const ids = failedDownloadIds();
-    if (ids.length === 0) {
-      toast.info($t("delete_failed_empty"));
-      return;
-    }
-
-    openConfirm({
-      title: $t("confirm_delete_title"),
-      message: $t("delete_failed_confirm", { count: ids.length }),
-      confirmText: $t("delete_failed_downloads"),
-      cancelText: $t("button_cancel"),
-      onConfirm: async () => {
-        try {
-          const response = await fetch("/api/downloads/bulk-delete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ids }),
-          });
-          if (!response.ok) {
-            let detail = response.statusText;
-            try {
-              const data = await response.json();
-              detail = data.detail || detail;
-            } catch (_) {}
-            toast.error($t("bulk_delete_failed", { detail }));
-            return;
-          }
-          const data = await response.json();
-          toast.success($t("bulk_delete_success", { count: data.deleted_count }));
-          fetchDownloads();
-        } catch (e) {
-          console.error("failed delete error:", e);
-          toast.error(`failed delete error: ${e.message}`);
-        }
-      },
-    });
-  }
-
   async function bulkDeleteSelected() {
     if (selectedIds.size === 0) return;
     pendingBulkDelete = Array.from(selectedIds);
@@ -1306,7 +1256,6 @@
       const data = await response.json();
       toast.success($t("bulk_delete_success", { count: data.deleted_count }));
       selectedIds = new Set();
-      selectMode = false;
       fetchDownloads();
     } catch (e) {
       console.error("bulk delete error:", e);
@@ -1320,9 +1269,22 @@
     selectedIds = new Set(selectedIds);
   }
 
-  function exitSelectMode() {
-    selectMode = false;
+  function clearSelection() {
     selectedIds = new Set();
+  }
+
+  // Select-all toggles every currently-rendered row. When all visible rows are
+  // already selected it clears them, otherwise it selects them all.
+  function toggleSelectAll(rows) {
+    const ids = (Array.isArray(rows) ? rows : []).map((d) => d.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+    if (allSelected) {
+      const next = new Set(selectedIds);
+      ids.forEach((id) => next.delete(id));
+      selectedIds = next;
+    } else {
+      selectedIds = new Set([...selectedIds, ...ids]);
+    }
   }
 
   async function callApi(endpoint, downloadId = null) {
@@ -1450,6 +1412,11 @@
     const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
     const speed = (bytesPerSecond / Math.pow(k, i)).toFixed(i >= 2 ? 2 : 1);
     return speed + " " + sizes[i];
+  }
+
+  // A name like "1fichier:<id>" is a temporary URL-derived placeholder, not a real filename.
+  function isPlaceholderName(name) {
+    return !name || /^1fichier:/i.test(name.trim());
   }
 
   function getStatusTooltip(download) {
@@ -1761,9 +1728,9 @@
     if (currentTab !== newTab) {
       currentTab = newTab;
       searchExpanded = false;
-      // Selection mode auto-clears when switching tabs — so ids from another tab don't mix in.
-      if (selectMode || selectedIds.size > 0) {
-        exitSelectMode();
+      // Selection auto-clears when switching tabs — so ids from another tab don't mix in.
+      if (selectedIds.size > 0) {
+        clearSelection();
       }
       // The search query is kept across tab switches
       currentPage = 1; // Move to the first page on tab switch
@@ -1882,7 +1849,14 @@
       d.use_proxy &&
       ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
   ).length : 0;
-  $: failedDownloadCount = failedDownloadIds().length;
+  // Select-all reflects the currently-rendered (paginated) rows.
+  $: someVisibleSelected =
+    Array.isArray(paginatedDownloads) &&
+    paginatedDownloads.some((d) => selectedIds.has(d.id));
+  $: allVisibleSelected =
+    Array.isArray(paginatedDownloads) &&
+    paginatedDownloads.length > 0 &&
+    paginatedDownloads.every((d) => selectedIds.has(d.id));
   $: dashboardSummaryTotal = dashboardStats?.total ?? downloads.length;
   $: dashboardSummarySuccessRate = dashboardStats?.success_rate ?? (downloads.length > 0
     ? (completedCount / downloads.length) * 100
@@ -1975,15 +1949,6 @@
       <h1>{$t("title")}</h1>
       <div class="header-actions">
         <button
-          on:click={() => (selectMode ? exitSelectMode() : (selectMode = true))}
-          class="button-icon select-mode-button"
-          class:active={selectMode}
-          title={selectMode ? $t("select_mode_exit") : $t("select_mode_enter")}
-          aria-label={selectMode ? $t("select_mode_exit") : $t("select_mode_enter")}
-        >
-          ☑
-        </button>
-        <button
           on:click={() => startAudit()}
           class="button-icon audit-button"
           class:is-running={auditRunning}
@@ -1993,16 +1958,7 @@
             : $t("action_audit")}
           aria-label={$t("action_audit")}
         >
-          <InfoIcon />
-        </button>
-        <button
-          on:click={deleteFailedDownloads}
-          class="button-icon"
-          disabled={failedDownloadCount === 0}
-          title={$t("delete_failed_downloads")}
-          aria-label={$t("delete_failed_downloads")}
-        >
-          <DeleteIcon />
+          <CheckCircleIcon />
         </button>
         <button
           on:click={() => (showSettingsModal = true)}
@@ -2239,6 +2195,14 @@
         <table>
           <thead>
             <tr>
+              <th class="select-col">
+                <Checkbox
+                  checked={allVisibleSelected}
+                  indeterminate={someVisibleSelected && !allVisibleSelected}
+                  ariaLabel={$t("select_count", { count: selectedIds.size })}
+                  on:change={() => toggleSelectAll(paginatedDownloads)}
+                />
+              </th>
               <th>{$t("table_header_file_name")}</th>
               <th class="center-align">{$t("table_header_status")}</th>
               <th class="center-align">{$t("table_header_size")}</th>
@@ -2257,6 +2221,7 @@
             {#if isDownloadsLoading}
               {#each Array(5) as _}
                 <tr class="skeleton-row">
+                  <td class="select-col"><Skeleton width="18px" height="18px" radius="5px" /></td>
                   <td><Skeleton width="80%" height="14px" radius="3px" /></td>
                   <td class="center-align"><Skeleton width="64px" height="22px" radius="10px" /></td>
                   <td class="center-align"><Skeleton width="52px" height="14px" radius="3px" /></td>
@@ -2272,7 +2237,7 @@
             {:else if filteredDownloads.length === 0}
               <tr class="empty-row">
                 <td
-                  colspan={currentTab === "completed" ? 7 : 8}
+                  colspan={currentTab === "completed" ? 8 : 9}
                   class="no-downloads-message"
                 >
                   {currentTab === "working"
@@ -2282,22 +2247,20 @@
               </tr>
             {:else}
               {#each paginatedDownloads as download (download.id)}
-                <tr class:is-selected={selectMode && selectedIds.has(download.id)}>
+                <tr class:is-selected={selectedIds.has(download.id)}>
+                  <td class="select-col">
+                    <Checkbox
+                      checked={selectedIds.has(download.id)}
+                      ariaLabel="row {download.id}"
+                      on:change={() => toggleSelect(download.id)}
+                    />
+                  </td>
                   <td
                     class="filename"
-                    title={download.filename || $t("file_name_na")}
+                    title={!isPlaceholderName(download.filename) ? download.filename : $t("file_name_na")}
                   >
-                    {#if selectMode}
-                      <input
-                        type="checkbox"
-                        class="row-select"
-                        checked={selectedIds.has(download.id)}
-                        on:change={() => toggleSelect(download.id)}
-                        aria-label="row {download.id}"
-                      />
-                    {/if}
                     <span class="filename-text"
-                      >{download.filename || $t("file_name_na")}</span
+                      >{!isPlaceholderName(download.filename) ? download.filename : $t("file_name_na")}</span
                     >
                   </td>
                   <td class="center-align">
@@ -2321,6 +2284,9 @@
                             class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
                           ></span>
                         </span>
+                      {:else if download.status.toLowerCase() === "failed" && download.failure_kind}
+                        <!-- On failure show a single label: the classified reason (detail in tooltip) -->
+                        {$t("kind_" + download.failure_kind)}
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
                         {#if ["proxying", "parsing", "downloading"].includes(download.status.toLowerCase())}
@@ -2330,13 +2296,6 @@
                         {/if}
                       {/if}
                     </span>
-                    {#if download.status.toLowerCase() === "failed" && download.failure_kind}
-                      <!-- Failure-classification chip: dead is red, auth/rate/cloudflare/proxy_blocked are orange, transient types are gray -->
-                      <span
-                        class="kind-chip kind-chip-{download.failure_kind}"
-                        title={download.error_message || $t("kind_" + download.failure_kind)}
-                      >{$t("kind_" + download.failure_kind)}</span>
-                    {/if}
                   </td>
                   <td class="center-align">
                     {download.total_size
@@ -2846,7 +2805,7 @@
     />
   {/if}
 
-  {#if selectMode && selectedIds.size > 0}
+  {#if selectedIds.size > 0}
     <div class="bulk-action-bar">
       <span class="bulk-count">{$t("select_count", { count: selectedIds.size })}</span>
       <div class="bulk-actions">
@@ -2856,7 +2815,7 @@
         <button class="button button-danger" on:click={bulkDeleteSelected}>
           {$t("bulk_action_delete")}
         </button>
-        <button class="button button-secondary" on:click={exitSelectMode}>
+        <button class="button button-secondary" on:click={clearSelection}>
           {$t("select_mode_exit")}
         </button>
       </div>
