@@ -10,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 
+from core.version import CURRENT_VERSION
+
 from services.sse_manager import sse_manager
 from services.download_service import download_service
 from api.middleware import log_requests
@@ -111,7 +113,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="OC Proxy Downloader",
         description="1fichier 다운로드 서비스 (웹소켓 제거, SSE + asyncio)",
-        version="2.0.0",
+        version=CURRENT_VERSION.lstrip("v"),
         lifespan=lifespan
     )
 
@@ -273,7 +275,7 @@ def create_app() -> FastAPI:
 
         @app.get("/")
         async def root():
-            return {"message": "OC Proxy Downloader API", "version": "2.0.0"}
+            return {"message": "OC Proxy Downloader API", "version": CURRENT_VERSION.lstrip("v")}
 
     print(f"[LOG] FastAPI app created - Auth: {AUTHENTICATION_ENABLED}")
     return app
