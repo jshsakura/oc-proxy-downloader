@@ -424,5 +424,6 @@
   "folder_select_failed": "Error al seleccionar la carpeta",
   "folder_select_error": "Se produjo un error al seleccionar la carpeta",
   "folder_select": "Seleccionar carpeta",
-  "proxy_page_range": "{start}-{end} mostrados"
+  "proxy_page_range": "{start}-{end} mostrados",
+  "settings_saved": "Ajustes guardados."
 }

@@ -424,5 +424,6 @@
   "folder_select_failed": "Không thể chọn thư mục",
   "folder_select_error": "Đã xảy ra lỗi khi chọn thư mục",
   "folder_select": "Chọn thư mục",
-  "proxy_page_range": "Hiển thị {start}-{end}"
+  "proxy_page_range": "Hiển thị {start}-{end}",
+  "settings_saved": "Đã lưu cài đặt."
 }

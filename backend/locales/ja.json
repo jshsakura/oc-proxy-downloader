@@ -424,5 +424,6 @@
   "folder_select_failed": "フォルダの選択に失敗しました",
   "folder_select_error": "フォルダの選択中にエラーが発生しました",
   "folder_select": "フォルダを選択",
-  "proxy_page_range": "{start}-{end} を表示"
+  "proxy_page_range": "{start}-{end} を表示",
+  "settings_saved": "設定を保存しました。"
 }

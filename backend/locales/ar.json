@@ -424,5 +424,6 @@
   "folder_select_failed": "فشل تحديد المجلد",
   "folder_select_error": "حدث خطأ أثناء تحديد المجلد",
   "folder_select": "تحديد مجلد",
-  "proxy_page_range": "عرض {start}-{end}"
+  "proxy_page_range": "عرض {start}-{end}",
+  "settings_saved": "تم حفظ الإعدادات."
 }

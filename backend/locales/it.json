@@ -424,5 +424,6 @@
   "folder_select_failed": "Impossibile selezionare la cartella",
   "folder_select_error": "Si è verificato un errore durante la selezione della cartella",
   "folder_select": "Seleziona cartella",
-  "proxy_page_range": "{start}-{end} mostrati"
+  "proxy_page_range": "{start}-{end} mostrati",
+  "settings_saved": "Impostazioni salvate."
 }

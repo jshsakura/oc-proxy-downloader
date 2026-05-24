@@ -424,5 +424,6 @@
   "folder_select_failed": "Falha ao selecionar a pasta",
   "folder_select_error": "Ocorreu um erro ao selecionar a pasta",
   "folder_select": "Selecionar pasta",
-  "proxy_page_range": "{start}-{end} exibidos"
+  "proxy_page_range": "{start}-{end} exibidos",
+  "settings_saved": "Configurações salvas."
 }

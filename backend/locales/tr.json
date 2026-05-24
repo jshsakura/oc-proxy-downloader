@@ -424,5 +424,6 @@
   "folder_select_failed": "Klasör seçilemedi",
   "folder_select_error": "Klasör seçilirken bir hata oluştu",
   "folder_select": "Klasör seç",
-  "proxy_page_range": "{start}-{end} gösteriliyor"
+  "proxy_page_range": "{start}-{end} gösteriliyor",
+  "settings_saved": "Ayarlar kaydedildi."
 }

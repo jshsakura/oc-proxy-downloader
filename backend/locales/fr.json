@@ -424,5 +424,6 @@
   "folder_select_failed": "Échec de la sélection du dossier",
   "folder_select_error": "Une erreur s'est produite lors de la sélection du dossier",
   "folder_select": "Sélectionner un dossier",
-  "proxy_page_range": "{start}-{end} affichés"
+  "proxy_page_range": "{start}-{end} affichés",
+  "settings_saved": "Paramètres enregistrés."
 }

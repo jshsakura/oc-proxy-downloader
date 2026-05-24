@@ -424,5 +424,6 @@
   "folder_select_failed": "Ordnerauswahl fehlgeschlagen",
   "folder_select_error": "Beim Auswählen des Ordners ist ein Fehler aufgetreten",
   "folder_select": "Ordner auswählen",
-  "proxy_page_range": "{start}-{end} angezeigt"
+  "proxy_page_range": "{start}-{end} angezeigt",
+  "settings_saved": "Einstellungen gespeichert."
 }

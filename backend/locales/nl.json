@@ -424,5 +424,6 @@
   "folder_select_failed": "Map selecteren mislukt",
   "folder_select_error": "Er is een fout opgetreden bij het selecteren van de map",
   "folder_select": "Map selecteren",
-  "proxy_page_range": "{start}-{end} weergegeven"
+  "proxy_page_range": "{start}-{end} weergegeven",
+  "settings_saved": "Instellingen opgeslagen."
 }

@@ -424,5 +424,6 @@
   "folder_select_failed": "Gagal memilih folder",
   "folder_select_error": "Terjadi kesalahan saat memilih folder",
   "folder_select": "Pilih folder",
-  "proxy_page_range": "Menampilkan {start}-{end}"
+  "proxy_page_range": "Menampilkan {start}-{end}",
+  "settings_saved": "Pengaturan disimpan."
 }

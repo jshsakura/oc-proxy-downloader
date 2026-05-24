@@ -424,5 +424,6 @@
   "folder_select_failed": "Не удалось выбрать папку",
   "folder_select_error": "Произошла ошибка при выборе папки",
   "folder_select": "Выбрать папку",
-  "proxy_page_range": "Показано {start}-{end}"
+  "proxy_page_range": "Показано {start}-{end}",
+  "settings_saved": "Настройки сохранены."
 }

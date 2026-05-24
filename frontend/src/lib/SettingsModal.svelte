@@ -365,27 +365,28 @@
 
         // The language was already applied in changeLocale, so no extra handling is needed
 
+        toast.success($t("settings_saved"));
         dispatch("settingsChanged", settings);
         closeModal();
       } else {
         console.error("[ERROR] Save failed:", response.status);
         let errorMessage = $t("settings_save_failed", {
-          status: response.status,
+          details: response.status,
         });
 
         if (response.status === 500) {
-          errorMessage += `\n${$t("settings_save_error_server")}`;
+          errorMessage += ` - ${$t("settings_save_error_server")}`;
         } else if (response.status === 403) {
-          errorMessage += `\n${$t("settings_save_error_auth")}`;
+          errorMessage += ` - ${$t("settings_save_error_auth")}`;
         } else if (response.status === 404) {
-          errorMessage += `\n${$t("settings_save_error_notfound")}`;
+          errorMessage += ` - ${$t("settings_save_error_notfound")}`;
         }
 
-        alert(errorMessage);
+        toast.error(errorMessage);
       }
     } catch (error) {
       console.error("Error saving settings:", error);
-      alert("Error saving settings");
+      toast.error($t("settings_save_failed", { details: error?.message || "" }));
     }
   }
 
