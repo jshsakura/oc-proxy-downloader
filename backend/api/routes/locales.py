@@ -7,14 +7,20 @@ from sqlalchemy.orm import Session
 
 from core.config import get_config, save_config, get_download_path
 from core.db import get_db
-from core.i18n import get_translations, reload_translations
+from core.i18n import get_translations, reload_translations, get_available_languages
 
 router = APIRouter(prefix="/api", tags=["locales"])
 
 
+@router.get("/locales")
+async def list_locales():
+    """Return available languages as [{code, name, rtl}], sorted by display name."""
+    return {"languages": get_available_languages()}
+
+
 @router.get("/locales/{lang}.json")
 async def get_locale(lang: str, request: Request):
-    """언어 파일 조회"""
+    """Get a language file"""
     try:
         translations = get_translations(lang)
         if not translations:
@@ -33,7 +39,7 @@ async def get_locale(lang: str, request: Request):
 
 @router.post("/locales/reload")
 async def reload_locale(request: Request):
-    """번역 캐시 다시 로드"""
+    """Reload the translation cache"""
     try:
         success = reload_translations()
         return {"success": success, "message": "Translations reloaded"}

@@ -12,14 +12,14 @@
   export let successCount = 0;
   export let failCount = 0;
 
-  // 실시간 프록시 상태
+  // Real-time proxy status
   export let currentProxy = "";
   export let currentStep = "";
   export let status = ""; // "trying", "success", "failed", ""
   export let currentIndex = 0;
   export let totalAttempting = 0;
   export let activeDownloadCount = 0;
-  export let statusMessage = ""; // 백엔드에서 제공하는 상태 메시지
+  export let statusMessage = ""; // Status message provided by the backend
 
   $: usagePercentage =
     totalProxies > 0
@@ -35,12 +35,12 @@
   $: unusedPercentage =
     totalProxies > 0 ? (availableProxies / totalProxies) * 100 : 0;
 
-  // 게이지 표시용 퍼센티지 (연한 녹색 기본, 실패시 빨간색 추가)
+  // Percentages for the gauge display (light green by default, red added on failure)
   $: availableDisplayPercentage =
     totalProxies > 0 ? (availableProxies / totalProxies) * 100 : 0;
   $: failDisplayPercentage =
     totalProxies > 0 && failCount > 0
-      ? Math.max((failCount / totalProxies) * 100, 3) // 최소 3% 보장
+      ? Math.max((failCount / totalProxies) * 100, 3) // Guarantee at least 3%
       : 0;
 
   let isRefreshing = false;
@@ -63,7 +63,7 @@
         const result = await response.json();
         console.log("프록시 다운로드 정지 완료:", result.message);
 
-        // 프록시 상태 리셋 이벤트 전송
+        // Send the proxy-status reset event
         dispatch("resetProxyStatus");
       } else {
         console.error("프록시 다운로드 일괄 정지 실패");
@@ -113,9 +113,9 @@
         },
       });
       if (response.ok) {
-        // 성공적으로 리셋됨을 알림
+        // Notify that the reset succeeded
         console.log($t("proxy_reset_success"));
-        // 부모 컴포넌트에서 상태를 다시 가져오도록 이벤트 발생
+        // Fire an event so the parent component refetches the status
         const event = new CustomEvent("proxy-refreshed");
         document.dispatchEvent(event);
       } else {
@@ -139,9 +139,9 @@
     </div>
     <div class="status-right">
       <div class="gauge-bar">
-        <!-- 전체 배경을 연한 녹색으로 채우기 -->
+        <!-- Fill the entire background with light green -->
         <div class="gauge-background"></div>
-        <!-- 실패한 프록시는 빨간색으로 우측에서부터 표시 -->
+        <!-- Failed proxies are shown in red, starting from the right -->
         <div
           class="gauge-fill failed"
           style="width: {failDisplayPercentage}%"
@@ -208,7 +208,7 @@
     </div>
   </div>
 
-  <!-- 실시간 프록시 상태 표시 (항상 표시) -->
+  <!-- Real-time proxy status display (always shown) -->
   <div
     class="proxy-status"
     class:trying={status === "trying"}
@@ -217,7 +217,7 @@
     class:idle={status === "idle" || status === "" || (!status && activeDownloadCount === 0)}
   >
     {#if activeDownloadCount > 1}
-      <!-- 다중 다운로드 진행 중일 때 -->
+      <!-- When multiple downloads are in progress -->
       <span class="status-icon trying-icon"></span>
       <span class="status-text">
         {$t("proxy_multi_download", { count: activeDownloadCount })}
@@ -343,7 +343,7 @@
     min-width: 0;
   }
 
-  /* 모바일에서 잔여 개수만 표시 */
+  /* Show only the remaining count on mobile */
   @media (max-width: 768px) {
     .mobile-hide {
       display: none;
@@ -415,8 +415,8 @@
     animation: spin 1s linear infinite;
   }
 
-  /* 게이지 바 — local 카드의 count 칩과 사이즈/모양 통일을 위해 24px 높이의
-   * slim pill 로. fail% 표시는 우측 inset fill 로 유지. */
+  /* Gauge bar — a 24px-tall slim pill to match the size/shape of the local card's
+   * count chip. The fail% display stays as a right-side inset fill. */
   .gauge-bar {
     flex: 1;
     min-width: 0;

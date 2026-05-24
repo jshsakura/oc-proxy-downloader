@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-1fichier 간단한 파싱 로직
-1. 파일명/용량 추출
-2. 대기시간 파싱 (버튼 텍스트에서 정확히)
-3. 대기 후 클릭 시뮬레이션
+Simple 1fichier parsing logic
+1. Extract file name / size
+2. Parse wait time (precisely, from the button text)
+3. Simulate a click after waiting
 """
 
 import re
@@ -18,11 +18,12 @@ from core import cancel_signal
 
 
 def _save_parse_debug(stage: str, status_code, body_text):
-    """파싱 실패 시 응답 본문을 ``<config>/parse_debug_<stage>.html`` 로 저장.
+    """On parse failure, save the response body to ``<config>/parse_debug_<stage>.html``.
 
-    사용자가 docker logs 접근이 어려운 환경 (TrueNAS Apps 등) 에서도
-    ``GET /api/debug/last-parse-response`` 또는 상세 모달의 디버그 링크로
-    내려받아 패치 분석에 사용한다.
+    Even in environments where the user has trouble accessing docker logs
+    (TrueNAS Apps, etc.), it can be downloaded via
+    ``GET /api/debug/last-parse-response`` or the debug link in the detail
+    modal for patch analysis.
     """
     try:
         path = CONFIG_DIR / f"parse_debug_{stage}.html"
@@ -34,13 +35,13 @@ def _save_parse_debug(stage: str, status_code, body_text):
         print(f"[WARNING] 파싱 디버그 저장 실패: {save_err}")
 
 
-# 1fichier 다운로드 호스트 패턴 (a-1.1fichier.com, cdn-2.1fichier.com, s17.1fichier.com 등)
+# 1fichier download host pattern (a-1.1fichier.com, cdn-2.1fichier.com, s17.1fichier.com, etc.)
 _DOWNLOAD_HOST_RE = re.compile(
     r"^https?://(?:a-\d+|cdn-\d+|[a-z]-\d+|[a-z]+\d+|download|dl)\.1fichier\.com/",
     re.IGNORECASE,
 )
 
-# 명백히 다운로드 링크가 아닌 1fichier 페이지들 (제외)
+# 1fichier pages that are clearly not download links (excluded)
 _EXCLUDE_PATH_KEYWORDS = (
     "/cgu", "/cgv", "/mentions", "/privacy", "/about", "/tarifs",
     "/premium", "/console", "/register", "/login", "/contact", "/faq",
@@ -52,11 +53,11 @@ _FICHIER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,}")
 
 
 def _extract_1fichier_file_id(raw_query: str) -> str:
-    """1fichier raw query 에서 파일 ID 만 안전하게 추출한다.
+    """Safely extract only the file ID from a 1fichier raw query.
 
-    같은 URL 을 공백 없이 두 번 붙여 넣으면 query 가
-    ``<id>https://1fichier.com/?<id>`` 형태가 된다. 이 경우 두 번째 URL
-    앞에서 잘라야 404 를 유발하는 잘못된 파일 ID 를 만들지 않는다.
+    When the same URL is pasted twice without a space, the query becomes
+    ``<id>https://1fichier.com/?<id>``. In that case we must cut before the
+    second URL so we don't produce an invalid file ID that causes a 404.
     """
     value = (raw_query or "").strip()
     if not value:
@@ -75,21 +76,21 @@ def _extract_1fichier_file_id(raw_query: str) -> str:
 
 
 def clean_1fichier_url(url):
-    """1fichier URL 에서 첫 번째 쿼리 파라미터(파일 ID) 만 남기고 나머지 제거.
+    """Keep only the first query parameter (file ID) in a 1fichier URL and drop the rest.
 
-    1fichier 의 파일 페이지 URL 은 ``https://1fichier.com/?<file_id>`` 형식이고,
-    affiliate(``&af=...``) 같은 추가 파라미터가 붙으면 파싱에 실패할 수 있어
-    파일 ID 외의 쿼리는 제거한다.
+    A 1fichier file page URL has the form ``https://1fichier.com/?<file_id>``,
+    and extra parameters such as an affiliate tag (``&af=...``) can break
+    parsing, so any query other than the file ID is removed.
 
-    다운로드 서버 호스트(예: ``a-1.1fichier.com``)는 토큰 쿼리를 잘라내면
-    오히려 404 가 나기 때문에 그대로 둔다.
+    Download server hosts (e.g. ``a-1.1fichier.com``) are left untouched,
+    because stripping their token query would instead cause a 404.
     """
     if not url or "1fichier.com" not in url:
         return url
 
     parsed = urlparse(url)
 
-    # 다운로드 서버 호스트는 절대 건드리지 않음
+    # Never touch download server hosts
     if parsed.hostname and parsed.hostname.lower() != "1fichier.com":
         return url
 
@@ -103,18 +104,18 @@ def clean_1fichier_url(url):
     return urlunparse(parsed._replace(query=file_id))
 
 
-# 1fichier 파일 페이지의 ID 쿼리(예: ``?7abc...``) 만 뽑기. 다운로드 호스트면
-# 마지막 경로 세그먼트가 ID 처럼 동작하므로 그것을 쓴다.
+# Extract only the ID query of a 1fichier file page (e.g. ``?7abc...``). For
+# download hosts, the last path segment acts like the ID, so use that instead.
 _FICHIER_PATH_ID_RE = re.compile(r"/(?:c/)?([A-Za-z0-9_-]{6,})/?$")
 
 
 def is_1fichier_placeholder_name(name: str) -> bool:
-    """URL 에서 만든 임시 표시명(``1fichier:<id>``)인지 확인."""
+    """Check whether this is a temporary display name built from a URL (``1fichier:<id>``)."""
     return isinstance(name, str) and name.strip().lower().startswith("1fichier:")
 
 
 def is_1fichier_file_page_url(url: str) -> bool:
-    """재파싱 가능한 1fichier 파일 페이지 URL인지 확인."""
+    """Check whether this is a re-parseable 1fichier file page URL."""
     try:
         parsed = urlparse(url or "")
     except ValueError:
@@ -125,7 +126,7 @@ def is_1fichier_file_page_url(url: str) -> bool:
 
 
 def choose_1fichier_parse_url(*urls: str) -> str:
-    """후보 URL들 중 재파싱에 쓸 원본 1fichier 파일 페이지를 고른다."""
+    """Pick the original 1fichier file page (for re-parsing) from the candidate URLs."""
     for candidate in urls:
         if not candidate or "1fichier.com" not in candidate:
             continue
@@ -136,12 +137,12 @@ def choose_1fichier_parse_url(*urls: str) -> str:
 
 
 def derive_display_name(url: str) -> str:
-    """파싱 전에도 사용자에게 보여줄 수 있는 식별자를 URL 에서 즉시 추출한다.
+    """Immediately derive a user-displayable identifier from the URL, even before parsing.
 
-    파일명을 알기 전 단계에서 ``Unknown`` 같은 폴백을 노출하지 않기 위함.
-    1fichier 의 경우 파일 ID 를 ``1fichier:<id>`` 형태로, 그 외는 경로의
-    마지막 세그먼트 또는 호스트명을 반환한다. 항상 비어있지 않은 짧은
-    문자열을 돌려준다.
+    This avoids exposing a fallback like ``Unknown`` before the file name is
+    known. For 1fichier it returns the file ID as ``1fichier:<id>``; otherwise
+    it returns the last path segment or the host name. Always returns a short,
+    non-empty string.
     """
     if not url:
         return "(no url)"
@@ -154,17 +155,17 @@ def derive_display_name(url: str) -> str:
     host = (parsed.hostname or "").lower()
 
     if "1fichier.com" in host:
-        # 파일 페이지: 1fichier.com/?XXXX
+        # File page: 1fichier.com/?XXXX
         if parsed.query:
             file_id = _extract_1fichier_file_id(parsed.query)
             if file_id:
                 return f"1fichier:{file_id}"
-        # 다운로드 서버: a-1.1fichier.com/c/XXXX
+        # Download server: a-1.1fichier.com/c/XXXX
         m = _FICHIER_PATH_ID_RE.search(parsed.path or "")
         if m:
             return f"1fichier:{m.group(1)}"
 
-    # 일반 URL: 경로 마지막 세그먼트 → 그것도 없으면 호스트
+    # Generic URL: last path segment, falling back to the host
     path = (parsed.path or "").rstrip("/")
     if path:
         last = path.rsplit("/", 1)[-1]
@@ -176,20 +177,20 @@ def derive_display_name(url: str) -> str:
 
 
 def detect_block_reason(html_content):
-    """1fichier 응답 HTML 에서 명시적인 차단/만료 사유를 식별.
+    """Identify an explicit block/expiry reason in 1fichier response HTML.
 
-    1fichier 는 status 200 으로 응답하면서도 본문에서 다음과 같은 상태를
-    드러내는 경우가 많다:
+    1fichier often responds with status 200 while the body still reveals
+    states such as:
 
-    - VPS/VPN IP 차단 ("Accès restreint", "professional infrastructure detected")
-    - 파일이 삭제되었거나 신고됨 ("File not found", "removed", "deleted")
-    - Cloudflare 챌린지 페이지가 그대로 노출되는 경우
-    - 일시적 점검 페이지
+    - VPS/VPN IP block ("Accès restreint", "professional infrastructure detected")
+    - File deleted or reported ("File not found", "removed", "deleted")
+    - The Cloudflare challenge page exposed as-is
+    - A temporary maintenance page
 
-    이런 경우 폼이 없으니 ``parse_1fichier_simple_sync`` 가 ``다운로드 폼을
-    찾을 수 없음`` 을 raise 해서 사용자는 진짜 원인을 알 수 없다.
-    이 함수는 본문에서 차단 사유를 골라내 한국어 키워드로 반환하거나,
-    매칭이 없으면 ``None`` 을 반환한다.
+    In these cases there is no form, so ``parse_1fichier_simple_sync`` raises
+    ``다운로드 폼을 찾을 수 없음`` and the user cannot tell the real cause.
+    This function picks out the block reason from the body and returns it as a
+    Korean keyword, or returns ``None`` if there is no match.
     """
     if not html_content:
         return None
@@ -197,64 +198,64 @@ def detect_block_reason(html_content):
     text = html_content.lower()
 
     block_rules = (
-        # VPS/VPN/프록시 차단
+        # VPS/VPN/proxy block
         ("accès restreint", "VPS/VPN IP 차단"),
         ("acces restreint", "VPS/VPN IP 차단"),
         ("professional infrastructure detected", "VPS/VPN IP 차단"),
         ("server, proxy, vpn", "VPS/VPN IP 차단"),
         ("unauthorized personal vpn", "VPS/VPN IP 차단"),
-        # 파일 상태
+        # File status
         ("file not found", "파일 없음 또는 삭제됨"),
         ("the file has been deleted", "파일 삭제됨"),
         ("the requested file has been removed", "파일 삭제됨"),
         ("le fichier a été supprimé", "파일 삭제됨"),
         ("file has been reported", "파일이 신고되어 차단됨"),
-        # 한도/속도 제한
-        ("you must wait", None),  # 대기시간이면 정상 흐름이므로 무시 (None 으로 표시)
+        # Quota / rate limit
+        ("you must wait", None),  # A wait time is the normal flow, so ignore it (marked with None)
         ("limited to 1 download", "무료 다운로드 한도 초과"),
-        # 게스트 슬롯 가득 참 — 등록 사용자(무료 계정) 로그인 시 우회 가능
+        # Guest slots full — can be bypassed by logging in as a registered (free) user
         ("free download is temporarily limited", "무료 게스트 슬롯이 가득 참 (1fichier 무료 계정 로그인 필요)"),
         ("all free guest slots are currently in use", "무료 게스트 슬롯이 가득 참 (1fichier 무료 계정 로그인 필요)"),
         ("free slots are available right now for registered users", "무료 게스트 슬롯이 가득 참 (1fichier 무료 계정 로그인 필요)"),
-        # Cloudflare 챌린지
+        # Cloudflare challenge
         ("attention required! | cloudflare", "Cloudflare 챌린지(우회 실패)"),
         ("checking your browser before accessing", "Cloudflare 챌린지(우회 실패)"),
     )
 
     for needle, reason in block_rules:
         if needle in text:
-            return reason  # None 이면 무시 의미
+            return reason  # None means "ignore"
 
     return None
 
 
 def is_likely_download_url(candidate, base_host=None):
-    """후보 URL 이 실제 다운로드 링크일 가능성이 높은지 판단."""
+    """Decide whether a candidate URL is likely a real download link."""
     if not candidate or not isinstance(candidate, str):
         return False
 
     lowered = candidate.lower()
 
-    # 명백한 정적 자산은 제외
+    # Exclude obvious static assets
     for ext in (".css", ".js", ".png", ".jpg", ".jpeg", ".ico", ".svg", "favicon", "logo"):
         if ext in lowered:
             return False
 
-    # 메뉴/약관/콘솔 페이지는 제외
+    # Exclude menu / terms / console pages
     for keyword in _EXCLUDE_PATH_KEYWORDS:
         if keyword in lowered:
             return False
 
-    # 다운로드 서버 호스트면 즉시 통과
+    # A download server host passes immediately
     if _DOWNLOAD_HOST_RE.match(candidate):
         return True
 
-    # 1fichier 메인 도메인 자체는 (다운로드가 아닌) 페이지로 판단
+    # The 1fichier main domain itself is treated as a (non-download) page
     parsed = urlparse(candidate)
     if parsed.hostname and parsed.hostname.lower() == "1fichier.com":
         return False
 
-    # 1fichier 의 다른 서브도메인이고 파일 식별자처럼 보이는 긴 경로면 허용
+    # Allow another 1fichier subdomain with a long path that looks like a file identifier
     if parsed.hostname and parsed.hostname.lower().endswith(".1fichier.com"):
         last_segment = parsed.path.rsplit("/", 1)[-1]
         if len(last_segment) >= 5:
@@ -266,18 +267,18 @@ def is_likely_download_url(candidate, base_host=None):
 def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None, download_id=None, sse_callback=None,
                                account_cookies=None):
     """
-    1fichier 단순 파싱 로직
-    1. 파일정보 추출
-    2. 대기시간 추출
-    3. 대기 후 다운로드 링크 획득
+    Simple 1fichier parsing logic
+    1. Extract file info
+    2. Extract wait time
+    3. Acquire the download link after waiting
 
-    ``account_cookies`` (dict) — ``fichier_auth.get_session_cookies()`` 가
-    돌려준 1fichier 로그인 세션 쿠키. 이 값을 cloudscraper 의 cookies 에
-    주입하면 ``Free guest slots are full`` 같은 게스트 케이스를 우회한다.
+    ``account_cookies`` (dict) — the 1fichier login session cookies returned by
+    ``fichier_auth.get_session_cookies()``. Injecting them into cloudscraper's
+    cookies works around guest cases like ``Free guest slots are full``.
     """
 
     def create_fresh_scraper():
-        """매번 새로운 CloudScraper 인스턴스 생성"""
+        """Create a fresh CloudScraper instance each time."""
         s = cloudscraper.create_scraper(
             browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
         )
@@ -289,7 +290,7 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                     pass
         return s
 
-    # 첫 페이지 로드용 스크래퍼 (계정 쿠키가 있으면 미리 주입됨)
+    # Scraper for the first page load (account cookies are pre-injected if present)
     scraper = create_fresh_scraper()
     
     headers = {
@@ -298,20 +299,20 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
     }
     
     try:
-        # 1단계: 페이지 로드
+        # Step 1: load the page
         print(f"[LOG] 1fichier 페이지 로드: {url}")
 
-        # &af 등 불필요한 파라미터 제거 (파일 ID만 남김, 다운로드 호스트는 보존)
+        # Strip unnecessary params like &af (keep only the file ID, preserve the download host)
         cleaned_url = clean_1fichier_url(url)
         if cleaned_url != url:
             print(f"[LOG] 불필요한 URL 파라미터 제거 후: {cleaned_url}")
             url = cleaned_url
-            
+
         print(f"[DEBUG] 사용 중인 프록시: {proxies}")
         print(f"[DEBUG] 헤더: {headers}")
 
         try:
-            # 프록시 사용 시 더 긴 타임아웃 적용
+            # Use a longer timeout when going through a proxy
             timeout_val = (30, 60) if proxies else (10, 30)
             print(f"[DEBUG] 타임아웃 설정: {timeout_val} (연결, 읽기)")
             response = scraper.get(url, headers=headers, proxies=proxies, timeout=timeout_val)
@@ -321,20 +322,20 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
             print(f"[ERROR] 페이지 로드 중 예외 발생: {e}")
             raise e
 
-        # GET 응답은 항상 디버그용으로 저장 (성공해도 흐름 추적 가능)
+        # Always save the GET response for debugging (so the flow is traceable even on success)
         _save_parse_debug("get", response.status_code, response.text)
 
         if response.status_code != 200:
             print(f"[ERROR] 페이지 로드 실패 - 응답 내용: {response.text[:500]}")
             raise Exception(f"페이지 로드 실패: HTTP {response.status_code}")
 
-        # 1.5단계: 본문 차단 사유 감지 (200 인데도 폼이 없는 케이스)
+        # Step 1.5: detect a block reason in the body (the 200-but-no-form case)
         block_reason = detect_block_reason(response.text)
         if block_reason:
             print(f"[ERROR] 1fichier 페이지 차단 감지: {block_reason}")
             raise Exception(f"1fichier 차단: {block_reason}")
 
-        # 2단계: 파일 정보 추출
+        # Step 2: extract file info
         print(f"[DEBUG] HTML 미리보기 (처음 500자):")
         print(response.text[:500])
         print(f"[DEBUG] ===")
@@ -346,12 +347,12 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         else:
             print(f"[WARNING] 파일 정보 추출 실패")
         
-        # 3단계: 대기시간 추출 (버튼 텍스트에서 정확히)
+        # Step 3: extract the wait time (precisely, from the button text)
         wait_seconds = extract_wait_time_from_button(response.text)
         if wait_seconds:
             print(f"[LOG] 대기시간: {wait_seconds}초")
 
-            # 텔레그램 대기시간 알림 전송 (5분 이상일 때만)
+            # Send a Telegram wait-time notification (only when 5 minutes or more)
             if file_info:
                 wait_minutes = wait_seconds // 60
                 if wait_minutes >= 5:
@@ -359,7 +360,7 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
                     file_size_str = file_info.get('size', 'Unknown')
                     send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size_str)
 
-            # 4단계: 정확히 대기 (SSE 카운트다운 + cancel signal)
+            # Step 4: wait precisely (SSE countdown + cancel signal)
             print(f"[LOG] {wait_seconds}초 대기 시작...")
             cancelled = _run_wait_countdown(
                 wait_seconds=wait_seconds,
@@ -372,35 +373,35 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
             print(f"[LOG] 대기 완료!")
 
 
-        # 다운로드 링크 획득 전 정지 신호 재확인 (DB 쿼리 없이 in-memory)
+        # Re-check the cancel signal before acquiring the link (in-memory, no DB query)
         if download_id and cancel_signal.is_cancelled(download_id):
             print(f"[LOG] 다운로드 링크 획득 전 정지 감지, 파싱 중단 (id={download_id})")
             return None
 
-        # 5단계: 다운로드 버튼 클릭 시뮬레이션 (대기 완료 후 같은 세션 유지)
+        # Step 5: simulate the download button click (keep the same session after waiting)
         download_link = None
         try:
-            # 같은 스크래퍼로 세션 유지하며 POST 요청. download_id/sse_callback
-            # 을 같이 넘겨서 재시도 사이의 추가 대기도 cancel_signal 즉시
-            # 반응 + UI 카운트다운 SSE 가 동작하도록 한다.
+            # POST with the same scraper to keep the session. Pass download_id /
+            # sse_callback along so any extra wait between retries also reacts to
+            # cancel_signal immediately and drives the UI countdown SSE.
             download_link = simulate_download_click(
                 scraper, url, response.text, password, headers, proxies,
                 download_id=download_id, sse_callback=sse_callback,
             )
             print(f"[LOG] 다운로드 링크 획득 성공: {download_link}")
         except Exception as download_error:
-            # 사용자 정지로 인한 중단이면 None 반환 (실패가 아니라 정지)
+            # If interrupted by a user stop, return None (it's a stop, not a failure)
             if download_id and cancel_signal.is_cancelled(download_id):
                 print(f"[LOG] 사용자 정지 감지 — 파싱 중단 (id={download_id})")
                 return None
             print(f"[ERROR] 다운로드 링크 추출 실패: {download_error}")
             raise download_error
 
-        # 다운로드 링크가 없으면 실패
+        # No download link means failure
         if not download_link:
             raise Exception("다운로드 링크를 찾을 수 없음")
 
-        # cloudscraper 세션의 쿠키를 dict로 추출 (aiohttp 다운로드 시 재사용)
+        # Extract the cloudscraper session cookies as a dict (reused for the aiohttp download)
         try:
             session_cookies = {c.name: c.value for c in scraper.cookies}
         except Exception as cookie_error:
@@ -424,12 +425,12 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
 
 
 def extract_file_info_simple(html_content):
-    """파일 정보 추출 (이름, 크기) - 1fichier premium table 구조 기준"""
+    """Extract file info (name, size) — based on the 1fichier premium table structure."""
     try:
         soup = BeautifulSoup(html_content, 'html.parser')
         file_info = {}
 
-        # 1. QR 코드가 포함된 테이블을 먼저 찾음 (가장 확실한 기준)
+        # 1. First find the table containing the QR code (the most reliable anchor)
         qr_img = soup.find('img', src=lambda s: s and 'qr.pl' in s)
         if qr_img:
             info_table = qr_img.find_parent('table')
@@ -438,20 +439,20 @@ def extract_file_info_simple(html_content):
                 if td_normal:
                     spans = td_normal.find_all('span')
                     if len(spans) >= 2:
-                        # 첫번째 span이 파일명, 두번째 span이 크기
+                        # First span is the file name, second span is the size
                         filename = spans[0].get_text(strip=True)
                         size = spans[1].get_text(strip=True)
 
                         if filename and not any(x in filename.lower() for x in ['1fichier', 'cloud storage', 'error']):
                             file_info['name'] = filename
                             print(f"[DEBUG] QR 코드 테이블 구조에서 파일명 추출: {filename}")
-                        
-                        # 크기 문자열에 단위가 있는지 한번 더 확인
+
+                        # Double-check that the size string has a unit
                         if size and ('GB' in size or 'MB' in size or 'KB' in size or 'TB' in size):
                             file_info['size'] = size
                             print(f"[DEBUG] QR 코드 테이블 구조에서 파일크기 추출: {size}")
 
-        # 2. 위에서 정보를 못찾았으면 정규식 백업
+        # 2. If nothing was found above, fall back to regex
         if not file_info.get('name'):
             filename_patterns = [
                 r'<h1[^>]*>([^<]+)</h1>',
@@ -464,7 +465,7 @@ def extract_file_info_simple(html_content):
                 match = re.search(pattern, html_content, re.IGNORECASE)
                 if match:
                     filename = match.group(1).strip()
-                    # title 태그 정리
+                    # Clean up the title tag
                     if 'title' in pattern:
                         filename = re.sub(r'\s*-\s*1fichier\.com.*', '', filename, flags=re.I).strip()
                     if filename and not any(x in filename.lower() for x in ['1fichier', 'cloud storage', 'error']):
@@ -483,7 +484,7 @@ def extract_file_info_simple(html_content):
             for pattern in size_patterns:
                 match = re.search(pattern, html_content, re.IGNORECASE)
                 if match:
-                    # 괄호가 있는 패턴의 경우 그룹이 2개일 수 있음
+                    # Patterns with parentheses may have two groups
                     size_text = match.group(match.lastindex or 1).strip()
                     file_info['size'] = size_text
                     print(f"[DEBUG] 정규식으로 파일크기 추출: {file_info['size']}")
@@ -497,9 +498,9 @@ def extract_file_info_simple(html_content):
 
 
 def preparse_1fichier_standalone(url):
-    """1fichier URL 사전파싱 - cloudscraper 사용, 단독 실행"""
+    """Preparse a 1fichier URL — uses cloudscraper, runs standalone."""
 
-    # 1fichier URL이 아니면 즉시 종료
+    # Exit immediately if it is not a 1fichier URL
     if "1fichier.com" not in url:
         print(f"[WARNING] 1fichier URL이 아니므로 사전파싱을 건너뜁니다: {url}")
         return None
@@ -508,13 +509,13 @@ def preparse_1fichier_standalone(url):
 
         print(f"[LOG] 사전파싱 시작: {url}")
 
-        # &af 등 불필요한 파라미터 제거 (파일 ID만 남김, 다운로드 호스트는 보존)
+        # Strip unnecessary params like &af (keep only the file ID, preserve the download host)
         cleaned_url = clean_1fichier_url(url)
         if cleaned_url != url:
             print(f"[LOG] 사전파싱 URL 정리: {cleaned_url}")
             url = cleaned_url
 
-        # 사전파싱용 새 스크래퍼 생성
+        # Create a fresh scraper for preparsing
         scraper = cloudscraper.create_scraper(
             browser={
                 'browser': 'chrome',
@@ -528,20 +529,20 @@ def preparse_1fichier_standalone(url):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         }
 
-        # 페이지 로드
+        # Load the page
         response = scraper.get(url, headers=headers, timeout=(10, 30))
 
         if response.status_code != 200:
             print(f"[ERROR] 사전파싱 실패: HTTP {response.status_code}")
             return None
 
-        # 차단 사유가 본문에 있으면 사전파싱 실패로 명시 (이후 본 파싱에서 동일하게 raise 됨)
+        # If the body contains a block reason, mark preparse as failed (the main parse will raise the same way)
         block_reason = detect_block_reason(response.text)
         if block_reason:
             print(f"[WARNING] 사전파싱: 차단 감지 - {block_reason}")
             return None
 
-        # 파일 정보 추출
+        # Extract file info
         file_info = extract_file_info_simple(response.text)
 
         if file_info:
@@ -557,12 +558,12 @@ def preparse_1fichier_standalone(url):
 
 
 def extract_wait_time_from_button(html_content):
-    """HTML에서 실제 대기시간 추출 - 버튼에 초로 표시된 그대로 사용"""
+    """Extract the actual wait time from HTML — using the seconds value shown on the button as-is."""
     try:
         print(f"[DEBUG] 대기시간 추출을 위한 HTML 검색 중...")
 
-        # JavaScript ct 변수 체크 (가장 정확함)
-        # 1. 계산식 패턴 (ct = 3*60)
+        # Check the JavaScript ct variable (most accurate)
+        # 1. Expression pattern (ct = 3*60)
         ct_calc_patterns = [
             r'var\s+ct\s*=\s*([0-9]+)\s*\*\s*([0-9]+)',  # ct = 3*60
             r'ct\s*=\s*([0-9]+)\s*\*\s*([0-9]+)',
@@ -576,7 +577,7 @@ def extract_wait_time_from_button(html_content):
                 print(f"[LOG] JavaScript 계산식에서 대기시간 추출: {num1}*{num2} = {wait_time}초")
                 return wait_time
 
-        # 2. 단순 값 패턴 (ct = 60, ct = 180 등)
+        # 2. Plain value pattern (ct = 60, ct = 180, etc.)
         ct_simple_patterns = [
             r'var\s+ct\s*=\s*([0-9]+)',  # ct = 60
             r'ct\s*=\s*([0-9]+)',
@@ -586,12 +587,12 @@ def extract_wait_time_from_button(html_content):
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 wait_time = int(match.group(1))
-                # 60초 이상인 경우만 신뢰 (작은 값은 카운트다운용일 수 있음)
+                # Trust only values of 60 seconds or more (small values may be for the countdown)
                 if wait_time >= 60:
                     print(f"[LOG] JavaScript 단순값에서 대기시간 추출: {wait_time}초")
                     return wait_time
 
-        # 분(minutes) 단위 대기시간 체크
+        # Check wait time given in minutes
         minute_patterns = [
             r'You\s+must\s+wait\s+([0-9]+)\s+minutes?',
             r'wait\s+([0-9]+)\s+minutes?',
@@ -602,11 +603,11 @@ def extract_wait_time_from_button(html_content):
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 wait_minutes = int(match.group(1))
-                wait_time = wait_minutes * 60  # 분을 초로 변환
+                wait_time = wait_minutes * 60  # Convert minutes to seconds
                 print(f"[LOG] 분 단위 대기시간 발견: {wait_minutes}분 = {wait_time}초")
                 return wait_time
 
-        # 버튼 텍스트에서 ASCII 숫자만 추출 (이모지 숫자 제외)
+        # Extract only ASCII digits from the button text (excluding emoji digits)
         button_patterns = [
             r'Free\s+download\s+in\s+.*?([0-9]+)',
             r'Please\s+wait\s+([0-9]+)',
@@ -630,17 +631,17 @@ def extract_wait_time_from_button(html_content):
 
 
 def pick_download_link_from_html(soup, raw_html=""):
-    """1fichier 응답 HTML 에서 실제 다운로드 링크 후보를 골라낸다.
+    """Pick a real download-link candidate from 1fichier response HTML.
 
-    우선순위:
-      1. 다운로드 서버 호스트(``a-X``, ``cdn-X`` 등) 로 시작하는 ``<a href>``
-      2. 1fichier 가 표준으로 사용하는 다운로드 버튼 id 들 (``ok``, ``dlw``,
-         ``dl``) 의 ``<a>``
-      3. ``<form action>`` 이 다운로드 호스트를 가리키는 경우
-      4. ``<a href>`` 중 ``download`` / ``click here`` / ``télécharger``
-         텍스트를 가진 링크 — ``is_likely_download_url`` 통과해야 함
-      5. JavaScript 리다이렉트 (``location.href = "..."``) 안의 URL
-      6. raw HTML 정규식 매칭 — ``is_likely_download_url`` 통과해야 함
+    Priority:
+      1. An ``<a href>`` starting with a download server host (``a-X``, ``cdn-X``, etc.)
+      2. An ``<a>`` with one of 1fichier's standard download button ids
+         (``ok``, ``dlw``, ``dl``)
+      3. A ``<form action>`` pointing to a download host
+      4. An ``<a href>`` whose text is ``download`` / ``click here`` /
+         ``télécharger`` — must pass ``is_likely_download_url``
+      5. A URL inside a JavaScript redirect (``location.href = "..."``)
+      6. A regex match in the raw HTML — must pass ``is_likely_download_url``
     """
     if soup is None:
         return None
@@ -655,7 +656,7 @@ def pick_download_link_from_html(soup, raw_html=""):
             return f"https://1fichier.com{href}"
         return href
 
-    # 1순위 + 2순위: <a> 태그 스캔
+    # Priority 1 + 2: scan <a> tags
     for link in soup.find_all('a', href=True):
         absolute = _absolutize(link.get('href'))
         if not absolute:
@@ -664,7 +665,7 @@ def pick_download_link_from_html(soup, raw_html=""):
         if _DOWNLOAD_HOST_RE.match(absolute):
             return absolute
 
-        # 1fichier 표준 다운로드 버튼 id 우선
+        # Prefer 1fichier's standard download button ids
         link_id = (link.get('id') or '').lower()
         if link_id in ('ok', 'dlw', 'dl', 'lnk-dl', 'btn-dl') and is_likely_download_url(absolute):
             return absolute
@@ -673,17 +674,17 @@ def pick_download_link_from_html(soup, raw_html=""):
         if any(keyword in text for keyword in text_keywords) and is_likely_download_url(absolute):
             keyword_candidates.append(absolute)
 
-    # 3순위: form action
+    # Priority 3: form action
     for form in soup.find_all('form', action=True):
         action = _absolutize(form.get('action'))
         if action and _DOWNLOAD_HOST_RE.match(action):
             return action
 
-    # 4순위: 키워드 매칭 후보 (위에서 모은 것 중 첫 번째)
+    # Priority 4: keyword-matched candidate (the first of those collected above)
     if keyword_candidates:
         return keyword_candidates[0]
 
-    # 5순위: JavaScript 리다이렉트
+    # Priority 5: JavaScript redirect
     if raw_html:
         js_patterns = [
             r'(?:window\.)?location(?:\.href)?\s*=\s*["\']([^"\']+)["\']',
@@ -697,9 +698,9 @@ def pick_download_link_from_html(soup, raw_html=""):
                 if absolute and is_likely_download_url(absolute):
                     return absolute
 
-    # 6순위: raw HTML 의 1fichier 서브도메인 URL 정규식
+    # Priority 6: regex for 1fichier subdomain URLs in the raw HTML
     if raw_html:
-        # 파일 경로에 포함될 수 있는 . / _ - 까지 허용
+        # Also allow . / _ - that may appear in the file path
         general_patterns = (
             r'https?://(?:a-\d+|cdn-\d+|[a-z]-\d+|[a-z]+\d+|download|dl)\.1fichier\.com/[A-Za-z0-9_\-./]+',
             r'https?://[a-zA-Z0-9\-]+\.1fichier\.com/[A-Za-z0-9_\-./]{8,}',
@@ -713,13 +714,13 @@ def pick_download_link_from_html(soup, raw_html=""):
     return None
 
 
-# 카운트다운 SSE 갱신 주기 (초). 5초마다 + 마지막 1초마다 자세히.
+# Countdown SSE refresh interval (seconds): every 5 seconds + every 1 second near the end.
 _WAIT_SSE_INTERVAL = 5
-_WAIT_FINAL_PHASE = 5  # 마지막 5초는 1초마다 갱신
+_WAIT_FINAL_PHASE = 5  # Refresh every second during the last 5 seconds
 
 
 def _emit(sse_callback, event_type, payload):
-    """SSE 콜백을 안전하게 호출. 실패해도 카운트다운은 계속."""
+    """Call the SSE callback safely. The countdown continues even if it fails."""
     if not sse_callback:
         return
     try:
@@ -729,23 +730,24 @@ def _emit(sse_callback, event_type, payload):
 
 
 def _run_wait_countdown(wait_seconds, download_id, sse_callback):
-    """1fichier 대기시간 카운트다운.
+    """1fichier wait-time countdown.
 
-    반환값: ``True`` 면 사용자 정지 신호로 중단됨, ``False`` 면 끝까지 대기.
+    Returns: ``True`` if interrupted by a user stop signal, ``False`` if it
+    waited to the end.
 
-    설계:
-    - download_id 가 있으면 ``cancel_signal.get_event(id)`` 의 wait 로
-      취소 즉시 반응 (DB 폴링 안 함).
-    - waiting 진입 시 status_update + 첫 카운트다운 즉시 발송 (UI 가
-      remaining_time 0~5초 공백을 안 보게).
-    - 5초마다 + 마지막 5초는 1초마다 카운트다운 SSE.
-    - 종료 시 wait_countdown_complete 발송 (UI stale state 방지).
-    - SSE payload 는 구조화 데이터만 — 메시지 텍스트는 프론트 i18n.
+    Design:
+    - If a download_id is given, react to cancellation immediately via the wait
+      on ``cancel_signal.get_event(id)`` (no DB polling).
+    - On entering waiting, send status_update + the first countdown immediately
+      (so the UI doesn't show a 0-5 second remaining_time gap).
+    - Countdown SSE every 5 seconds, and every second during the last 5 seconds.
+    - On finish, send wait_countdown_complete (to avoid stale UI state).
+    - The SSE payload carries structured data only — message text is i18n'd on the frontend.
     """
     if wait_seconds <= 0:
         return False
 
-    # 진입: status 전이 + 즉시 첫 카운트다운
+    # Entry: status transition + immediate first countdown
     _emit(sse_callback, "status_update", {
         "id": download_id, "status": "waiting", "progress": 0,
     })
@@ -753,7 +755,7 @@ def _run_wait_countdown(wait_seconds, download_id, sse_callback):
         "id": download_id, "remaining": wait_seconds, "total": wait_seconds,
     })
 
-    # download_id 가 없으면 정지 감지 불가 — 단순 sleep
+    # Without a download_id, cancellation can't be detected — just sleep
     if not download_id:
         time.sleep(wait_seconds)
         return False
@@ -762,13 +764,13 @@ def _run_wait_countdown(wait_seconds, download_id, sse_callback):
 
     remaining = wait_seconds
     while remaining > 0:
-        # 1초 sleep — 그 사이에 cancel signal 들어오면 즉시 깨어남
+        # Sleep 1 second — wake up immediately if a cancel signal arrives in between
         if event.wait(timeout=1.0):
             return True
 
         remaining -= 1
 
-        # 갱신 조건: 5초 단위 OR 마지막 5초 (1초마다)
+        # Refresh condition: every 5 seconds OR the last 5 seconds (every second)
         if remaining > 0 and (
             remaining % _WAIT_SSE_INTERVAL == 0 or remaining <= _WAIT_FINAL_PHASE
         ):
@@ -777,29 +779,30 @@ def _run_wait_countdown(wait_seconds, download_id, sse_callback):
             })
             print(f"[DEBUG] 대기 중: {remaining}초 남음 (id={download_id})")
 
-    # 종료: UI 의 waiting indicator 즉시 정리
+    # Finish: immediately clear the UI's waiting indicator
     _emit(sse_callback, "wait_countdown_complete", {"id": download_id})
     return False
 
 
-# POST 재시도 상한. 1fichier 등록 사용자가 한 번 더 대기 사이클을 요구하는
-# 경우(첫 POST 가 "saved on account" + 새 ct 카운트로 응답)를 흡수하기 위해
-# 3 으로 둠. 매 시도마다 응답에서 추가 대기시간이 발견될 때만 다음 시도로
-# 진행하므로, 게스트/프리미엄 같은 단일-POST 케이스에는 영향 없음.
+# POST retry cap. Set to 3 to absorb the case where a 1fichier registered user
+# is asked for one more wait cycle (the first POST responds with "saved on
+# account" + a new ct count). Since the next attempt only proceeds when an
+# additional wait time is found in the response, single-POST cases like
+# guest/premium are unaffected.
 MAX_POST_ATTEMPTS = 3
 
 
 def _collect_form_data(form, password):
-    """1fichier 다운로드 폼에서 실제 브라우저가 보낼 POST 본문을 만든다.
+    """Build the POST body a real browser would send from the 1fichier download form.
 
-    실제 브라우저(JS) 가 ``$('#f1').submit()`` 으로 폼을 제출할 때:
-    - **클릭하지 않은 submit 버튼은 포함되지 않는다.** 등록 사용자 폼에는
-      ``<input type="submit" name="save" value="Save on my account">`` 가
-      들어있어서 이를 자동 수집하면 1fichier 가 다운로드가 아니라 "계정에
-      저장" 액션으로 해석한다.
-    - **unchecked 체크박스는 포함되지 않는다.** ``checked`` 속성이 있는
-      것만 보낸다.
-    - hidden / text / email / password 는 정상적으로 포함.
+    When a real browser (JS) submits the form via ``$('#f1').submit()``:
+    - **Submit buttons that weren't clicked are not included.** The registered-user
+      form contains ``<input type="submit" name="save" value="Save on my account">``,
+      and auto-collecting it makes 1fichier interpret the action as "save to
+      account" rather than a download.
+    - **Unchecked checkboxes are not included.** Only those with a ``checked``
+      attribute are sent.
+    - hidden / text / email / password are included normally.
     """
     form_data = {}
     for input_elem in form.find_all('input'):
@@ -828,7 +831,7 @@ def _collect_form_data(form, password):
 
 
 def _build_post_headers(base_headers, url):
-    """POST 요청에 1fichier 가 기대하는 헤더 추가."""
+    """Add the headers 1fichier expects on a POST request."""
     h = base_headers.copy()
     h.update({
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -839,9 +842,9 @@ def _build_post_headers(base_headers, url):
 
 
 def _extract_link_from_response(response):
-    """POST 응답에서 다운로드 링크 추출. 못 찾으면 None.
+    """Extract the download link from a POST response. Returns None if not found.
 
-    리다이렉트(3xx) 면 Location 검사, 200 이면 본문에서 후보 추출.
+    For a redirect (3xx), check Location; for 200, extract a candidate from the body.
     """
     if response.status_code in (301, 302, 303, 307, 308):
         location = response.headers.get('Location')
@@ -863,8 +866,8 @@ def _extract_link_from_response(response):
 
 
 def _classify_post_failure(response):
-    """모든 POST 시도가 끝났는데 링크를 못 찾은 경우, 응답 분석해서
-    사용자에게 도움이 되는 Exception 을 반환한다.
+    """When all POST attempts are done and no link was found, analyze the
+    response and return an Exception that is helpful to the user.
     """
     if response is None:
         return Exception("POST 응답 없음 — 네트워크 오류 가능성")
@@ -886,9 +889,10 @@ def _classify_post_failure(response):
     if diag_block:
         return Exception(f"1fichier 차단: {diag_block}")
 
-    # POST 응답이 홈페이지로 돌아온 케이스 — 1fichier 가 폼 제출을 거부
-    # (한도/세션/자동화 감지 등). title 이 'Cloud Storage' 인데 form 이
-    # 하나도 없으면 다운로드 페이지가 아니라 홈페이지.
+    # The case where the POST response came back as the homepage — 1fichier
+    # rejected the form submission (quota/session/automation detection, etc.).
+    # If the title is 'Cloud Storage' but there are no forms, it's the homepage,
+    # not the download page.
     if diag_form_count == 0 and "cloud storage" in (diag_title or "").lower():
         return Exception(
             "1fichier 폼 제출 거부: 다운로드 페이지 대신 홈페이지가 반환됨 "
@@ -905,18 +909,19 @@ def _classify_post_failure(response):
 
 def simulate_download_click(scraper, url, html_content, password, headers,
                             proxies, download_id=None, sse_callback=None):
-    """다운로드 버튼 클릭 시뮬레이션.
+    """Simulate clicking the download button.
 
-    GET 페이지 HTML 에서 폼을 찾아 데이터 수집 → POST. 응답이 또 대기
-    페이지면 추가 대기시간 추출 후 재 POST. ``MAX_POST_ATTEMPTS`` 까지.
+    Find the form in the GET page HTML, collect its data, then POST. If the
+    response is another wait page, extract the additional wait time and POST
+    again, up to ``MAX_POST_ATTEMPTS``.
 
-    ``download_id`` / ``sse_callback`` 가 주어지면 재시도 사이의 추가
-    대기에서도 cancel_signal 을 감지하고 (정지 즉시 중단) UI 카운트다운을
-    SSE 로 송출한다.
+    If ``download_id`` / ``sse_callback`` are given, the additional wait between
+    retries also detects cancel_signal (stopping immediately) and emits the UI
+    countdown over SSE.
     """
     soup = BeautifulSoup(html_content, 'html.parser')
 
-    # 다운로드 버튼 상태 확인 (정보용, disabled 상태는 무시)
+    # Check the download button state (informational; the disabled state is ignored)
     download_button = soup.find('button', {'id': 'dlw'})
     if download_button:
         is_disabled = download_button.get('disabled') is not None
@@ -948,8 +953,8 @@ def simulate_download_click(scraper, url, html_content, password, headers,
         last_response = response
         print(f"[DEBUG] POST attempt {attempt} 응답 코드: {response.status_code}")
 
-        # 시도별 응답을 ``parse_debug_post_<n>.html`` 로 분리 저장 + 최신은
-        # 호환성 위해 ``parse_debug_post.html`` 도 같이 갱신.
+        # Save each attempt's response separately as ``parse_debug_post_<n>.html``,
+        # and also update ``parse_debug_post.html`` with the latest for compatibility.
         _save_parse_debug(f"post_{attempt}", response.status_code, response.text)
         _save_parse_debug("post", response.status_code, response.text)
 
@@ -961,25 +966,25 @@ def simulate_download_click(scraper, url, html_content, password, headers,
         if attempt >= MAX_POST_ATTEMPTS:
             break
 
-        # 추가 대기시간이 없으면 더 시도해도 의미 없음.
+        # If there's no additional wait time, further attempts are pointless.
         extra_wait = extract_wait_time_from_button(response.text or "")
         if not extra_wait:
             break
         print(f"[LOG] attempt {attempt} 응답에서 추가 대기시간 {extra_wait}초 발견 → 대기 후 재시도")
 
-        # 재시도 대기는 _run_wait_countdown 으로 — cancel signal 즉시 반응 +
-        # UI 카운트다운 SSE. download_id/sse_callback 없으면 단순 sleep.
+        # The retry wait goes through _run_wait_countdown — immediate cancel-signal
+        # reaction + UI countdown SSE. Falls back to a plain sleep without download_id/sse_callback.
         cancelled = _run_wait_countdown(
             wait_seconds=extra_wait,
             download_id=download_id,
             sse_callback=sse_callback,
         )
         if cancelled:
-            # 사용자 정지로 빠져나옴 — 마지막 응답을 그대로 분류해서 raise
-            # 하지 말고, 호출자가 cancel_signal.is_cancelled 로 감지할 수
-            # 있게 None 반환은 호출자(parse_1fichier_simple_sync) 에서 다룸.
-            # 여기서는 현재 진단 분류 그대로 raise — 어차피 호출자에서
-            # 정지 감지 분기가 있음.
+            # Exited due to a user stop. Rather than classifying the last
+            # response and raising, returning None so the caller can detect it
+            # via cancel_signal.is_cancelled is handled by the caller
+            # (parse_1fichier_simple_sync). Here we just raise the current
+            # diagnostic classification — the caller has a stop-detection branch anyway.
             raise Exception("사용자 정지로 다운로드 중단")
 
     raise _classify_post_failure(last_response)

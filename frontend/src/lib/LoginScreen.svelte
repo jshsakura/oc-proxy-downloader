@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { t, loadTranslations } from './i18n.js';
+  import { t, loadTranslations, availableLanguages } from './i18n.js';
   import { authManager } from './auth.js';
   
   const dispatch = createEventDispatcher();
@@ -28,7 +28,7 @@
       const result = await authManager.login(username, password);
       
       if (result.success) {
-        // 로그인 성공 이벤트 발송
+        // Dispatch the login-success event
         dispatch('login', {
           token: result.data.access_token,
           username: result.data.username
@@ -36,7 +36,7 @@
       } else {
         error = result.error || $t('login_failed');
         
-        // 차단 시간이 있는 경우 카운트다운 시작
+        // Start the countdown if there is a lockout time
         if (result.remainingTime) {
           remainingLockoutTime = result.remainingTime;
           startLockoutTimer();
@@ -191,8 +191,9 @@
     
     <div class="language-selector">
       <select bind:value={selectedLocale} on:change={changeLocale}>
-        <option value="ko">{$t('language_korean')}</option>
-        <option value="en">{$t('language_english')}</option>
+        {#each $availableLanguages as lang (lang.code)}
+          <option value={lang.code}>{lang.name}</option>
+        {/each}
       </select>
     </div>
   </div>

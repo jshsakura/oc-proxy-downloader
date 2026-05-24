@@ -76,7 +76,7 @@
       role="dialog"
       tabindex="-1"
     >
-      <!-- 모던 헤더 -->
+      <!-- Modern header -->
       <div class="modal-header">
         <div class="header-content">
           <div class="title-section">
@@ -96,7 +96,7 @@
         </div>
       </div>
 
-      <!-- 모던 본문 -->
+      <!-- Modern body -->
       <div class="modal-body">
         <table class="detail-table">
           <tbody>
@@ -240,7 +240,7 @@
         </table>
       </div>
 
-      <!-- 모던 푸터 -->
+      <!-- Modern footer -->
       <div class="modal-footer">
         <div class="footer-left">
           <div class="status-info">
@@ -265,7 +265,7 @@
 {/if}
 
 <style>
-  /* 모던 백드롭 */
+  /* Modern backdrop */
   .modern-backdrop {
     position: fixed;
     inset: 0;
@@ -290,7 +290,7 @@
     }
   }
 
-  /* 모던 모달 컨테이너 */
+  /* Modern modal container */
   .modern-modal {
     background: var(--card-background);
     border-radius: 16px;
@@ -320,7 +320,7 @@
     }
   }
 
-  /* 모던 헤더 */
+  /* Modern header */
   .modal-header {
     background: linear-gradient(
       135deg,
@@ -412,7 +412,7 @@
     color: white;
   }
 
-  /* 모델 본문 - 스크롤 방식 변경 */
+  /* Modal body - changed scroll behavior */
   .modal-body {
     flex: 1;
     overflow: auto;
@@ -421,10 +421,11 @@
     width: 100%;
     resize: none;
     position: relative;
-    /* 얇은 오버레이형 스크롤바. 헤더/푸터 폭과 본문 폭이 어긋나는 문제는
-       스크롤바 자체를 가늘게 만들고 트랙을 투명하게 해서 시각적으로
-       사라지게 처리. scrollbar-gutter: stable 은 항상 ~15px 빈 공간을
-       예약해서 오히려 우측 틈이 두드러지므로 사용 안 함. */
+    /* A thin overlay-style scrollbar. The mismatch between header/footer width
+       and body width is handled by making the scrollbar itself thin and the
+       track transparent so it visually disappears. scrollbar-gutter: stable is
+       not used because it always reserves ~15px of empty space, which actually
+       makes the right-side gap more noticeable. */
     scrollbar-width: thin;
     scrollbar-color: var(--card-border) transparent;
   }
@@ -476,8 +477,8 @@
     font-size: 13px;
     line-height: 1.5;
     min-width: 0;
-    /* 한 줄 고정 + 길면 ``...`` 처리. 풀 메시지는 title 호버 또는
-       옆의 복사 버튼으로 확인. */
+    /* Fixed to one line + truncate with ``...`` if long. See the full message
+       via the title hover or the adjacent copy button. */
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -519,7 +520,7 @@
     height: 14px;
   }
 
-  /* 모던 푸터 */
+  /* Modern footer */
   .modal-footer {
     padding: 1.25rem 2rem;
     border-top: 1px solid var(--card-border, #e5e7eb);
@@ -555,7 +556,7 @@
     gap: 12px;
   }
 
-  /* 메인 그리드와 동일한 상태 스타일 */
+  /* Same status styles as the main grid */
   .status {
     display: inline-flex;
     align-items: center;
@@ -585,8 +586,8 @@
     border: 1px solid var(--input-border);
   }
   .status-pending::before {
-    background-color: #f97316; /* 주황색 도트 */
-    animation: pendingPulse 2s infinite; /* 반짝 효과 */
+    background-color: #f97316; /* Orange dot */
+    animation: pendingPulse 2s infinite; /* Blink effect */
   }
 
   @keyframes pendingPulse {
@@ -750,7 +751,7 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
 
-  /* 테마별 푸터 스타일 */
+  /* Per-theme footer styles */
   :global(body.dark) .modal-footer {
     background: #1f2937;
     border-top-color: #374151;
@@ -769,7 +770,7 @@
     color: #6272a4;
   }
 
-  /* 테이블 - 최소 크기 보장 */
+  /* Table - guarantee a minimum size */
   .detail-table {
     display: block;
     width: 100%;
@@ -821,7 +822,7 @@
     min-width: 200px;
   }
 
-  /* 테마별 스타일 */
+  /* Per-theme styles */
   :global(body.dark) .detail-table th {
     background-color: transparent;
     color: #9ca3af;
@@ -837,7 +838,7 @@
     border-bottom-color: #4b5563;
   }
 
-  /* 드라큘라 테마 */
+  /* Dracula theme */
   :global(body.dracula) .detail-table th {
     background-color: transparent;
     color: #6272a4;
@@ -853,7 +854,7 @@
     border-bottom-color: #44475a;
   }
 
-  /* 호버 효과 */
+  /* Hover effect */
   .detail-table tr:hover td {
     background-color: var(--bg-secondary);
   }
@@ -866,13 +867,13 @@
     background-color: #44475a;
   }
 
-  /* 첫 번째 행 상단 테두리 제거 (모달 테두리와 일체화) */
+  /* Remove the top border of the first row (merge with the modal border) */
   .detail-table tr:first-child th,
   .detail-table tr:first-child td {
     border-top: none;
   }
 
-  /* 모바일 반응형 스타일 */
+  /* Mobile responsive styles */
   @media (max-width: 480px) {
     .modern-backdrop {
       padding: 10px;
@@ -968,13 +969,13 @@
     }
   }
 
-  /* 마지막 행 하단 테두리 제거 (모달 테두리와 일체화) */
+  /* Remove the bottom border of the last row (merge with the modal border) */
   .detail-table tr:last-child th,
   .detail-table tr:last-child td {
     border-bottom: none;
   }
 
-  /* 페이지네이션 스타일 */
+  /* Pagination styles */
   .pagination {
     display: flex;
     justify-content: center;
@@ -1019,7 +1020,7 @@
     background: var(--card-border);
   }
 
-  /* 테마별 페이지네이션 스타일 */
+  /* Per-theme pagination styles */
   :global(body.dark) .pagination {
     background: #1f2937;
     border-top-color: #374151;
@@ -1050,9 +1051,9 @@
     background: #6272a4;
   }
 
-  /* 컨테이너가 있는 셀은 정상 표시 */
+  /* Cells that have a container display normally */
 
-  /* 모바일 반응형 스타일 */
+  /* Mobile responsive styles */
   @media (max-width: 768px) {
     .modern-modal {
       width: 95vw;

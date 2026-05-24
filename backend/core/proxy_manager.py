@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-비동기 프록시 관리 모듈
-- 비동기 프록시 테스트
-- 논블로킹 배치 처리
-- asyncio 기반 구현
+Asynchronous proxy management module
+- Asynchronous proxy testing
+- Non-blocking batch processing
+- asyncio-based implementation
 """
 
 import asyncio
@@ -21,29 +21,29 @@ from .db import get_db
 
 
 class ProxyManager:
-    """비동기 프록시 매니저"""
+    """Asynchronous proxy manager"""
 
     def __init__(self):
         self.proxy_cache = {}
-        self.cache_timeout = 300  # 5분
+        self.cache_timeout = 300  # 5 minutes
         self.current_proxy_index = 0
         self.failed_count = 0
-        self.download_proxy_index = {}  # 다운로드별 프록시 인덱스 관리
-        self._proxy_lock = asyncio.Lock()  # 프록시 선택 시 동시 접근 보호
+        self.download_proxy_index = {}  # per-download proxy index management
+        self._proxy_lock = asyncio.Lock()  # protect concurrent access during proxy selection
 
     async def get_user_proxy_list(self, db: Session) -> List[str]:
-        """사용자 프록시 목록을 비동기로 가져오기"""
+        """Fetch the user's proxy list asynchronously"""
         user_proxies = db.query(UserProxy).filter(UserProxy.is_active == True).all()
         proxy_list = []
 
-        # URL 타입 프록시들을 비동기로 처리
+        # Process URL-type proxies asynchronously
         url_proxies = [p for p in user_proxies if p.proxy_type == "list"]
         single_proxies = [p.address for p in user_proxies if p.proxy_type == "single"]
 
-        # 단일 프록시들은 바로 추가
+        # Add single proxies directly
         proxy_list.extend(single_proxies)
 
-        # URL 프록시들을 비동기로 병렬 처리
+        # Process URL proxies asynchronously in parallel
         if url_proxies:
             url_results = await asyncio.gather(
                 *[self._fetch_proxy_list(proxy.address) for proxy in url_proxies],
@@ -59,13 +59,13 @@ class ProxyManager:
         return proxy_list
 
     async def get_next_available_proxy(self, db: Session, download_id: int = None) -> str:
-        """사용 가능한 다음 프록시 가져오기"""
+        """Get the next available proxy"""
         try:
             proxy_list = await self.get_user_proxy_list(db)
             if not proxy_list:
                 return None
 
-            # 이미 실패한 프록시들 조회 (success가 False인 것들)
+            # Query already-failed proxies (those with success == False)
             failed_proxies = db.query(ProxyStatus).filter(
                 ProxyStatus.success == False
             ).all()
@@ -73,23 +73,23 @@ class ProxyManager:
 
             print(f"[DEBUG] 전체 프록시: {len(proxy_list)}, 실패한 프록시: {len(failed_proxy_addresses)}")
 
-            # 실패하지 않은 프록시들만 필터링
+            # Filter to only proxies that have not failed
             available_proxies = [proxy for proxy in proxy_list if proxy not in failed_proxy_addresses]
 
             if not available_proxies:
                 print(f"[WARNING] 사용 가능한 프록시가 없음. 전체: {len(proxy_list)}, 실패: {len(failed_proxy_addresses)}")
                 return None
 
-            # 동시 접근 보호를 위한 락 사용
+            # Use a lock to protect concurrent access
             async with self._proxy_lock:
-                # 다운로드 ID 기반으로 순차적 프록시 선택
+                # Sequential proxy selection based on download ID
                 if download_id is not None:
-                    # 다운로드별 프록시 인덱스 관리
+                    # Per-download proxy index management
                     if download_id not in self.download_proxy_index:
-                        # 초기 인덱스를 현재 시간 기반으로 분산 (중복 방지)
+                        # Spread the initial index based on current time (avoid collisions)
                         self.download_proxy_index[download_id] = (download_id + int(time.time())) % len(available_proxies)
 
-                    # 현재 인덱스가 사용 가능한 프록시 개수를 초과하면 처음부터
+                    # If the current index exceeds the number of available proxies, start over
                     if self.download_proxy_index[download_id] >= len(available_proxies):
                         self.download_proxy_index[download_id] = 0
 
@@ -97,7 +97,7 @@ class ProxyManager:
                     print(f"[LOG] 프록시 선택 (다운로드 {download_id}): {selected_proxy} (인덱스: {self.download_proxy_index[download_id]}/{len(available_proxies)})")
                     self.download_proxy_index[download_id] += 1
                 else:
-                    # 기존 순차 선택 방식 (호환성 유지)
+                    # Legacy sequential selection (kept for compatibility)
                     if self.current_proxy_index >= len(available_proxies):
                         self.current_proxy_index = 0
 
@@ -110,9 +110,9 @@ class ProxyManager:
             return None
 
     async def mark_proxy_failed(self, db: Session, proxy_addr: str):
-        """프록시 실패 기록"""
+        """Record a proxy failure"""
         try:
-            # IP:Port 분리
+            # Split IP:Port
             if ':' in proxy_addr:
                 ip, port = proxy_addr.split(':', 1)
                 port = int(port) if port.isdigit() else None
@@ -121,7 +121,7 @@ class ProxyManager:
 
             print(f"[DEBUG] 프록시 파싱: {proxy_addr} -> IP: {ip}, Port: {port}")
 
-            # 기존 기록이 있는지 확인
+            # Check whether an existing record is present
             existing = db.query(ProxyStatus).filter(
                 ProxyStatus.ip == ip,
                 ProxyStatus.port == port
@@ -143,16 +143,16 @@ class ProxyManager:
 
             db.commit()
 
-            # 실패 카운트 증가
+            # Increment the failure count
             self.failed_count += 1
 
-            # 실패 후 총 실패한 프록시 수 출력
+            # Print the total number of failed proxies after the failure
             print(f"[LOG] 현재 실패한 프록시 총 개수: {self.failed_count}")
         except Exception as e:
             print(f"[ERROR] mark_proxy_failed 실패: {e}")
 
     async def get_total_failed_count(self, db: Session) -> int:
-        """전체 실패한 프록시 개수 반환 (DB에서 조회)"""
+        """Return the total number of failed proxies (queried from the DB)"""
         try:
             return db.query(ProxyStatus).filter(ProxyStatus.success == False).count()
         except Exception as e:
@@ -160,11 +160,11 @@ class ProxyManager:
             return 0
 
     async def _fetch_proxy_list(self, url: str) -> List[str]:
-        """URL에서 프록시 목록을 비동기로 가져오기"""
+        """Fetch a proxy list from a URL asynchronously"""
         cache_key = url
         current_time = time.time()
 
-        # 캐시 확인
+        # Check the cache
         if (cache_key in self.proxy_cache and
             current_time - self.proxy_cache[cache_key][1] < self.cache_timeout):
             cached_proxies = self.proxy_cache[cache_key][0]
@@ -183,11 +183,11 @@ class ProxyManager:
                         for line in lines:
                             line = line.strip()
                             if line and ':' in line:
-                                # IP:PORT 형태인지 확인
+                                # Check whether it is in IP:PORT form
                                 if self._detect_proxy_type(line) == "single":
                                     proxies.append(line)
 
-                        # 캐시에 저장
+                        # Store in the cache
                         self.proxy_cache[cache_key] = (proxies, current_time)
                         print(f"[LOG] 프록시 목록 URL에서 {len(proxies)}개 프록시 로드: {url}")
                         return proxies
@@ -200,7 +200,7 @@ class ProxyManager:
             return []
 
     def _detect_proxy_type(self, address: str) -> str:
-        """프록시 주소 형태를 감지"""
+        """Detect the form of a proxy address"""
         if address.startswith(('http://', 'https://')):
             return "list"
 
@@ -209,7 +209,7 @@ class ProxyManager:
             return "single"
 
 def detect_proxy_type(address: str) -> str:
-    """프록시 주소 형태를 감지 (공용 함수)"""
+    """Detect the form of a proxy address (public function)"""
     if address.startswith(('http://', 'https://')):
         return "list"
 
@@ -224,7 +224,7 @@ def detect_proxy_type(address: str) -> str:
         return "list"
 
     async def test_proxy_async(self, proxy_addr: str, timeout: int = 15, lenient_mode: bool = False) -> bool:
-        """비동기 프록시 테스트"""
+        """Asynchronous proxy test"""
 
         if lenient_mode:
             return await self._test_proxy_simple(proxy_addr, timeout)
@@ -232,7 +232,7 @@ def detect_proxy_type(address: str) -> str:
             return await self._test_proxy_https(proxy_addr, timeout)
 
     async def _test_proxy_simple(self, proxy_addr: str, timeout: int) -> bool:
-        """간단한 프록시 연결 테스트"""
+        """Simple proxy connection test"""
         try:
             proxy_url = f"http://{proxy_addr}"
             timeout_config = aiohttp.ClientTimeout(total=timeout)
@@ -261,7 +261,7 @@ def detect_proxy_type(address: str) -> str:
             return False
 
     async def _test_proxy_https(self, proxy_addr: str, timeout: int) -> bool:
-        """HTTPS 터널 프록시 테스트"""
+        """HTTPS tunnel proxy test"""
         try:
             proxy_url = f"http://{proxy_addr}"
             timeout_config = aiohttp.ClientTimeout(total=timeout)
@@ -282,7 +282,7 @@ def detect_proxy_type(address: str) -> str:
                 'DNT': '1'
             }
 
-            # SSL 검증 비활성화
+            # Disable SSL verification
             connector = aiohttp.TCPConnector(ssl=False)
 
             async with aiohttp.ClientSession(
@@ -329,7 +329,7 @@ def detect_proxy_type(address: str) -> str:
         lenient_mode: bool = False,
         max_concurrent: int = 10
     ) -> Tuple[List[str], List[str]]:
-        """비동기 배치 프록시 테스트"""
+        """Asynchronous batch proxy test"""
 
         if not batch_proxies:
             print(f"[LOG] 테스트할 프록시가 없음")
@@ -338,7 +338,7 @@ def detect_proxy_type(address: str) -> str:
         mode_text = " (관대한 모드)" if lenient_mode else ""
         print(f"[LOG] {len(batch_proxies)}개 프록시 비동기 배치 테스트 시작{mode_text}")
 
-        # 요청 상태 확인
+        # Check the request status
         if req:
             db.refresh(req)
             if req.status == StatusEnum.stopped:
@@ -348,13 +348,13 @@ def detect_proxy_type(address: str) -> str:
         working_proxies = []
         failed_proxies = []
 
-        # 세마포어로 동시 실행 수 제한
+        # Limit concurrency with a semaphore
         semaphore = asyncio.Semaphore(max_concurrent)
 
         async def test_single_proxy_with_delay(proxy_addr: str) -> Tuple[str, bool]:
             async with semaphore:
-                # 연속 요청 방지를 위한 랜덤 지연
-                delay = random.uniform(0.2, 0.8)  # 비동기에서는 더 짧은 지연
+                # Random delay to avoid back-to-back requests
+                delay = random.uniform(0.2, 0.8)  # shorter delay since this is async
                 await asyncio.sleep(delay)
 
                 try:
@@ -364,7 +364,7 @@ def detect_proxy_type(address: str) -> str:
                     print(f"[LOG] 프록시 {proxy_addr} 테스트 중 오류: {e}")
                     return proxy_addr, False
 
-        # 모든 프록시를 비동기로 테스트
+        # Test all proxies asynchronously
         tasks = [test_single_proxy_with_delay(proxy) for proxy in batch_proxies]
 
         try:
@@ -395,52 +395,52 @@ def detect_proxy_type(address: str) -> str:
         req=None,
         lenient_mode: bool = False
     ) -> Optional[str]:
-        """비동기로 작동하는 프록시 찾기"""
+        """Find a working proxy asynchronously"""
 
-        # 미사용 프록시 목록 가져오기
+        # Get the list of unused proxies
         user_proxy_list = await self.get_user_proxy_list(db)
 
-        # 이미 사용된 프록시 주소들
+        # Proxy addresses already used
         used_proxies = db.query(ProxyStatus).filter(
             ProxyStatus.ip.isnot(None),
             ProxyStatus.port.isnot(None)
         ).all()
         used_proxy_addresses = {f"{p.ip}:{p.port}" for p in used_proxies}
 
-        # 미사용 프록시 필터링
+        # Filter to unused proxies
         unused_proxies = [p for p in user_proxy_list if p not in used_proxy_addresses]
 
         if not unused_proxies:
             print(f"[LOG] 사용 가능한 프록시가 없음")
             return None
 
-        # 성공한 프록시들을 우선적으로 배치
+        # Place successful proxies first by priority
         successful_proxies = db.query(ProxyStatus).filter(
             ProxyStatus.last_status == 'success'
         ).all()
         priority_proxies = [f"{p.ip}:{p.port}" for p in successful_proxies if f"{p.ip}:{p.port}" in unused_proxies]
         other_proxies = [p for p in unused_proxies if p not in priority_proxies]
 
-        # 우선순위 프록시를 앞에 배치
+        # Place priority proxies at the front
         final_proxies = priority_proxies + other_proxies
         batch_proxies = final_proxies[:max_test]
 
         print(f"[LOG] 전체 프록시: {len(user_proxy_list)}개, 미사용 프록시: {len(unused_proxies)}개")
         print(f"[LOG] 우선순위 프록시: {len(priority_proxies)}개")
 
-        # 비동기 배치 테스트
+        # Asynchronous batch test
         working_proxies, failed_proxies = await self.test_proxy_batch_async(
             db, batch_proxies, req, lenient_mode
         )
 
-        # 실패한 프록시들을 DB에 기록
+        # Record the failed proxies in the DB
         for failed_proxy in failed_proxies:
             self.mark_proxy_used(db, failed_proxy, success=False)
 
         return working_proxies[0] if working_proxies else None
 
     def mark_proxy_used(self, db: Session, proxy_addr: str, success: bool):
-        """프록시 사용 결과를 DB에 기록 (동기 함수 유지)"""
+        """Record the proxy usage result in the DB (kept synchronous)"""
         try:
             if ':' not in proxy_addr:
                 print(f"[LOG] 잘못된 프록시 주소 형식: {proxy_addr}")
@@ -448,7 +448,7 @@ def detect_proxy_type(address: str) -> str:
 
             ip, port = proxy_addr.strip().split(':', 1)
 
-            # 기존 레코드 확인
+            # Check for an existing record
             existing = db.query(ProxyStatus).filter(
                 ProxyStatus.ip == ip,
                 ProxyStatus.port == int(port)
@@ -457,14 +457,14 @@ def detect_proxy_type(address: str) -> str:
             current_time = datetime.datetime.now()
 
             if existing:
-                # 기존 레코드 업데이트
+                # Update the existing record
                 existing.last_status = 'success' if success else 'fail'
                 existing.success = success
                 existing.last_used_at = current_time
                 if not success:
                     existing.last_failed_at = current_time
             else:
-                # 새 레코드 생성
+                # Create a new record
                 new_record = ProxyStatus(
                     ip=ip,
                     port=int(port),
@@ -482,5 +482,5 @@ def detect_proxy_type(address: str) -> str:
             db.rollback()
 
 
-# 전역 인스턴스
+# Global instance
 proxy_manager = ProxyManager()

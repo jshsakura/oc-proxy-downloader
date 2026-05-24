@@ -15,22 +15,22 @@ from services.notification_service import send_telegram_notification
 
 
 def parse_version(version_str):
-    """버전 문자열을 파싱하여 비교 가능한 튜플로 변환"""
-    # v 접두사 제거
+    """Parse a version string into a comparable tuple"""
+    # Strip the v prefix
     version = version_str.lstrip('v')
-    # . 으로 분할하여 정수 튜플로 변환
+    # Split on '.' and convert into an integer tuple
     try:
         parts = [int(x) for x in version.split('.')]
-        # 3자리 버전으로 맞춤 (예: 2.0 -> 2.0.0)
+        # Pad to a 3-part version (e.g. 2.0 -> 2.0.0)
         while len(parts) < 3:
             parts.append(0)
-        return tuple(parts[:3])  # 처음 3자리만 사용
+        return tuple(parts[:3])  # use only the first 3 parts
     except ValueError:
         return (0, 0, 0)
 
 
 def is_newer_version(latest_version, current_version):
-    """latest_version이 current_version보다 최신인지 확인"""
+    """Check whether latest_version is newer than current_version"""
     latest_tuple = parse_version(latest_version)
     current_tuple = parse_version(current_version)
     return latest_tuple > current_tuple
@@ -47,7 +47,7 @@ except ImportError:
 
 @router.get("/settings")
 async def get_settings_endpoint(request: Request):
-    """설정 조회"""
+    """Get settings"""
     try:
         config = get_config()
         return config
@@ -58,11 +58,11 @@ async def get_settings_endpoint(request: Request):
 
 @router.post("/settings")
 async def update_settings_endpoint(settings: dict, request: Request):
-    """설정 업데이트"""
+    """Update settings"""
     try:
         print(f"[LOG] Updating settings: {settings}")
 
-        # 설정 저장
+        # Save the settings
         save_config(settings)
 
         return {"success": True, "message": "설정이 저장되었습니다."}
@@ -74,7 +74,7 @@ async def update_settings_endpoint(settings: dict, request: Request):
 
 @router.get("/default_download_path")
 async def get_default_download_path_endpoint(request: Request):
-    """환경별 기본 다운로드 경로 조회"""
+    """Get the default download path for the current environment"""
     try:
         default_path = get_default_download_path()
         return {
@@ -89,8 +89,8 @@ async def get_default_download_path_endpoint(request: Request):
 
 @router.post("/select_folder")
 async def select_folder(request: Request):
-    """폴더 선택 다이얼로그 (스탠드얼론 환경에서만 지원)"""
-    # 도커 환경에서는 폴더 선택 다이얼로그 비활성화
+    """Folder selection dialog (supported only in standalone environments)"""
+    # Disable the folder selection dialog in Docker environments
     if os.environ.get("CONFIG_PATH"):
         raise HTTPException(status_code=501, detail="폴더 선택은 도커 환경에서 지원되지 않습니다")
 
@@ -117,11 +117,11 @@ async def select_folder(request: Request):
             except Exception as e:
                 result_queue.put({"success": False, "error": str(e)})
 
-        # GUI 스레드에서 실행
+        # Run in the GUI thread
         thread = threading.Thread(target=open_dialog)
         thread.daemon = True
         thread.start()
-        thread.join(timeout=30)  # 30초 타임아웃
+        thread.join(timeout=30)  # 30-second timeout
 
         if result_queue.empty():
             raise HTTPException(status_code=408, detail="Dialog timeout")
@@ -131,7 +131,7 @@ async def select_folder(request: Request):
         if not result["success"]:
             raise HTTPException(status_code=500, detail=result["error"])
 
-        if not result["path"]:  # 사용자가 취소한 경우
+        if not result["path"]:  # user cancelled
             return {"path": None}
 
         return {"path": result["path"]}
@@ -143,12 +143,12 @@ async def select_folder(request: Request):
 
 @router.get("/debug/parse-response")
 async def get_debug_parse_response(stage: str = "post"):
-    """마지막 1fichier 파싱 응답 본문 다운로드.
+    """Download the body of the last 1fichier parse response.
 
-    파라미터 ``stage`` = ``get`` 또는 ``post`` (기본 post). 본문을 그대로
-    내려주므로 사용자가 브라우저에서 ``/api/debug/parse-response?stage=post``
-    로 접근하면 즉시 HTML 다운로드 가능. docker logs 접근이 어려운 환경에서도
-    실패 진단에 사용.
+    Parameter ``stage`` = ``get`` or ``post`` (default post). The body is
+    served as-is, so a user hitting ``/api/debug/parse-response?stage=post``
+    in a browser immediately downloads the HTML. Useful for diagnosing
+    failures even in environments where docker logs are hard to access.
     """
     from fastapi.responses import Response
     from core.config import CONFIG_DIR
@@ -180,10 +180,11 @@ async def get_debug_parse_response(stage: str = "post"):
 
 @router.post("/fichier/test-login")
 async def test_fichier_login(request: Request):
-    """저장된 1fichier 자격증명으로 로그인 테스트.
+    """Test login using the stored 1fichier credentials.
 
-    body 가 비어있으면 ``config`` 의 ``fichier_email`` / ``fichier_password`` 사용,
-    body 에 ``email`` / ``password`` 가 있으면 그 값으로 즉석 테스트 (저장 X).
+    If the body is empty, use ``config``'s ``fichier_email`` /
+    ``fichier_password``; if the body has ``email`` / ``password``, test with
+    those values on the spot (without saving).
     """
     from core import fichier_auth
 
@@ -207,7 +208,7 @@ async def test_fichier_login(request: Request):
         }
 
     try:
-        # force_refresh=True 로 캐시 무시하고 새 로그인 시도
+        # force_refresh=True ignores the cache and attempts a fresh login
         fichier_auth.get_authenticated_scraper(email, password, force_refresh=True)
         return {"success": True, "message": "로그인 성공 — 다운로드 시 자동 사용됩니다."}
     except fichier_auth.FichierLoginError as exc:
@@ -218,17 +219,17 @@ async def test_fichier_login(request: Request):
 
 @router.post("/telegram/test")
 async def test_telegram_notification(request: Request):
-    """텔레그램 알림 테스트"""
+    """Test Telegram notifications"""
     try:
         print(f"[LOG] 텔레그램 테스트 알림 시작")
 
-        # 설정 확인
+        # Check the configuration
         config = get_config()
         bot_token = config.get("telegram_bot_token", "").strip()
         chat_id = config.get("telegram_chat_id", "").strip()
         notify_success = config.get("telegram_notify_success", False)
 
-        # 번역된 텍스트 가져오기
+        # Get the translated text
         from core.i18n import get_translations
         user_language = config.get("language", "ko")
         translations = get_translations(user_language)
@@ -245,13 +246,13 @@ async def test_telegram_notification(request: Request):
             error_msg = "텔레그램 성공 알림이 비활성화되어 있습니다. 설정에서 활성화해주세요." if user_language == "ko" else "Telegram success notifications are disabled. Please enable them in settings."
             return {"success": False, "message": error_msg}
 
-        # 번역된 테스트 메시지 사용
+        # Use the translated test message
 
         test_file_name = f"🧪 {translations.get('telegram_test', 'Telegram Test')}"
         test_size = translations.get('telegram_test_message', 'Test message from OC Proxy Downloader')
         test_path = translations.get('telegram_test', 'Test Path') if user_language == 'ko' else 'Test Path'
 
-        # 간단한 테스트 메시지 전송
+        # Send a simple test message
         send_telegram_notification(
             file_name=test_file_name,
             status="success",
@@ -272,7 +273,7 @@ async def test_telegram_notification(request: Request):
 
 @router.get("/version")
 async def get_version_info(request: Request):
-    """현재 버전과 최신 버전 정보 조회"""
+    """Get current and latest version info"""
     try:
         config = get_config()
         user_language = config.get("language", "ko")
@@ -285,7 +286,7 @@ async def get_version_info(request: Request):
         }
 
         try:
-            # GitHub API에서 최신 릴리즈 정보 가져오기
+            # Fetch the latest release info from the GitHub API
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
                     "https://api.github.com/repos/jshsakura/oc-proxy-downloader/releases/latest"
@@ -297,7 +298,7 @@ async def get_version_info(request: Request):
 
                     version_info["latest_version"] = latest_version
 
-                    # 버전 비교 (의미론적 버전 비교)
+                    # Version comparison (semantic versioning)
                     if latest_version and is_newer_version(latest_version, CURRENT_VERSION):
                         version_info["update_available"] = True
                 else:

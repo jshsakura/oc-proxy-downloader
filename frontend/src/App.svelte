@@ -50,6 +50,7 @@
   import HistoryPeriodControls from "./lib/HistoryPeriodControls.svelte";
   import { EventSourceManager } from "./EventSource.js";
   import Skeleton from "./lib/Skeleton.svelte";
+  import Checkbox from "./lib/Checkbox.svelte";
 
   console.log(
     "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
@@ -72,7 +73,7 @@
   let eventSourceManager;
   let currentPage = 1;
   let totalPages = 1;
-  let itemsPerPage = 10; // 기본값, 화면 크기에 따라 동적으로 변경
+  let itemsPerPage = 10; // Default; changes dynamically with screen size
   let isDownloadsLoading = false;
   let isAddingDownload = false;
   let activeDownloads = [];
@@ -88,16 +89,15 @@
   let useProxy = false;
   let proxyAvailable = false;
 
-  // 링크 검수(audit) 진행 상태 — 헤더 버튼/토스트가 함께 참조.
+  // Link audit progress state — referenced by the header button/toasts.
   let auditRunning = false;
   let auditDone = 0;
   let auditTotal = 0;
   let showAuditModal = false;
-  // 다중선택 모드 — 실패/정지 row 에 체크박스 컬럼 노출.
-  let selectMode = false;
+  // Multi-select — checkboxes are always visible in the leading table column.
   let selectedIds = new Set();
   let showBulkDeleteConfirm = false;
-  let pendingBulkDelete = []; // confirm 모달에서 사용
+  let pendingBulkDelete = []; // Used by the confirm modal
 
   let proxyStats = {
     totalProxies: 0,
@@ -126,10 +126,10 @@
   let downloadProxyInfo = {};
   let downloadWaitInfo = {};
 
-  // 디바운싱을 위한 타이머
+  // Timer for debouncing
   let activeDownloadsTimer = null;
 
-  // SSE 업데이트 배칭 (requestAnimationFrame) — 상태 할당을 다음 프레임으로 지연
+  // Batch SSE updates (requestAnimationFrame) — defer state assignment to the next frame
   let pendingStateUpdates = [];
   let batchRafId = null;
 
@@ -147,7 +147,7 @@
     }
   }
 
-  // 대기시간 실시간 업데이트를 위한 타이머
+  // Timer for real-time wait-time updates
   let waitTimeUpdateTimer = null;
   let currentTime = Date.now();
 
@@ -176,7 +176,7 @@
   let dashboardHistory = [];
   let dashboardTotalPages = 0;
   let dashboardCurrentPage = 1;
-  // dashboardExpanded 제거 — 대시보드는 항상 노출.
+  // Removed dashboardExpanded — the dashboard is always shown.
   let systemStats = null;
   let systemStatsInterval = null;
 
@@ -203,7 +203,7 @@
   onMount(async () => {
     itemsPerPage = calculateItemsPerPage();
 
-    // 먼저 언어 설정부터 처리
+    // Load translations (UI text) first so the app shell renders promptly.
     const lang = localStorage.getItem("lang");
     if (lang) {
       await loadTranslations(lang);
@@ -220,7 +220,7 @@
       prevLang = currentSettings.language;
     }
 
-    // 로그인이 필요하지 않거나 이미 인증된 경우에만 EventSource 연결
+    // Connect EventSource only when login is not required or already authenticated
     if (!$needsLogin || $isAuthenticated) {
       fetchDownloads(currentPage);
       connectEventSource();
@@ -228,17 +228,16 @@
       fetchProxyStatus();
       checkProxyAvailability();
 
-      // 대시보드는 항상 노출이라 마운트 시점에 즉시 초기 데이터 로드 + 시스템
-      // 모니터링 폴링 시작. 이전엔 펼침 토글에서만 시작했지만 토글이 사라졌음.
-      fetchDashboardStats();
-      fetchDashboardHistory();
+      // Dashboard stats/history load via the debounced reactive
+      // (scheduleDashboardFetch), so they are NOT fetched explicitly here —
+      // that avoids duplicate history requests on load.
       fetchSystemStats();
       if (!systemStatsInterval) {
         systemStatsInterval = setInterval(fetchSystemStats, 5000);
       }
     }
 
-    // 대기시간 실시간 업데이트 타이머 시작
+    // Start the real-time wait-time update timer
     function startWaitTimeUpdateTimer() {
       waitTimeUpdateTimer = setInterval(() => {
         currentTime = Date.now();
@@ -246,28 +245,28 @@
     }
     startWaitTimeUpdateTimer();
 
-    // 프록시 새로고침 이벤트 리스너 추가
+    // Add the proxy-refresh event listener
     const handleProxyRefresh = () => {
       fetchProxyStatus();
       checkProxyAvailability();
     };
     document.addEventListener("proxy-refreshed", handleProxyRefresh);
 
-    // 윈도우 리사이즈 이벤트 리스너 추가
+    // Add the window resize event listener
     window.addEventListener("resize", handleResize);
 
-    // 모바일에서의 페이지 백그라운드 복귀 시 조용한 업데이트 로직
+    // Quiet-update logic when the page returns from background on mobile
     let lastVisibilityTime = Date.now();
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         const now = Date.now();
         const timeSinceLastVisible = now - lastVisibilityTime;
 
-        // 5초 이상 백그라운드에 있었으면 업데이트
+        // Update if it was in the background for more than 5 seconds
         if (timeSinceLastVisible > 5000) {
           syncDownloadsSilently();
 
-          // EventSource 재연결 (연결이 끊어졌을 수도 있음)
+          // Reconnect EventSource (the connection may have dropped)
           if (!eventSourceManager || !eventSourceManager.isConnected()) {
             reconnectEventSource();
           }
@@ -282,10 +281,10 @@
       document.title = t_func("title");
     });
 
-    // 테이블 컬럼 리사이즈 기능 추가
+    // Add the table column resize feature
     const cleanupResize = initTableColumnResize();
 
-    // cleanup 함수를 onDestroy에 등록
+    // Register the cleanup function with onDestroy
     return () => {
       cleanupResize && cleanupResize();
       document.removeEventListener("proxy-refreshed", handleProxyRefresh);
@@ -300,9 +299,9 @@
     let startX = 0;
     let startWidth = 0;
 
-    // 마우스 다운 이벤트 (리사이즈 시작)
+    // Mouse-down event (start of resize)
     function handleMouseDown(e) {
-      // 테이블 헤더의 :after 가상요소 영역인지 확인
+      // Check whether it is in the table header's :after pseudo-element area
       const th = e.target.closest("th");
       if (!th || !th.closest("table")) return;
 
@@ -322,10 +321,10 @@
       }
     }
 
-    // 마우스 이동 이벤트 (리사이즈 중)
+    // Mouse-move event (during resize)
     function handleMouseMove(e) {
       if (!isResizing || !currentColumn) {
-        // 리사이즈 중이 아닐 때 커서 변경
+        // Change the cursor when not resizing
         const th = e.target.closest("th");
         if (th && th.closest("table")) {
           const rect = th.getBoundingClientRect();
@@ -340,12 +339,12 @@
       const diff = e.clientX - startX;
       const newWidth = Math.max(50, startWidth + diff);
 
-      // 헤더 자체 설정
+      // Set the header itself
       currentColumn.style.width = newWidth + "px";
       currentColumn.style.minWidth = newWidth + "px";
       currentColumn.style.maxWidth = newWidth + "px";
 
-      // 같은 컬럼의 모든 td에도 동일한 너비 적용
+      // Apply the same width to every td in the same column
       const columnIndex = Array.from(
         currentColumn.parentElement.children
       ).indexOf(currentColumn);
@@ -363,7 +362,7 @@
       e.preventDefault();
     }
 
-    // 마우스 업 이벤트 (리사이즈 종료)
+    // Mouse-up event (end of resize)
     function handleMouseUp() {
       if (isResizing) {
         isResizing = false;
@@ -373,12 +372,12 @@
       }
     }
 
-    // 이벤트 리스너 등록
+    // Register event listeners
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
 
-    // cleanup 함수 반환 (컴포넌트 제거 시 사용)
+    // Return the cleanup function (used when the component is destroyed)
     return () => {
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("mousemove", handleMouseMove);
@@ -387,12 +386,12 @@
   }
 
   onDestroy(() => {
-    // EventSource 정리
+    // Clean up EventSource
     if (eventSourceManager) {
       eventSourceManager.disconnect();
     }
 
-    // 타이머 정리
+    // Clean up timers
     if (activeDownloadsTimer) {
       clearTimeout(activeDownloadsTimer);
     }
@@ -414,7 +413,7 @@
   });
 
   function handleLoginSuccess() {
-    // 로그인 성공 후 필요한 데이터 로드 및 EventSource 연결
+    // After successful login, load the needed data and connect EventSource
     fetchDownloads(currentPage);
     connectEventSource();
     fetchActiveDownloads();
@@ -423,7 +422,7 @@
   }
 
   function handleResetProxyStatus() {
-    // 프록시 상태를 idle로 리셋
+    // Reset the proxy status to idle
     proxyStats = {
       ...proxyStats,
       status: "idle",
@@ -566,10 +565,25 @@
     }
   }
 
-  // Reactive: fetch dashboard data when period or page changes
-  $: if (dashboardPeriod) {
-    fetchDashboardStats();
-    fetchDashboardHistory();
+  // Debounced dashboard fetch. Two components are bound to dashboardPeriod, so on
+  // mount the value can change several times as they initialize — without debounce
+  // each change re-fired stats+history for a different range, flooding the backend.
+  let _dashboardFetchTimer = null;
+  function scheduleDashboardFetch() {
+    if (_dashboardFetchTimer) clearTimeout(_dashboardFetchTimer);
+    _dashboardFetchTimer = setTimeout(() => {
+      fetchDashboardStats();
+      fetchDashboardHistory();
+    }, 150);
+  }
+
+  // Re-fetch when the period or the custom date range changes (coalesced).
+  $: {
+    dashboardPeriod;
+    dashboardStartDate;
+    dashboardEndDate;
+    dashboardCurrentPage;
+    if (dashboardPeriod) scheduleDashboardFetch();
   }
 
   function connectEventSource() {
@@ -581,7 +595,7 @@
 
       if (message.type === "status_update") {
         const updatedDownload = message.data;
-        // 실패 메시지를 즉시 UI 에 반영 (백엔드는 message 로 보냄)
+        // Reflect the failure message in the UI immediately (the backend sends it as message)
         if (
           updatedDownload?.status?.toLowerCase?.() === "failed" &&
           updatedDownload?.message &&
@@ -589,16 +603,16 @@
         ) {
           updatedDownload.error_message = updatedDownload.message;
         }
-        // ID 타입 통일 (숫자로 변환)
+        // Normalize the ID type (convert to number)
         const downloadId = Number.parseInt(updatedDownload.id, 10);
 
-        // 상태 할당 배칭: 큐 실행 시점의 최신 downloads 기준으로 병합
+        // Batch the state assignment: merge against the latest downloads at queue-run time
         queueStateUpdate(() => {
           let proxyStatsChanged = false;
           const currentIndex = downloads.findIndex((d) => Number.parseInt(d.id, 10) === downloadId);
 
           if (currentIndex !== -1) {
-            // 프록시 상태 리셋 처리 (stopped, failed, done 상태일 때)
+            // Handle proxy-status reset (when status is stopped, failed, done)
             if (
               proxyStats.status === "trying" &&
               ["stopped", "failed", "done"].includes(updatedDownload.status?.toLowerCase())
@@ -638,7 +652,7 @@
         });
       }
 
-      // 배치 업데이트 처리
+      // Handle batch updates
       if (message.type === "batch_status_update") {
         queueStateUpdate(() => {
           let hasChanges = false;
@@ -646,7 +660,7 @@
           const newDownloads = [...downloads];
 
           message.data.forEach((updatedDownload) => {
-            // 실패 메시지를 error_message 로도 매핑
+            // Also map the failure message to error_message
             if (
               updatedDownload?.status?.toLowerCase?.() === "failed" &&
               updatedDownload?.message &&
@@ -660,13 +674,13 @@
               newDownloads[index] = { ...newDownloads[index], ...updatedDownload };
               hasChanges = true;
 
-              // 프록시 다운로드의 상태가 stopped, failed, done으로 변경되면 다른 진행 중인 프록시 다운로드가 없을 때만 프록시 상태 초기화
+              // When a proxy download changes to stopped, failed, or done, reset the proxy status only if no other proxy download is in progress
               if (
                 oldDownload.use_proxy &&
                 oldDownload.status !== updatedDownload.status &&
                 ["stopped", "failed", "done"].includes(updatedDownload.status?.toLowerCase())
               ) {
-                // 다른 활성 프록시 다운로드가 있는지 확인
+                // Check whether there are other active proxy downloads
                 const otherActiveProxyDownloads = newDownloads.filter(
                   (d) =>
                     d.use_proxy &&
@@ -676,7 +690,7 @@
                     )
                 );
 
-                // 다른 활성 프록시 다운로드가 없을 때만 프록시 상태 초기화
+                // Reset the proxy status only when there are no other active proxy downloads
                 if (otherActiveProxyDownloads.length === 0) {
                   proxyStats.status = "";
                   proxyStats.currentProxy = "";
@@ -697,7 +711,7 @@
 
           if (hasChanges) {
             downloads = newDownloads;
-            // 통계만 업데이트 (fetchActiveDownloads는 디바운싱으로 별도 처리)
+            // Update only the stats (fetchActiveDownloads is handled separately via debouncing)
             updateStats(downloads);
           }
           if (proxyStatsChanged) {
@@ -706,7 +720,7 @@
         });
       }
 
-      // 프록시 메시지 처리
+      // Handle proxy messages
       if (message.type === "proxy_trying") {
         const { id, proxy, step, current, total, failed } = message.data;
         console.log(`[DEBUG] SSE proxy_trying 수신:`, message.data);
@@ -714,8 +728,8 @@
         proxyStats.currentStep = step;
         proxyStats.currentIndex = current;
         proxyStats.totalAttempting = total;
-        // totalProxies는 전체 프록시 수이므로 변경하지 않음 (total은 현재 배치의 크기)
-        // 실패 카운트 실시간 업데이트와 함께 사용 가능한 프록시도 차감 (1초 디바운싱)
+        // totalProxies is the total number of proxies, so do not change it (total is the size of the current batch)
+        // Along with the real-time fail-count update, also decrement available proxies (1-second debounce)
         const prevFailCount = proxyStats.failCount || 0;
         const newFailCount = failed || 0;
         const failedDiff = newFailCount - prevFailCount;
@@ -724,7 +738,7 @@
 
         proxyStats.failCount = newFailCount;
 
-        // 실패 카운트 증가와 동시에 사용 가능한 프록시도 바로 차감
+        // As the fail count increases, immediately decrement available proxies too
         if (failedDiff > 0 && proxyStats.availableProxies > 0) {
           const beforeAvailable = proxyStats.availableProxies;
           proxyStats.availableProxies = Math.max(0, proxyStats.availableProxies - failedDiff);
@@ -732,19 +746,19 @@
         }
         proxyStats.status = "trying";
 
-        // 상태 할당 배칭
+        // Batch the state assignment
         queueStateUpdate(() => {
           proxyStats = { ...proxyStats };
-          // 메인 그리드에서 해당 다운로드 상태도 업데이트 (빠지지 않도록)
+          // Also update that download's status in the main grid (so it is not missed)
           if (id) {
             const download = downloads.find(d => d.id === id);
             if (download) {
-              const failedText = failed > 0 ? ` (실패: ${failed})` : '';
+              const failedText = failed > 0 ? $t("proxy_failed_count_suffix", { count: failed }) : '';
               download.proxy_message = `${step} - ${proxy} (${current}/${total})${failedText}`;
               downloads = [...downloads];
             }
 
-            // 프록시 작업이 시작되면 대기 정보 제거
+            // Remove the wait info once the proxy task starts
             if (downloadWaitInfo[id]) {
               delete downloadWaitInfo[id];
               downloadWaitInfo = { ...downloadWaitInfo };
@@ -763,11 +777,11 @@
         proxyStats.status = "success";
         proxyStats.successCount++;
 
-        // 상태 할당 배칭
+        // Batch the state assignment
         queueStateUpdate(() => {
           proxyStats = { ...proxyStats };
 
-          // 메인 그리드에서 해당 다운로드 상태도 업데이트
+          // Also update that download's status in the main grid
           if (id) {
             const download = downloads.find(d => d.id === id);
             if (download) {
@@ -786,11 +800,11 @@
         proxyStats.lastError = error || "";
         proxyStats.failCount++;
 
-        // 상태 할당 배칭
+        // Batch the state assignment
         queueStateUpdate(() => {
           proxyStats = { ...proxyStats };
 
-          // 메인 그리드에서 해당 다운로드 상태도 업데이트
+          // Also update that download's status in the main grid
           if (id) {
             const download = downloads.find(d => d.id === id);
             if (download) {
@@ -801,7 +815,7 @@
         });
       }
 
-      // 프록시 상태 초기화 처리
+      // Handle proxy-status reset
       if (message.type === "proxy_reset") {
         console.log("🔄 프록시 상태 초기화 메시지 수신:", message.data);
         proxyStats.status = "";
@@ -809,18 +823,18 @@
         proxyStats.currentStep = "";
         proxyStats.currentIndex = 0;
         proxyStats.totalAttempting = 0;
-        // 상태 할당 배칭
+        // Batch the state assignment
         queueStateUpdate(() => {
           proxyStats = { ...proxyStats };
         });
         console.log("[LOG] 프록시 상태 강제 초기화 완료");
       }
 
-      // 1fichier 대기시간 처리 (파싱 후 대기)
-      // 백엔드는 status_update 로 status="waiting" 을 따로 한 번 보냄.
-      // 여기서는 카운트다운 데이터(downloadWaitInfo)만 갱신해서 race
-      // (status_update 와 waiting 메시지가 뒤섞일 때 status 가 강제로
-      // 덮어써지는 문제) 를 방지.
+      // Handle the 1fichier wait time (waiting after parsing).
+      // The backend sends status="waiting" once separately via status_update.
+      // Here we update only the countdown data (downloadWaitInfo) to prevent a race
+      // (the problem where status gets force-overwritten when status_update and
+      // waiting messages interleave).
       if (message.type === "waiting") {
         const { id, remaining, total } = message.data;
         downloadWaitInfo[id] = {
@@ -832,7 +846,7 @@
         });
       }
 
-      // 대기 완료 처리
+      // Handle wait completion
       if (message.type === "wait_countdown_complete") {
         const { id } = message.data;
         delete downloadWaitInfo[id];
@@ -841,7 +855,7 @@
         });
       }
 
-      // 다운로드 정지 시 대기 정보 제거
+      // Remove the wait info when a download is stopped
       if (message.type === "download_stopped") {
         const { id } = message.data;
         const waitInfoExists = !!downloadWaitInfo[id];
@@ -851,7 +865,7 @@
           console.log(`🛑 정지로 인한 대기 정보 제거: ${id}`);
         }
 
-        // 프록시 상태 리셋 (다른 프록시 사용 중인 다운로드가 없을 때만)
+        // Reset the proxy status (only when no other download is using a proxy)
         if (proxyStats.status === "trying") {
           const otherProxyDownloads = downloads.filter(d =>
             d.id !== id &&
@@ -881,7 +895,7 @@
         }
       }
 
-      // 파일명 업데이트 처리
+      // Handle filename updates
       if (message.type === "filename_update") {
         console.log("📁 filename_update 메시지 수신:", message.data);
         const { id, filename, file_size } = message.data;
@@ -905,7 +919,7 @@
         });
       }
 
-      // SSE 테스트 메시지 처리
+      // Handle SSE test messages
       if (message.type === "test_message") {
         console.log("🧪 SSE 테스트 메시지 수신:", message.data);
         alert($t("sse_connection_normal") + ": " + message.data.message);
@@ -913,11 +927,11 @@
 
       if (message.type === "force_refresh") {
         console.log("🔄 Force refresh 요청 수신:", message.data);
-        // 전체 다운로드 목록을 다시 불러오기
+        // Reload the entire download list
         fetchDownloads();
       }
 
-      // 단건 probe 결과 — 행 갱신만 가볍게.
+      // Single probe result — just a light row update.
       if (message.type === "probe_result") {
         const { id, failure_kind, next_retry_at, kind, summary } = message.data;
         queueStateUpdate(() => {
@@ -936,7 +950,7 @@
         }
       }
 
-      // 배치 audit 진행률 — 시작/단계/완료 단계 토스트.
+      // Batch audit progress — toasts for the start/step/done stages.
       if (message.type === "audit_progress") {
         const { status, done, total, counts } = message.data;
         if (status === "start") {
@@ -954,7 +968,7 @@
           const dead = counts?.dead ?? 0;
           const other = total - alive - dead;
           toast.success($t("audit_done", { alive, dead, other }));
-          fetchDownloads(); // 박제 해제된 항목들을 화면에 반영
+          fetchDownloads(); // Reflect the un-pinned items on screen
         }
       }
     });
@@ -966,7 +980,7 @@
     }
   }
 
-  // 조용한 백그라운드 동기화 (깜빡거림 없음) - 기존 fetchDownloads 사용
+  // Quiet background sync (no flicker) - uses the existing fetchDownloads
   async function syncDownloadsSilently() {
     try {
       const response = await fetch(`/api/history/`, { timeout: 10000 });
@@ -976,7 +990,7 @@
         const historyData = data.history || [];
         downloads = historyData;
 
-        // 완료되거나 정지된 다운로드의 대기 정보 정리
+        // Clean up wait info for completed or stopped downloads
         Object.keys(downloadWaitInfo).forEach(downloadId => {
           const id = parseInt(downloadId);
           const download = downloads.find(d => d.id === id);
@@ -1010,7 +1024,7 @@
         const errorText = await response.text();
         console.error("Error response:", errorText);
 
-        // 재시도 로직
+        // Retry logic
         if (
           retryCount < 2 &&
           (response.status >= 500 || response.status === 0)
@@ -1024,7 +1038,7 @@
     } catch (error) {
       console.error("Error fetching downloads:", error);
 
-      // 네트워크 오류 시 재시도
+      // Retry on network error
       if (retryCount < 2) {
         console.log(`네트워크 오류 재시도 중.. (${retryCount + 1}/3)`);
         setTimeout(() => fetchDownloads(page, retryCount + 1), 2000);
@@ -1051,11 +1065,11 @@
     proxyStats = { ...proxyStats };
   }
 
-  // 전역 디바운싱을 위한 플래그
+  // Flag for global debouncing
   let needsActiveDownloadsUpdate = false;
   let activeDownloadsInterval = null;
 
-  // fetchActiveDownloads를 주기적으로 호출하는 인터벌 (5초마다 - 성능 최적화)
+  // Interval that calls fetchActiveDownloads periodically (every 5 seconds - performance optimization)
   onMount(() => {
     activeDownloadsInterval = setInterval(() => {
       if (needsActiveDownloadsUpdate) {
@@ -1066,12 +1080,12 @@
   });
 
 
-  // 통합된 통계 업데이트 함수
+  // Unified stats-update function
   function updateStats(downloadsData) {
     updateProxyStats(downloadsData);
     updateLocalStats(downloadsData);
 
-    // 디바운싱 대신 플래그만 설정
+    // Just set a flag instead of debouncing
     needsActiveDownloadsUpdate = true;
   }
 
@@ -1111,7 +1125,7 @@
         localStats.localProgress = 0;
       }
     } else if (activeLocalDownloads.length > 0) {
-      // 실제 진행 중인 상태만 확인: pending, parsing 등
+      // Check only states that are actually in progress: pending, parsing, etc.
       const activeStatusDownloads = activeLocalDownloads.filter(d => {
         const status = d.status?.toLowerCase() || "";
         return ["pending", "parsing"].includes(status);
@@ -1120,7 +1134,7 @@
       if (activeStatusDownloads.length > 0) {
         localStats.localStatus = "waiting";
       } else {
-        // failed, stopped 등은 진행중이 아니므로 idle
+        // failed, stopped, etc. are not in progress, so idle
         localStats.localStatus = "";
       }
       localStats.localProgress = 0;
@@ -1144,7 +1158,7 @@
   async function addDownload(isAutoDownload = false, skipValidation = false) {
     if (!url) return;
     
-    // URL 기본 검증만 수행 (validate-url API 제거)
+    // Perform only basic URL validation (validate-url API removed)
     
     isAddingDownload = true;
     try {
@@ -1163,7 +1177,7 @@
         url = "";
         password = "";
         hasPassword = false;
-        fetchDownloads(); // 목록 즉시 새로고침
+        fetchDownloads(); // Refresh the list immediately
       } else {
         const errorData = await response.json();
         toast.error($t("add_download_failed", { detail: errorData.detail }));
@@ -1189,7 +1203,7 @@
   }
 
   async function startAudit(payload = null) {
-    // payload 없이 호출되면 모달 열기 — 헤더 버튼 클릭 시.
+    // If called without a payload, open the modal — on header-button click.
     if (payload === null) {
       if (auditRunning) {
         toast.warning($t("audit_already_running"));
@@ -1199,7 +1213,7 @@
       return;
     }
 
-    // 모달에서 'start' 이벤트로 받은 페이로드 그대로 전송.
+    // Send exactly the payload received from the modal's 'start' event.
     try {
       const response = await fetch("/api/downloads/audit", {
         method: "POST",
@@ -1215,7 +1229,7 @@
         toast.info($t("audit_no_targets"));
         return;
       }
-      // started=true 면 곧 SSE audit_progress(start) 가 들어와서 토스트가 뜬다.
+      // If started=true, an SSE audit_progress(start) arrives shortly and shows a toast.
     } catch (e) {
       console.error("audit 시작 실패:", e);
       toast.error(`audit error: ${e.message}`);
@@ -1226,56 +1240,6 @@
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
     startAudit({ ids });
-  }
-
-  function failedDownloadIds() {
-    if (!Array.isArray(downloads)) return [];
-    return downloads
-      .filter((d) => {
-        const status = d.status?.toLowerCase?.() || "";
-        return status === "failed";
-      })
-      .map((d) => d.id)
-      .filter((id) => id && !isNaN(parseInt(id)));
-  }
-
-  function deleteFailedDownloads() {
-    const ids = failedDownloadIds();
-    if (ids.length === 0) {
-      toast.info($t("delete_failed_empty"));
-      return;
-    }
-
-    openConfirm({
-      title: $t("confirm_delete_title"),
-      message: $t("delete_failed_confirm", { count: ids.length }),
-      confirmText: $t("delete_failed_downloads"),
-      cancelText: $t("button_cancel"),
-      onConfirm: async () => {
-        try {
-          const response = await fetch("/api/downloads/bulk-delete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ids }),
-          });
-          if (!response.ok) {
-            let detail = response.statusText;
-            try {
-              const data = await response.json();
-              detail = data.detail || detail;
-            } catch (_) {}
-            toast.error($t("bulk_delete_failed", { detail }));
-            return;
-          }
-          const data = await response.json();
-          toast.success($t("bulk_delete_success", { count: data.deleted_count }));
-          fetchDownloads();
-        } catch (e) {
-          console.error("failed delete error:", e);
-          toast.error(`failed delete error: ${e.message}`);
-        }
-      },
-    });
   }
 
   async function bulkDeleteSelected() {
@@ -1305,7 +1269,6 @@
       const data = await response.json();
       toast.success($t("bulk_delete_success", { count: data.deleted_count }));
       selectedIds = new Set();
-      selectMode = false;
       fetchDownloads();
     } catch (e) {
       console.error("bulk delete error:", e);
@@ -1319,9 +1282,22 @@
     selectedIds = new Set(selectedIds);
   }
 
-  function exitSelectMode() {
-    selectMode = false;
+  function clearSelection() {
     selectedIds = new Set();
+  }
+
+  // Select-all toggles every currently-rendered row. When all visible rows are
+  // already selected it clears them, otherwise it selects them all.
+  function toggleSelectAll(rows) {
+    const ids = (Array.isArray(rows) ? rows : []).map((d) => d.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+    if (allSelected) {
+      const next = new Set(selectedIds);
+      ids.forEach((id) => next.delete(id));
+      selectedIds = next;
+    } else {
+      selectedIds = new Set([...selectedIds, ...ids]);
+    }
   }
 
   async function callApi(endpoint, downloadId = null) {
@@ -1331,13 +1307,13 @@
       if (response.ok) {
         const responseData = await response.json();
 
-        // 대기 상태 메시지 처리
+        // Handle the waiting-status message
         if (responseData.status === "waiting" && responseData.message_key) {
           toast.info($t(responseData.message_key, responseData.message_args));
           return;
         }
 
-        // 성공 메시지 표시
+        // Show the success message
         const action = endpoint.includes("/start/") ? "download" :
                      endpoint.includes("/pause/") ? "pause" :
                      endpoint.includes("/resume/") ? "resume" :
@@ -1349,13 +1325,13 @@
         
         console.log(`API 호출 성공: ${endpoint}`);
       } else {
-        // 재시도 차단 사유는 별도 메시지로 분기 (영구 실패 / 로그인 필요)
+        // Branch the retry-blocked reason into a separate message (permanent failure / login required)
         if (response.status === 409 && endpoint.includes("/retry/")) {
           let detail = "";
           try {
             const data = await response.json();
             detail = data.detail || "";
-          } catch (_) { /* JSON 아님 — 폴백 메시지 사용 */ }
+          } catch (_) { /* Not JSON — use the fallback message */ }
           if (detail === "retry_blocked_dead") {
             toast.error($t("retry_blocked_dead"));
             return;
@@ -1366,12 +1342,12 @@
           }
         }
 
-        // 에러 메시지 표시
+        // Show the error message
         const action = endpoint.includes("/stop/") ? $t("action_stop") :
                      endpoint.includes("/resume/") ? $t("action_resume_action") :
                      endpoint.includes("/retry/") ? $t("action_retry_action") : $t("action_work");
 
-        toast.error(`${action} 요청에 실패했습니다.`);
+        toast.error($t("action_request_failed", { action }));
         console.error(`API 호출 실패: ${endpoint}, 상태: ${response.status}`);
       }
     } catch (error) {
@@ -1383,11 +1359,11 @@
       console.error(`Error calling ${endpoint}:`, error);
     }
     
-    // SSE가 자동으로 상태를 업데이트하므로 추가 fetch는 불필요
+    // SSE updates the status automatically, so no extra fetch is needed
   }
 
   async function deleteDownload(id) {
-    // ID 유효성 검사
+    // Validate the ID
     if (!id || isNaN(parseInt(id))) {
       console.error("❌ 잘못된 다운로드 ID:", id);
       toast.error($t("invalid_download_id"));
@@ -1432,8 +1408,8 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
   }
 
-  // 대기시간 카운트다운 표기 — 항상 mm:ss 형식.
-  // 60초 경계에서 단위가 점프(60초 → 1분 → 59초)하던 비일관성 제거.
+  // Wait-time countdown formatting — always mm:ss.
+  // Removes the inconsistency where the unit jumped at the 60-second boundary (60s → 1min → 59s).
   function formatWaitTime(seconds) {
     if (seconds == null || seconds < 0) return "0:00";
     const total = Math.max(0, Math.floor(seconds));
@@ -1451,16 +1427,21 @@
     return speed + " " + sizes[i];
   }
 
+  // A name like "1fichier:<id>" is a temporary URL-derived placeholder, not a real filename.
+  function isPlaceholderName(name) {
+    return !name || /^1fichier:/i.test(name.trim());
+  }
+
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
 
-    // 1fichier 자동 재시도 상태 체크
+    // Check the 1fichier auto-retry state
     if (
       download.status.toLowerCase() === "pending" &&
       download.error_message &&
       download.error_message.includes($t("auto_retry_in_progress"))
     ) {
-      return download.error_message + "\n3분마다 자동 재시도됩니다.";
+      return download.error_message + "\n" + $t("auto_retry_interval_notice");
     }
 
     if (download.status.toLowerCase() === "failed" && download.error_message) {
@@ -1515,30 +1496,24 @@
 
   function formatDate(dateString) {
     if (!dateString) return "-";
+    // Use the active language code as the BCP-47 locale for localized output.
     const currentLocale = localStorage.getItem("lang") || "en";
     const date = new Date(dateString);
     const today = new Date();
 
-    // 오늘이면 시간만 표시
+    // Same day: show time only
     if (date.toDateString() === today.toDateString()) {
-      return date.toLocaleTimeString(
-        currentLocale === "ko" ? "ko-KR" : "en-US",
-        {
-          hour: "2-digit",
-          minute: "2-digit",
-        }
-      );
-    }
-
-    // 어제 이전이면 간단한 날짜 형식
-    if (currentLocale === "ko") {
-      return `${date.getMonth() + 1}월 ${date.getDate()}일`;
-    } else {
-      return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
+      return date.toLocaleTimeString(currentLocale, {
+        hour: "2-digit",
+        minute: "2-digit",
       });
     }
+
+    // Otherwise: short, localized date
+    return date.toLocaleDateString(currentLocale, {
+      month: "short",
+      day: "numeric",
+    });
   }
 
   function formatFullDateTime(dateString) {
@@ -1559,7 +1534,7 @@
 
   function getDownloadProgress(download) {
     if (download.progress !== undefined && download.progress !== null) {
-      return Math.round(download.progress * 2) / 2; // 0.5% 단위로 반올림
+      return Math.round(download.progress * 2) / 2; // Round to the nearest 0.5%
     }
 
     const downloaded = Number(
@@ -1571,7 +1546,7 @@
     return Math.round((downloaded / total) * 100);
   }
 
-  // URL 유효성 검증 함수
+  // URL validation function
   function isValidUrl(string) {
     try {
       const url = new URL(string);
@@ -1581,38 +1556,38 @@
     }
   }
 
-  // 모바일 기기 감지
+  // Mobile device detection
   function isMobileDevice() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   }
 
-  // 화면 크기에 따른 페이지 항목 수 계산
+  // Calculate the number of items per page based on screen size
   function calculateItemsPerPage() {
     if (typeof window === 'undefined') return 10;
 
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    // 모바일
+    // Mobile
     if (width < 768) {
-      return Math.max(5, Math.floor(height / 80)); // 모바일은 항목 높이를 80px로 가정
+      return Math.max(5, Math.floor(height / 80)); // On mobile, assume an item height of 80px
     }
-    // 태블릿
+    // Tablet
     else if (width < 1024) {
-      return Math.max(8, Math.floor(height / 70)); // 태블릿은 항목 높이를 70px로 가정
+      return Math.max(8, Math.floor(height / 70)); // On tablet, assume an item height of 70px
     }
-    // 데스크톱
+    // Desktop
     else {
-      return Math.max(10, Math.floor(height / 60)); // 데스크톱은 항목 높이를 60px로 가정
+      return Math.max(10, Math.floor(height / 60)); // On desktop, assume an item height of 60px
     }
   }
 
-  // 윈도우 리사이즈 핸들러
+  // Window resize handler
   function handleResize() {
     const newItemsPerPage = calculateItemsPerPage();
     if (newItemsPerPage !== itemsPerPage) {
       itemsPerPage = newItemsPerPage;
-      // 현재 페이지가 유효한 범위를 벗어나면 조정
+      // Adjust if the current page is out of the valid range
       totalPages = Math.ceil(filteredDownloads.length / itemsPerPage);
       if (currentPage > totalPages && totalPages > 0) {
         currentPage = totalPages;
@@ -1622,7 +1597,7 @@
 
   async function pasteFromClipboard() {
     try {
-      // 먼저 현대적인 clipboard API 시도
+      // First try the modern clipboard API
       if (navigator.clipboard && navigator.clipboard.readText) {
         const text = await navigator.clipboard.readText();
         if (!text || text.trim() === "") {
@@ -1633,19 +1608,19 @@
         const trimmedText = text.trim();
         url = trimmedText;
 
-        // URL 형식이 유효한지 먼저 검사
+        // First check whether the URL format is valid
         if (!isValidUrl(trimmedText)) {
           toast.info($t("clipboard_pasted"));
           return;
         }
 
-        // 기본 URL 검증 후 자동으로 다운로드 추가
+        // After basic URL validation, add the download automatically
         toast.info($t("clipboard_url_auto_download"));
         await addDownload(true, true); // skipValidation = true
         return;
       }
 
-      // clipboard API가 없으면 사용자에게 수동 붙여넣기 안내
+      // If there is no clipboard API, guide the user to paste manually
       const isMobile = isMobileDevice();
       if (isMobile) {
         toast.info($t("clipboard_mobile_paste_guide"));
@@ -1658,7 +1633,7 @@
 
       const isMobile = isMobileDevice();
 
-      // 권한 거부나 기타 오류 시 fallback
+      // Fallback on permission denial or other errors
       if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
         if (isMobile) {
           toast.info($t("clipboard_access_denied_mobile"));
@@ -1730,7 +1705,7 @@
       });
       if (response.ok) {
         toast.success($t("redownload_requested"));
-        syncDownloadsSilently(); // 다시 다운로드 요청 시 조용한 업데이트
+        syncDownloadsSilently(); // Quiet update on re-download request
         currentTab = "working";
       } else {
         const errorData = await response.json();
@@ -1766,25 +1741,25 @@
     if (currentTab !== newTab) {
       currentTab = newTab;
       searchExpanded = false;
-      // 탭 이동 시 선택 모드는 자동 해제 — 다른 탭의 id 가 섞이지 않게.
-      if (selectMode || selectedIds.size > 0) {
-        exitSelectMode();
+      // Selection auto-clears when switching tabs — so ids from another tab don't mix in.
+      if (selectedIds.size > 0) {
+        clearSelection();
       }
-      // 검색어는 탭 전환 시에도 유지
-      currentPage = 1; // 탭 전환 시 첫 페이지로 이동
-      // 탭 전환 시 조용한 데이터 새로고침
+      // The search query is kept across tab switches
+      currentPage = 1; // Move to the first page on tab switch
+      // Quiet data refresh on tab switch
       syncDownloadsSilently();
     }
   }
 
-  // 검색 입력 핸들러 (클라이언트 사이드 필터링만)
+  // Search input handler (client-side filtering only)
   function handleSearchInput() {
-    // 검색어가 변경되면 filteredDownloads가 자동으로 업데이트됨
-    // API 호출 없이 클라이언트 사이드에서만 필터링
-    currentPage = 1; // 검색 시 첫 페이지로 이동
+    // filteredDownloads updates automatically when the query changes
+    // Filtering happens only on the client side, with no API call
+    currentPage = 1; // Move to the first page on search
   }
 
-  // 검색어 지우기
+  // Clear the search query
   function clearSearch() {
     searchQuery = "";
     searchExpanded = false;
@@ -1800,9 +1775,9 @@
     searchExpanded = false;
   }
 
-  // (구) toggleDashboard — 대시보드는 항상 펼쳐져 있으므로 토글 제거.
+  // (old) toggleDashboard — the dashboard is always expanded, so the toggle was removed.
 
-  // 통합 필터링 및 카운팅 (한 번의 순회로 모든 계산 완료)
+  // Unified filtering and counting (all computed in a single pass)
   let filteredDownloads = [];
   let workingCount = 0;
   let completedCount = 0;
@@ -1812,7 +1787,7 @@
       completedCount = 0;
       filteredDownloads = [];
     } else {
-      // 1단계: 검색 필터 적용
+      // Step 1: apply the search filter
       let filtered = downloads;
       if (searchQuery && searchQuery.trim()) {
         const query = searchQuery.trim().toLowerCase();
@@ -1823,7 +1798,7 @@
         });
       }
 
-      // 2단계: 한 번의 순회로 분류 (working/completed)
+      // Step 2: classify in a single pass (working/completed)
       const working = [];
       const completed = [];
 
@@ -1842,11 +1817,11 @@
       workingCount = working.length;
       completedCount = completed.length;
 
-      // 3단계: 현재 탭에 따라 정렬
+      // Step 3: sort based on the current tab
       if (currentTab === "working") {
         filteredDownloads = working;
       } else {
-        // 완료 탭: 최신순 정렬
+        // Completed tab: sort newest first
         filteredDownloads = completed.sort((a, b) => {
           const aTime = new Date(a.finished_at || a.created_at || a.updated_at || 0);
           const bTime = new Date(b.finished_at || b.created_at || b.updated_at || 0);
@@ -1856,7 +1831,7 @@
     }
   }
 
-  // 페이지 계산
+  // Page calculation
   $: {
     totalPages = Math.ceil(filteredDownloads.length / itemsPerPage);
     if (currentPage > totalPages && totalPages > 0) {
@@ -1864,20 +1839,20 @@
     }
   }
 
-  // 페이지별 다운로드
+  // Downloads per page
   $: paginatedDownloads = filteredDownloads.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
 
-  // 페이지 함수
+  // Page function
   function goToPage(page) {
     if (page >= 1 && page <= totalPages) {
       currentPage = page;
     }
   }
 
-  // 탭이 변경될 때 페이지 리셋
+  // Reset the page when the tab changes
   $: if (currentTab) {
     currentPage = 1;
   }
@@ -1887,7 +1862,14 @@
       d.use_proxy &&
       ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
   ).length : 0;
-  $: failedDownloadCount = failedDownloadIds().length;
+  // Select-all reflects the currently-rendered (paginated) rows.
+  $: someVisibleSelected =
+    Array.isArray(paginatedDownloads) &&
+    paginatedDownloads.some((d) => selectedIds.has(d.id));
+  $: allVisibleSelected =
+    Array.isArray(paginatedDownloads) &&
+    paginatedDownloads.length > 0 &&
+    paginatedDownloads.every((d) => selectedIds.has(d.id));
   $: dashboardSummaryTotal = dashboardStats?.total ?? downloads.length;
   $: dashboardSummarySuccessRate = dashboardStats?.success_rate ?? (downloads.length > 0
     ? (completedCount / downloads.length) * 100
@@ -1980,15 +1962,6 @@
       <h1>{$t("title")}</h1>
       <div class="header-actions">
         <button
-          on:click={() => (selectMode ? exitSelectMode() : (selectMode = true))}
-          class="button-icon select-mode-button"
-          class:active={selectMode}
-          title={selectMode ? $t("select_mode_exit") : $t("select_mode_enter")}
-          aria-label={selectMode ? $t("select_mode_exit") : $t("select_mode_enter")}
-        >
-          ☑
-        </button>
-        <button
           on:click={() => startAudit()}
           class="button-icon audit-button"
           class:is-running={auditRunning}
@@ -1998,16 +1971,7 @@
             : $t("action_audit")}
           aria-label={$t("action_audit")}
         >
-          <InfoIcon />
-        </button>
-        <button
-          on:click={deleteFailedDownloads}
-          class="button-icon"
-          disabled={failedDownloadCount === 0}
-          title={$t("delete_failed_downloads")}
-          aria-label={$t("delete_failed_downloads")}
-        >
-          <DeleteIcon />
+          <CheckCircleIcon />
         </button>
         <button
           on:click={() => (showSettingsModal = true)}
@@ -2106,11 +2070,12 @@
       </form>
     </div>
 
-    <!-- 통합 대시보드 — KPI/차트는 설정 "통계" 탭으로 이동. 메인은 라이브(프록시·로컬
-         합본 카드) + 시스템 모니터링만. 조회 조건(기간) 은 그리드 헤더로 이동. -->
+    <!-- Unified dashboard — KPI/charts moved to the settings "Stats" tab. The main view
+         has only live (combined proxy/local card) + system monitoring. The query condition
+         (period) is moved to the grid header. -->
     <Dashboard {systemStats}>
-      <!-- 프록시 + 로컬을 하나의 카드 안에서 두 분할로. 시각적으로 한 가족이
-           되고, 카드 외곽선/그림자/모서리도 dashboard 카드와 같음. -->
+      <!-- Proxy + local as two splits within a single card. Visually they become one
+           family, and the card outline/shadow/corners match the dashboard card. -->
       <div slot="gauges" class="live-card">
         <div class="live-pane live-pane-proxy">
           <ProxyGauge
@@ -2140,7 +2105,7 @@
     </Dashboard>
 
     <div class="downloads-section">
-      <!-- 조회 조건(기간) — 그리드 위 별도 줄. PC 는 중앙 정렬, 모바일은 풀폭. -->
+      <!-- Query condition (period) — a separate row above the grid. Centered on desktop, full-width on mobile. -->
       <div class="grid-period-bar">
         <HistoryPeriodControls
           bind:period={dashboardPeriod}
@@ -2148,13 +2113,8 @@
           bind:endDate={dashboardEndDate}
           on:periodChange={(e) => {
             dashboardPeriod = e.detail;
-            fetchDashboardStats();
-            fetchDashboardHistory();
           }}
-          on:customApply={() => {
-            fetchDashboardStats();
-            fetchDashboardHistory();
-          }}
+          on:customApply={() => scheduleDashboardFetch()}
         />
       </div>
 
@@ -2186,7 +2146,7 @@
           </button>
         </div>
 
-        <!-- 검색 필터 -->
+        <!-- Search filter -->
         <div class="search-actions" class:expanded={searchExpanded}>
             <button
               type="button"
@@ -2212,8 +2172,8 @@
                 type="button"
                 class="search-clear-btn"
                 on:click={clearSearch}
-                title="검색어 지우기"
-                aria-label="검색어 지우기"
+                title={$t("search_clear")}
+                aria-label={$t("search_clear")}
               >
                 <CloseIcon />
               </button>
@@ -2222,8 +2182,8 @@
                 type="button"
                 class="search-clear-btn search-collapse-btn"
                 on:click={closeSearch}
-                title="검색창 닫기"
-                aria-label="검색창 닫기"
+                title={$t("search_close")}
+                aria-label={$t("search_close")}
               >
                 <CloseIcon />
               </button>
@@ -2243,6 +2203,14 @@
         <table>
           <thead>
             <tr>
+              <th class="select-col">
+                <Checkbox
+                  checked={allVisibleSelected}
+                  indeterminate={someVisibleSelected && !allVisibleSelected}
+                  ariaLabel={$t("select_count", { count: selectedIds.size })}
+                  on:change={() => toggleSelectAll(paginatedDownloads)}
+                />
+              </th>
               <th>{$t("table_header_file_name")}</th>
               <th class="center-align">{$t("table_header_status")}</th>
               <th class="center-align">{$t("table_header_size")}</th>
@@ -2261,6 +2229,7 @@
             {#if isDownloadsLoading}
               {#each Array(5) as _}
                 <tr class="skeleton-row">
+                  <td class="select-col"><Skeleton width="18px" height="18px" radius="5px" /></td>
                   <td><Skeleton width="80%" height="14px" radius="3px" /></td>
                   <td class="center-align"><Skeleton width="64px" height="22px" radius="10px" /></td>
                   <td class="center-align"><Skeleton width="52px" height="14px" radius="3px" /></td>
@@ -2276,7 +2245,7 @@
             {:else if filteredDownloads.length === 0}
               <tr class="empty-row">
                 <td
-                  colspan={currentTab === "completed" ? 7 : 8}
+                  colspan={currentTab === "completed" ? 8 : 9}
                   class="no-downloads-message"
                 >
                   {currentTab === "working"
@@ -2286,22 +2255,20 @@
               </tr>
             {:else}
               {#each paginatedDownloads as download (download.id)}
-                <tr class:is-selected={selectMode && selectedIds.has(download.id)}>
+                <tr class:is-selected={selectedIds.has(download.id)}>
+                  <td class="select-col">
+                    <Checkbox
+                      checked={selectedIds.has(download.id)}
+                      ariaLabel="row {download.id}"
+                      on:change={() => toggleSelect(download.id)}
+                    />
+                  </td>
                   <td
                     class="filename"
-                    title={download.filename || $t("file_name_na")}
+                    title={!isPlaceholderName(download.filename) ? download.filename : $t("file_name_na")}
                   >
-                    {#if selectMode}
-                      <input
-                        type="checkbox"
-                        class="row-select"
-                        checked={selectedIds.has(download.id)}
-                        on:change={() => toggleSelect(download.id)}
-                        aria-label="row {download.id}"
-                      />
-                    {/if}
                     <span class="filename-text"
-                      >{download.filename || $t("file_name_na")}</span
+                      >{!isPlaceholderName(download.filename) ? download.filename : $t("file_name_na")}</span
                     >
                   </td>
                   <td class="center-align">
@@ -2325,6 +2292,9 @@
                             class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
                           ></span>
                         </span>
+                      {:else if download.status.toLowerCase() === "failed" && download.failure_kind}
+                        <!-- On failure show a single label: the classified reason (detail in tooltip) -->
+                        {$t("kind_" + download.failure_kind)}
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
                         {#if ["proxying", "parsing", "downloading"].includes(download.status.toLowerCase())}
@@ -2334,13 +2304,6 @@
                         {/if}
                       {/if}
                     </span>
-                    {#if download.status.toLowerCase() === "failed" && download.failure_kind}
-                      <!-- 실패 분류 칩: dead 는 빨강, auth/rate/cloudflare/proxy_blocked 는 주황, 일시류는 회색 -->
-                      <span
-                        class="kind-chip kind-chip-{download.failure_kind}"
-                        title={download.error_message || $t("kind_" + download.failure_kind)}
-                      >{$t("kind_" + download.failure_kind)}</span>
-                    {/if}
                   </td>
                   <td class="center-align">
                     {download.total_size
@@ -2413,7 +2376,7 @@
 
                           if (response.ok) {
                             const result = await response.json();
-                            // 프론트엔드의 상태 업데이트
+                            // Update the frontend state
                             downloads = downloads.map((d) =>
                               d.id === download.id
                                 ? { ...d, use_proxy: result.use_proxy }
@@ -2421,7 +2384,7 @@
                             );
                           } else {
                             toast.error(
-                              "프록시 모드 변경에 실패했습니다."
+                              $t("proxy_mode_change_failed")
                             );
                           }
                         } catch (error) {
@@ -2505,7 +2468,7 @@
                       {/if}
                       {#if download.status?.toLowerCase() === "failed"}
                         {#if download.failure_kind === "dead" || download.failure_kind === "unknown_terminal"}
-                          <!-- 원본이 사라진 파일 / 반복 실패 — 클릭 자체를 막아 의미 없는 재요청을 차단 -->
+                          <!-- File whose source is gone / repeated failures — block the click itself to prevent pointless re-requests -->
                           <button
                             class="button-icon is-disabled"
                             title={$t("retry_blocked_dead")}
@@ -2525,7 +2488,7 @@
                             <RetryIcon />
                           </button>
                         {:else if download.next_retry_at && new Date(download.next_retry_at).getTime() > Date.now()}
-                          <!-- cooldown 상태 — 강제 재시도는 허용 (서버에서 cooldown 만 초기화) -->
+                          <!-- cooldown state — force retry is allowed (the server only resets the cooldown) -->
                           <button
                             class="button-icon is-cooldown"
                             title={$t("retry_cooldown", { when: new Date(download.next_retry_at).toLocaleTimeString() })}
@@ -2544,7 +2507,7 @@
                             <RetryIcon />
                           </button>
                         {/if}
-                        <!-- 단건 검수: 살아있는지 즉시 확인 (1fichier 만 의미) -->
+                        <!-- Single audit: immediately check if it is alive (only meaningful for 1fichier) -->
                         {#if (download.original_url || download.url || "").includes("1fichier.com")}
                           <button
                             class="button-icon"
@@ -2589,7 +2552,7 @@
         </table>
       </div>
 
-      <!-- 페이지네이션 - 항상 표시 -->
+      <!-- Pagination - always shown -->
       <div class="pagination-footer">
       <div class="page-info">
         {#if totalPages > 1}
@@ -2610,7 +2573,7 @@
       </div>
       {#if totalPages > 1}
         <div class="pagination-buttons">
-          <!-- 데스크톱용 스마트 페이지네이션 -->
+          <!-- Smart pagination for desktop -->
           <div class="pagination-desktop">
             <button
               class="page-number-btn prev-next-btn"
@@ -2620,9 +2583,9 @@
               <ChevronLeftIcon />
             </button>
 
-            <!-- 스마트 페이지 번호 버튼들 -->
+            <!-- Smart page-number buttons -->
             {#if totalPages <= 7}
-              <!-- 총 페이지가 7개 이하면 모두 표시 -->
+              <!-- If there are 7 or fewer total pages, show them all -->
               {#each Array(totalPages) as _, i}
                 {@const pageNum = i + 1}
                 <button
@@ -2634,9 +2597,9 @@
                 </button>
               {/each}
             {:else}
-              <!-- 복잡한 페이지네이션 로직 -->
+              <!-- Complex pagination logic -->
               {#if currentPage <= 4}
-                <!-- 현재 페이지가 앞쪽에 있을 때: 1,2,3,4,5 ... 14 -->
+                <!-- When the current page is near the front: 1,2,3,4,5 ... 14 -->
                 {#each [1,2,3,4,5] as pageNum}
                   <button
                     class="page-number-btn"
@@ -2654,7 +2617,7 @@
                   {totalPages}
                 </button>
               {:else if currentPage >= totalPages - 3}
-                <!-- 현재 페이지가 뒤쪽에 있을 때: 1 ... 10,11,12,13,14 -->
+                <!-- When the current page is near the end: 1 ... 10,11,12,13,14 -->
                 <button
                   class="page-number-btn"
                   on:click={() => goToPage(1)}
@@ -2672,7 +2635,7 @@
                   </button>
                 {/each}
               {:else}
-                <!-- 현재 페이지가 중간에 있을 때: 1 ... 7,8,9,10,11 ... 14 -->
+                <!-- When the current page is in the middle: 1 ... 7,8,9,10,11 ... 14 -->
                 <button
                   class="page-number-btn"
                   on:click={() => goToPage(1)}
@@ -2708,7 +2671,7 @@
             </button>
           </div>
 
-          <!-- 모바일용 스마트 페이지네이션 -->
+          <!-- Smart pagination for mobile -->
           <div class="pagination-mobile">
             <div class="page-nav-container">
               <button
@@ -2731,7 +2694,7 @@
 
             <div class="page-numbers-mobile">
               {#if totalPages <= 7}
-                <!-- 총 페이지가 7개 이하면 모두 표시 -->
+                <!-- If there are 7 or fewer total pages, show them all -->
                 {#each Array(totalPages) as _, i}
                   {@const pageNum = i + 1}
                   <button
@@ -2743,9 +2706,9 @@
                   </button>
                 {/each}
               {:else}
-                <!-- 복잡한 페이지네이션 로직 -->
+                <!-- Complex pagination logic -->
                 {#if currentPage <= 4}
-                  <!-- 현재 페이지가 앞쪽에 있을 때: 1,2,3,4,5 ... 14 -->
+                  <!-- When the current page is near the front: 1,2,3,4,5 ... 14 -->
                   {#each [1,2,3,4,5] as pageNum}
                     <button
                       class="page-number-btn-mobile"
@@ -2763,7 +2726,7 @@
                     {totalPages}
                   </button>
                 {:else if currentPage >= totalPages - 3}
-                  <!-- 현재 페이지가 뒤쪽에 있을 때: 1 ... 10,11,12,13,14 -->
+                  <!-- When the current page is near the end: 1 ... 10,11,12,13,14 -->
                   <button
                     class="page-number-btn-mobile"
                     on:click={() => goToPage(1)}
@@ -2781,7 +2744,7 @@
                     </button>
                   {/each}
                 {:else}
-                  <!-- 현재 페이지가 중간에 있을 때: 1 ... 7,8,9,10,11 ... 14 -->
+                  <!-- When the current page is in the middle: 1 ... 7,8,9,10,11 ... 14 -->
                   <button
                     class="page-number-btn-mobile"
                     on:click={() => goToPage(1)}
@@ -2829,7 +2792,7 @@
       bind:statsEndDate={dashboardEndDate}
       on:settingsChanged={handleSettingsChanged}
       on:proxyChanged={checkProxyAvailability}
-      on:statsPeriodChange={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
+      on:statsPeriodChange={() => scheduleDashboardFetch()}
       on:close={() => (showSettingsModal = false)}
     />
   {/if}
@@ -2850,7 +2813,7 @@
     />
   {/if}
 
-  {#if selectMode && selectedIds.size > 0}
+  {#if selectedIds.size > 0}
     <div class="bulk-action-bar">
       <span class="bulk-count">{$t("select_count", { count: selectedIds.size })}</span>
       <div class="bulk-actions">
@@ -2860,7 +2823,7 @@
         <button class="button button-danger" on:click={bulkDeleteSelected}>
           {$t("bulk_action_delete")}
         </button>
-        <button class="button button-secondary" on:click={exitSelectMode}>
+        <button class="button button-secondary" on:click={clearSelection}>
           {$t("select_mode_exit")}
         </button>
       </div>

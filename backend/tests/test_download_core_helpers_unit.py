@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""``download_core`` 의 모듈 레벨 헬퍼 단위 테스트."""
+"""Unit tests for the module-level helpers in ``download_core``."""
 
 from core.download_core import _build_proxy_dict
 
@@ -19,6 +19,6 @@ class TestBuildProxyDict:
         }
 
     def test_https_uses_http_scheme_for_connect_tunnel(self):
-        """HTTPS 트래픽도 HTTP 프록시 통해 CONNECT 터널링하므로 스킴은 http."""
+        """HTTPS traffic also CONNECT-tunnels through an HTTP proxy, so the scheme is http."""
         result = _build_proxy_dict("proxy.example.com:3128")
         assert result["https"].startswith("http://")

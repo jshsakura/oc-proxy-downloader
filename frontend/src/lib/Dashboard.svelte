@@ -3,24 +3,24 @@
   import Skeleton from "./Skeleton.svelte";
 
   export let systemStats = null;
-  // 기간(조회 조건) 은 그리드 헤더로 이동. Dashboard 는 라이브 상태 + 시스템
-  // 모니터링만 책임짐.
+  // The period (query condition) moved to the grid header. The Dashboard is
+  // responsible only for live status + system monitoring.
 
-  // 시스템 모니터링 스파크라인용 슬라이딩 버퍼.
-  // systemStats 가 5 초마다 갱신될 때 마지막 N 포인트만 유지해 라이브 차트로 보여줌.
+  // Sliding buffer for the system-monitoring sparklines.
+  // As systemStats refreshes every 5 seconds, keep only the last N points to show as a live chart.
   const SPARK_POINTS = 40;
   let cpuSeries = [];
   let ramSeries = [];
   let netDownSeries = [];
   let netUpSeries = [];
 
-  // bytes_sent/recv 은 누적값이므로 이전 값과 차이를 받아 throughput 으로 환산.
+  // bytes_sent/recv are cumulative, so derive throughput from the difference vs the previous value.
   let prevNet = null;
   let prevTs = 0;
 
   function pushSeries(series, value) {
-    // 첫 샘플이면 SPARK_POINTS 만큼 같은 값으로 prefill — 그래야 페이지 진입 즉시
-    // 평탄선이라도 그려져서 카드가 휑해 보이지 않는다.
+    // For the first sample, prefill SPARK_POINTS with the same value — so that even
+    // a flat line is drawn immediately on page entry and the card does not look empty.
     if (series.length === 0) {
       return Array(SPARK_POINTS).fill(value);
     }
@@ -41,7 +41,7 @@
       netDownSeries = pushSeries(netDownSeries, dDown);
       netUpSeries = pushSeries(netUpSeries, dUp);
     } else if (netDownSeries.length === 0) {
-      // 첫 진입 — 다음 샘플이 와야 throughput 계산 가능. 일단 0 평탄선으로 채워둠.
+      // First entry — throughput can only be computed once the next sample arrives. Fill with a flat 0 line for now.
       netDownSeries = Array(SPARK_POINTS).fill(0);
       netUpSeries = Array(SPARK_POINTS).fill(0);
     }
@@ -65,7 +65,7 @@
     return val.toFixed(i === 0 ? 0 : 1) + " " + units[i];
   }
 
-  // 모바일용 — 단위는 CSS 로 숨길 수 있도록 숫자/단위 두 span 으로 분리해서 노출.
+  // For mobile — expose the number and unit as two separate spans so the unit can be hidden via CSS.
   function rateParts(bytesPerSec) {
     if (!bytesPerSec || bytesPerSec === 0) return { num: "0", unit: "B/s" };
     const units = ["B/s", "KB/s", "MB/s", "GB/s"];
@@ -84,15 +84,15 @@
     return m + "m";
   }
 
-  // 0..1 진행도 + r 반지름 → SVG 도넛 stroke-dasharray 두 값을 반환.
-  // 모든 게이지가 같은 공식을 쓰도록 한 곳에 모아둠.
+  // 0..1 progress + radius r → returns the two SVG donut stroke-dasharray values.
+  // Centralized so all gauges use the same formula.
   function arcDash(pct, r) {
     const C = 2 * Math.PI * r;
     const filled = Math.max(0, Math.min(1, pct)) * C;
     return `${filled} ${C - filled}`;
   }
 
-  // 라인 차트용 path (스파크라인). 컨테이너 가로폭에 맞게 0..W 스케일.
+  // Path for the line chart (sparkline). Scaled 0..W to fit the container width.
   function sparkPath(values, W, H, padTop = 2, padBot = 2) {
     if (!values || values.length < 2) return "";
     const max = Math.max(1, ...values);
@@ -117,14 +117,14 @@
 
   $: hasSystem = systemStats !== null;
 
-  // 게이지 공통 파라미터
+  // Common gauge parameters
   const GAUGE_R = 36;
   const GAUGE_CX = 50;
   const GAUGE_CY = 50;
 
   function gaugeColor(pct) {
-    // 65% 이하 — primary(보통), 88% 이하 — warning, 그 이상 — danger.
-    // 임계가 너무 낮으면 idle 시스템도 경고색이라 색이 산만해짐.
+    // <= 65% — primary (normal), <= 88% — warning, above that — danger.
+    // If the threshold is too low, even an idle system shows a warning color, making colors noisy.
     if (pct >= 88) return "var(--danger-color, #ef4444)";
     if (pct >= 65) return "var(--warning-color, #f59e0b)";
     return "var(--primary-color)";
@@ -145,9 +145,9 @@
 </script>
 
 <section class="dashboard-section">
-  <!-- 조회 조건(기간) 은 그리드(다운로드 목록) 쪽으로 이동. Dashboard 는 라이브
-       상태와 시스템 모니터링만 노출. -->
-  <!-- 부모(App.svelte) 가 ProxyGauge/LocalGauge 를 합본 카드로 주입. -->
+  <!-- The query condition (period) moved to the grid (download list) side. The Dashboard
+       shows only live status and system monitoring. -->
+  <!-- The parent (App.svelte) injects ProxyGauge/LocalGauge as a combined card. -->
   <slot name="gauges" />
 
   {#if hasSystem}
@@ -270,7 +270,7 @@
               {formatBytes(systemStats.disk.used)}
             </text>
           </svg>
-          <!-- 디스크는 짧은 시간 변화량이 적어서 스파크라인 대신 used/free 정적 바를 노출 -->
+          <!-- Disk changes little over short intervals, so show a static used/free bar instead of a sparkline -->
           <div class="disk-bar">
             <div class="disk-bar-row">
               <span class="disk-bar-lbl">used</span>
@@ -356,8 +356,9 @@
     </div>
   {/if}
 
-  <!-- 기간 선택 / 트렌드 / 상태 도넛 / 프록시-로컬 분포는 설정 모달의 "통계" 탭으로
-       이동했음. 메인 대시보드는 실시간 (gauges + 시스템 모니터링) 만 노출. -->
+  <!-- The period selector / trend / status donut / proxy-local distribution moved to
+       the "Stats" tab of the settings modal. The main dashboard shows only real-time
+       data (gauges + system monitoring). -->
 </section>
 
 <style>
@@ -368,9 +369,9 @@
     gap: 0.6rem;
   }
 
-  /* dash-header 제거 — 조회 조건은 그리드로 이동. */
+  /* Removed dash-header — the query condition moved to the grid. */
 
-  /* ── 시스템 모니터링: PC 4 컬럼, 그래프/게이지 위주 ── */
+  /* ── System monitoring: 4 columns on desktop, graph/gauge focused ── */
   .monitor-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -388,6 +389,10 @@
     flex-direction: column;
     gap: 0.4rem;
     min-height: 110px;
+    /* Allow the grid track to shrink so wide content (numbers/sparkline) stays
+       inside the card instead of overflowing the grid. */
+    min-width: 0;
+    overflow: hidden;
   }
 
   .monitor-head {
@@ -416,10 +421,11 @@
 
   .monitor-body {
     display: grid;
-    grid-template-columns: 86px 1fr;
+    grid-template-columns: 86px minmax(0, 1fr);
     align-items: center;
     gap: 0.7rem;
     flex: 1;
+    min-width: 0;
   }
 
   .monitor-body-stacked {
@@ -530,15 +536,15 @@
     display: block;
   }
 
-  /* 모바일 대응 — 시스템 모니터링 그리드는 좁아질수록 컬럼 줄이고 그래프는
-   * 점차 숨김. 작은 화면일수록 그래프 대신 핵심 숫자 + 작은 게이지만 노출. */
+  /* Mobile support — the system-monitoring grid drops columns as it narrows and
+   * progressively hides graphs. On smaller screens, show only the key numbers + a small gauge instead of graphs. */
   @media (max-width: 900px) {
     .monitor-grid {
       grid-template-columns: repeat(2, 1fr);
     }
   }
-  /* 모바일(≤600px) — 게이지 3 개(CPU/RAM/Disk) + 네트워크 속도까지 한 줄로 압축.
-   * 그래프(스파크라인 / 디스크 막대 / 네트워크 스파크) 는 모두 숨김. */
+  /* Mobile (≤600px) — compress the 3 gauges (CPU/RAM/Disk) + network speed into one row.
+   * Hide all graphs (sparkline / disk bar / network spark). */
   @media (max-width: 600px) {
     .monitor-grid {
       grid-template-columns: repeat(4, 1fr);
@@ -554,7 +560,7 @@
     .disk-bar {
       display: none;
     }
-    /* head 의 메타(코어수 / RAM 용량 / free 등) 도 좁은 폭에선 생략 */
+    /* The head's meta (core count / RAM size / free, etc.) is also omitted at narrow widths */
     .monitor-meta {
       display: none;
     }
@@ -565,7 +571,7 @@
       font-size: 0.6rem;
       letter-spacing: 0.05em;
     }
-    /* 게이지를 카드 중앙에 단독으로 — 좌·우 그리드 대신 single column */
+    /* Gauge alone in the center of the card — a single column instead of a left/right grid */
     .monitor-body {
       display: flex;
       flex-direction: column;
@@ -575,9 +581,9 @@
     .gauge { width: 56px; height: 56px; }
     .gauge-lg { width: 56px; height: 56px; }
 
-    /* 네트워크 카드 — 게이지가 없으니 ↓/↑ 속도를 세로로 컴팩트 노출.
-     * 단위(B/s, KB/s 등) 는 모바일에서 줄바뀜 유발해서 숫자만 노출.
-     * 카드 전체 중앙 정렬. 좌측에 화살표 + 숫자가 가운데 모이게. */
+    /* Network card — with no gauge, show the ↓/↑ speeds compactly and vertically.
+     * Units (B/s, KB/s, etc.) cause line breaks on mobile, so show only the numbers.
+     * Center the whole card, with the arrow + numbers grouped in the middle. */
     .monitor-net .net-rates {
       flex-direction: column;
       gap: 0.15rem;

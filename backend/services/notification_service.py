@@ -1,7 +1,7 @@
 """
-알림 서비스 모듈
-- SSE 메시지 전송
-- 텔레그램 알림
+Notification service module
+- SSE message sending
+- Telegram notifications
 """
 
 import asyncio
@@ -14,9 +14,9 @@ from core.i18n import get_translations
 
 
 def send_sse_message(message_type: str, data: dict):
-    """통합된 SSE 메시지 전송 함수"""
+    """Unified SSE message sending function"""
     try:
-        # 간단하게 새 스레드에서 비동기 실행
+        # Simply run asynchronously in a new thread
         def run_broadcast():
             try:
                 loop = asyncio.new_event_loop()
@@ -33,7 +33,7 @@ def send_sse_message(message_type: str, data: dict):
 
 
 def send_telegram_wait_notification(file_name: str, wait_minutes: int, language: str = "ko", file_size_str: str = None):
-    """텔레그램 대기 시간 알림 전송"""
+    """Send a Telegram wait-time notification"""
     print(f"[DEBUG] 텔레그램 대기 알림 호출됨: file_name={file_name}, wait_minutes={wait_minutes}")
     try:
         config = get_config()
@@ -50,13 +50,13 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
 
         translations = get_translations(language)
 
-        # HTML 형식으로 메시지 작성
-        # 시스템 로컬 시간 사용 (서버 환경의 시간대 반영)
+        # Compose the message in HTML format
+        # Use the system local time (reflects the server environment's time zone)
         local_time = datetime.datetime.now()
         if language == "ko":
             current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
         else:
-            # 영문의 경우 시간대 정보 포함
+            # For English, include time zone info
             current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
 
         wait_text = translations.get("telegram_wait_detected", "Wait Time Detected")
@@ -77,7 +77,7 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
 
         print(f"[DEBUG] 텔레그램 메시지 생성 완료, API 호출 시작")
 
-        # 텔레그램 API 호출
+        # Call the Telegram API
         def send_notification():
             try:
                 url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -96,7 +96,7 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
             except Exception as e:
                 print(f"[WARNING] 텔레그램 전송 실패: {e}")
 
-        # 별도 스레드에서 전송
+        # Send in a separate thread
         print(f"[DEBUG] 텔레그램 알림 스레드 시작")
         threading.Thread(target=send_notification, daemon=True).start()
 
@@ -105,7 +105,7 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
 
 
 def send_telegram_start_notification(file_name: str, download_mode: str, language: str = "ko", file_size_str: str = None):
-    """텔레그램 다운로드 시작 알림"""
+    """Telegram download-start notification"""
     print(f"[DEBUG] 텔레그램 시작 알림 호출됨: file_name={file_name}, download_mode={download_mode}")
     try:
         config = get_config()
@@ -122,12 +122,12 @@ def send_telegram_start_notification(file_name: str, download_mode: str, languag
 
         translations = get_translations(language)
 
-        # 시스템 로컬 시간 사용 (서버 환경의 시간대 반영)
+        # Use the system local time (reflects the server environment's time zone)
         local_time = datetime.datetime.now()
         if language == "ko":
             current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
         else:
-            # 영문의 경우 시간대 정보 포함
+            # For English, include time zone info
             current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
 
         start_text = translations.get("telegram_download_started", "Download Started")
@@ -178,7 +178,7 @@ def send_telegram_start_notification(file_name: str, download_mode: str, languag
 def send_telegram_notification(file_name: str, status: str, error: str = None, language: str = "ko",
                               file_size_str: str = None, download_time: str = None,
                               save_path: str = None, requested_time: str = None, download_mode: str = None):
-    """텔레그램 완료/실패 알림"""
+    """Telegram completion/failure notification"""
     try:
         print(f"[DEBUG] send_telegram_notification 호출됨: file_name={file_name}, status={status}")
         config = get_config()
@@ -194,7 +194,7 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
             print(f"[DEBUG] 텔레그램 설정 부족으로 알림 건너뜀")
             return
 
-        # 상태에 따른 알림 설정 확인
+        # Check notification settings based on status
         print(f"[DEBUG] 텔레그램 알림 설정 체크: status={status}, notify_success={notify_success}, notify_failure={notify_failure}")
         if status == "success" and not notify_success:
             print(f"[DEBUG] 성공 알림이 비활성화되어 있어 알림 건너뜀")
@@ -205,12 +205,12 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
 
         translations = get_translations(language)
 
-        # 시스템 로컬 시간 사용 (서버 환경의 시간대 반영)
+        # Use the system local time (reflects the server environment's time zone)
         local_time = datetime.datetime.now()
         if language == "ko":
             current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
         else:
-            # 영문의 경우 시간대 정보 포함
+            # For English, include time zone info
             current_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
 
         if status == "success":

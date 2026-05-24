@@ -1,7 +1,7 @@
 """
-알림 관리 모듈
-- 상태 업데이트 알림
-- SSE 메시지 전송
+Notification-management module
+- Status-update notifications
+- SSE message sending
 """
 
 from sqlalchemy.orm import Session
@@ -10,16 +10,16 @@ from .download_core import send_sse_message
 
 
 def notify_status_update(db: Session, download_id: int):
-    """다운로드 상태 업데이트 알림"""
+    """Notify of a download status update"""
     try:
         req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
         if req:
-            # 진행률 계산
+            # Calculate progress
             progress = 0.0
             if req.total_size and req.total_size > 0 and req.downloaded_size:
                 progress = min(100.0, (req.downloaded_size / req.total_size) * 100)
 
-            # 통합된 SSE 전송 방식 사용
+            # Use the unified SSE-sending approach
             send_sse_message("status_update", {
                 "id": req.id,
                 "url": req.url,

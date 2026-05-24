@@ -152,7 +152,8 @@
   }
 
   .local-info {
-    min-height: 30px;
+    /* Match ProxyGauge header row height so the two cards line up */
+    min-height: 40px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -202,7 +203,7 @@
     line-height: 1;
   }
 
-  /* proxy 의 gauge-bar 와 동일한 사이즈/모양 chip — count 표시도 24px pill. */
+  /* A chip with the same size/shape as proxy's gauge-bar — the count is also a 24px pill. */
   .local-count {
     flex: 1;
     min-width: 0;
@@ -502,7 +503,7 @@
   }
 
   /* Mobile responsiveness */
-  /* Mobile responsiveness - 759px 이하에서 세로 배치 */
+  /* Mobile responsiveness - stack vertically at 759px and below */
   @media (max-width: 759px) {
     .local-gauge {
       padding: 0.75rem;

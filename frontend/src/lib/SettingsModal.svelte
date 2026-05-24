@@ -1,7 +1,7 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from "svelte";
   import { theme } from "./theme.js";
-  import { t, loadTranslations, isLoading } from "./i18n.js";
+  import { t, loadTranslations, isLoading, availableLanguages } from "./i18n.js";
   import HomeIcon from "../icons/HomeIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import SettingsIcon from "../icons/SettingsIcon.svelte";
@@ -27,7 +27,7 @@
   export let showModal;
   export let currentSettings;
 
-  // ── 통계 탭에서 사용 ──
+  // ── Used by the stats tab ──
   export let dashboardStats = null;
   export let summaryTotal = 0;
   export let summarySuccessRate = 0;
@@ -37,7 +37,7 @@
   export let statsStartDate = "";
   export let statsEndDate = "";
 
-  // 탭 상태 — 일반(general) / 통계(stats)
+  // Tab state — general / stats
   let activeTab = "general";
 
   function setTab(tab) {
@@ -75,9 +75,9 @@
   let newProxyDescription = "";
   let isAddingProxy = false;
 
-  // 페이징 변수들
+  // Paging variables
   let currentPage = 1;
-  let itemsPerPage = 50; // 페이지당 50개만 표시
+  let itemsPerPage = 50; // Show only 50 per page
   $: totalPages = Math.ceil(userProxies.length / itemsPerPage);
   $: paginatedProxies = userProxies.slice(
     (currentPage - 1) * itemsPerPage,
@@ -88,13 +88,13 @@
   let detailedGuideExpanded = false;
   let fichierAccountExpanded = false;
   let fichierTestLoading = false;
-  // 1fichier 자격증명을 이미 저장한 사용자에게는 ID/PW 입력란을 숨기고
-  // 저장된 이메일만 표시. '변경' 버튼을 누르면 다시 편집 모드로 전환.
+  // For users who already saved 1fichier credentials, hide the ID/PW inputs and
+  // show only the saved email. Clicking the 'Change' button switches back to edit mode.
   let fichierEditMode = false;
 
   function startFichierEdit() {
     fichierEditMode = true;
-    // 비밀번호는 다시 입력하도록 비움 (이메일은 그대로 둠)
+    // Clear the password so it must be re-entered (leave the email as-is)
     settings.fichier_password = "";
   }
 
@@ -134,7 +134,7 @@
   }
   let showLogoutConfirm = false;
 
-  // 버전 정보
+  // Version information
   let versionInfo = {
     current_version: "v1.0.0",
     latest_version: null,
@@ -158,7 +158,7 @@
       }
     } catch (error) {
       console.error("Proxy list load failed:", error);
-      userProxies = []; // 오류 시 빈 배열로 설정
+      userProxies = []; // Set to an empty array on error
     }
   }
 
@@ -233,23 +233,13 @@
 
   function formatDate(dateString) {
     if (!dateString) return "-";
+    // Use the active language code as the BCP-47 locale so every language is localized.
     const currentLocale = localStorage.getItem("lang") || "en";
-    const date = new Date(dateString);
-    const localeCode = currentLocale === "ko" ? "ko-KR" : "en-US";
-
-    if (currentLocale === "ko") {
-      return date.toLocaleDateString(localeCode, {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
-    } else {
-      return date.toLocaleDateString(localeCode, {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      });
-    }
+    return new Date(dateString).toLocaleDateString(currentLocale, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
   }
 
   async function copyToClipboard(text) {
@@ -373,29 +363,30 @@
         const responseData = await response.json();
         console.log("[DEBUG] Save response data:", responseData);
 
-        // 언어는 이미 changeLocale에서 적용되었으므로 별도 처리 불필요
+        // The language was already applied in changeLocale, so no extra handling is needed
 
+        toast.success($t("settings_saved"));
         dispatch("settingsChanged", settings);
         closeModal();
       } else {
         console.error("[ERROR] Save failed:", response.status);
         let errorMessage = $t("settings_save_failed", {
-          status: response.status,
+          details: response.status,
         });
 
         if (response.status === 500) {
-          errorMessage += `\n${$t("settings_save_error_server")}`;
+          errorMessage += ` - ${$t("settings_save_error_server")}`;
         } else if (response.status === 403) {
-          errorMessage += `\n${$t("settings_save_error_auth")}`;
+          errorMessage += ` - ${$t("settings_save_error_auth")}`;
         } else if (response.status === 404) {
-          errorMessage += `\n${$t("settings_save_error_notfound")}`;
+          errorMessage += ` - ${$t("settings_save_error_notfound")}`;
         }
 
-        alert(errorMessage);
+        toast.error(errorMessage);
       }
     } catch (error) {
       console.error("Error saving settings:", error);
-      alert("Error saving settings");
+      toast.error($t("settings_save_failed", { details: error?.message || "" }));
     }
   }
 
@@ -411,7 +402,7 @@
         const data = await response.json();
         console.log("[DEBUG] Default path data:", data);
 
-        // 환경 정보 저장
+        // Save the environment information
         environmentInfo = {
           is_standalone: data.is_standalone || false,
           is_docker: data.is_docker || false,
@@ -442,7 +433,7 @@
 
   async function selectFolder() {
     if (environmentInfo.is_docker) {
-      toast.error("폴더 선택은 도커 환경에서 지원되지 않습니다");
+      toast.error($t("folder_select_docker_unsupported"));
       return;
     }
 
@@ -459,17 +450,17 @@
         }
       } else {
         const errorData = await response.json();
-        toast.error(errorData.detail || "폴더 선택에 실패했습니다");
+        toast.error(errorData.detail || $t("folder_select_failed"));
       }
     } catch (error) {
       console.error("Folder selection error:", error);
-      toast.error("폴더 선택 중 오류가 발생했습니다");
+      toast.error($t("folder_select_error"));
     }
   }
 
   async function changeLocale(e) {
     selectedLocale = e.target.value;
-    // 언어 변경 시 즉시 번역 로드하여 미리보기 제공
+    // On language change, load translations immediately to provide a preview
     localStorage.setItem("lang", selectedLocale);
     await loadTranslations(selectedLocale);
   }
@@ -482,7 +473,7 @@
     authManager.logout();
     showLogoutConfirm = false;
     closeModal();
-    // 로그아웃 후 페이지 새로고침으로 상태 완전 초기화
+    // After logout, reload the page to fully reset state
     setTimeout(() => {
       window.location.reload();
     }, 100);
@@ -587,7 +578,7 @@
           </div>
         </div>
 
-        <!-- 설정 탭 바 — 일반 / 통계. -->
+        <!-- Settings tab bar — General / Stats. -->
         <div class="settings-tabs" role="tablist">
           <button
             type="button"
@@ -678,8 +669,8 @@
                     type="button"
                     class="input-icon-button"
                     on:click={selectFolder}
-                    title="폴더 선택"
-                    aria-label="폴더 선택"
+                    title={$t("folder_select")}
+                    aria-label={$t("folder_select")}
                   >
                     <svg
                       width="16"
@@ -720,8 +711,9 @@
               bind:value={selectedLocale}
               on:change={changeLocale}
             >
-              <option value="ko">{$t("language_korean")}</option>
-              <option value="en">{$t("language_english")}</option>
+              {#each $availableLanguages as lang (lang.code)}
+                <option value={lang.code}>{lang.name}</option>
+              {/each}
             </select>
           </div>
 
@@ -991,7 +983,7 @@
                 </div>
               </div>
 
-              <!-- 프록시 테이블 푸터 -->
+              <!-- Proxy table footer -->
               <div class="proxy-table-footer">
                 <div class="proxy-footer-info">
                   <div class="proxy-count-info">
@@ -999,10 +991,10 @@
                   </div>
                   {#if totalPages > 1}
                     <div class="proxy-page-info">
-                      {(currentPage - 1) * itemsPerPage + 1}~{Math.min(
-                        currentPage * itemsPerPage,
-                        userProxies.length
-                      )} 표시
+                      {$t("proxy_page_range", {
+                        start: (currentPage - 1) * itemsPerPage + 1,
+                        end: Math.min(currentPage * itemsPerPage, userProxies.length),
+                      })}
                     </div>
                   {/if}
                 </div>
@@ -1017,7 +1009,7 @@
                       ←
                     </button>
 
-                    <!-- 페이지 번호 버튼들 - 최대 5개 표시 -->
+                    <!-- Page number buttons - show up to 5 -->
                     {#each Array(Math.min(totalPages, 5)) as _, i}
                       {@const pageNum = Math.max(1, currentPage - 2) + i}
                       {#if pageNum <= totalPages}
@@ -1044,7 +1036,7 @@
             {/if}
           </div>
 
-          <!-- 1fichier 계정 (게스트 슬롯 부족 우회) -->
+          <!-- 1fichier account (workaround for guest slot shortage) -->
           <fieldset class="form-group telegram-notifications">
             <legend>{$t("fichier_account_title")}</legend>
 
@@ -1070,7 +1062,7 @@
               <div class="telegram-accordion">
                 <div class="accordion-content">
                   {#if currentSettings?.fichier_email && currentSettings?.fichier_password && !fichierEditMode}
-                    <!-- 저장된 자격증명: 이메일만 깔끔하게 표시 -->
+                    <!-- Saved credentials: show only the email, cleanly -->
                     <div class="fichier-saved">
                       <div class="fichier-saved-row">
                         <span class="fichier-saved-icon" aria-hidden="true">✓</span>
@@ -1097,7 +1089,7 @@
                       </div>
                     </div>
                   {:else}
-                    <!-- 입력/편집 모드 -->
+                    <!-- Input/edit mode -->
                     <div class="telegram-input-group">
                       <div class="input-field">
                         <label for="fichier-email">{$t("fichier_email_label")}</label>
@@ -1170,7 +1162,7 @@
           <fieldset class="form-group telegram-notifications">
             <legend>{$t("telegram_notifications")}</legend>
 
-            <!-- 텔레그램 설정 가이드 아코디언 -->
+            <!-- Telegram setup guide accordion -->
             <button
               type="button"
               class="telegram-header"
@@ -1201,7 +1193,7 @@
             {#if telegramGuideExpanded}
               <div class="telegram-accordion">
                 <div class="accordion-content">
-                  <!-- 텔레그램 설정 가이드 -->
+                  <!-- Telegram setup guide -->
                   <div class="telegram-setup-guide">
                     <div class="setup-guide-header">
                       <h4 class="guide-title">
@@ -1308,7 +1300,7 @@
               </div>
             {/if}
 
-            <!-- 텔레그램 설정 아코디언 -->
+            <!-- Telegram settings accordion -->
             <button
               type="button"
               class="telegram-header"
@@ -1462,7 +1454,7 @@
               </div>
             {/if}
 
-            <!-- 버전 정보 섹션 -->
+            <!-- Version information section -->
             <div class="version-section">
               <h4 class="section-title">📊 {$t("version_info")}</h4>
               <div class="version-content">
@@ -1530,7 +1522,7 @@
           </fieldset>
         </div>
 
-        <!-- 통계 탭 — KPI 카드 + 기간 선택 + 트렌드 / 상태 도넛. -->
+        <!-- Stats tab — KPI cards + period selector + trend / status donut. -->
         <div class="modal-body stats-body" class:tab-hidden={activeTab !== "stats"}>
           <div class="stats-kpi">
             <div class="stats-kpi-card">
@@ -1822,7 +1814,7 @@
     letter-spacing: 0.05em;
   }
 
-  /* 프록시 로딩 상태 */
+  /* Proxy loading state */
   .proxy-loading-state {
     display: flex;
     flex-direction: column;
@@ -1842,7 +1834,7 @@
     animation: spin 1s linear infinite;
   }
 
-  /* 프록시 테이블 푸터 */
+  /* Proxy table footer */
   .proxy-table-footer {
     display: flex;
     justify-content: space-between;
@@ -1921,7 +1913,7 @@
     font-weight: 400;
   }
 
-  /* 테마별 프록시 페이지 번호 버튼 스타일 */
+  /* Per-theme proxy page-number button styles */
   :global(body.dark) .proxy-page-number-btn {
     background: #374151;
     border-color: #4b5563;
@@ -1950,7 +1942,7 @@
     background: #6272a4;
   }
 
-  /* 프록시 테이블 푸터 모바일 반응형 */
+  /* Proxy table footer mobile responsiveness */
   @media (max-width: 768px) {
     .proxy-table-footer {
       flex-direction: column;
@@ -1993,7 +1985,7 @@
     display: none !important;
   }
 
-  /* ── 설정 탭 바 (일반 / 통계) ── */
+  /* ── Settings tab bar (General / Stats) ── */
   .settings-tabs {
     display: flex;
     gap: 0.25rem;
@@ -2031,7 +2023,7 @@
     border-bottom-color: var(--primary-color);
   }
 
-  /* ── 통계 탭 본문 ── */
+  /* ── Stats tab body ── */
   .stats-body {
     display: flex;
     flex-direction: column;
@@ -2275,9 +2267,9 @@
     height: 1rem;
   }
 
-  /* 테마 카드 — 좌측 색상 스워치, 중앙에 정렬된 이름. 한 줄당 카드 둘 (PC),
-   * 모바일에선 한 카드 한 줄 풀폭. 그라데이션 배경이 박혀 있던 기존 변형들도
-   * 잔잔하게 톤다운. */
+  /* Theme cards — color swatch on the left, name centered. Two cards per row (desktop),
+   * one card per full-width row on mobile. The older variants that had baked-in gradient
+   * backgrounds are also gently toned down. */
   .theme-options {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -2324,7 +2316,7 @@
     box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb, 99, 102, 241), 0.18);
   }
 
-  /* 체크 표시 — 선택된 카드 우측에 작은 ✓ 노출 */
+  /* Check mark — show a small ✓ on the right of the selected card */
   .theme-option-label input[type="radio"]:checked + .theme-card::after {
     content: "";
     grid-column: 3;
@@ -2354,8 +2346,9 @@
     letter-spacing: 0.01em;
   }
 
-  /* (구) 테마별 그라데이션 카드 배경 override 제거 — 새 디자인은 좌측 swatch 만으로
-   * 테마 색을 표현하므로 카드 배경은 일관된 카드 톤 유지가 더 깔끔하다. */
+  /* Removed the (old) per-theme gradient card-background override — the new design
+   * conveys the theme color with the left swatch alone, so keeping a consistent card
+   * tone for the background is cleaner. */
 
   .modal-footer {
     padding: 0.75rem 1.25rem;
@@ -2377,7 +2370,7 @@
     flex-shrink: 0;
   }
 
-  /* 버전 정보 섹션 스타일 */
+  /* Version information section styles */
   .version-section {
     margin-top: 1.5rem;
     padding: 1rem;
@@ -2672,9 +2665,9 @@
     gap: 0.5rem;
   }
 
-  /* 헤더 보조 문구 — 부모 <button> 의 기본 색(black)을 상속하지 않게
-     명시적으로 테마 변수 사용. 누락 시 라이트 모드에서 검정 고정으로
-     보여 다크/드라큘라 테마와 안 맞는 문제가 있었음. */
+  /* Header subtext — use the theme variable explicitly so it does not inherit
+     the parent <button>'s default color (black). Without it, it appeared fixed
+     black in light mode, which clashed with the dark/Dracula themes. */
   .telegram-sub {
     margin: 0.25rem 0 0 0;
     color: var(--text-secondary);

@@ -7,7 +7,7 @@ export const showToast = writable(false);
 let toastTimer;
 let lastToastMessage = '';
 let lastToastTime = 0;
-const DUPLICATE_THRESHOLD = 1000; // 1초 내 같은 메시지 중복 방지
+const DUPLICATE_THRESHOLD = 1000; // Prevent duplicate messages within 1 second
 
 export function showToastMsg(msg, type = 'info') {
   if (typeof msg !== 'string') {
@@ -18,7 +18,7 @@ export function showToastMsg(msg, type = 'info') {
     }
   }
   
-  // 중복 메시지 방지 (1초 내 같은 메시지)
+  // Prevent duplicate messages (same message within 1 second)
   const now = Date.now();
   if (msg === lastToastMessage && (now - lastToastTime) < DUPLICATE_THRESHOLD) {
     return;

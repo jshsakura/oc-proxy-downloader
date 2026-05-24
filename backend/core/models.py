@@ -19,14 +19,14 @@ Base = declarative_base()
 
 
 def _serialize_column_value(name, value):
-    """SQLAlchemy 컬럼 값을 JSON 직렬화 가능한 형태로 변환.
+    """Convert a SQLAlchemy column value into a JSON-serializable form.
 
-    공통 규칙:
-    - datetime → ISO8601 문자열 (None 보존)
-    - StatusEnum → ``.value`` 문자열
-    - status == 'paused' (구버전 DB) → 'stopped' 으로 마이그레이션
-    - downloaded_size/total_size 가 None → 0 (UI 가 항상 숫자로 받게)
-    - error 는 항상 문자열로 변환, encoding 오류는 placeholder 로
+    Common rules:
+    - datetime → ISO8601 string (None preserved)
+    - StatusEnum → ``.value`` string
+    - status == 'paused' (older DB) → migrated to 'stopped'
+    - downloaded_size/total_size of None → 0 (so the UI always receives a number)
+    - error is always converted to a string; encoding errors become a placeholder
     """
     if isinstance(value, datetime.datetime):
         return value.isoformat() if value else None
@@ -46,10 +46,10 @@ def _serialize_column_value(name, value):
 
 
 class _AsDictMixin:
-    """``as_dict()`` 를 제공하는 공용 mixin.
+    """Shared mixin providing ``as_dict()``.
 
-    DownloadRequest / UserProxy 등 두 모델에 동일한 60줄짜리 직렬화
-    로직이 복사돼 있던 것을 한 곳으로 모음.
+    Consolidates into one place the identical 60-line serialization logic that
+    had been copied across the two models DownloadRequest / UserProxy.
     """
 
     def as_dict(self):
@@ -63,35 +63,36 @@ class DownloadRequest(_AsDictMixin, Base):
     __tablename__ = "download_requests"
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, nullable=False)
-    original_url = Column(String, nullable=True)  # 원본 URL (파싱 전)
+    original_url = Column(String, nullable=True)  # original URL (before parsing)
     file_name = Column(String)
-    file_size = Column(String, nullable=True)  # 파일 크기 (예: "6.98 GB")
+    file_size = Column(String, nullable=True)  # file size (e.g. "6.98 GB")
     status = Column(Enum(StatusEnum), default=StatusEnum.pending)
     requested_at = Column(DateTime, default=datetime.datetime.now)
-    started_at = Column(DateTime, nullable=True)  # 실제 다운로드 시작 시간
+    started_at = Column(DateTime, nullable=True)  # actual download start time
     finished_at = Column(DateTime, nullable=True)
     error = Column(Text, nullable=True)
     downloaded_size = Column(Integer, default=0)
     total_size = Column(Integer, default=0)
     save_path = Column(String, nullable=True)
     password = Column(String, nullable=True)
-    use_proxy = Column(Boolean, default=True)  # 프록시 사용 여부
+    use_proxy = Column(Boolean, default=True)  # whether to use a proxy
 
-    # 실패 분류 / 재시도 정책 영구 저장 (error_messages.KIND_* 와 동일 값)
-    # 텍스트 재분류만으로는 분류 룰을 바꿀 때마다 의미가 변하고, 단일
-    # 관측치만으로 dead 박제되는 문제를 막기 위한 컬럼들.
+    # Persist the failure classification / retry policy (same values as error_messages.KIND_*)
+    # These columns prevent the problems of text re-classification (whose meaning
+    # shifts whenever the classification rules change) and of pinning dead from a
+    # single observation.
     failure_kind = Column(String, nullable=True, index=True)
     attempt_count = Column(Integer, default=0)
     next_retry_at = Column(DateTime, nullable=True, index=True)
     last_probed_at = Column(DateTime, nullable=True)
-    # 최근 시도 N=5 회 링버퍼 (JSON 배열, 각 원소 {ts, stage, kind, raw, proxy})
+    # Ring buffer of the most recent N=5 attempts (JSON array, each element {ts, stage, kind, raw, proxy})
     attempts_json = Column(Text, nullable=True)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # progress 는 DB 컬럼이 아닌 transient 필드 — 정지/재개 시 SSE
-        # broadcast 에 포함시키려고 인스턴스에 임시로 set 한 뒤 다른 요청
-        # 처리 흐름이 읽어간다.
+        # progress is a transient field, not a DB column — it is temporarily set
+        # on the instance so it can be included in the SSE broadcast on
+        # stop/resume, then read by another request-handling flow.
         self.progress = 0
 
 
@@ -99,15 +100,15 @@ class UserProxy(_AsDictMixin, Base):
     __tablename__ = "user_proxies"
 
     id = Column(Integer, primary_key=True, index=True)
-    address = Column(String, nullable=False)  # 프록시 주소 (URL 또는 IP:PORT)
-    proxy_type = Column(String, default="list")  # "list" 또는 "single"
-    is_active = Column(Boolean, default=True)  # 활성 상태
+    address = Column(String, nullable=False)  # proxy address (URL or IP:PORT)
+    proxy_type = Column(String, default="list")  # "list" or "single"
+    is_active = Column(Boolean, default=True)  # active state
     added_at = Column(DateTime, default=datetime.datetime.now)
     last_used = Column(DateTime, nullable=True)
-    description = Column(String, nullable=True)  # 사용자 설명
+    description = Column(String, nullable=True)  # user description
 
 
-# 프록시 상태 관리 테이블
+# Proxy status management table
 class ProxyStatus(Base):
     __tablename__ = "proxy_status"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -116,4 +117,4 @@ class ProxyStatus(Base):
     last_used_at = Column(DateTime, nullable=True)
     last_status = Column(String, nullable=True)  # 'success' or 'fail'
     last_failed_at = Column(DateTime, nullable=True)
-    success = Column(Boolean, nullable=True)  # 호환성을 위해 추가
+    success = Column(Boolean, nullable=True)  # added for compatibility

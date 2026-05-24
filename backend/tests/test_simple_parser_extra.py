@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""``simple_parser`` 의 분기 커버리지를 채우기 위한 추가 테스트."""
+"""Additional tests to fill in branch coverage for ``simple_parser``."""
 
 from unittest.mock import MagicMock
 
@@ -9,12 +9,12 @@ from core import simple_parser as sp
 
 
 # ---------------------------------------------------------------------------
-# parse_1fichier_simple_sync — 대기시간이 있는 흐름
+# parse_1fichier_simple_sync — flow with a wait time
 # ---------------------------------------------------------------------------
 
 
 def _make_wait_page_html(wait_seconds: int) -> str:
-    """``var ct = N`` 형식의 대기페이지 HTML."""
+    """Wait-page HTML in the ``var ct = N`` form."""
     return f"""
     <html><body>
         <table>
@@ -34,7 +34,7 @@ def _make_wait_page_html(wait_seconds: int) -> str:
 
 
 def test_parse_simple_sync_with_wait_time_skips_actual_sleep(monkeypatch):
-    """대기시간이 있을 때 ``time.sleep`` 호출 횟수만큼 카운트다운 한다."""
+    """When there is a wait time, count down for as many ``time.sleep`` calls as needed."""
 
     get_response = MagicMock()
     get_response.status_code = 200
@@ -59,7 +59,7 @@ def test_parse_simple_sync_with_wait_time_skips_actual_sleep(monkeypatch):
     sleep_calls = []
     monkeypatch.setattr(sp.time, "sleep", lambda s: sleep_calls.append(s))
 
-    # download_id 없이 호출 → 대기 루프는 단순 sleep 1회만 실행
+    # Called without download_id → the wait loop runs a single plain sleep
     result = sp.parse_1fichier_simple_sync(
         "https://1fichier.com/?abc",
         password=None,
@@ -75,8 +75,8 @@ def test_parse_simple_sync_with_wait_time_skips_actual_sleep(monkeypatch):
 
 
 def test_parse_simple_sync_sse_callback_invoked_during_wait(monkeypatch):
-    """download_id 가 있으면 카운트다운 도중 SSE 콜백이 호출된다.
-    cancel_signal 기반으로 바뀐 이후엔 DB 모킹 불필요.
+    """When download_id is present, the SSE callback is invoked during the countdown.
+    After the switch to a cancel_signal-based design, DB mocking is no longer needed.
     """
     import threading
     from core import cancel_signal
@@ -100,8 +100,8 @@ def test_parse_simple_sync_sse_callback_invoked_during_wait(monkeypatch):
 
     monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
     monkeypatch.setattr(sp.time, "sleep", lambda s: None)
-    # Event.wait 는 threading 모듈 — time.sleep 패치로는 막히지 않으므로
-    # 즉시 timeout(False) 반환하도록 패치.
+    # Event.wait belongs to the threading module — patching time.sleep does not
+    # affect it, so patch it to return timeout (False) immediately.
     monkeypatch.setattr(threading.Event, "wait",
                         lambda self, timeout=None: self.is_set())
 
@@ -128,7 +128,7 @@ def test_parse_simple_sync_sse_callback_invoked_during_wait(monkeypatch):
 
 
 def test_parse_simple_sync_returns_none_when_stopped_during_wait(monkeypatch):
-    """대기 중 cancel_signal 이 set 되면 None 반환 (DB 폴링 없음)."""
+    """If cancel_signal is set during the wait, return None (no DB polling)."""
     from core import cancel_signal
 
     get_response = MagicMock()
@@ -142,8 +142,8 @@ def test_parse_simple_sync_returns_none_when_stopped_during_wait(monkeypatch):
 
     monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
 
-    # 카운트다운 진입 *전* 에 cancel signal 을 set 해두면, get_event 가
-    # 이미 set 된 Event 를 반환하므로 첫 wait 호출이 즉시 True 로 깨어난다.
+    # If the cancel signal is set *before* entering the countdown, get_event
+    # returns an already-set Event, so the first wait call wakes immediately as True.
     cancel_signal.reset_all_for_tests()
     cancel_signal.signal_cancel(42)
 
@@ -158,13 +158,13 @@ def test_parse_simple_sync_returns_none_when_stopped_during_wait(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# extract_file_info_simple — 추가 패턴
+# extract_file_info_simple — additional patterns
 # ---------------------------------------------------------------------------
 
 
 class TestExtractFileInfoExtra:
     def test_returns_none_when_html_invalid(self):
-        # BeautifulSoup 은 어떤 입력이든 파싱하므로 None 반환은 진짜 빈 입력에서만.
+        # BeautifulSoup parses any input, so None is returned only for truly empty input.
         result = sp.extract_file_info_simple("")
         assert result is None or result == {}
 

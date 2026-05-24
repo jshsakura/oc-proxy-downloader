@@ -4,12 +4,12 @@
   import XIcon from "../icons/XIcon.svelte";
 
   export let showModal = false;
-  // 부모가 미리 알려주는 "현재 보기에서 보고 있는 카테고리" — 모달이 그 값으로 프리셋.
+  // The "category currently being viewed" that the parent provides up front — the modal presets to it.
   export let preselectKinds = [];
 
   const dispatch = createEventDispatcher();
 
-  // 분류 후보 — 백엔드 KIND_* 와 동기. 'alive' 는 검수 결과이지 시작 필터로는 의미 없어 제외.
+  // Classification candidates — in sync with the backend KIND_*. 'alive' is an audit result, not meaningful as a start filter, so it is excluded.
   const ALL_KINDS = [
     "dead",
     "auth_required",
@@ -34,7 +34,7 @@
   let estimating = false;
 
   $: if (showModal) {
-    // 모달이 열릴 때마다 부모 preselect 반영. 비어있으면 "전체".
+    // Apply the parent preselect each time the modal opens. If empty, "All".
     selectedKinds = new Set(preselectKinds || []);
     allKinds = selectedKinds.size === 0;
   }
@@ -42,7 +42,7 @@
   function toggleKind(k) {
     if (selectedKinds.has(k)) selectedKinds.delete(k);
     else selectedKinds.add(k);
-    selectedKinds = new Set(selectedKinds); // svelte 반응성
+    selectedKinds = new Set(selectedKinds); // svelte reactivity
     allKinds = selectedKinds.size === 0;
   }
 
@@ -88,10 +88,10 @@
   async function estimate() {
     estimating = true;
     try {
-      // 백엔드가 별도 estimate 엔드포인트를 안 가진 상태라, 일단은 검수 시작 호출이
-      // 응답으로 total 을 알려주는 구조에 의존. 모달 안에서는 추정치를 표시하기
-      // 위해 미리보기 호출 대신 사용자에게 "시작" 누르도록 안내.
-      // (향후 GET /downloads/audit/preview?... 추가하면 여기서 부르면 됨.)
+      // The backend has no separate estimate endpoint yet, so for now we rely on
+      // the audit-start call reporting total in its response. To show an estimate
+      // inside the modal, instead of a preview call we guide the user to press "Start".
+      // (If a GET /downloads/audit/preview?... is added later, call it here.)
       estimateCount = null;
     } finally {
       estimating = false;
@@ -126,7 +126,7 @@
       </div>
 
       <div class="modal-body">
-        <!-- 분류 -->
+        <!-- Classification -->
         <section class="field">
           <header class="field-header">
             <span class="field-label">{$t("audit_modal_kinds_label")}</span>
@@ -148,7 +148,7 @@
           </div>
         </section>
 
-        <!-- 상태 -->
+        <!-- Status -->
         <section class="field">
           <header class="field-header">
             <span class="field-label">{$t("audit_modal_statuses_label")}</span>
@@ -168,7 +168,7 @@
           </div>
         </section>
 
-        <!-- 기간 -->
+        <!-- Period -->
         <section class="field">
           <header class="field-header">
             <span class="field-label">{$t("audit_modal_period_label")}</span>
@@ -200,7 +200,7 @@
             class="limit-input"
             type="number"
             min="1"
-            placeholder="0 = 무제한"
+            placeholder={$t("audit_modal_limit_placeholder")}
             bind:value={limit}
           />
         </section>

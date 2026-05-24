@@ -10,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 
+from core.version import CURRENT_VERSION
+
 from services.sse_manager import sse_manager
 from services.download_service import download_service
 from api.middleware import log_requests
@@ -24,7 +26,7 @@ from core.i18n import load_all_translations
 from core.db import get_db
 from sqlalchemy import text
 
-# 인증 설정
+# Authentication settings
 AUTH_USERNAME = os.getenv('AUTH_USERNAME')
 AUTH_PASSWORD = os.getenv('AUTH_PASSWORD')
 AUTHENTICATION_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
@@ -35,10 +37,10 @@ TASK_CANCEL_TIMEOUT_SEC = 3.0
 
 
 async def _shutdown_step(label: str, coro_fn, timeout: float = SHUTDOWN_TIMEOUT_SEC):
-    """서비스 종료 한 단계를 안전하게 실행.
+    """Run one service-shutdown step safely.
 
-    timeout/cancelled 는 정상 흐름으로 처리하고 다른 예외는 WARNING 로
-    찍기만 한다 — 한 단계의 실패가 다음 종료 단계를 막으면 안 됨.
+    timeout/cancelled are treated as normal flow and other exceptions are only
+    logged as WARNING — one step's failure must not block the next shutdown step.
     """
     try:
         await asyncio.wait_for(coro_fn(), timeout=timeout)
@@ -53,13 +55,13 @@ async def _shutdown_step(label: str, coro_fn, timeout: float = SHUTDOWN_TIMEOUT_
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """애플리케이션 수명주기 관리"""
+    """Manage the application lifecycle"""
     print("[LOG] *** 애플리케이션 시작 ***")
 
-    # 번역 캐시 초기화
+    # Initialize the translation cache
     load_all_translations()
 
-    # DB 테이블 생성
+    # Create DB tables
     Base.metadata.create_all(bind=engine)
     print("[LOG] Database tables created")
 
@@ -68,23 +70,23 @@ async def lifespan(app: FastAPI):
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_download_requests_requested_at ON download_requests(requested_at)"))
         conn.commit()
 
-    # 데이터베이스 마이그레이션 실행
+    # Run database migrations
     await _run_migrations()
 
-    # 서비스들 시작
+    # Start the services
     await sse_manager.start()
     await download_service.start()
     print("[LOG] Services started")
 
     yield
 
-    # 정리 작업
+    # Cleanup work
     print("[LOG] *** 애플리케이션 종료 시작 ***")
 
     await _shutdown_step("Download service", download_service.stop)
     await _shutdown_step("SSE manager", sse_manager.stop)
 
-    # 실행 중인 태스크들 정리 (현재 태스크 제외하여 무한 재귀 방지)
+    # Clean up running tasks (exclude the current task to avoid infinite recursion)
     try:
         current_task = asyncio.current_task()
         tasks = [t for t in asyncio.all_tasks()
@@ -105,24 +107,24 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    """FastAPI 애플리케이션 생성"""
+    """Create the FastAPI application"""
 
-    # FastAPI 앱 생성
+    # Create the FastAPI app
     app = FastAPI(
         title="OC Proxy Downloader",
         description="1fichier 다운로드 서비스 (웹소켓 제거, SSE + asyncio)",
-        version="2.0.0",
+        version=CURRENT_VERSION.lstrip("v"),
         lifespan=lifespan
     )
 
-    # 강력한 ASGI 에러 처리 미들웨어
+    # Robust ASGI error-handling middleware
     @app.middleware("http")
     async def catch_all_errors(request: Request, call_next):
         try:
             response = await call_next(request)
             return response
         except asyncio.CancelledError:
-            # 정상적인 취소는 그냥 재발생시킴
+            # A normal cancellation is simply re-raised
             print("[LOG] Request cancelled - normal during shutdown")
             raise
         except Exception as e:
@@ -131,7 +133,7 @@ def create_app() -> FastAPI:
 
             print(f"[ERROR] ASGI 미들웨어에서 에러 포착: {error_type}")
 
-            # anyio.WouldBlock이나 스트림 에러는 특별 처리
+            # Special handling for anyio.WouldBlock or stream errors
             if "wouldblock" in error_msg.lower() or "stream" in error_msg.lower():
                 print("[ERROR] 스트림 에러 - 안전하게 처리됨")
                 return JSONResponse(
@@ -144,13 +146,13 @@ def create_app() -> FastAPI:
                 content={"error": "Internal server error", "type": error_type}
             )
 
-    # 미들웨어 추가
+    # Add middleware
     app.middleware("http")(log_requests)
 
-    # API 라우터 설정
+    # Set up the API router
     api_router = APIRouter()
 
-    # 라우터들 등록
+    # Register the routers
     api_router.include_router(auth.router)
     api_router.include_router(downloads.router)
     api_router.include_router(history_router)
@@ -162,15 +164,15 @@ def create_app() -> FastAPI:
     api_router.include_router(audit_router)
 
     app.include_router(api_router)
-    
-    # 전역 예외 핸들러 추가
+
+    # Add a global exception handler
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
-        """전역 예외 핸들러 - 서버 정지 방지"""
+        """Global exception handler - prevents the server from stopping"""
         error_msg = str(exc)
         error_type = type(exc).__name__
 
-        # CancelledError는 정상적인 shutdown 과정이므로 에러로 처리하지 않음
+        # CancelledError is part of normal shutdown, so it is not treated as an error
         if isinstance(exc, asyncio.CancelledError):
             print(f"[LOG] Task cancelled (normal during shutdown): {request.url}")
             return JSONResponse(
@@ -182,7 +184,7 @@ def create_app() -> FastAPI:
         print(f"[ERROR] 오류 세부: {error_msg}")
         print(f"[ERROR] 요청 URL: {request.url}")
 
-        # 압축 해제 오류 세부 로깅
+        # Detailed logging for decompression errors
         if "decompressing" in error_msg.lower():
             print(f"[ERROR] 압축 해제 오류 감지 - 서버 안정성 유지")
         elif "stream" in error_msg.lower() and "closed" in error_msg.lower():
@@ -204,7 +206,7 @@ def create_app() -> FastAPI:
     
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        """요청 검증 오류 핸들러"""
+        """Request validation error handler"""
         print(f"[ERROR] 요청 검증 오류: {exc}")
         print(f"[ERROR] 요청 URL: {request.url}")
         return JSONResponse(
@@ -212,29 +214,29 @@ def create_app() -> FastAPI:
             content={"error": "Validation Error", "details": exc.errors()}
         )
 
-    # 정적 파일 서빙 (PyInstaller, Docker 및 로컬 환경 자동 감지)
-    # 프론트엔드 정적 파일 경로 설정 (EXE/도커 통합)
+    # Static file serving (auto-detects PyInstaller, Docker, and local environments)
+    # Configure the frontend static file path (EXE/Docker integration)
     if getattr(sys, 'frozen', False):
-        # PyInstaller로 번들된 환경 (EXE) - static 폴더 사용
+        # PyInstaller-bundled environment (EXE) - use the static folder
         bundle_dir = sys._MEIPASS
         frontend_path = os.path.join(bundle_dir, "static")
         print(f"[LOG] PyInstaller detected, serving from: {frontend_path}")
     elif os.environ.get("CONFIG_PATH"):
-        # 도커 환경 - static 폴더 사용
+        # Docker environment - use the static folder
         frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
         print(f"[LOG] Docker environment, serving from: {frontend_path}")
     else:
-        # 로컬 개발 환경 - dist 폴더 사용 (통합 테스트용)
+        # Local development environment - use the dist folder (for integration testing)
         frontend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
         print(f"[LOG] Local development, serving from: {frontend_path}")
 
-    # 경로 존재 확인
+    # Check that the path exists
     if not frontend_path or not os.path.exists(frontend_path):
         print(f"[WARNING] Frontend path not found: {frontend_path}")
         frontend_path = None
 
     if frontend_path and os.path.exists(frontend_path):
-        # Vite 빌드 에셋 디렉토리 이름이 'assets'인지 확인
+        # Check that the Vite build assets directory is named 'assets'
         assets_dir = os.path.join(frontend_path, "assets")
         if os.path.exists(assets_dir):
             app.mount(
@@ -244,52 +246,52 @@ def create_app() -> FastAPI:
 
         @app.get("/{full_path:path}")
         async def serve_frontend(full_path: str):
-            """프론트엔드 파일 서빙"""
-            # API 요청은 제외
+            """Serve frontend files"""
+            # Exclude API requests
             if full_path.startswith("api/"):
                 return JSONResponse(
                     status_code=404,
                     content={"error": "This is an API route, not a frontend asset."}
                 )
 
-            # 요청된 파일 경로
+            # The requested file path
             requested_file_path = os.path.join(frontend_path, full_path)
 
-            # 경로에 파일 이름이 없거나, 루트를 요청하면 index.html 반환
+            # If the path has no file name, or the root is requested, return index.html
             if not os.path.basename(full_path) or not "." in os.path.basename(full_path):
                 return FileResponse(os.path.join(frontend_path, "index.html"))
-            
-            # 파일이 존재하면 해당 파일 반환
+
+            # If the file exists, return that file
             if os.path.exists(requested_file_path) and os.path.isfile(requested_file_path):
                 return FileResponse(requested_file_path)
-            
-            # 파일이 없으면 SPA 라우팅을 위해 index.html 반환
+
+            # If the file is missing, return index.html for SPA routing
             else:
                 return FileResponse(os.path.join(frontend_path, "index.html"))
     else:
-        # 두 경로 모두에서 프론트엔드를 찾지 못한 경우
+        # When the frontend was not found in either path
         warning_message = f"[WARNING] Frontend not found. Looked in {docker_path} (for Docker) and {local_dev_path} (for Local Dev)."
         print(warning_message)
 
         @app.get("/")
         async def root():
-            return {"message": "OC Proxy Downloader API", "version": "2.0.0"}
+            return {"message": "OC Proxy Downloader API", "version": CURRENT_VERSION.lstrip("v")}
 
     print(f"[LOG] FastAPI app created - Auth: {AUTHENTICATION_ENABLED}")
     return app
 
 
 async def _run_migrations():
-    """데이터베이스 마이그레이션 실행.
+    """Run database migrations.
 
-    SQLite 는 ALTER TABLE 로 컬럼만 추가 가능 (드롭/타입변경 불가). 모든
-    추가 컬럼은 nullable 또는 기본값 있어야 한다. 호출은 idempotent —
-    이미 존재하는 컬럼은 PRAGMA table_info 로 걸러서 SKIP.
+    SQLite can only add columns via ALTER TABLE (no drop/type change). Every added
+    column must be nullable or have a default value. The call is idempotent —
+    already-existing columns are filtered out via PRAGMA table_info and SKIPped.
     """
-    # (column_name, ALTER TABLE 뒤에 붙는 DDL 조각)
+    # (column_name, the DDL fragment appended after ALTER TABLE)
     required_columns = [
         ("started_at", "DATETIME"),
-        # 실패 분류 / 재시도 정책 (2026-05 추가)
+        # Failure classification / retry policy (added 2026-05)
         ("failure_kind", "VARCHAR"),
         ("attempt_count", "INTEGER DEFAULT 0"),
         ("next_retry_at", "DATETIME"),
@@ -313,7 +315,7 @@ async def _run_migrations():
                 db.commit()
                 print(f"[LOG] Migration completed: {col_name} column added")
 
-            # 자주 쓰는 필터 (실패+다음 재시도 시각) 용 인덱스 — idempotent
+            # Index for the frequently used filter (failure + next retry time) — idempotent
             db.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_download_requests_failure_kind "
                 "ON download_requests(failure_kind)"

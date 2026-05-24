@@ -17,7 +17,7 @@ class SSEConnection:
         self.last_heartbeat = time.time()
         
     async def send_message(self, message_type: str, data: dict):
-        """메시지를 큐에 추가"""
+        """Add a message to the queue"""
         if not self.connected:
             return
             
@@ -33,25 +33,25 @@ class SSEConnection:
             self.connected = False
             
     def disconnect(self):
-        """연결 해제"""
+        """Disconnect"""
         self.connected = False
-        
+
     async def get_stream(self) -> AsyncGenerator[str, None]:
-        """SSE 스트림 생성 - 안전한 처리"""
+        """Generate the SSE stream - safe handling"""
         try:
-            # 연결 확인 메시지
+            # Connection confirmation message
             yield f"data: {json.dumps({'type': 'connection', 'status': 'connected'})}\n\n"
 
             while self.connected:
                 try:
-                    # 더 짧은 타임아웃으로 빠른 응답
+                    # Shorter timeout for a faster response
                     message = await asyncio.wait_for(self.queue.get(), timeout=0.5)
 
-                    # 메시지 전송
+                    # Send the message
                     yield f"data: {json.dumps(message)}\n\n"
 
                 except asyncio.TimeoutError:
-                    # 60초마다 heartbeat 전송
+                    # Send a heartbeat every 60 seconds
                     if time.time() - self.last_heartbeat > 60:
                         try:
                             heartbeat = {
@@ -85,15 +85,15 @@ class SSEManager:
         self._lock = asyncio.Lock()
         
     async def start(self):
-        """SSE 매니저 시작"""
+        """Start the SSE manager"""
         if not self._cleanup_task:
             self._cleanup_task = asyncio.create_task(self._cleanup_connections())
-            
+
     async def stop(self):
-        """SSE 매니저 정지"""
+        """Stop the SSE manager"""
         print(f"[LOG] Stopping SSEManager... ({len(self.connections)} active connections)")
-        
-        # 정리 태스크 취소
+
+        # Cancel the cleanup task
         if self._cleanup_task:
             self._cleanup_task.cancel()
             try:
@@ -103,7 +103,7 @@ class SSEManager:
             self._cleanup_task = None
             print("[LOG] SSE cleanup task stopped")
             
-        # 모든 연결 해제
+        # Disconnect all connections
         async with self._lock:
             connection_count = len(self.connections)
             for conn in self.connections[:]:
@@ -113,7 +113,7 @@ class SSEManager:
         print(f"[LOG] SSEManager stopped ({connection_count} connections closed)")
     
     async def add_connection(self, request: Request) -> SSEConnection:
-        """새 SSE 연결 추가"""
+        """Add a new SSE connection"""
         connection = SSEConnection(request)
         
         async with self._lock:
@@ -123,7 +123,7 @@ class SSEManager:
         return connection
         
     async def broadcast_message(self, message_type: str, data: dict, exclude_conn: Optional[SSEConnection] = None):
-        """모든 연결에 메시지 브로드캐스트"""
+        """Broadcast a message to all connections"""
         if not self.connections:
             return
             
@@ -140,14 +140,14 @@ class SSEManager:
                 except Exception:
                     conn.disconnect()
                     
-            # 연결 목록 업데이트
+            # Update the connection list
             self.connections = active_connections
-            
+
     async def _cleanup_connections(self):
-        """비활성 연결 정리 (주기적 실행)"""
+        """Clean up inactive connections (runs periodically)"""
         while True:
             try:
-                await asyncio.sleep(60)  # 1분마다 정리
+                await asyncio.sleep(60)  # clean up every minute
 
                 async with self._lock:
                     active_connections = []
@@ -168,5 +168,5 @@ class SSEManager:
                 print(f"[ERROR] SSE cleanup error: {e}")
 
 
-# 전역 SSE 매니저 인스턴스
+# Global SSE manager instance
 sse_manager = SSEManager()

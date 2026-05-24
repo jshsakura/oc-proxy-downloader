@@ -1,33 +1,33 @@
-// EventSource 관리 모듈
+// EventSource management module
 export class EventSourceManager {
   constructor() {
     this.eventSource = null;
     this.updateQueue = new Map();
     this.debounceTimer = null;
-    this.debounceDelay = 50; // 50ms 디바운싱으로 더 빠르게
+    this.debounceDelay = 50; // 50ms debounce for faster updates
   }
 
   connect(onMessage) {
-    // 기존 연결이 있으면 닫기
+    // Close any existing connection
     if (this.eventSource) {
       this.eventSource.close();
     }
 
-    // 마지막 onMessage 콜백 저장 (재연결용)
+    // Save the last onMessage callback (for reconnection)
     this.lastOnMessage = onMessage;
 
     this.eventSource = new EventSource("/api/events");
 
     this.eventSource.onopen = () => {
       console.log("EventSource connected");
-      this.reconnectAttempts = 0; // 연결 성공 시 재시도 횟수 초기화
+      this.reconnectAttempts = 0; // Reset retry count on successful connection
     };
 
     this.eventSource.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
         
-        // heartbeat과 connection 메시지는 연결 상태 확인용으로만 사용
+        // heartbeat and connection messages are used only to check connection status
         if (message.type === "heartbeat") {
           console.log("💓 SSE heartbeat received", message.queue_size ? `(queue: ${message.queue_size})` : "");
           return;
@@ -38,7 +38,7 @@ export class EventSourceManager {
           return;
         }
 
-        // 중요한 메시지는 즉시 처리
+        // Important messages are handled immediately
         if (message.type === "force_refresh" || message.type === "test_message") {
           if (onMessage) {
             console.log("📨 Priority SSE message:", message.type);
@@ -47,11 +47,11 @@ export class EventSourceManager {
           return;
         }
 
-        // status_update 메시지는 디바운싱 처리 (하지만 중요한 상태는 즉시 처리)
+        // status_update messages are debounced (but important states are handled immediately)
         if (message.type === "status_update") {
           console.log("📨 Status update received:", message.data.id, "진행률:" + message.data.progress + "%", "상태:" + message.data.status);
           
-          // 중요한 상태 변경은 즉시 처리 (정지, 완료, 실패, 다운로드 중)
+          // Important state changes are handled immediately (stopped, done, failed, downloading)
           if (message.data.status === "stopped" || 
               message.data.status === "done" || 
               message.data.status === "failed" ||
@@ -67,7 +67,7 @@ export class EventSourceManager {
           return;
         }
 
-        // 나머지 메시지는 즉시 처리
+        // All other messages are handled immediately
         if (onMessage) {
           console.log("📨 SSE message received:", message.type);
           onMessage(message);
@@ -81,13 +81,13 @@ export class EventSourceManager {
       console.log("⚠️ EventSource error, attempting reconnect. State:", this.eventSource.readyState);
       this.reconnectAttempts = (this.reconnectAttempts || 0) + 1;
       
-      // 클라우드플레어 환경에서는 더 많은 재시도 허용
+      // Allow more retries in a Cloudflare environment
       if (this.reconnectAttempts > 15) {
         console.log("❌ EventSource max reconnect attempts reached");
         return;
       }
       
-      // 클라우드플레어 터널에서는 더 짧은 지연으로 재연결 (빠른 복구)
+      // On a Cloudflare tunnel, reconnect with a shorter delay (fast recovery)
       const delay = Math.min(1000 + (this.reconnectAttempts * 500), 8000);
       console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/15)`);
       setTimeout(() => {
@@ -97,12 +97,12 @@ export class EventSourceManager {
   }
 
   reconnect() {
-    // 기존 연결이 있으면 닫기
+    // Close any existing connection
     if (this.eventSource) {
       this.eventSource.close();
     }
-    
-    // 짧은 지연 후 재연결 (서버 부하 방지)
+
+    // Reconnect after a short delay (avoids server load)
     setTimeout(() => {
       this.connect(this.lastOnMessage);
     }, 1000);
@@ -111,15 +111,15 @@ export class EventSourceManager {
   queueUpdate(message, onMessage) {
     const downloadId = message.data.id;
     
-    // 같은 다운로드 ID의 업데이트는 마지막 것만 유지
+    // For updates with the same download ID, keep only the latest one
     this.updateQueue.set(downloadId, { message, onMessage });
-    
-    // 기존 타이머 취소
+
+    // Cancel the existing timer
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
-    
-    // 새 타이머 설정
+
+    // Set a new timer
     this.debounceTimer = setTimeout(() => {
       this.flushUpdates();
     }, this.debounceDelay);
@@ -130,11 +130,11 @@ export class EventSourceManager {
     
     console.log(`📦 Flushing ${this.updateQueue.size} queued updates`);
     
-    // 큐에 있는 모든 업데이트를 일괄 처리
+    // Process all queued updates in a batch
     const updates = Array.from(this.updateQueue.values());
     this.updateQueue.clear();
-    
-    // 합쳐진 업데이트로 한 번에 처리
+
+    // Process the merged updates all at once
     if (updates.length > 0) {
       const batchMessage = {
         type: "batch_status_update",
@@ -155,7 +155,7 @@ export class EventSourceManager {
       this.eventSource = null;
     }
     
-    // 타이머와 큐 정리
+    // Clean up the timer and queue
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;

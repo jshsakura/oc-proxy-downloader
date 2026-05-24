@@ -1,6 +1,6 @@
 """
-다운로드 공통 유틸리티 함수들
-- 중복 제거를 위해 로컬/프록시 다운로드에서 공통으로 사용하는 함수들
+Common download utility functions
+- Functions shared by local/proxy downloads to remove duplication
 """
 
 import asyncio
@@ -14,18 +14,18 @@ from core.models import StatusEnum, DownloadRequest
 from core.config import get_download_path
 from utils.sse import send_sse_message
 from services.sse_manager import sse_manager
-# 기존 동기 다운로드 매니저 제거됨
+# The legacy synchronous download manager has been removed
 
 
 def generate_file_path(filename, is_temporary=True):
-    """파일 저장 경로 생성"""
+    """Generate a file save path"""
     download_dir = get_download_path()
 
-    # 안전한 파일명으로 변환
+    # Convert to a safe file name
     safe_filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
     file_path = download_dir / safe_filename
 
-    # 중복 파일명 처리
+    # Handle duplicate file names
     counter = 1
     original_path = file_path
     while file_path.exists() or (file_path.with_suffix(file_path.suffix + '.part').exists() if not is_temporary else False):
@@ -34,7 +34,7 @@ def generate_file_path(filename, is_temporary=True):
         file_path = original_path.parent / f"{stem}({counter}){suffix}"
         counter += 1
 
-    # 다운로드 중에는 .part 확장자 추가
+    # Add the .part extension while downloading
     if is_temporary:
         file_path = file_path.with_suffix(file_path.suffix + '.part')
 
@@ -42,14 +42,14 @@ def generate_file_path(filename, is_temporary=True):
 
 
 def get_final_file_path(temp_file_path):
-    """임시 파일(.part)에서 최종 파일 경로 생성"""
+    """Generate the final file path from the temporary file (.part)"""
     if temp_file_path.endswith('.part'):
-        return temp_file_path[:-5]  # .part 제거
+        return temp_file_path[:-5]  # remove .part
     return temp_file_path
 
 
 def extract_filename_from_headers(response, req, db):
-    """Content-Disposition 헤더에서 파일명 추출"""
+    """Extract the file name from the Content-Disposition header"""
     content_disposition = response.headers.get('Content-Disposition', '')
     if content_disposition and 'filename' in content_disposition:
         filename_match = re.search(r'filename[*]?=(?:UTF-8\'\')?["\']?([^"\';\\r\\n]*)["\']?', content_disposition)
@@ -66,21 +66,21 @@ def extract_filename_from_headers(response, req, db):
 
 
 def calculate_total_size(initial_size, content_length):
-    """총 파일 크기 계산"""
+    """Calculate the total file size"""
     if initial_size > 0:
         total_size = initial_size + content_length
         print(f"[LOG] 이어받기 - 기존: {initial_size}, 남은 크기: {content_length}")
     else:
         total_size = content_length
-    
+
     if total_size == 0:
         raise Exception("파일 크기가 0입니다. 다운로드 링크가 올바르지 않습니다.")
-    
+
     return total_size
 
 
 async def download_file_content(response, file_path, initial_size, total_size, req, db):
-    """실제 파일 다운로드 수행"""
+    """Perform the actual file download"""
     downloaded = initial_size
     last_update_size = downloaded
     chunk_count = 0
@@ -94,18 +94,18 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                         downloaded += len(chunk)
                         chunk_count += 1
                     except OSError as write_error:
-                        # 디스크 용량 부족 등의 파일 쓰기 오류 감지
+                        # Detect file-write errors such as disk space exhaustion
                         error_msg = str(write_error).lower()
                         if any(keyword in error_msg for keyword in ['disk full', 'no space', 'not enough space', 'insufficient disk space', 'space remaining', '28']):
                             print(f"[ERROR] 디스크 용량 부족: {write_error}")
 
-                            # 모든 대기중인 다운로드를 정지시키기
+                            # Stop all pending downloads
                             try:
 
-                                # 대기중 및 다운로드중인 모든 요청을 정지로 변경
+                                # Change all pending and downloading requests to stopped
                                 pending_downloads = db.query(DownloadRequest).filter(
                                     and_(
-                                        DownloadRequest.id != req.id,  # 현재 실패한 다운로드 제외
+                                        DownloadRequest.id != req.id,  # exclude the currently failed download
                                         DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing])
                                     )
                                 ).all()
@@ -120,7 +120,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                                     db.commit()
                                     print(f"[LOG] 디스크 용량 부족으로 {stopped_count}개 다운로드 자동 정지")
 
-                                    # SSE로 정지된 다운로드들에 대한 업데이트 전송
+                                    # Send updates over SSE for the stopped downloads
                                     from services.sse_manager import sse_manager
                                     import asyncio
                                     loop = asyncio.get_event_loop()
@@ -135,7 +135,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                             except Exception as stop_error:
                                 print(f"[WARNING] 대기중 다운로드 정지 실패: {stop_error}")
 
-                            # 사용자 언어에 맞는 에러 메시지 가져오기
+                            # Get the error message in the user's language
                             try:
                                 from core.config import get_config
                                 from core.i18n import get_translations
@@ -145,7 +145,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                                 disk_full_msg = translations.get("disk_full_error", "디스크 용량이 부족합니다. 저장 공간을 확보한 후 다시 시도해주세요.")
                                 raise Exception(disk_full_msg)
                             except Exception:
-                                # 번역 로드 실패 시 기본 메시지
+                                # Default message if translation loading fails
                                 raise Exception("디스크 용량이 부족합니다. 저장 공간을 확보한 후 다시 시도해주세요.")
                         else:
                             print(f"[ERROR] 파일 쓰기 오류: {write_error}")
@@ -153,15 +153,15 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                     except Exception as write_error:
                         print(f"[ERROR] 파일 쓰기 중 알 수 없는 오류: {write_error}")
                         raise
-                
-                # 성능 개선: 체크 간격을 늘림 (128개 청크마다 = 1MB마다)
+
+                # Performance improvement: widen the check interval (every 128 chunks = every 1MB)
                 if chunk_count % 128 == 0:
-                    # 다운로드 중지 체크
+                    # Check for a download stop
                     db.refresh(req)
                     if req.status == StatusEnum.stopped:
                         print(f"[LOG] 다운로드 중 정지됨: {req.id}")
 
-                        # 정지 상태 SSE 전송
+                        # Send a stopped-status SSE
                         try:
 
                             loop = asyncio.get_event_loop()
@@ -170,7 +170,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                                     "id": req.id,
                                     "status": "stopped",
                                     "progress": round((downloaded / total_size * 100), 1) if total_size > 0 else 0,
-                                    "download_speed": 0,  # 정지 시 속도 0으로 명시
+                                    "download_speed": 0,  # explicitly set speed to 0 when stopped
                                     "message": "다운로드가 중지되었습니다."
                                 }))
                         except Exception as sse_error:
@@ -178,7 +178,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
 
                         return downloaded
 
-                    # 진행률 업데이트 체크
+                    # Check whether a progress update is needed
                     if should_update_progress(downloaded, last_update_size, total_size, req):
                         try:
                             last_update_size = send_progress_update(
@@ -201,85 +201,85 @@ async def download_file_content(response, file_path, initial_size, total_size, r
 
 
 def should_update_progress(downloaded, last_update_size, total_size, req):
-    """진행률 업데이트가 필요한지 확인 - 최적화된 간격"""
+    """Check whether a progress update is needed - optimized interval"""
     current_time = time.time()
     last_update_time = getattr(req, '_last_sse_send_time', 0)
     time_since_last_update = current_time - last_update_time
 
-    # 첫 번째 업데이트이거나, 완료 시 즉시, 그외에는 3초마다 (적당한 간격)
+    # On the first update, or immediately on completion, otherwise every 3 seconds (a reasonable interval)
     should_update = (
-        (last_update_time == 0) or  # 첫 번째 업데이트
-        (downloaded >= total_size) or  # 완료 시 즉시
-        (time_since_last_update >= 3.0)  # 3초마다 업데이트 (너무 자주 변하지 않게)
+        (last_update_time == 0) or  # first update
+        (downloaded >= total_size) or  # immediately on completion
+        (time_since_last_update >= 3.0)  # update every 3 seconds (so it doesn't change too often)
     )
 
-    # 진행률 업데이트 로그 제거 (너무 많음)
+    # Progress-update logging removed (too noisy)
 
     return should_update
 
 
 def send_progress_update(downloaded, total_size, last_update_size, req, db):
-    """진행률 업데이트 전송"""
+    """Send a progress update"""
     progress = (downloaded / total_size * 100) if total_size > 0 else 0.0
     current_time = time.time()
     last_update_time = getattr(req, '_last_sse_send_time', 0)
     time_diff = current_time - last_update_time
 
-    # 속도 계산 조건 체크
+    # Check the speed-calculation conditions
 
-    # 속도 계산 개선 (bytes per second로 계산)
+    # Improved speed calculation (computed in bytes per second)
     if time_diff > 0 and downloaded > last_update_size:
         size_diff = downloaded - last_update_size
-        new_speed = size_diff / time_diff  # B/s (프론트엔드 formatSpeed에 맞춤)
+        new_speed = size_diff / time_diff  # B/s (matches the frontend formatSpeed)
 
-        # 이전 속도와 스무딩 적용 (급격한 변화 방지)
+        # Apply smoothing with the previous speed (avoid abrupt changes)
         speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
         prev_speed = getattr(req, speed_attr, new_speed)
 
         if prev_speed > 0:
-            # 가중평균으로 스무딩 (70% 이전속도 + 30% 새속도)
+            # Smooth with a weighted average (70% previous speed + 30% new speed)
             download_speed = prev_speed * 0.7 + new_speed * 0.3
         else:
             download_speed = new_speed
 
-        # 속도 변수 업데이트
+        # Update the speed variable
         if hasattr(req, '_last_proxy_download_speed'):
             req._last_proxy_download_speed = download_speed
         else:
             req._last_local_download_speed = download_speed
 
         req._last_sse_send_time = current_time
-        # 속도 계산 완료
+        # Speed calculation done
     else:
-        # 속도 계산 건너뜀
-        # 첫 번째 업데이트이거나 이전 속도 사용
+        # Skip the speed calculation
+        # On the first update, or reuse the previous speed
         if last_update_time == 0:
-            # 첫 번째 업데이트: 속도를 추정해서 계산
-            if time_diff > 0.1 and downloaded > 0:  # 최소 0.1초 경과하고 데이터가 있으면
+            # First update: estimate and compute the speed
+            if time_diff > 0.1 and downloaded > 0:  # if at least 0.1s has elapsed and there is data
                 download_speed = downloaded / time_diff
                 print(f"[DEBUG] 첫 번째 업데이트: 추정 속도 {download_speed:.0f} B/s")
             else:
                 download_speed = 0
-                # 첫 번째 업데이트: 속도 계산 불가
+                # First update: speed cannot be computed
             req._last_sse_send_time = current_time
         else:
-            # 이전 속도 그대로 유지 (정지 전까지 안정적으로 표시)
+            # Keep the previous speed as-is (display stably until stop)
             speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
             download_speed = getattr(req, speed_attr, 0)
-            # 이전 속도 유지
+            # Keep the previous speed
 
-    # 속도가 너무 작으면 0으로 표시 (10 B/s 이하)
+    # If the speed is too small, show it as 0 (10 B/s or less)
     if download_speed < 10:
         download_speed = 0
 
-    # 속도 변수 업데이트 (0이어도 저장)
+    # Update the speed variable (store it even if 0)
     speed_attr = '_last_proxy_download_speed' if hasattr(req, '_last_proxy_download_speed') else '_last_local_download_speed'
     setattr(req, speed_attr, download_speed)
-    
-    # sse_manager를 사용
+
+    # Use the sse_manager
     try:
 
-        # 비동기 SSE 전송
+        # Asynchronous SSE send
         sse_data = {
             "id": req.id,
             "downloaded_size": downloaded,
@@ -289,7 +289,7 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
             "status": "downloading"
         }
 
-        # SSE 전송 데이터 로그는 제거 (너무 많음)
+        # SSE send-data logging removed (too noisy)
 
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -297,7 +297,7 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
     except Exception as sse_error:
         print(f"[WARNING] SSE 진행률 전송 실패: {sse_error}")
     
-    # 데이터베이스 업데이트도 최적화 (5초마다)
+    # Optimize the database update too (every 5 seconds)
     last_db_update_time = getattr(req, '_last_db_update_time', 0)
     if current_time - last_db_update_time >= 5.0 or downloaded >= total_size:
         req.downloaded_size = downloaded
@@ -308,7 +308,7 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
 
 
 def validate_downloaded_file(downloaded, content_type, file_path):
-    """다운로드된 파일 검증"""
+    """Validate the downloaded file"""
     if downloaded == 0:
         raise Exception("다운로드 실패 - 받은 데이터가 없습니다")
     
@@ -331,24 +331,24 @@ def validate_downloaded_file(downloaded, content_type, file_path):
 
 
 def check_file_resume_status(file_path, initial_size, req):
-    """파일 이어받기 상태 검사"""
+    """Check the file resume status"""
     if not file_path.exists():
         return "new_download", 0
-    
+
     current_size = file_path.stat().st_size
-    
-    # 100% 다운로드된 경우
+
+    # When the file is already 100% downloaded
     if req.total_size and current_size >= req.total_size:
         print(f"[LOG] 파일이 이미 100% 다운로드 완료: {current_size}/{req.total_size}")
         return "completed", current_size
-    
-    # 이어받기 가능성 검사
+
+    # Check whether resuming is possible
     if current_size > 0 and initial_size > 0:
-        # 이어받기를 시도할 수 있는 상황
+        # A situation where a resume can be attempted
         print(f"[LOG] 이어받기 가능 - 현재 크기: {current_size}, 초기 크기: {initial_size}")
         return "resume_attempt", current_size
     elif current_size > 0:
-        # 파일이 있지만 이어받기 설정이 없는 경우
+        # The file exists but there is no resume setting
         print(f"[LOG] 기존 파일 발견 - 크기: {current_size}")
         return "existing_file", current_size
     

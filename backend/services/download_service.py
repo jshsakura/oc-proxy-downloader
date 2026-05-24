@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-새로운 비동기 다운로드 서비스
-- 완전한 asyncio 기반
-- SSE 통합 메시징
-- 기존 동기 코드 완전 제거
+New async download service
+- Fully asyncio-based
+- Integrated SSE messaging
+- Legacy synchronous code completely removed
 """
 
 import asyncio
@@ -19,41 +19,41 @@ from services.sse_manager import sse_manager
 
 
 class DownloadService:
-    """완전히 새로운 비동기 다운로드 서비스"""
+    """A completely new async download service"""
 
     def __init__(self):
         self.download_tasks: Dict[int, asyncio.Task] = {}
         self.is_running = False
 
     async def start(self):
-        """서비스 시작"""
+        """Start the service"""
         if self.is_running:
             return
 
         self.is_running = True
         print("[LOG] DownloadService started")
 
-        # 시작시 모든 다운로드를 stopped 상태로 초기화
+        # Reset all downloads to stopped status at startup
         await self._reset_all_downloads()
 
     async def stop(self):
-        """서비스 정지"""
+        """Stop the service"""
         if not self.is_running:
             return
 
         print("[LOG] Stopping DownloadService...")
         self.is_running = False
 
-        # 모든 다운로드 태스크 정리
+        # Clean up all download tasks
         await download_core.cleanup_all_tasks()
 
         print("[LOG] DownloadService stopped")
 
     async def _reset_all_downloads(self):
-        """시작시 모든 다운로드 상태 초기화"""
+        """Reset all download statuses at startup"""
         try:
             with SessionLocal() as db:
-                # 실행 중인 다운로드들을 모두 stopped로 변경
+                # Change all running downloads to stopped
                 active_downloads = db.query(DownloadRequest).filter(
                     DownloadRequest.status.in_([
                         StatusEnum.parsing,
@@ -65,8 +65,9 @@ class DownloadService:
                 reset_count = 0
                 for req in active_downloads:
                     req.status = StatusEnum.stopped
-                    # column 이름은 ``error`` — 과거 ``error_message`` 로 잘못
-                    # 쓰고 있어서 transient 속성으로 사라지던 버그 수정.
+                    # The column name is ``error`` — fixes a bug where it was
+                    # mistakenly written as ``error_message`` and vanished as a
+                    # transient attribute.
                     req.error = "서버 재시작으로 인한 초기화"
                     reset_count += 1
 
@@ -79,16 +80,16 @@ class DownloadService:
                         "count": reset_count,
                     })
 
-                # 서버 재시작 후 대기중인 다운로드들 자동 시작
+                # Auto-start pending downloads after a server restart
                 await self._start_pending_downloads_after_restart(db)
 
         except Exception as e:
             print(f"[ERROR] 다운로드 상태 초기화 실패: {e}")
 
     async def _start_pending_downloads_after_restart(self, db: Session):
-        """서버 재시작 후 대기중인 다운로드들을 자동으로 시작"""
+        """Automatically start pending downloads after a server restart"""
         try:
-            # 대기중인 모든 다운로드 조회 (요청시간 오름차순으로 정렬)
+            # Query all pending downloads (sorted ascending by request time)
             pending_downloads = db.query(DownloadRequest).filter(
                 DownloadRequest.status == StatusEnum.pending
             ).order_by(DownloadRequest.requested_at.asc()).all()
@@ -99,7 +100,7 @@ class DownloadService:
 
             print(f"[LOG] 서버 재시작 후 {len(pending_downloads)}개 대기중인 다운로드 발견")
 
-            # download_core를 통해 자동 시작
+            # Auto-start via download_core
             from core.download_core import download_core
             started_count = 0
 
@@ -107,22 +108,22 @@ class DownloadService:
                 is_1fichier = "1fichier.com" in req.url
 
                 if is_1fichier and not req.use_proxy:
-                    # 1fichier 로컬 다운로드 (최대 1개)
+                    # 1fichier local download (max 1)
                     if download_core.fichier_local_semaphore._value > 0:
                         success = await download_core.start_download_async(req, db)
                         if success:
                             started_count += 1
                             print(f"[LOG] 1fichier 로컬 자동 재시작: {req.id}")
-                            break  # 1fichier 로컬은 최대 1개이므로 시작하면 중단
+                            break  # 1fichier local is capped at 1, so stop once started
                 else:
-                    # 일반 다운로드 (1fichier 프록시 포함, 최대 5개)
+                    # General download (includes 1fichier via proxy, max 5)
                     if download_core.general_download_semaphore._value > 0:
                         success = await download_core.start_download_async(req, db)
                         if success:
                             started_count += 1
                             print(f"[LOG] 일반/프록시 다운로드 자동 재시작: {req.id}")
 
-                            # 일반 다운로드 세마포어가 모두 사용되면 중단
+                            # Stop once the general download semaphore is fully used
                             if download_core.general_download_semaphore._value == 0:
                                 break
 
@@ -132,10 +133,10 @@ class DownloadService:
             print(f"[ERROR] 서버 재시작 후 자동 시작 실패: {e}")
 
     async def get_download_statistics(self) -> Dict[str, Any]:
-        """다운로드 통계 조회"""
+        """Get download statistics"""
         try:
             with SessionLocal() as db:
-                # 상태별 다운로드 수 집계
+                # Aggregate download counts by status
                 base = db.query(DownloadRequest)
                 return {
                     "total": base.count(),
@@ -160,5 +161,5 @@ class DownloadService:
         return 0
 
 
-# 전역 인스턴스
+# Global instance
 download_service = DownloadService()

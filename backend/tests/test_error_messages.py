@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""``core.error_messages`` 테스트.
+"""``core.error_messages`` tests.
 
-핵심 계약:
-- HTTP 404/410 단독은 더 이상 dead 가 아니라 transient — 본문 마커(파일 삭제/
-  신고/없음, file not found 등) 만 dead 로 박제.
-- ``apply_failure_to_request`` 가 요청 객체에 분류·attempts·next_retry_at 까지
-  한 번에 박는다.
-- ``is_retry_blocked_now`` 는 신규 컬럼 우선, 컬럼이 비어있으면 텍스트 폴백.
+Core contracts:
+- HTTP 404/410 alone is no longer dead but transient — only body markers
+  (file deleted/reported/missing, file not found, etc.) are pinned as dead.
+- ``apply_failure_to_request`` stamps the classification, attempts, and
+  next_retry_at onto the request object in one pass.
+- ``is_retry_blocked_now`` prefers the new columns, falling back to text when
+  the columns are empty.
 """
 
 import datetime
@@ -34,7 +35,7 @@ from core.error_messages import (
 
 
 class _FakeReq:
-    """DownloadRequest 의 setattr 인터페이스만 흉내내는 가짜 객체."""
+    """A fake object that mimics only the setattr interface of DownloadRequest."""
 
     def __init__(self, **kwargs):
         self.error = None
@@ -48,7 +49,7 @@ class _FakeReq:
 
 
 # ---------------------------------------------------------------------------
-# classify_error / format_error — 단계·요약·조치 메시지
+# classify_error / format_error — stage / summary / action messages
 # ---------------------------------------------------------------------------
 
 class TestClassify:
@@ -107,7 +108,7 @@ class TestClassify:
 
 
 # ---------------------------------------------------------------------------
-# kind 분류 — dead 박제는 본문 마커만, HTTP 코드는 transient
+# kind classification — dead pinning only on body markers, HTTP codes are transient
 # ---------------------------------------------------------------------------
 
 class TestKindClassification:
@@ -128,7 +129,7 @@ class TestKindClassification:
         "[파싱 실패] ... (페이지 로드 실패: HTTP 404)",
     ])
     def test_http_404_410_downgraded_to_non_dead(self, raw):
-        # 핵심 회귀 방지: 단발 404/410 만으로 dead 박제 금지.
+        # Core regression guard: a one-off 404/410 alone must not pin as dead.
         kind = classify_failure_text(raw)
         assert kind != KIND_DEAD
         assert is_terminal_failure(raw) is False
@@ -144,6 +145,8 @@ class TestKindClassification:
         ("DataNodes 파일 없음 또는 삭제됨", KIND_DEAD),
         ("Rapidgator 무료 모드는 500 MB 초과 파일 다운로드 불가", KIND_AUTH_REQUIRED),
         ("Gofile은 콘텐츠 권한 또는 프리미엄 정책에 따라 API 토큰이 필요", KIND_AUTH_REQUIRED),
+        ("Gofile 목록 조회 차단 (데이터센터 IP) — 가정용 IP/NAS에서 실행 시 정상 동작", KIND_PROXY_BLOCKED),
+        ("Gofile 파일 없음 또는 삭제됨", KIND_DEAD),
         ("Send.now는 Cloudflare 챌린지로 인해 브라우저 세션 없이 자동 다운로드를 지원하지 않음", KIND_CLOUDFLARE),
         ("Send.now Turnstile 검증 필요", KIND_CLOUDFLARE),
         ("호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함", KIND_CLOUDFLARE),
@@ -172,7 +175,7 @@ class TestKindClassification:
 
 
 # ---------------------------------------------------------------------------
-# apply_failure_to_request — attempts_json / next_retry_at 박는 흐름
+# apply_failure_to_request — the flow that stamps attempts_json / next_retry_at
 # ---------------------------------------------------------------------------
 
 class TestApplyFailure:
@@ -184,7 +187,7 @@ class TestApplyFailure:
         assert req.failure_kind == KIND_TRANSIENT
         assert req.attempt_count == 1
         assert req.next_retry_at is not None
-        # 첫 실패는 30초 cooldown
+        # The first failure has a 30-second cooldown
         delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
         assert 25 <= delta <= 35
 
@@ -196,29 +199,29 @@ class TestApplyFailure:
         assert verdict.kind == KIND_DEAD
         assert verdict.definitive is True
         assert req.failure_kind == KIND_DEAD
-        assert req.next_retry_at is None  # 영구 박제
+        assert req.next_retry_at is None  # permanently pinned
 
     def test_attempts_ringbuffer_truncates_to_5(self):
         req = _FakeReq()
-        # 각 시도가 별개 관측 — 각기 다른 raw (dedup 가드 회피)
+        # Each attempt is a distinct observation — different raw each time (avoids the dedup guard)
         for i in range(7):
             apply_failure_to_request(req, "다운로드", f"Read timeout #{i}")
         parsed = json.loads(req.attempts_json)
         assert len(parsed) == 5
         assert req.attempt_count == 7
-        # 가장 최근 시도가 마지막
+        # The most recent attempt is last
         assert "#6" in parsed[-1]["raw"]
 
     def test_transient_backoff_grows_with_attempts(self):
         req = _FakeReq()
         deltas = []
-        # 각 시도가 별개 관측이도록 raw 를 살짝 다르게 — dedup 가드와 충돌 회피.
+        # Vary raw slightly so each attempt is a distinct observation — avoids colliding with the dedup guard.
         for i in range(4):
             apply_failure_to_request(req, "다운로드", f"Read timeout (attempt {i})")
             deltas.append(
                 (req.next_retry_at - datetime.datetime.now()).total_seconds()
             )
-        # 30s → 120s → 480s → 1800s (잡음 허용)
+        # 30s → 120s → 480s → 1800s (noise tolerated)
         assert deltas[0] < deltas[1] < deltas[2] <= deltas[3]
         assert deltas[3] >= 1500
 
@@ -229,35 +232,35 @@ class TestApplyFailure:
         )
         assert req.failure_kind == KIND_RATE_LIMITED
         delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
-        # 420s + 60s 여유
+        # 420s + 60s margin
         assert 460 <= delta <= 490
 
     def test_unknown_three_attempts_promotes_to_unknown_terminal(self):
         req = _FakeReq()
-        # 각 시도가 별개 관측 — 각기 다른 raw (dedup 가드 회피)
+        # Each attempt is a distinct observation — different raw each time (avoids the dedup guard)
         for i in range(3):
             apply_failure_to_request(req, "다운로드", f"weird_blob_v{i}")
-        # 3회 누적되면 격리 — 더 이상 재시도 안 함
+        # After 3 accumulated attempts, quarantine — no more retries
         assert req.failure_kind == "unknown_terminal"
         assert req.next_retry_at is None
 
     def test_duplicate_apply_within_window_is_a_noop(self):
-        """핸들러 체인이 같은 raw 로 연속 두 번 호출해도 attempt_count/링버퍼
-        한 번만 증가해야 한다. (운영 결함 #1 회귀 방지)"""
+        """Even if the handler chain calls twice in a row with the same raw, the
+        attempt_count/ring buffer must increase only once. (Guards against operational defect #1.)"""
         req = _FakeReq()
         verdict1 = apply_failure_to_request(req, "다운로드", "Read timeout occurred")
-        # 즉시 같은 raw 로 한 번 더 — 핸들러 chain re-raise 시나리오.
+        # Immediately again with the same raw — the handler-chain re-raise scenario.
         verdict2 = apply_failure_to_request(req, "다운로드", "Read timeout occurred")
 
-        assert req.attempt_count == 1  # +1 만 됐어야 함
+        assert req.attempt_count == 1  # should have incremented by +1 only
         parsed = json.loads(req.attempts_json)
         assert len(parsed) == 1
-        # verdict 자체는 같은 분류/같은 cooldown 으로 일관되게 반환
+        # The verdict itself is returned consistently with the same classification/cooldown
         assert verdict1.kind == verdict2.kind == KIND_TRANSIENT
         assert verdict2.attempt_count == 1
 
     def test_distinct_raw_within_window_still_increments(self):
-        """같은 시간이라도 다른 raw 면 별개 시도로 누적."""
+        """Even at the same time, a different raw accumulates as a separate attempt."""
         req = _FakeReq()
         apply_failure_to_request(req, "다운로드", "Read timeout occurred")
         apply_failure_to_request(req, "다운로드", "Connection reset by peer")
@@ -266,11 +269,11 @@ class TestApplyFailure:
         assert len(parsed) == 2
 
     def test_duplicate_does_not_false_promote_to_dead(self):
-        """가장 위험한 시나리오 — 단일 관측이 중복 호출로 두 번 push 되어
-        ``recent[-2:]`` 가 같아지고 잘못된 dead 박제가 트리거되는 회귀."""
+        """The most dangerous scenario — a single observation pushed twice via a
+        duplicate call makes ``recent[-2:]`` equal and triggers a wrong dead pin (regression)."""
         req = _FakeReq()
-        # 본문 마커가 들어간 케이스 — definitive=True 라 한 번이면 즉시 dead 박제 (정상).
-        # 다음 호출은 dedup 으로 noop — false promotion 아님.
+        # A case with a body marker — definitive=True, so one call pins as dead immediately (correct).
+        # The next call is a noop via dedup — not a false promotion.
         apply_failure_to_request(req, "파싱", "1fichier 차단: 파일 삭제됨")
         apply_failure_to_request(req, "파싱", "1fichier 차단: 파일 삭제됨")
         assert req.attempt_count == 1
@@ -278,7 +281,7 @@ class TestApplyFailure:
 
 
 # ---------------------------------------------------------------------------
-# is_retry_blocked_now — 컬럼 우선, 텍스트 폴백
+# is_retry_blocked_now — columns first, text fallback
 # ---------------------------------------------------------------------------
 
 class TestRetryGate:
@@ -302,13 +305,13 @@ class TestRetryGate:
         assert is_retry_blocked_now(req, has_credentials=True) is None
 
     def test_legacy_text_fallback_when_column_null(self):
-        # 마이그레이션 이전 레코드 — failure_kind 비어있음. error 텍스트로 폴백.
+        # Pre-migration record — failure_kind is empty. Fall back to the error text.
         req = _FakeReq(error="1fichier 차단: 파일 삭제됨")
         assert is_retry_blocked_now(req, has_credentials=True) == "dead"
 
     def test_legacy_text_fallback_no_404_dead(self):
-        # 핵심 회귀: 마이그레이션 이전 레코드의 단발 404 메시지가 더 이상 dead
-        # 박제로 해석되면 안 된다. 사용자 시나리오: 박제됐던 항목이 시스템 업
-        # 데이트 후 풀린다.
+        # Core regression: a pre-migration record's one-off 404 message must no
+        # longer be interpreted as a dead pin. User scenario: a previously pinned
+        # item is released after a system update.
         req = _FakeReq(error="[파싱 실패] ... (페이지 로드 실패: HTTP 404)")
         assert is_retry_blocked_now(req, has_credentials=True) is None

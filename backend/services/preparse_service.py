@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-1fichier URL 사전 파싱 서비스
-URL 추가 시 1fichier 링크의 파일명과 크기를 미리 가져옴
+1fichier URL preparse service
+Fetches the filename and size of a 1fichier link ahead of time when a URL is added
 """
 
 import re
@@ -15,10 +15,10 @@ from core.parser import fichier_parser
 logger = logging.getLogger(__name__)
 
 class PreparseService:
-    """1fichier URL 사전 파싱 서비스"""
-    
+    """1fichier URL preparse service"""
+
     def __init__(self):
-        self.timeout = 30  # 30초 타임아웃
+        self.timeout = 30  # 30-second timeout
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -30,7 +30,7 @@ class PreparseService:
         }
     
     def is_1fichier_url(self, url: str) -> bool:
-        """1fichier URL인지 확인"""
+        """Check whether the URL is a 1fichier URL"""
         try:
             parsed = urlparse(url)
             return '1fichier.com' in parsed.netloc.lower()
@@ -40,11 +40,11 @@ class PreparseService:
     
     async def preparse_1fichier(self, url: str) -> Dict[str, Any]:
         """
-        1fichier URL에서 파일 정보를 사전 파싱
-        
+        Preparse file info from a 1fichier URL
+
         Args:
             url: 1fichier URL
-            
+
         Returns:
             Dict: {'name': str, 'size': str, 'success': bool, 'error': str}
         """
@@ -61,8 +61,8 @@ class PreparseService:
         
         try:
             logger.info(f"[PREPARSE] 1fichier URL 사전 파싱 시작: {url}")
-            
-            # HTTP 요청으로 페이지 가져오기
+
+            # Fetch the page via an HTTP request
             async with httpx.AsyncClient(
                 timeout=self.timeout,
                 headers=self.headers,
@@ -76,7 +76,7 @@ class PreparseService:
                 html_content = response.text
                 logger.info(f"[PREPARSE] HTML 응답 받음 (길이: {len(html_content)})")
                 
-                # 파일 정보 추출
+                # Extract file info
                 file_info = fichier_parser.extract_file_info(html_content)
                 
                 if file_info.get('name'):
@@ -92,7 +92,7 @@ class PreparseService:
                 else:
                     logger.warning(f"[PREPARSE] ✗ 파일 크기 추출 실패")
                 
-                # 파일명이나 크기 중 하나라도 추출되면 성공으로 간주
+                # Consider it a success if either the filename or size is extracted
                 if result['name'] or result['size']:
                     result['success'] = True
                     logger.info(f"[PREPARSE] 사전 파싱 완료 - 이름: {result['name']}, 크기: {result['size']}")
@@ -112,5 +112,5 @@ class PreparseService:
         
         return result
 
-# 전역 인스턴스
+# Global instance
 preparse_service = PreparseService()

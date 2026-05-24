@@ -1,4 +1,4 @@
-# core 패키지 인식용 (비워둬도 됨)
+# Marks this as the core package (can be left empty)
 
-# 파서 모듈들을 노출
+# Expose the parser modules
 from .parser import fichier_parser 

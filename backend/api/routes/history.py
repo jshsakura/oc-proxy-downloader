@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-다운로드 히스토리 API 라우터
+Download history API router
 """
 
 from datetime import datetime, timedelta
@@ -16,7 +16,7 @@ from core.simple_parser import derive_display_name
 
 
 def _display_filename(download: DownloadRequest) -> str:
-    """Unknown 절대 노출 금지 — DB 의 file_name 이 비어 있으면 URL 로부터 유도."""
+    """Never expose "Unknown" — if the DB's file_name is empty, derive it from the URL."""
     name = (download.file_name or "").strip()
     if name:
         return name
@@ -31,18 +31,18 @@ async def get_download_history(
     limit: Optional[int] = None,
     offset: int = 0
 ):
-    """다운로드 히스토리 조회 (기본 limit=200)"""
+    """Get download history (default limit=200)"""
     try:
-        # 최근 다운로드들을 가져오기 (ID 역순)
+        # Fetch recent downloads (descending by ID)
         base_query = db.query(DownloadRequest).order_by(desc(DownloadRequest.id))
 
-        # 전체 개수 (offset/limit 적용 전)
+        # Total count (before applying offset/limit)
         total_count = base_query.count()
 
-        # 기본 limit=200
+        # Default limit=200
         effective_limit = limit if limit is not None else 200
 
-        # offset이 있으면 적용
+        # Apply offset if present
         query = base_query
         if offset > 0:
             query = query.offset(offset)
@@ -81,14 +81,14 @@ async def get_working_downloads(
     page_size: int = 50,
     search: Optional[str] = None
 ):
-    """진행 중인 다운로드 조회 (done을 제외한 모든 상태)"""
+    """Get in-progress downloads (all statuses except done)"""
     try:
-        # 기본 쿼리 (done 제외)
+        # Base query (excludes done)
         query = db.query(DownloadRequest).filter(
             DownloadRequest.status != StatusEnum.done
         )
 
-        # 검색 조건 추가
+        # Add search condition
         if search and search.strip():
             search_term = f"%{search.strip()}%"
             query = query.filter(
@@ -96,10 +96,10 @@ async def get_working_downloads(
                 (DownloadRequest.url.ilike(search_term))
             )
 
-        # 전체 개수 조회
+        # Get total count
         total_count = query.count()
 
-        # 페이징 적용하여 조회
+        # Apply paging and query
         offset = (page - 1) * page_size
         downloads = query.order_by(desc(DownloadRequest.id)).offset(offset).limit(page_size).all()
 
@@ -142,14 +142,14 @@ async def get_completed_downloads(
     page_size: int = 50,
     search: Optional[str] = None
 ):
-    """완료된 다운로드 조회 (done 상태만)"""
+    """Get completed downloads (done status only)"""
     try:
-        # 기본 쿼리 (done만)
+        # Base query (done only)
         query = db.query(DownloadRequest).filter(
             DownloadRequest.status == StatusEnum.done
         )
 
-        # 검색 조건 추가
+        # Add search condition
         if search and search.strip():
             search_term = f"%{search.strip()}%"
             query = query.filter(
@@ -157,10 +157,10 @@ async def get_completed_downloads(
                 (DownloadRequest.url.ilike(search_term))
             )
 
-        # 전체 개수 조회
+        # Get total count
         total_count = query.count()
 
-        # 페이징 적용하여 조회
+        # Apply paging and query
         offset = (page - 1) * page_size
         downloads = query.order_by(desc(DownloadRequest.id)).offset(offset).limit(page_size).all()
 
@@ -171,7 +171,7 @@ async def get_completed_downloads(
                 "url": download.url,
                 "filename": _display_filename(download),
                 "status": download.status.value if download.status else "unknown",
-                "progress": 100,  # 완료된 건은 항상 100%
+                "progress": 100,  # completed items are always 100%
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
                 "failure_kind": classify_failure_text(download.error),
@@ -199,9 +199,9 @@ async def get_completed_downloads(
 
 @router.get("/downloads/active")
 async def get_active_downloads(db: Session = Depends(get_db)):
-    """활성 다운로드 조회 (기존 호환성)"""
+    """Get active downloads (legacy compatibility)"""
     try:
-        # 진행 중인 다운로드들 (실패한 것도 포함해서 표시)
+        # In-progress downloads (failed ones are included in the display too)
         active_downloads = db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([
                 StatusEnum.parsing,
@@ -226,7 +226,7 @@ async def get_active_downloads(db: Session = Depends(get_db)):
                 "failure_kind": classify_failure_text(download.error),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
-                "file_size": download.file_size  # 사전파싱에서 얻은 파일 크기 정보
+                "file_size": download.file_size  # file size info obtained from preparse
             })
 
         return {"downloads": downloads, "count": len(downloads)}

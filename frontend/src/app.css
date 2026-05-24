@@ -196,7 +196,7 @@ html.forest {
   --button-secondary-text: #dcfce7;
   --button-secondary-background-hover: #2a4430;
   --button-secondary-border: #1e3322;
-  --bg-secondary: #152118;
+  --bg-secondary: #101e14;
   --chart-color-1: #4ade80;
   --chart-color-2: #f87171;
   --chart-color-3: #fbbf24;
@@ -261,7 +261,7 @@ html.sunset {
   --button-secondary-text: #fff7ed;
   --button-secondary-background-hover: #4d3520;
   --button-secondary-border: #3d2818;
-  --bg-secondary: #261a12;
+  --bg-secondary: #20140d;
   --chart-color-1: #4ade80;
   --chart-color-2: #f87171;
   --chart-color-3: #fbbf24;
@@ -697,7 +697,7 @@ html.rose {
   --button-secondary-text: #fce7f3;
   --button-secondary-background-hover: #4d3040;
   --button-secondary-border: #3d2434;
-  --bg-secondary: #261a22;
+  --bg-secondary: #1f161c;
   --chart-color-1: #34d399;
   --chart-color-2: #fb7185;
   --chart-color-3: #fbbf24;
@@ -762,7 +762,7 @@ html.neon {
   --button-secondary-text: #e0e0ff;
   --button-secondary-background-hover: #353555;
   --button-secondary-border: #252540;
-  --bg-secondary: #141425;
+  --bg-secondary: #0f0f1c;
   --chart-color-1: #00e676;
   --chart-color-2: #ff4081;
   --chart-color-3: #ffea00;
@@ -1602,18 +1602,15 @@ html[data-theme="light"] {
   border-color: rgba(34, 197, 94, 0.35);
 }
 
-/* 다중선택 — 행 체크박스 + 액션바 */
-.row-select {
-  margin-right: 0.5rem;
-  cursor: pointer;
-  accent-color: var(--primary-color);
+/* 다중선택 — 행 체크박스 컬럼 + 액션바 */
+.select-col {
+  width: 44px;
+  text-align: center;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
 }
 tr.is-selected {
   background: rgba(99, 102, 241, 0.08);
-}
-.button-icon.select-mode-button.active {
-  color: var(--primary-color);
-  background: rgba(99, 102, 241, 0.12);
 }
 .bulk-action-bar {
   position: fixed;
@@ -2855,20 +2852,22 @@ table th:first-child {
   gap: 0.25rem;
 }
 
-/* 조회 조건(기간) 별도 줄 — PC 는 중앙 정렬, 모바일은 컨테이너 가득차게 풀폭 segmented. */
+/* 조회 조건(기간) 별도 줄 — PC 는 좌측 정렬, 모바일은 컨테이너 가득차게 풀폭 segmented. */
+/* Period query row — left-aligned on desktop, full-width segmented on mobile. */
 .grid-period-bar {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   padding-bottom: 0.5rem;
 }
 .grid-period-bar :global(.period-controls) {
   margin-bottom: 0;
 }
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   /* 컨테이너 자체도 가득차게 — 안 그러면 자식의 width: 100% 가 부모 폭만큼만 잡힘 */
+  /* Center the control group and let it fill the container on mobile. */
   .grid-period-bar {
     width: 100%;
-    justify-content: stretch;
+    justify-content: center;
   }
   .grid-period-bar :global(.period-controls) {
     width: 100%;
@@ -2885,7 +2884,7 @@ table th:first-child {
   }
   .grid-period-bar :global(.period-seg-btn) {
     flex: 1 1 0;
-    padding: 0.55rem 0.2rem;
+    padding: 0 0.2rem;
     font-size: 0.74rem;
   }
   /* 사용자 지정 활성화 시 날짜 영역도 다음 줄에서 가득차게 */

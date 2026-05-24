@@ -1,8 +1,8 @@
 """
-공통 에러 처리 모듈
-- 표준화된 예외 처리
-- 에러 로깅
-- 사용자 친화적 에러 메시지
+Common error-handling module
+- Standardized exception handling
+- Error logging
+- User-friendly error messages
 """
 
 import logging
@@ -11,7 +11,7 @@ from enum import Enum
 
 
 class ErrorCode(Enum):
-    """에러 코드 정의"""
+    """Error code definitions"""
     DOWNLOAD_FAILED = "DOWNLOAD_FAILED"
     PARSE_FAILED = "PARSE_FAILED"
     PROXY_FAILED = "PROXY_FAILED"
@@ -22,7 +22,7 @@ class ErrorCode(Enum):
 
 
 class AppError(Exception):
-    """애플리케이션 공통 예외 클래스"""
+    """Common application exception class"""
     def __init__(self, code: ErrorCode, message: str, details: Optional[Dict[str, Any]] = None):
         self.code = code
         self.message = message
@@ -32,14 +32,14 @@ class AppError(Exception):
 
 def handle_error(error: Exception, context: str = "") -> Dict[str, Any]:
     """
-    공통 에러 처리 함수
+    Common error-handling function
 
     Args:
-        error: 발생한 예외
-        context: 에러 발생 컨텍스트
+        error: The exception that occurred
+        context: The context in which the error occurred
 
     Returns:
-        에러 정보 딕셔너리
+        An error-info dictionary
     """
     error_info = {
         "success": False,
@@ -73,14 +73,14 @@ def handle_error(error: Exception, context: str = "") -> Dict[str, Any]:
     else:
         error_info["message"] = str(error) if str(error) else "알 수 없는 오류가 발생했습니다."
 
-    # 로깅
+    # Logging
     log_error(error, context, error_info)
 
     return error_info
 
 
 def log_error(error: Exception, context: str, error_info: Dict[str, Any]):
-    """에러 로깅"""
+    """Error logging"""
     logger = logging.getLogger(__name__)
 
     log_message = f"[{context}] {error_info['error_code']}: {error_info['message']}"
@@ -93,16 +93,16 @@ def log_error(error: Exception, context: str, error_info: Dict[str, Any]):
 
 def safe_execute(func, *args, context: str = "", **kwargs) -> Dict[str, Any]:
     """
-    안전한 함수 실행 래퍼
+    Safe function-execution wrapper
 
     Args:
-        func: 실행할 함수
-        *args: 함수 인자
-        context: 실행 컨텍스트
-        **kwargs: 함수 키워드 인자
+        func: The function to execute
+        *args: Function arguments
+        context: Execution context
+        **kwargs: Function keyword arguments
 
     Returns:
-        실행 결과 또는 에러 정보
+        The execution result or error info
     """
     try:
         result = func(*args, **kwargs)

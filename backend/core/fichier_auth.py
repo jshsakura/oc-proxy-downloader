@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-"""1fichier 계정 로그인 — 인증된 cloudscraper 세션 발급.
+"""1fichier account login — issues an authenticated cloudscraper session.
 
-1fichier 무료 계정으로 로그인하면 ``Free download is temporarily limited
-due to high demand`` 같은 게스트 슬롯 부족 케이스를 우회할 수 있다
-(등록 사용자 슬롯이 별도로 보장되어 있음).
+Logging in with a free 1fichier account lets you bypass guest-slot shortage
+cases such as ``Free download is temporarily limited due to high demand``
+(registered-user slots are guaranteed separately).
 
-설계:
-- 모듈 전역에 인증된 ``cloudscraper`` 인스턴스 하나를 캐시.
-- 세션 만료가 의심되면 자동 재로그인.
-- ``parse_1fichier_simple_sync`` 가 이 scraper 의 cookies 를 가져다
-  자기 scraper 에 적용해서 사용.
+Design:
+- Cache a single authenticated ``cloudscraper`` instance at module scope.
+- Automatically re-login when session expiry is suspected.
+- ``parse_1fichier_simple_sync`` takes this scraper's cookies and applies them to
+  its own scraper for use.
 """
 
 from __future__ import annotations
@@ -24,10 +24,10 @@ import cloudscraper
 
 _LOGIN_URL = "https://1fichier.com/login.pl"
 _HOME_URL = "https://1fichier.com/"
-# 로그인 성공 후 redirect 되는 콘솔 페이지 — 세션 검증용
+# Console page redirected to after a successful login — used for session verification
 _CONSOLE_URL = "https://1fichier.com/console/index.pl"
 
-# 세션 캐시 만료 (초). 1fichier 의 lt=on 토큰 수명은 길지만 안전하게 1시간마다 갱신.
+# Session cache expiry (seconds). 1fichier's lt=on token is long-lived, but refresh every hour to be safe.
 _SESSION_TTL_SECONDS = 60 * 60
 
 
@@ -43,7 +43,7 @@ _cache: Optional[_Cached] = None
 
 
 class FichierLoginError(Exception):
-    """1fichier 로그인 실패 (자격증명 오류, 차단, 네트워크 등)."""
+    """1fichier login failure (credential error, block, network, etc.)."""
 
 
 def _new_scraper() -> cloudscraper.CloudScraper:
@@ -53,7 +53,7 @@ def _new_scraper() -> cloudscraper.CloudScraper:
 
 
 def _looks_logged_in(text: str) -> bool:
-    """``console`` 메뉴가 보이거나 logout 링크가 있으면 로그인된 상태로 간주."""
+    """Consider it logged in if the ``console`` menu is visible or a logout link is present."""
     if not text:
         return False
     lowered = text.lower()
@@ -66,7 +66,7 @@ def _looks_logged_in(text: str) -> bool:
 
 
 def _do_login(email: str, password: str) -> cloudscraper.CloudScraper:
-    """실제 로그인 흐름 — 성공 시 세션이 살아있는 scraper 반환, 실패 시 raise."""
+    """The actual login flow — returns a scraper with a live session on success, raises on failure."""
     if not email or not password:
         raise FichierLoginError("자격증명이 비어있음")
 
@@ -82,7 +82,7 @@ def _do_login(email: str, password: str) -> cloudscraper.CloudScraper:
         "Referer": _LOGIN_URL,
     }
 
-    # 1) 로그인 페이지 GET 으로 cookie 초기화 / Cloudflare 우회 토큰 확보
+    # 1) GET the login page to initialize cookies / obtain the Cloudflare-bypass token
     try:
         r0 = scraper.get(_LOGIN_URL, headers=headers, timeout=(10, 30))
     except Exception as exc:
@@ -91,12 +91,12 @@ def _do_login(email: str, password: str) -> cloudscraper.CloudScraper:
     if r0.status_code != 200:
         raise FichierLoginError(f"로그인 페이지 응답 코드 {r0.status_code}")
 
-    # 2) 자격증명 POST. 1fichier 의 표준 필드명: mail / pass / lt / purge / Login
+    # 2) POST the credentials. 1fichier's standard field names: mail / pass / lt / purge / Login
     form = {
         "mail": email,
         "pass": password,
-        "lt": "on",        # long-term: 쿠키를 길게 유지
-        "purge": "on",     # 다른 세션 모두 종료
+        "lt": "on",        # long-term: keep the cookie alive for a long time
+        "purge": "on",     # terminate all other sessions
         "Login": "Sign in",
     }
     try:
@@ -110,14 +110,14 @@ def _do_login(email: str, password: str) -> cloudscraper.CloudScraper:
     except Exception as exc:
         raise FichierLoginError(f"로그인 요청 실패: {exc}") from exc
 
-    # 3) 명백한 실패 케이스
+    # 3) Obvious failure cases
     text_lower = (r.text or "").lower()
     if "invalid" in text_lower and ("email" in text_lower or "password" in text_lower):
         raise FichierLoginError("이메일 또는 비밀번호가 올바르지 않음")
     if "captcha" in text_lower and "recaptcha" not in text_lower:
         raise FichierLoginError("1fichier 가 캡차를 요구함 — 브라우저로 한 번 로그인 후 재시도")
 
-    # 4) 콘솔 페이지로 검증
+    # 4) Verify via the console page
     try:
         rc = scraper.get(_CONSOLE_URL, headers=headers, timeout=(10, 30))
     except Exception as exc:
@@ -134,7 +134,7 @@ def get_authenticated_scraper(
     password: str,
     force_refresh: bool = False,
 ) -> cloudscraper.CloudScraper:
-    """캐시된 세션이 있으면 반환, 없거나 만료/계정 변경됐으면 새로 로그인."""
+    """Return the cached session if present; otherwise log in anew if absent/expired/account changed."""
     global _cache
 
     with _lock:
@@ -146,14 +146,14 @@ def get_authenticated_scraper(
         ):
             return _cache.scraper
 
-        # 새 로그인
+        # New login
         scraper = _do_login(email, password)
         _cache = _Cached(scraper=scraper, email=email, obtained_at=time.time())
         return scraper
 
 
 def get_session_cookies(email: str, password: str) -> Dict[str, str]:
-    """파서/다운로더가 쓸 수 있는 ``{name: value}`` dict 형태의 쿠키 반환."""
+    """Return cookies as a ``{name: value}`` dict that the parser/downloader can use."""
     scraper = get_authenticated_scraper(email, password)
     try:
         return {c.name: c.value for c in scraper.cookies}
@@ -162,14 +162,14 @@ def get_session_cookies(email: str, password: str) -> Dict[str, str]:
 
 
 def clear_cached_session() -> None:
-    """ID/PW 가 바뀌었거나 강제 로그아웃 후 호출."""
+    """Call when the ID/PW has changed or after a forced logout."""
     global _cache
     with _lock:
         _cache = None
 
 
 def test_login(email: str, password: str) -> bool:
-    """설정 화면에서 ``테스트 로그인`` 버튼 용. 성공/실패만 boolean 으로."""
+    """For the ``Test login`` button on the settings screen. Returns only success/failure as a boolean."""
     try:
         get_authenticated_scraper(email, password, force_refresh=True)
         return True

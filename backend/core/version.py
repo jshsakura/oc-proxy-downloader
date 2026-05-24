@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-앱 버전 관리
+App version management
 """
 
-# 현재 앱 버전
-CURRENT_VERSION = "v2.0.53"
+# Current app version
+CURRENT_VERSION = "v2.1.0"

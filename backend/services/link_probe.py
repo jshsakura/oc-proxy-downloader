@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""1fichier 링크 가벼운 상태 검사 (probe).
+"""Lightweight status check (probe) for 1fichier links.
 
-이미 ``error_messages`` 가 실제 다운로드 시도에서 받은 에러를 분류한다면,
-이 모듈은 **다운로드 시도 없이** 페이지를 한 번 GET 해서 *왜* 실패하고 있는지
-독립적인 증거를 모은다. captcha/대기/POST 흐름을 일절 타지 않아 빠르고,
-1fichier 에 가하는 부하도 적다.
+While ``error_messages`` classifies errors received from an actual download
+attempt, this module GETs the page once **without attempting a download** to
+gather independent evidence of *why* it is failing. It never goes through the
+captcha/wait/POST flow, so it is fast and puts little load on 1fichier.
 
-용도:
-- 사용자가 누른 "전체 링크 검수" 의 단건 동작.
-- 박제된 ``failure_kind=dead`` 가 실제로도 dead 인지 재확인.
-- 일괄 재시도 직전에 죽은 링크 미리 솎아내기.
+Uses:
+- The single-item action behind the user's "audit all links" button.
+- Re-confirming that a pinned ``failure_kind=dead`` is actually dead.
+- Pre-filtering dead links right before a batch retry.
 
-본 함수는 글로벌 토큰 버킷 throttle 을 내장한다 (1 req / 3s, 동시 1).
+This function has a built-in global token-bucket throttle (1 req / 3s, concurrency 1).
 """
 
 from __future__ import annotations
@@ -39,26 +39,27 @@ from core.error_messages import (
 )
 
 
-# error_messages 의 KIND_* 와 같은 네임스페이스에 속하지만, probe 만의 결과 코드.
-# 'alive' = 살아있는 링크 확인됨, 'unreachable' = 1fichier 가 아니거나 네트워크 자체 불통.
+# In the same namespace as error_messages' KIND_*, but these are probe-only
+# result codes. 'alive' = link confirmed alive, 'unreachable' = not 1fichier or
+# the network itself is down.
 KIND_ALIVE = "alive"
 KIND_UNREACHABLE = "unreachable"
 
 
-_THROTTLE_MIN_INTERVAL_SEC = 3.0  # 글로벌 최소 간격
+_THROTTLE_MIN_INTERVAL_SEC = 3.0  # global minimum interval
 _PROBE_TIMEOUT_SEC = 20.0
 _PROBE_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
-_ATTEMPTS_RING_SIZE = 5  # error_messages 와 동일
+_ATTEMPTS_RING_SIZE = 5  # same as error_messages
 
 
 @dataclass(frozen=True)
 class ProbeResult:
-    """단건 probe 결과.
+    """Single probe result.
 
-    ``kind`` 는 ``error_messages.KIND_*`` 또는 ``"alive"`` / ``"unreachable"``.
+    ``kind`` is one of ``error_messages.KIND_*`` or ``"alive"`` / ``"unreachable"``.
     """
     kind: str
     summary: str
@@ -74,7 +75,7 @@ class ProbeResult:
 
 
 class _Throttle:
-    """단순 글로벌 throttle — 최소 N초 간격으로만 통과시킴."""
+    """Simple global throttle — only lets calls through at a minimum N-second interval."""
 
     def __init__(self, min_interval: float):
         self.min_interval = min_interval
@@ -119,7 +120,7 @@ def _extract_retry_after_from_body(text: str) -> Optional[int]:
 
 
 def _kind_from_marker(marker: str) -> str:
-    """detect_block_reason 의 한국어 마커를 KIND_* 로 매핑."""
+    """Map detect_block_reason's Korean markers to KIND_*."""
     m = marker.lower()
     if "파일" in marker and ("삭제" in marker or "신고" in marker or "없" in marker):
         return KIND_DEAD
@@ -137,9 +138,9 @@ def _kind_from_marker(marker: str) -> str:
 
 
 async def probe_1fichier_url(url: str) -> ProbeResult:
-    """1fichier URL 을 가볍게 GET 해서 상태 분류.
+    """Lightly GET a 1fichier URL and classify its status.
 
-    captcha/대기/POST 안 함 — 본문 마커와 HTTP 코드만 본다.
+    No captcha/wait/POST — only looks at body markers and the HTTP code.
     """
     if "1fichier.com" not in (url or ""):
         return ProbeResult(
@@ -177,7 +178,7 @@ async def probe_1fichier_url(url: str) -> ProbeResult:
     status = response.status_code
     body = response.text or ""
 
-    # HTTP-코드 단독으로 dead 박지 않음 — 본문 마커가 우선
+    # Don't pin dead on the HTTP code alone — the body marker takes priority
     block = detect_block_reason(body)
     if block:
         kind = _kind_from_marker(block)
@@ -185,8 +186,8 @@ async def probe_1fichier_url(url: str) -> ProbeResult:
             kind=kind, summary=f"1fichier 본문 마커: {block}",
             raw_status=status, body_marker=block,
             retry_after_seconds=_extract_retry_after_from_body(body),
-            # 본문 마커는 결정적이지만 dead 만 single-shot 박제 허용 —
-            # apply_probe_to_request 에서 그렇게 처리.
+            # Body markers are definitive, but only dead is allowed to be
+            # pinned single-shot — handled that way in apply_probe_to_request.
             definitive=True,
         )
 
@@ -199,7 +200,8 @@ async def probe_1fichier_url(url: str) -> ProbeResult:
         )
 
     if status in (404, 410):
-        # 단발 관측 — transient. 같은 결과가 누적되면 audit 누적 룰에서 dead 로 승급.
+        # One-off observation — transient. If the same result accumulates, the
+        # audit accumulation rule promotes it to dead.
         return ProbeResult(
             kind=KIND_TRANSIENT, summary=f"probe 응답이 {status} (단발)",
             raw_status=status, body_marker=None,
@@ -220,7 +222,7 @@ async def probe_1fichier_url(url: str) -> ProbeResult:
             retry_after_seconds=None, definitive=False,
         )
 
-    # 200 + 차단 마커 없음 — 파일 정보 추출되면 살아있다고 판정.
+    # 200 + no block marker — judged alive if file info can be extracted.
     try:
         file_info = fichier_parser.extract_file_info(body)
     except Exception:
@@ -235,7 +237,7 @@ async def probe_1fichier_url(url: str) -> ProbeResult:
             retry_after_seconds=None, definitive=True,
         )
 
-    # 200 이지만 파일 정보도 없고 알려진 차단 마커도 없음 — UI 변경/캡차 가능
+    # 200 but no file info and no known block marker — possible UI change/captcha
     return ProbeResult(
         kind="blocked",
         summary="probe 가 파일 정보를 찾지 못함 (페이지 변경 가능성)",
@@ -261,20 +263,20 @@ def _dump_attempts(attempts: List[dict]) -> str:
 
 
 def apply_probe_to_request(req, probe: ProbeResult) -> None:
-    """probe 결과를 ``req`` 의 분류 컬럼에 반영.
+    """Apply the probe result to ``req``'s classification columns.
 
-    - ``last_probed_at`` 항상 갱신.
-    - ``attempts_json`` 링버퍼에 stage="검수" 로 한 줄 추가.
-    - ``kind == alive``: ``failure_kind`` / ``next_retry_at`` 초기화 — 다음 일괄
-      재시도에서 정상 픽업.
-    - ``kind == dead`` 또는 ``auth_required`` (definitive): 즉시 박제.
-    - 그 외 (cloudflare/rate_limited/blocked/transient/unreachable/unknown):
-      기존 backoff 가 있으면 유지, 없으면 보수적 cooldown 부여. ``failure_kind``
-      가 비어있던 항목엔 채워준다.
+    - ``last_probed_at`` is always updated.
+    - Appends one line to the ``attempts_json`` ring buffer with stage="검수".
+    - ``kind == alive``: clears ``failure_kind`` / ``next_retry_at`` — picked up
+      normally by the next batch retry.
+    - ``kind == dead`` or ``auth_required`` (definitive): pinned immediately.
+    - Otherwise (cloudflare/rate_limited/blocked/transient/unreachable/unknown):
+      keep the existing backoff if any, otherwise assign a conservative
+      cooldown. Fills in ``failure_kind`` for items where it was empty.
     """
     now = datetime.datetime.now()
 
-    # attempts_json 추가
+    # Append to attempts_json
     attempts = _load_attempts(getattr(req, "attempts_json", None))
     attempts.append({
         "ts": now.isoformat(),
@@ -291,21 +293,21 @@ def apply_probe_to_request(req, probe: ProbeResult) -> None:
         req.last_probed_at = now
 
     if probe.kind == KIND_ALIVE:
-        # 살아있는 링크 — 박제 해제, cooldown 도 해제. attempt_count 는 의미 있어서 유지.
+        # Alive link — unpin and clear the cooldown. Keep attempt_count since it's meaningful.
         if hasattr(req, "failure_kind"):
             req.failure_kind = None
         if hasattr(req, "next_retry_at"):
             req.next_retry_at = None
-        # 사용자가 UI 에서 보기 좋게 안내. status 는 변경 안 함 (그건 retry 가 할 일).
+        # A nice message for the user in the UI. Don't change status (that's retry's job).
         req.error = "[검수] 링크 살아있음 — 재시도 가능"
         return
 
     if probe.kind == KIND_UNREACHABLE:
-        # 1fichier 가 아니거나 네트워크 자체 불통 — 분류 변경 X, 메시지만 갱신
+        # Not 1fichier or the network itself is down — don't change the classification, just update the message
         req.error = probe.to_user_message()
         return
 
-    # 본문 마커 기반 결정적 dead/auth_required → 즉시 박제
+    # Definitive dead/auth_required based on body markers → pin immediately
     if probe.definitive and probe.kind in (KIND_DEAD, KIND_AUTH_REQUIRED):
         if hasattr(req, "failure_kind"):
             req.failure_kind = probe.kind
@@ -314,7 +316,7 @@ def apply_probe_to_request(req, probe: ProbeResult) -> None:
         req.error = probe.to_user_message()
         return
 
-    # 그 외: cooldown 갱신 (기존 backoff 유지 우선)
+    # Otherwise: update the cooldown (prefer keeping the existing backoff)
     current_next = getattr(req, "next_retry_at", None)
     suggested = _compute_next_retry_at(
         probe.kind,

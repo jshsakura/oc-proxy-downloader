@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""``simulate_download_click`` / ``parse_1fichier_simple_sync`` /
-``preparse_1fichier_standalone`` 의 행위를 cloudscraper 응답을 모킹해서 검증.
+"""Verifies the behavior of ``simulate_download_click`` /
+``parse_1fichier_simple_sync`` / ``preparse_1fichier_standalone`` by mocking
+cloudscraper responses.
 """
 
 from unittest.mock import MagicMock, patch
@@ -22,8 +23,8 @@ def _form(html):
 
 class TestCollectFormData:
     def test_excludes_save_submit_button_for_registered_user(self):
-        """등록 사용자 폼의 'Save on my account' submit 은 form_data 에 들어가면 안 된다.
-        실제 브라우저는 클릭한 submit 만 포함한다 (다운로드는 JS 트리거라 submit 미포함).
+        """The 'Save on my account' submit on a registered-user form must not enter form_data.
+        A real browser includes only the clicked submit (download is JS-triggered, so no submit).
         """
         form = _form("""
             <form id="f1">
@@ -36,7 +37,7 @@ class TestCollectFormData:
         assert "save" not in data, "save submit 은 절대 포함되면 안 됨"
 
     def test_excludes_unchecked_checkboxes(self):
-        """체크되지 않은 체크박스는 브라우저가 안 보내므로 form_data 에서도 제외."""
+        """Browsers do not send unchecked checkboxes, so exclude them from form_data too."""
         form = _form("""
             <form id="f1">
               <input type="checkbox" name="dl_no_ssl">
@@ -65,7 +66,7 @@ class TestCollectFormData:
         """)
         data = sp._collect_form_data(form, password=None)
         assert data["adz"] == "adv-token-123"
-        # value 비어있어도 hidden 은 포함되어야 함
+        # Hidden fields must be included even with an empty value
         assert "csrf" in data
 
     def test_includes_password_when_provided(self):
@@ -83,7 +84,7 @@ class TestCollectFormData:
               <input type="password" name="pass" value="">
             </form>
         """)
-        # password 가 None 이면 비밀번호 보호된 파일이 아닌 케이스 — 보내지 않음
+        # If password is None, this is not a password-protected file — do not send it
         data = sp._collect_form_data(form, password=None)
         assert data == {}
 
@@ -97,7 +98,7 @@ class TestCollectFormData:
         assert sp._collect_form_data(form, password=None) == {"ok": "ok"}
 
     def test_does_not_auto_inject_submit_field(self):
-        """과거 ``submit=Download`` 자동 추가 동작이 회귀하지 않도록 보호."""
+        """Guards against a regression of the old auto-add ``submit=Download`` behavior."""
         form = _form("""
             <form id="f1">
               <input type="checkbox" name="dl_no_ssl">
@@ -108,9 +109,9 @@ class TestCollectFormData:
         assert data == {}
 
     def test_real_registered_user_form_only_yields_empty_dict(self):
-        """실제 1fichier 등록 사용자 GET 페이지에서 캡처한 폼 구조 — 어떤
-        것도 체크/입력되지 않았다면 form_data 는 비어있어야 한다 (브라우저
-        가 #dlw 클릭 → JS submit 했을 때의 동작).
+        """A form structure captured from a real 1fichier registered-user GET page —
+        if nothing is checked/entered, form_data must be empty (the behavior when
+        the browser clicks #dlw → JS submit).
         """
         form = _form("""
             <form id="f1" method="post" action="https://1fichier.com/?abc">
@@ -121,8 +122,8 @@ class TestCollectFormData:
               <input type="checkbox" name="use_credits">
             </form>
         """)
-        # select 는 input 이 아니므로 _collect_form_data 가 다루지 않음.
-        # 향후 select 처리 추가 시 이 테스트도 같이 업데이트 필요.
+        # select is not an input, so _collect_form_data does not handle it.
+        # If select handling is added later, this test must be updated too.
         assert sp._collect_form_data(form, password=None) == {}
 
 
@@ -172,11 +173,11 @@ class TestSimulateDownloadClick:
         assert link == "https://a-1.1fichier.com/p7token/movie.mkv"
 
     def test_redirect_to_homepage_is_rejected(self):
-        """Location 이 1fichier 메인 페이지면 다운로드 링크로 인식하면 안 된다."""
+        """If Location is the 1fichier main page, it must not be recognized as a download link."""
         scraper, _ = _make_scraper_with_post_response(
             status=302,
             location="https://1fichier.com/?abc",
-            text="",  # 본문 없음
+            text="",  # no body
         )
 
         with pytest.raises(Exception):
@@ -265,7 +266,7 @@ class TestSimulateDownloadClick:
         assert call.kwargs["data"].get("pass") == "my-secret"
 
     def test_additional_wait_time_triggers_retry_post(self, monkeypatch):
-        """첫 POST 응답에 추가 대기시간 표시가 있으면 한 번 더 POST 한다."""
+        """If the first POST response indicates an additional wait time, POST once more."""
 
         first_response = MagicMock()
         first_response.status_code = 200
@@ -294,7 +295,7 @@ class TestSimulateDownloadClick:
         assert scraper.post.call_count == 2
 
     def test_unknown_response_raises_link_not_found_with_diagnostics(self):
-        """200 인데 후보를 찾을 수 없으면 디버그 단서 포함된 메시지로 raise."""
+        """On a 200 with no candidate found, raise with a message that includes debug clues."""
         scraper, _ = _make_scraper_with_post_response(
             status=200,
             text="<html><head><title>Unexpected page</title></head><body><a href='/foo'>foo</a></body></html>",
@@ -310,14 +311,14 @@ class TestSimulateDownloadClick:
             )
         msg = str(excinfo.value)
         assert "다운로드 링크를 찾을 수 없음" in msg
-        # 디버깅에 필요한 단서가 메시지에 포함돼야 함
+        # The message must include the clues needed for debugging
         assert "POST status=200" in msg
         assert "title=" in msg
         assert "forms=" in msg
         assert "a_tags=" in msg
 
     def test_post_response_with_block_reason_raises_block_message(self):
-        """POST 응답이 차단 페이지면 ``1fichier 차단`` 으로 raise."""
+        """If the POST response is a block page, raise as ``1fichier 차단``."""
         scraper, _ = _make_scraper_with_post_response(
             status=200,
             text="<html><body>Accès restreint – professional infrastructure detected.</body></html>",
@@ -333,7 +334,7 @@ class TestSimulateDownloadClick:
             )
 
     def test_retry_loop_succeeds_within_max_attempts(self, monkeypatch):
-        """첫 시도 + 두 번째 시도 모두 대기 페이지, 세 번째 시도에서 다운로드 링크."""
+        """First and second attempts are wait pages; the third attempt yields the download link."""
         wait_page = "<html><body><script>var ct = 60;</script><form id='f1'></form></body></html>"
 
         wait1 = MagicMock(); wait1.status_code = 200; wait1.text = wait_page; wait1.headers = {}
@@ -356,7 +357,7 @@ class TestSimulateDownloadClick:
         assert scraper.post.call_count == 3, "MAX_POST_ATTEMPTS=3 안에서 성공해야 함"
 
     def test_retry_loop_stops_at_max_attempts(self, monkeypatch):
-        """MAX_POST_ATTEMPTS 도달하면 더 시도하지 않고 진단 메시지로 raise."""
+        """On reaching MAX_POST_ATTEMPTS, stop trying and raise with a diagnostic message."""
         wait_page = "<html><body><script>var ct = 60;</script><form id='f1'></form></body></html>"
 
         responses = []
@@ -381,7 +382,7 @@ class TestSimulateDownloadClick:
             "정확히 MAX_POST_ATTEMPTS 만큼만 시도해야 함"
 
     def test_retry_wait_aborts_on_cancel_signal(self, monkeypatch):
-        """재시도 사이 extra_wait sleep 중 cancel signal 이 set 되면 즉시 중단."""
+        """If the cancel signal is set during the extra_wait sleep between retries, abort immediately."""
         import threading
         from core import cancel_signal
 
@@ -396,8 +397,8 @@ class TestSimulateDownloadClick:
         scraper = MagicMock()
         scraper.post.return_value = wait_resp
 
-        # 첫 POST 직후 cancel signal 이 set 되는 시나리오 — Event.wait 가
-        # 즉시 True 반환하도록 패치 (set 됐을 때만 True)
+        # Scenario where the cancel signal is set right after the first POST —
+        # patch Event.wait to return True immediately (True only when set)
         monkeypatch.setattr(sp.time, "sleep", lambda s: None)
         monkeypatch.setattr(threading.Event, "wait",
                             lambda self, timeout=None: self.is_set())
@@ -410,13 +411,13 @@ class TestSimulateDownloadClick:
                     None, {"User-Agent": "UA"}, None,
                     download_id=99, sse_callback=None,
                 )
-            # 첫 POST 만 실행되고 retry 진입 직후 cancel
+            # Only the first POST runs, then cancel right after entering retry
             assert scraper.post.call_count == 1
         finally:
             cancel_signal.reset_all_for_tests()
 
     def test_retry_loop_stops_early_when_no_extra_wait(self):
-        """응답이 대기 페이지가 아니라 일반 실패면 즉시 중단 — 무의미한 재시도 방지."""
+        """If the response is a plain failure rather than a wait page, abort immediately — avoids pointless retries."""
         scraper, _ = _make_scraper_with_post_response(
             status=200,
             text="<html><head><title>Unexpected</title></head><body></body></html>",
@@ -429,7 +430,7 @@ class TestSimulateDownloadClick:
         assert scraper.post.call_count == 1, "추가 대기시간 없으면 1번만 시도"
 
     def test_post_response_returning_homepage_raises_form_rejection(self):
-        """차단 메시지 없이 홈페이지가 반환된 케이스 — 폼 제출 거부로 분류."""
+        """Case where the homepage is returned without a block message — classified as form-submit rejection."""
         homepage = """
         <html>
           <head><title>1fichier.com: Cloud Storage</title></head>
@@ -462,7 +463,7 @@ class TestSimulateDownloadClick:
 
 @pytest.fixture
 def fake_scraper_class(monkeypatch):
-    """``cloudscraper.create_scraper`` 가 항상 같은 가짜 객체를 반환하게 한다."""
+    """Make ``cloudscraper.create_scraper`` always return the same fake object."""
 
     fakes = []
 
@@ -482,7 +483,7 @@ def test_parse_simple_sync_raises_on_404_with_clear_message(fake_scraper_class):
     response.text = "<html>not found</html>"
     response.headers = {}
 
-    # GET 호출 캡처
+    # Capture the GET call
     def make_scraper(**kwargs):
         s = MagicMock()
         s.cookies = []
@@ -496,7 +497,7 @@ def test_parse_simple_sync_raises_on_404_with_clear_message(fake_scraper_class):
 
 
 def test_parse_simple_sync_returns_session_context_on_success(monkeypatch):
-    # 1) 첫 GET 응답 (대기페이지) 모킹 — 대기시간 없음
+    # 1) Mock the first GET response (wait page) — no wait time
     success_html = """
     <html><body>
         <table>
@@ -517,14 +518,14 @@ def test_parse_simple_sync_returns_session_context_on_success(monkeypatch):
     get_response.text = success_html
     get_response.headers = {}
 
-    # 2) POST 응답 (다운로드 링크 리다이렉트) 모킹
+    # 2) Mock the POST response (download-link redirect)
     post_response = MagicMock()
     post_response.status_code = 302
     post_response.text = ""
     post_response.headers = {"Location": "https://a-3.1fichier.com/ptoken/movie.mkv"}
     post_response.url = "https://1fichier.com/?abc"
 
-    # 쿠키
+    # Cookies
     cookie = MagicMock()
     cookie.name = "PHPSESSID"
     cookie.value = "cookieval"
