@@ -1604,10 +1604,11 @@ html[data-theme="light"] {
 
 /* 다중선택 — 행 체크박스 컬럼 + 액션바 */
 .select-col {
-  /* Fixed-width checkbox column so it never stretches with content. */
-  width: 44px;
-  min-width: 44px;
-  max-width: 44px;
+  /* Override the `table th:nth-child(1) { min-width:150px }` rule (intended for
+     the old first column) now that the checkbox is the first column. */
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
   white-space: nowrap;
   text-align: center;
   padding-left: 8px !important;
