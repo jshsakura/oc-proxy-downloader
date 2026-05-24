@@ -2257,6 +2257,24 @@ label {
   100% { transform: rotate(360deg); }
 }
 
+/* Per-row "auditing" loading indicator (shown in the status cell during audit). */
+.audit-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+.row-audit-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--card-border);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.7s linear infinite;
+}
+
 .modal-spinner {
   width: 24px;
   height: 24px;

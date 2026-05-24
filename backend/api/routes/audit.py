@@ -203,6 +203,10 @@ async def _run_audit(target_ids: List[int]) -> None:
                         "id": req_id,
                         "kind": probe.kind,
                         "summary": probe.summary,
+                        # Include the post-probe fields so the frontend can update
+                        # the row in place (no full list reload needed at the end).
+                        "failure_kind": req.failure_kind,
+                        "next_retry_at": req.next_retry_at.isoformat() if req.next_retry_at else None,
                     },
                 )
             except Exception as e:
