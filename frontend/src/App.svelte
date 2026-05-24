@@ -1962,18 +1962,6 @@
       <h1>{$t("title")}</h1>
       <div class="header-actions">
         <button
-          on:click={() => startAudit()}
-          class="button-icon audit-button"
-          class:is-running={auditRunning}
-          disabled={auditRunning}
-          title={auditRunning
-            ? $t("action_audit_running") + ` (${auditDone}/${auditTotal})`
-            : $t("action_audit")}
-          aria-label={$t("action_audit")}
-        >
-          <CheckCircleIcon />
-        </button>
-        <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
           aria-label={$t("settings_title")}
@@ -2505,17 +2493,6 @@
                             aria-label={$t("action_retry")}
                           >
                             <RetryIcon />
-                          </button>
-                        {/if}
-                        <!-- Single audit: immediately check if it is alive (only meaningful for 1fichier) -->
-                        {#if (download.original_url || download.url || "").includes("1fichier.com")}
-                          <button
-                            class="button-icon"
-                            title={$t("action_audit")}
-                            on:click={() => callApi(`/api/downloads/${download.id}/probe`, "POST")}
-                            aria-label={$t("action_audit")}
-                          >
-                            <InfoIcon />
                           </button>
                         {/if}
                       {/if}
