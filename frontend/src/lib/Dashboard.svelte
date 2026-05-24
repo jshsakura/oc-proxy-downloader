@@ -389,6 +389,10 @@
     flex-direction: column;
     gap: 0.4rem;
     min-height: 110px;
+    /* Allow the grid track to shrink so wide content (numbers/sparkline) stays
+       inside the card instead of overflowing the grid. */
+    min-width: 0;
+    overflow: hidden;
   }
 
   .monitor-head {
@@ -417,10 +421,11 @@
 
   .monitor-body {
     display: grid;
-    grid-template-columns: 86px 1fr;
+    grid-template-columns: 86px minmax(0, 1fr);
     align-items: center;
     gap: 0.7rem;
     flex: 1;
+    min-width: 0;
   }
 
   .monitor-body-stacked {

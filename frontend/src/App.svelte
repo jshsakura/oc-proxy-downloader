@@ -203,7 +203,7 @@
   onMount(async () => {
     itemsPerPage = calculateItemsPerPage();
 
-    // Handle the language setting first
+    // Load translations (UI text) first so the app shell renders promptly.
     const lang = localStorage.getItem("lang");
     if (lang) {
       await loadTranslations(lang);
@@ -228,11 +228,9 @@
       fetchProxyStatus();
       checkProxyAvailability();
 
-      // The dashboard is always shown, so load initial data immediately at mount
-      // and start system-monitoring polling. It used to start only on the expand
-      // toggle, but that toggle is gone.
-      fetchDashboardStats();
-      fetchDashboardHistory();
+      // Dashboard stats/history load via the debounced reactive
+      // (scheduleDashboardFetch), so they are NOT fetched explicitly here —
+      // that avoids duplicate history requests on load.
       fetchSystemStats();
       if (!systemStatsInterval) {
         systemStatsInterval = setInterval(fetchSystemStats, 5000);
@@ -567,10 +565,25 @@
     }
   }
 
-  // Reactive: fetch dashboard data when period or page changes
-  $: if (dashboardPeriod) {
-    fetchDashboardStats();
-    fetchDashboardHistory();
+  // Debounced dashboard fetch. Two components are bound to dashboardPeriod, so on
+  // mount the value can change several times as they initialize — without debounce
+  // each change re-fired stats+history for a different range, flooding the backend.
+  let _dashboardFetchTimer = null;
+  function scheduleDashboardFetch() {
+    if (_dashboardFetchTimer) clearTimeout(_dashboardFetchTimer);
+    _dashboardFetchTimer = setTimeout(() => {
+      fetchDashboardStats();
+      fetchDashboardHistory();
+    }, 150);
+  }
+
+  // Re-fetch when the period or the custom date range changes (coalesced).
+  $: {
+    dashboardPeriod;
+    dashboardStartDate;
+    dashboardEndDate;
+    dashboardCurrentPage;
+    if (dashboardPeriod) scheduleDashboardFetch();
   }
 
   function connectEventSource() {
@@ -2100,13 +2113,8 @@
           bind:endDate={dashboardEndDate}
           on:periodChange={(e) => {
             dashboardPeriod = e.detail;
-            fetchDashboardStats();
-            fetchDashboardHistory();
           }}
-          on:customApply={() => {
-            fetchDashboardStats();
-            fetchDashboardHistory();
-          }}
+          on:customApply={() => scheduleDashboardFetch()}
         />
       </div>
 
@@ -2784,7 +2792,7 @@
       bind:statsEndDate={dashboardEndDate}
       on:settingsChanged={handleSettingsChanged}
       on:proxyChanged={checkProxyAvailability}
-      on:statsPeriodChange={() => { fetchDashboardStats(); fetchDashboardHistory(); }}
+      on:statsPeriodChange={() => scheduleDashboardFetch()}
       on:close={() => (showSettingsModal = false)}
     />
   {/if}

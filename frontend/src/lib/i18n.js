@@ -88,16 +88,31 @@ function resolveLang(candidate, supportedCodes) {
 }
 
 async function initializeLocale() {
-    const langs = await fetchAvailableLanguages();
-    const supportedCodes = langs.map((item) => item.code);
+    // Fetch the language list in the background (only needed for the dropdown).
+    // Do NOT block the first translation load on it — that extra round-trip made
+    // the initial render wait on two sequential requests.
+    const langsPromise = fetchAvailableLanguages();
 
-    const lang =
-        resolveLang(localStorage.getItem('lang'), supportedCodes) ||
-        resolveLang(navigator.language, supportedCodes) ||
-        (supportedCodes.includes('en') ? 'en' : supportedCodes[0]);
+    const stored = localStorage.getItem('lang');
+    // Best guess so translations load on the critical path without the list.
+    const guess = stored || navigator.language.split('-')[0] || 'en';
+    localStorage.setItem('lang', guess);
+    const translationsPromise = loadTranslations(guess);
 
-    localStorage.setItem('lang', lang);
-    return loadTranslations(lang);
+    // Once the list is known, correct the language if the guess isn't supported.
+    langsPromise.then((langs) => {
+        const codes = langs.map((item) => item.code);
+        const resolved =
+            resolveLang(stored, codes) ||
+            resolveLang(navigator.language, codes) ||
+            (codes.includes('en') ? 'en' : codes[0]);
+        if (resolved && resolved !== guess) {
+            localStorage.setItem('lang', resolved);
+            loadTranslations(resolved);
+        }
+    });
+
+    return translationsPromise;
 }
 
 function formatTimestamp(dateString) {
