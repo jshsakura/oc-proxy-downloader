@@ -1604,7 +1604,11 @@ html[data-theme="light"] {
 
 /* 다중선택 — 행 체크박스 컬럼 + 액션바 */
 .select-col {
+  /* Fixed-width checkbox column so it never stretches with content. */
   width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  white-space: nowrap;
   text-align: center;
   padding-left: 8px !important;
   padding-right: 8px !important;
