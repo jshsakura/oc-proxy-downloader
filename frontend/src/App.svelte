@@ -94,6 +94,8 @@
   let auditDone = 0;
   let auditTotal = 0;
   let showAuditModal = false;
+  // Rows currently being audited — used to show a per-row loading spinner.
+  let auditingIds = new Set();
   // Multi-select — checkboxes are always visible in the leading table column.
   let selectedIds = new Set();
   let showBulkDeleteConfirm = false;
@@ -952,7 +954,7 @@
 
       // Batch audit progress — toasts for the start/step/done stages.
       if (message.type === "audit_progress") {
-        const { status, done, total, counts } = message.data;
+        const { status, done, total, counts, item } = message.data;
         if (status === "start") {
           auditTotal = total;
           auditDone = 0;
@@ -961,14 +963,28 @@
         } else if (status === "step") {
           auditDone = done;
           auditTotal = total;
+          // Update the audited row in place and clear its spinner — no full reload.
+          if (item && item.id != null) {
+            queueStateUpdate(() => {
+              downloads = downloads.map((d) =>
+                d.id === item.id
+                  ? { ...d, failure_kind: item.failure_kind, next_retry_at: item.next_retry_at }
+                  : d
+              );
+            });
+            if (auditingIds.has(item.id)) {
+              auditingIds.delete(item.id);
+              auditingIds = new Set(auditingIds);
+            }
+          }
         } else if (status === "done") {
           auditRunning = false;
           auditDone = done;
+          auditingIds = new Set(); // clear any remaining spinners
           const alive = counts?.alive ?? 0;
           const dead = counts?.dead ?? 0;
           const other = total - alive - dead;
           toast.success($t("audit_done", { alive, dead, other }));
-          fetchDownloads(); // Reflect the un-pinned items on screen
         }
       }
     });
@@ -1239,6 +1255,9 @@
   function auditSelected() {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
+    // Mark these rows as auditing so each shows a loading spinner until its
+    // result arrives via the audit_progress 'step' SSE.
+    auditingIds = new Set(ids);
     startAudit({ ids });
   }
 
@@ -2266,7 +2285,12 @@
                         : 'local-status'}"
                       title={getStatusTooltip(download)}
                     >
-                      {#if download.status.toLowerCase() === "waiting" && downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
+                      {#if auditingIds.has(download.id)}
+                        <span class="audit-loading">
+                          <span class="row-audit-spinner"></span>
+                          {$t("action_audit_running")}
+                        </span>
+                      {:else if download.status.toLowerCase() === "waiting" && downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
                         <span class="wait-countdown">
                           {$t("download_waiting_time")} ({formatWaitTime(downloadWaitInfo[download.id].remaining_time)})
                           <span

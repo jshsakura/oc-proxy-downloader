@@ -44,7 +44,7 @@
   "audit_started": "검수 시작 — {total}건 대상",
   "audit_already_running": "이미 검수가 진행 중입니다",
   "audit_no_targets": "검수 대상이 없습니다",
-  "audit_done": "검수 완료 — alive {alive} · dead {dead} · 기타 {other}",
+  "audit_done": "검수 완료 — 정상 {alive} · 삭제됨 {dead} · 기타 {other}",
   "probe_alive_message": "링크 살아있음 — 재시도 가능합니다",
   "probe_dead_message": "원본 파일이 사라진 것으로 확인됨",
   "audit_modal_title": "전체 링크 검수",
