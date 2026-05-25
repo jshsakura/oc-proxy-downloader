@@ -264,6 +264,12 @@ def is_likely_download_url(candidate, base_host=None):
     return False
 
 
+# Upper bound for a 1fichier free wait. Normal free waits are <= ~16 min; a value
+# beyond this means a daily/rate limit (or a bad parse), so we fail fast with a
+# clear reason instead of sitting in "parsing/waiting" for hours.
+MAX_WAIT_SECONDS = 30 * 60
+
+
 def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None, download_id=None, sse_callback=None,
                                account_cookies=None):
     """
@@ -349,6 +355,12 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         
         # Step 3: extract the wait time (precisely, from the button text)
         wait_seconds = extract_wait_time_from_button(response.text)
+        if wait_seconds and wait_seconds > MAX_WAIT_SECONDS:
+            # Abnormally long wait → daily/rate limit. Don't hang in "parsing".
+            print(f"[LOG] 대기시간 과다: {wait_seconds}초 (상한 {MAX_WAIT_SECONDS}초)")
+            raise Exception(
+                f"1fichier 대기시간이 너무 깁니다 ({wait_seconds // 60}분) — 무료 다운로드 한도일 수 있습니다. 잠시 후 다시 시도하세요"
+            )
         if wait_seconds:
             print(f"[LOG] 대기시간: {wait_seconds}초")
 

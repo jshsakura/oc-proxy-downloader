@@ -170,6 +170,10 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("you must wait", "1fichier 가 명시적으로 대기를 요구했습니다",
      "잠시 후 다시 시도하세요.",
      KIND_RATE_LIMITED, True),
+    ("대기시간이 너무",
+     "1fichier 대기시간이 비정상적으로 길어 중단했습니다 (무료 다운로드 한도 가능성)",
+     "잠시 후 다시 시도하거나 설정에서 1fichier 계정으로 로그인하세요.",
+     KIND_RATE_LIMITED, True),
 
     # --- cloudflare ---
     ("1fichier 차단: cloudflare", "Cloudflare 챌린지 우회에 실패했습니다",
