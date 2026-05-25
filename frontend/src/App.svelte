@@ -658,7 +658,16 @@
             downloads = downloads.map((d, i) =>
               i === currentIndex ? { ...d, ...updatedDownload } : d
             );
-            if (updatedDownload.status !== "waiting" && downloadWaitInfo[downloadId]) {
+            // Only clear the wait countdown when the download genuinely leaves
+            // the wait (started downloading / finished / failed / stopped). A
+            // stray "parsing"/"proxying" status_update mid-wait must NOT wipe an
+            // active countdown — that left rows stuck on "파싱중" with no timer.
+            if (
+              ["downloading", "done", "failed", "stopped"].includes(
+                (updatedDownload.status || "").toLowerCase(),
+              ) &&
+              downloadWaitInfo[downloadId]
+            ) {
               delete downloadWaitInfo[downloadId];
               downloadWaitInfo = { ...downloadWaitInfo };
             }
@@ -2337,12 +2346,12 @@
                           <span class="row-audit-spinner"></span>
                           {$t("action_audit_running")}
                         </span>
-                      {:else if download.status.toLowerCase() === "waiting" && downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0}
+                      {:else if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && ["waiting", "parsing", "proxying", "pending"].includes(download.status.toLowerCase())}
+                        <!-- An active 1fichier wait countdown — show it even if the
+                             status field is still 'parsing'/'proxying' (events race). -->
                         <span class="wait-countdown">
                           {$t("download_waiting_time")} ({formatWaitTime(downloadWaitInfo[download.id].remaining_time)})
-                          <span
-                            class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
-                          ></span>
+                          <span class="wait-indicator wait-indicator-waiting"></span>
                         </span>
                       {:else if download.status.toLowerCase() === "downloading" && !download.progress}
                         <span class="wait-countdown">
