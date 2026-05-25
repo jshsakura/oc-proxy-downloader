@@ -76,10 +76,10 @@
         bind:value={endDate}
         aria-label={$t("history_period_end")}
       />
-      <button type="button" class="period-apply" on:click={applyCustom}>
-        {$t("history_period_apply")}
-      </button>
     </div>
+    <button type="button" class="period-apply" on:click={applyCustom}>
+      {$t("history_period_apply")}
+    </button>
   {/if}
 </div>
 
@@ -233,6 +233,10 @@
       min-width: 0;
       font-size: 0.82rem;
       padding: 0.4rem 0.3rem;
+    }
+    .period-apply {
+      flex: 1 1 100%;
+      width: 100%;
     }
   }
 </style>

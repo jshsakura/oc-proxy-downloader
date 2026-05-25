@@ -100,32 +100,19 @@ class DownloadService:
 
             print(f"[LOG] 서버 재시작 후 {len(pending_downloads)}개 대기중인 다운로드 발견")
 
-            # Auto-start via download_core
+            # Auto-start via download_core. Each task parks on its own semaphore
+            # (per-site or the shared general/1fichier one) and enforces the
+            # concurrency limit itself, so we simply launch every pending and let
+            # the semaphores throttle. Gating here on a single semaphore value
+            # would use the wrong limit for per-site hosts and starve pendings.
             from core.download_core import download_core
             started_count = 0
 
             for req in pending_downloads:
-                is_1fichier = "1fichier.com" in req.url
-
-                if is_1fichier and not req.use_proxy:
-                    # 1fichier local download (max 1)
-                    if download_core.fichier_local_semaphore._value > 0:
-                        success = await download_core.start_download_async(req, db)
-                        if success:
-                            started_count += 1
-                            print(f"[LOG] 1fichier 로컬 자동 재시작: {req.id}")
-                            break  # 1fichier local is capped at 1, so stop once started
-                else:
-                    # General download (includes 1fichier via proxy, max 5)
-                    if download_core.general_download_semaphore._value > 0:
-                        success = await download_core.start_download_async(req, db)
-                        if success:
-                            started_count += 1
-                            print(f"[LOG] 일반/프록시 다운로드 자동 재시작: {req.id}")
-
-                            # Stop once the general download semaphore is fully used
-                            if download_core.general_download_semaphore._value == 0:
-                                break
+                success = await download_core.start_download_async(req, db)
+                if success:
+                    started_count += 1
+                    print(f"[LOG] 다운로드 자동 재시작: {req.id}")
 
             print(f"[LOG] 서버 재시작 후 총 {started_count}개 다운로드 자동 시작됨")
 

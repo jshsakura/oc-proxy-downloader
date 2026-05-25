@@ -320,6 +320,18 @@ class DownloadCore:
     async def start_download_async(self, req: DownloadRequest, db: Session) -> bool:
         """Start an async download"""
         try:
+            # Guard against duplicate tasks for the same download. Retry presses,
+            # auto-start-next, and restart-after-reboot can all re-enter here for an
+            # id that is already running — e.g. a download parked in the pending
+            # state while it waits on a per-site semaphore still holds a live task.
+            # Creating a second task would orphan the first (download_tasks only
+            # tracks one per id), letting both write the same .part file and even
+            # resurrect a deleted row. If a live task exists, this call is a no-op.
+            existing = self.download_tasks.get(req.id)
+            if existing is not None and not existing.done():
+                print(f"[LOG] 이미 실행 중인 다운로드 태스크 존재, 중복 시작 방지: {req.id}")
+                return True
+
             # Stop-then-restart case — if a previous cancel signal is left set,
             # it becomes a bug where the new download's countdown wakes up immediately.
             cancel_signal.clear(req.id)
@@ -1936,7 +1948,15 @@ class DownloadCore:
             print(f"[ERROR] 지연된 자동 시작 실패: {e}")
 
     async def _start_next_pending_download(self):
-        """Auto-start pending downloads (in request-time order)"""
+        """(Re)launch pending downloads that have no live task.
+
+        Each download task queues itself on the correct semaphore (per-site or
+        the shared general/1fichier one), so a freed slot is picked up by an
+        already-parked task automatically. This sweep only needs to relaunch
+        pendings that lost their task (e.g. after a server restart); ones still
+        parked on a semaphore are skipped to avoid duplicate tasks. We therefore
+        do NOT gate on semaphore values here — that old check used the wrong
+        (general) semaphore for per-site hosts and left pendings unstarted."""
         try:
             db = SessionLocal()
 
@@ -1950,29 +1970,15 @@ class DownloadCore:
                 return
 
             started_count = 0
-
             for req in pending_downloads:
-                is_1fichier = "1fichier.com" in req.url
-
-                if is_1fichier and not req.use_proxy:
-                    # 1fichier local download (max 1)
-                    if self.fichier_local_semaphore._value > 0:
-                        success = await self.start_download_async(req, db)
-                        if success:
-                            started_count += 1
-                            print(f"[LOG] 1fichier 로컬 자동 시작: {req.id}")
-                            break  # 1fichier local is limited to 1, so stop once started
-                else:
-                    # General download (includes 1fichier proxy, max 5)
-                    if self.general_download_semaphore._value > 0:
-                        success = await self.start_download_async(req, db)
-                        if success:
-                            started_count += 1
-                            print(f"[LOG] 일반/프록시 다운로드 자동 시작: {req.id}")
-
-                            # Stop once the general download semaphore is fully used
-                            if self.general_download_semaphore._value == 0:
-                                break
+                # Skip ones already parked on a semaphore (live task present).
+                existing = self.download_tasks.get(req.id)
+                if existing is not None and not existing.done():
+                    continue
+                success = await self.start_download_async(req, db)
+                if success:
+                    started_count += 1
+                    print(f"[LOG] 대기 다운로드 자동 시작: {req.id}")
 
             if started_count > 0:
                 print(f"[LOG] 총 {started_count}개 다운로드 자동 시작됨")

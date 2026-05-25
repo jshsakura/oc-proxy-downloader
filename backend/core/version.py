@@ -4,4 +4,4 @@ App version management
 """
 
 # Current app version
-CURRENT_VERSION = "v2.1.0"
+CURRENT_VERSION = "v2.1.1"
