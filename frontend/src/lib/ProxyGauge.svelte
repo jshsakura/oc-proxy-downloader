@@ -326,6 +326,15 @@
     min-height: 40px;
   }
 
+  /* Header row only (direct child) — lock to a fixed height so it lines up with
+   * LocalGauge's header exactly. Does NOT match the inner .proxy-status label
+   * (not a direct child of .proxy-gauge). */
+  .proxy-gauge > .status-text {
+    flex: 0 0 40px;
+    height: 40px;
+    box-sizing: border-box;
+  }
+
   /* The same .status-text class is reused for the bottom status label span.
    * Stop the header's 40px min-height from leaking onto it (which inflated the
    * proxy status row vs the local one). Match LocalGauge's inner-label style. */
