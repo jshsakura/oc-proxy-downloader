@@ -426,6 +426,14 @@
     fetchActiveDownloads();
     fetchProxyStatus();
     checkProxyAvailability();
+
+    // System monitoring was gated behind auth in onMount, so a first-time login
+    // (no token yet at mount) never started it — the usage skeleton stayed until
+    // a manual refresh. Kick it off (and its interval) here too.
+    fetchSystemStats();
+    if (!systemStatsInterval) {
+      systemStatsInterval = setInterval(fetchSystemStats, 5000);
+    }
   }
 
   function handleResetProxyStatus() {
