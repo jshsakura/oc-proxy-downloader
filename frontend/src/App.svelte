@@ -9,6 +9,7 @@
     isLoading,
     initializeLocale,
     loadTranslations,
+    fetchAvailableLanguages,
     formatTimestamp,
   } from "./lib/i18n.js";
   import {
@@ -204,6 +205,10 @@
 
   onMount(async () => {
     itemsPerPage = calculateItemsPerPage();
+
+    // Always load the language list so the settings dropdown is populated, even
+    // for returning users who skip initializeLocale (fire-and-forget).
+    fetchAvailableLanguages();
 
     // Load translations (UI text) first so the app shell renders promptly.
     const lang = localStorage.getItem("lang");
