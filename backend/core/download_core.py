@@ -79,6 +79,15 @@ SSE_CALLBACK_TIMEOUT_SEC = 1.0
 # Wait limit for a download task to respond to cancellation.
 TASK_CANCEL_TIMEOUT_SEC = 1.0
 
+# Hard cap on resolving a special-hoster page (MegaUp/DataNodes/etc.) to its
+# final link. The underlying calls (cloudscraper + up to two FlareSolverr
+# solves + a requests fetch) are each individually bounded, but if any of them
+# stalls — e.g. FlareSolverr unreachable/co-located behind a hung socket, or a
+# server that sends headers then trickles the body — the download can sit in
+# the "parsing" state indefinitely and never release its per-site semaphore.
+# Exceeding this cap fails the download with a clear message and frees the slot.
+SPECIAL_HOSTER_PARSE_TIMEOUT_SEC = 300  # 5 minutes
+
 
 def _build_proxy_dict(proxy_addr: Optional[str]) -> Optional[Dict[str, str]]:
     """Convert ``proxy_addr`` (e.g. ``1.2.3.4:8080``) into the proxies dict that
@@ -1686,10 +1695,23 @@ class DownloadCore:
 
         try:
             loop = asyncio.get_event_loop()
-            parse_result = await loop.run_in_executor(
-                None,
-                lambda: parse_special_hoster_sync(req.url, req.password),
-            )
+            try:
+                parse_result = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: parse_special_hoster_sync(req.url, req.password),
+                    ),
+                    timeout=SPECIAL_HOSTER_PARSE_TIMEOUT_SEC,
+                )
+            except asyncio.TimeoutError:
+                # The executor thread may linger until its own bounded calls
+                # finish, but the task fails now so the semaphore slot is freed
+                # and the row leaves the "parsing" state instead of hanging.
+                minutes = SPECIAL_HOSTER_PARSE_TIMEOUT_SEC // 60
+                raise Exception(
+                    f"호스팅 페이지 파싱 시간 초과 ({minutes}분). "
+                    "FlareSolverr 미응답 또는 호스트 차단 가능."
+                )
 
             file_info = parse_result.get("file_info") or {}
             if _should_replace_file_name(req.file_name, file_info.get("name")):
