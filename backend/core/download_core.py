@@ -120,10 +120,36 @@ def build_download_headers(user_agent: Optional[str] = None, referer: Optional[s
 
 
 def _should_replace_file_name(current_name: Optional[str], new_name: Optional[str]) -> bool:
-    """Replace an empty or placeholder name when an actual file name is available."""
-    return bool(new_name) and (
-        not current_name or is_1fichier_placeholder_name(current_name)
-    )
+    """Replace the name when the current one is missing, a placeholder, or a bare
+    code without an extension (e.g. a DataNodes file code) and a real name exists."""
+    return bool(new_name) and _name_needs_resolution(current_name)
+
+
+_CD_FILENAME_STAR = re.compile(r"filename\*\s*=\s*[^']*''([^;]+)", re.IGNORECASE)
+_CD_FILENAME = re.compile(r'filename\s*=\s*"?([^";\r\n]+)"?', re.IGNORECASE)
+
+
+def _filename_from_disposition(disposition: Optional[str]) -> str:
+    """Extract the filename from a Content-Disposition header (RFC 5987 aware)."""
+    if not disposition:
+        return ""
+    match = _CD_FILENAME_STAR.search(disposition)
+    if match:
+        return unquote(match.group(1)).strip().strip('"')
+    match = _CD_FILENAME.search(disposition)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
+def _name_needs_resolution(name: Optional[str]) -> bool:
+    """True when the stored name is missing, a placeholder, or a bare code
+    without an extension — i.e. we should prefer the server-provided filename."""
+    if not name:
+        return True
+    if is_1fichier_placeholder_name(name):
+        return True
+    return "." not in name
 
 
 def _size_text_to_bytes(size_text: Optional[str]) -> int:
@@ -971,6 +997,21 @@ class DownloadCore:
         download_mode: str,
     ):
         """After receiving a 200/206 response, read the body and run completion handling."""
+        # Prefer the server-provided filename (Content-Disposition) when ours is
+        # missing, a placeholder, or a bare file code without an extension. Only
+        # when nothing has been written yet (initial_size == 0) so resume isn't broken.
+        if initial_size == 0:
+            disp_name = _filename_from_disposition(response.headers.get("Content-Disposition"))
+            if disp_name and _name_needs_resolution(req.file_name):
+                req.file_name = disp_name
+                req.save_path = generate_file_path(disp_name, is_temporary=True)
+                db.commit()
+                print(f"[LOG] Content-Disposition 파일명 적용: {disp_name}")
+                await sse_manager.broadcast_message("filename_update", {
+                    "id": req.id,
+                    "filename": req.file_name,
+                })
+
         # Update Content-Length
         content_length = response.headers.get('Content-Length')
         if content_length and (not req.total_size or req.total_size == 0):
