@@ -2,13 +2,14 @@
 
 ![Project Banner](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docs/banner.png)
 
-**Proxy-based 1fichier Download Management System**
+**1fichier & DataNodes download manager (proxy-based)**
 
 A web application built with FastAPI + Svelte that provides stable file downloads through proxy servers.
 
 ## ✨ Key Features
 
 - 🚀 **1fichier Optimized**: Automatic wait time detection and cooldown management (up to 24-hour wait)
+- 🧩 **DataNodes Support**: Automatic DataNodes link resolution and download
 - 🔄 **Smart Proxy**: Auto-rotation, failure detection, mixed local/proxy downloads
 - 📊 **Real-time Monitoring**: SSE-based real-time status updates and progress display
 - 🎯 **Concurrent Download Limits**: Semaphore-based limits for system stability

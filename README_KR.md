@@ -2,14 +2,14 @@
 
 ![Project Banner](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docs/banner.png)
 
-**프록시 기반 1fichier 다운로드 관리 시스템**
+**1fichier · DataNodes 다운로드 관리 시스템 (프록시 기반)**
 
 FastAPI + Svelte로 구성된 웹 애플리케이션으로, 프록시를 통한 안정적인 파일 다운로드를 지원합니다.
 
 ## ✨ 주요 기능
 
 - 🚀 **1fichier 최적화**: 자동 대기시간 감지 및 쿨다운 관리 (최대 24시간 대기)
-- 🧪 **실험적 멀티 호스팅 지원**: MegaUp/DataNodes/GoFile(공개 링크) 자동 해석 지원, Send.now/Rapidgator 및 GoFile 프리미엄 전용 링크 제약은 명확한 실패 사유로 안내
+- 🧩 **DataNodes 지원**: DataNodes 링크 자동 해석 및 다운로드
 - 🔄 **스마트 프록시**: 자동 순환, 실패 감지, 로컬/프록시 혼합 다운로드
 - 📊 **실시간 모니터링**: SSE 기반 실시간 상태 업데이트 및 진행률 표시
 - 🎯 **동시 다운로드 제한**: 시스템 안정성을 위한 세마포어 기반 제한
