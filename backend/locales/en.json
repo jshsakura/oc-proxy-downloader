@@ -425,5 +425,9 @@
   "folder_select_error": "An error occurred while selecting the folder",
   "folder_select": "Select Folder",
   "proxy_page_range": "{start}-{end} shown",
-  "settings_saved": "Settings saved."
+  "settings_saved": "Settings saved.",
+  "file_name_queued": "Name pending",
+  "file_name_fetching": "Fetching name…",
+  "file_name_failed": "Name unavailable",
+  "file_name_unresolved": "Name not found"
 }

@@ -425,5 +425,9 @@
   "folder_select_error": "เกิดข้อผิดพลาดขณะเลือกโฟลเดอร์",
   "folder_select": "เลือกโฟลเดอร์",
   "proxy_page_range": "แสดง {start}-{end}",
-  "settings_saved": "บันทึกการตั้งค่าแล้ว"
+  "settings_saved": "บันทึกการตั้งค่าแล้ว",
+  "file_name_queued": "รอชื่อไฟล์",
+  "file_name_fetching": "กำลังดึงชื่อ…",
+  "file_name_failed": "ไม่มีชื่อไฟล์",
+  "file_name_unresolved": "ไม่พบชื่อไฟล์"
 }

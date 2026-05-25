@@ -425,5 +425,9 @@
   "folder_select_error": "Klasör seçilirken bir hata oluştu",
   "folder_select": "Klasör seç",
   "proxy_page_range": "{start}-{end} gösteriliyor",
-  "settings_saved": "Ayarlar kaydedildi."
+  "settings_saved": "Ayarlar kaydedildi.",
+  "file_name_queued": "Ad bekleniyor",
+  "file_name_fetching": "Ad alınıyor…",
+  "file_name_failed": "Ad kullanılamıyor",
+  "file_name_unresolved": "Ad bulunamadı"
 }

@@ -425,5 +425,9 @@
   "folder_select_error": "Ocorreu um erro ao selecionar a pasta",
   "folder_select": "Selecionar pasta",
   "proxy_page_range": "{start}-{end} exibidos",
-  "settings_saved": "Configurações salvas."
+  "settings_saved": "Configurações salvas.",
+  "file_name_queued": "Nome pendente",
+  "file_name_fetching": "Obtendo nome…",
+  "file_name_failed": "Nome indisponível",
+  "file_name_unresolved": "Nome não encontrado"
 }

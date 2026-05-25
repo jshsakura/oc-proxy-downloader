@@ -425,5 +425,9 @@
   "folder_select_error": "Đã xảy ra lỗi khi chọn thư mục",
   "folder_select": "Chọn thư mục",
   "proxy_page_range": "Hiển thị {start}-{end}",
-  "settings_saved": "Đã lưu cài đặt."
+  "settings_saved": "Đã lưu cài đặt.",
+  "file_name_queued": "Đang chờ tên",
+  "file_name_fetching": "Đang lấy tên…",
+  "file_name_failed": "Không có tên",
+  "file_name_unresolved": "Không tìm thấy tên"
 }

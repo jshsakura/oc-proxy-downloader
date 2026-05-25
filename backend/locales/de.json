@@ -425,5 +425,9 @@
   "folder_select_error": "Beim Auswählen des Ordners ist ein Fehler aufgetreten",
   "folder_select": "Ordner auswählen",
   "proxy_page_range": "{start}-{end} angezeigt",
-  "settings_saved": "Einstellungen gespeichert."
+  "settings_saved": "Einstellungen gespeichert.",
+  "file_name_queued": "Name ausstehend",
+  "file_name_fetching": "Name wird abgerufen…",
+  "file_name_failed": "Name nicht verfügbar",
+  "file_name_unresolved": "Name nicht gefunden"
 }
