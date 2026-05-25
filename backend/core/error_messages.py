@@ -115,6 +115,10 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("gofile 파일 없음", "Gofile 측에서 파일이 삭제되었거나 존재하지 않습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
+    ("파일명(확장자)을 확인할 수 없",
+     "서버가 파일명을 제공하지 않아 다운로드를 중단했습니다",
+     "이 링크는 파일명/확장자를 알 수 없습니다. 다른 미러를 사용하세요.",
+     KIND_DEAD, True),
 
     # --- auth_required: guest slots / registered-user only ---
     ("rapidgator 무료 모드는 500 mb 초과",

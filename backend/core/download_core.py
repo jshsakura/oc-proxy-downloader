@@ -60,6 +60,18 @@ MAX_PROXY_PARSE_RETRIES_CAP = 100
 MAX_DOWNLOAD_RETRIES_PROXY_CAP = 20
 MAX_DOWNLOAD_RETRIES_LOCAL = 3
 
+# Per-site concurrent-download limits (host substring -> max concurrent).
+# Different hosts tolerate different parallelism, so each gets its own queue
+# instead of sharing one global limit. Unlisted hosts use MAX_GENERAL_DOWNLOADS.
+# (1fichier local has its own dedicated semaphore — max 1 — handled separately.)
+SITE_DOWNLOAD_LIMITS = {
+    "megaup.net": 2,
+    "datanodes.to": 3,
+    "gofile.io": 3,
+    "rapidgator.net": 1,
+    "send.now": 1,
+}
+
 # Wait limit for when the SSE callback pushes a message to the main loop's event queue.
 # Too long blocks the sync executor thread; too short drops SSE under heavy load.
 SSE_CALLBACK_TIMEOUT_SEC = 1.0
@@ -176,6 +188,9 @@ class DownloadCore:
         # Concurrency limit for proxy and general downloads
         self.MAX_GENERAL_DOWNLOADS = 5
         self.general_download_semaphore = asyncio.Semaphore(self.MAX_GENERAL_DOWNLOADS)
+        # Per-site semaphores (lazily created in the running loop), keyed by the
+        # SITE_DOWNLOAD_LIMITS host substring.
+        self._site_semaphores: Dict[str, asyncio.Semaphore] = {}
         # For throttling SSE message frequency
         self.last_sse_time: Dict[int, float] = {}  # Last SSE send time per download
         self.SSE_THROTTLE_INTERVAL = 10.0  # Send SSE only every 10 seconds
@@ -443,19 +458,34 @@ class DownloadCore:
                     download_type = "일반"
                 print(f"[DEBUG] {download_type} 다운로드 시작: {req_id}")
 
-                # Apply the general download concurrency limit
+                # Pick the per-site semaphore so each host has its own queue
+                # (falls back to the shared general semaphore for unlisted hosts).
+                host = (urlparse(req.original_url or req.url or "").hostname or "").lower()
+                site_key = next((k for k in SITE_DOWNLOAD_LIMITS if k in host), None)
+                if site_key is not None:
+                    site_sem = self._site_semaphores.get(site_key)
+                    if site_sem is None:
+                        site_sem = asyncio.Semaphore(SITE_DOWNLOAD_LIMITS[site_key])
+                        self._site_semaphores[site_key] = site_sem
+                    download_semaphore = site_sem
+                    download_semaphore_max = SITE_DOWNLOAD_LIMITS[site_key]
+                else:
+                    download_semaphore = self.general_download_semaphore
+                    download_semaphore_max = self.MAX_GENERAL_DOWNLOADS
+
+                # Apply the per-site download concurrency limit
                 # Check whether to wait on the semaphore
-                if self.general_download_semaphore._value == 0:  # The semaphore is already in use
+                if download_semaphore._value == 0:  # The semaphore is already in use
                     print(f"[DEBUG] {download_type} 다운로드 제한 도달, 순서 대기 중: {req_id}")
                     await self.send_download_update(req_id, {
                         "status": "pending",
-                        "message": f"다운로드 순서를 기다리는 중... (최대 {self.MAX_GENERAL_DOWNLOADS}개 동시 실행)"
+                        "message": f"다운로드 순서를 기다리는 중... (최대 {download_semaphore_max}개 동시 실행)"
                     })
                     # Update the status in the DB
                     req.status = StatusEnum.pending
                     db.commit()
 
-                async with self.general_download_semaphore:
+                async with download_semaphore:
                     print(f"[DEBUG] {download_type} 다운로드 세마포어 획득: {req_id}")
 
                     if skip_parsing:
@@ -1011,6 +1041,12 @@ class DownloadCore:
                     "id": req.id,
                     "filename": req.file_name,
                 })
+
+        # If we still can't determine a real filename (no extension) after the
+        # parser and Content-Disposition, the source gave us nothing usable — fail
+        # rather than saving a file under a placeholder/code name.
+        if initial_size == 0 and _name_needs_resolution(req.file_name):
+            raise Exception("파일명(확장자)을 확인할 수 없어 다운로드를 중단했습니다")
 
         # Update Content-Length
         content_length = response.headers.get('Content-Length')
