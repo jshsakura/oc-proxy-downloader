@@ -9,6 +9,11 @@ services:
       - PUID=1000  # 시놀로지 사용자 ID (ls -la downloads 로 확인)
       - PGID=1000  # 시놀로지 그룹 ID (ls -la downloads 로 확인)
 
+      # FlareSolverr 연동 (아래 flaresolverr 서비스로 자동 연결)
+      # MegaUp/DataNodes 등 Cloudflare 보호 호스트의 파싱/다운로드에 필요.
+      # 별도 컨테이너이므로 localhost 가 아니라 서비스 이름으로 가리켜야 함.
+      - FLARESOLVERR_URL=http://flaresolverr:8191
+
       # 보안 설정 (선택사항 - 미설정 시 인증 없음)
       # - AUTH_USERNAME=admin
       # - AUTH_PASSWORD=secure123
@@ -20,10 +25,26 @@ services:
       - ./backend/config:/config     # 설정 파일 및 데이터베이스
     ports:
       - "8000:8000"
+    depends_on:
+      - flaresolverr
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/settings"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s 
+      start_period: 10s
+
+  # Cloudflare 챌린지 우회용 헤드리스 브라우저.
+  # 앱과 같은 네트워크/호스트에 두어야 cf_clearance 쿠키의 egress IP 가 일치함.
+  # amd64/arm64 지원. 8191 포트는 앱만 쓰면 되므로 호스트로 노출하지 않음
+  # (디버깅이 필요하면 아래 ports 주석을 해제).
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - TZ=Asia/Seoul
+      - LOG_LEVEL=info
+    # ports:
+    #   - "8191:8191"
+    restart: unless-stopped
