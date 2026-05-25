@@ -326,6 +326,17 @@
     min-height: 40px;
   }
 
+  /* The same .status-text class is reused for the bottom status label span.
+   * Stop the header's 40px min-height from leaking onto it (which inflated the
+   * proxy status row vs the local one). Match LocalGauge's inner-label style. */
+  .proxy-status .status-text {
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .status-left {
     display: flex;
     align-items: center;

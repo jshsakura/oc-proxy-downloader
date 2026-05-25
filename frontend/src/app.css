@@ -3383,11 +3383,14 @@ table th:first-child {
   flex: 1;
   width: 100%;
 }
-/* 안쪽 status pill 도 카드 하단까지 가득 차도록 flex-grow → 두 카드 높이 일치 */
+/* 하단 status pill: 40px 는 너무 높아 작게 '고정'. margin-top:auto 로 카드 바닥에
+ * 붙여, 좌/우 헤더 높이가 달라도 두 pill 이 항상 같은 높이로 하단 정렬됨. */
 .live-pane :global(.proxy-status),
 .live-pane :global(.local-status) {
-  flex: 1;
-  min-height: 38px;
+  flex: 0 0 auto;
+  height: 34px;
+  min-height: 34px;
+  margin-top: auto;
   align-items: center;
 }
 @media (max-width: 759px) {
