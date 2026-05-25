@@ -2346,6 +2346,10 @@
                       {:else if download.status.toLowerCase() === "failed" && download.failure_kind}
                         <!-- On failure show a single label: the classified reason (detail in tooltip) -->
                         {$t("kind_" + download.failure_kind)}
+                        {#if download.next_retry_at && new Date(download.next_retry_at).getTime() > currentTime}
+                          <!-- Show the cooldown countdown so it's clear when a retry becomes possible -->
+                          <span class="wait-countdown">({formatWaitTime((new Date(download.next_retry_at).getTime() - currentTime) / 1000)})</span>
+                        {/if}
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}
                         {#if ["proxying", "parsing", "downloading"].includes(download.status.toLowerCase())}
