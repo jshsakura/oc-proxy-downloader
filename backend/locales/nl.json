@@ -425,5 +425,9 @@
   "folder_select_error": "Er is een fout opgetreden bij het selecteren van de map",
   "folder_select": "Map selecteren",
   "proxy_page_range": "{start}-{end} weergegeven",
-  "settings_saved": "Instellingen opgeslagen."
+  "settings_saved": "Instellingen opgeslagen.",
+  "file_name_queued": "Naam in afwachting",
+  "file_name_fetching": "Naam ophalen…",
+  "file_name_failed": "Naam niet beschikbaar",
+  "file_name_unresolved": "Naam niet gevonden"
 }

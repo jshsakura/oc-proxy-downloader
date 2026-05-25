@@ -1456,14 +1456,30 @@
     return !name || /^1fichier:/i.test(name.trim());
   }
 
-  // What to actually show in the filename cell. A `1fichier:<id>` placeholder
-  // means the real name hasn't been fetched yet (not that the file is missing),
-  // so surface the file id as an identifier instead of a misleading "없음".
-  function displayFileName(name) {
-    if (!name) return $t("file_name_na");
-    const m = name.trim().match(/^1fichier:(.+)$/i);
-    if (m) return m[1];
-    return name;
+  // What to show in the filename cell. When the real name hasn't been fetched
+  // yet (placeholder like `1fichier:<id>`), reflect *why* via the download
+  // status so "queued / fetching / failed / done-but-unresolved" are
+  // distinguishable instead of a single ambiguous "없음".
+  function displayFileName(download) {
+    const name = download?.filename;
+    if (name && !isPlaceholderName(name)) return name;
+    const st = (download?.status || "").toLowerCase();
+    if (st === "pending") return $t("file_name_queued");
+    if (["parsing", "proxying", "downloading", "waiting"].includes(st))
+      return $t("file_name_fetching");
+    if (st === "failed" || st === "stopped") return $t("file_name_failed");
+    if (st === "done") return $t("file_name_unresolved");
+    // Unknown status — fall back to the 1fichier id if present, else N/A.
+    const m = (name || "").trim().match(/^1fichier:(.+)$/i);
+    return m ? m[1] : $t("file_name_na");
+  }
+
+  // Tooltip: the real name, or the 1fichier id when only a placeholder exists.
+  function fileNameTitle(download) {
+    const name = download?.filename;
+    if (name && !isPlaceholderName(name)) return name;
+    const m = (name || "").trim().match(/^1fichier:(.+)$/i);
+    return m ? `1fichier: ${m[1]}` : displayFileName(download);
   }
 
   function getStatusTooltip(download) {
@@ -2287,10 +2303,10 @@
                   </td>
                   <td
                     class="filename"
-                    title={displayFileName(download.filename)}
+                    title={fileNameTitle(download)}
                   >
                     <span class="filename-text"
-                      >{displayFileName(download.filename)}</span
+                      >{displayFileName(download)}</span
                     >
                   </td>
                   <td class="center-align">

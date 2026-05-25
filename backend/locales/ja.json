@@ -425,5 +425,9 @@
   "folder_select_error": "フォルダの選択中にエラーが発生しました",
   "folder_select": "フォルダを選択",
   "proxy_page_range": "{start}-{end} を表示",
-  "settings_saved": "設定を保存しました。"
+  "settings_saved": "設定を保存しました。",
+  "file_name_queued": "ファイル名待機中",
+  "file_name_fetching": "ファイル名取得中…",
+  "file_name_failed": "ファイル名取得失敗",
+  "file_name_unresolved": "ファイル名不明"
 }

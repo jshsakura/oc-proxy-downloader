@@ -425,5 +425,9 @@
   "folder_select_error": "Si è verificato un errore durante la selezione della cartella",
   "folder_select": "Seleziona cartella",
   "proxy_page_range": "{start}-{end} mostrati",
-  "settings_saved": "Impostazioni salvate."
+  "settings_saved": "Impostazioni salvate.",
+  "file_name_queued": "Nome in attesa",
+  "file_name_fetching": "Recupero nome…",
+  "file_name_failed": "Nome non disponibile",
+  "file_name_unresolved": "Nome non trovato"
 }

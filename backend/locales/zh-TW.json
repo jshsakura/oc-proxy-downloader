@@ -425,5 +425,9 @@
   "folder_select_error": "選擇資料夾時發生錯誤",
   "folder_select": "選擇資料夾",
   "proxy_page_range": "顯示 {start}-{end}",
-  "settings_saved": "設定已儲存。"
+  "settings_saved": "設定已儲存。",
+  "file_name_queued": "檔名待取得",
+  "file_name_fetching": "正在取得檔名…",
+  "file_name_failed": "無法取得檔名",
+  "file_name_unresolved": "找不到檔名"
 }

@@ -425,5 +425,9 @@
   "folder_select_error": "Une erreur s'est produite lors de la sélection du dossier",
   "folder_select": "Sélectionner un dossier",
   "proxy_page_range": "{start}-{end} affichés",
-  "settings_saved": "Paramètres enregistrés."
+  "settings_saved": "Paramètres enregistrés.",
+  "file_name_queued": "Nom en attente",
+  "file_name_fetching": "Récupération du nom…",
+  "file_name_failed": "Nom indisponible",
+  "file_name_unresolved": "Nom introuvable"
 }

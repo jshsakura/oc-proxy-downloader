@@ -425,5 +425,9 @@
   "folder_select_error": "Произошла ошибка при выборе папки",
   "folder_select": "Выбрать папку",
   "proxy_page_range": "Показано {start}-{end}",
-  "settings_saved": "Настройки сохранены."
+  "settings_saved": "Настройки сохранены.",
+  "file_name_queued": "Имя ожидается",
+  "file_name_fetching": "Получение имени…",
+  "file_name_failed": "Имя недоступно",
+  "file_name_unresolved": "Имя не найдено"
 }
