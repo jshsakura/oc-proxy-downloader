@@ -1456,6 +1456,16 @@
     return !name || /^1fichier:/i.test(name.trim());
   }
 
+  // What to actually show in the filename cell. A `1fichier:<id>` placeholder
+  // means the real name hasn't been fetched yet (not that the file is missing),
+  // so surface the file id as an identifier instead of a misleading "없음".
+  function displayFileName(name) {
+    if (!name) return $t("file_name_na");
+    const m = name.trim().match(/^1fichier:(.+)$/i);
+    if (m) return m[1];
+    return name;
+  }
+
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
 
@@ -2277,10 +2287,10 @@
                   </td>
                   <td
                     class="filename"
-                    title={!isPlaceholderName(download.filename) ? download.filename : $t("file_name_na")}
+                    title={displayFileName(download.filename)}
                   >
                     <span class="filename-text"
-                      >{!isPlaceholderName(download.filename) ? download.filename : $t("file_name_na")}</span
+                      >{displayFileName(download.filename)}</span
                     >
                   </td>
                   <td class="center-align">
