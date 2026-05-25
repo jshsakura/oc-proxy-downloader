@@ -504,7 +504,15 @@
   // Dashboard date helper: compute start/end YYYY-MM-DD from dashboardPeriod
   function getDashboardDateRange() {
     const today = new Date();
-    const fmt = (d) => d.toISOString().slice(0, 10);
+    // Use the LOCAL date, not toISOString() (UTC). requested_at is stored in
+    // local time, so a UTC date made "today" resolve to yesterday during the
+    // local morning (e.g. KST 00:00–09:00), surfacing yesterday's items.
+    const fmt = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${dd}`;
+    };
     const todayStr = fmt(today);
 
     switch (dashboardPeriod) {
