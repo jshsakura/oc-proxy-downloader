@@ -145,13 +145,15 @@ def _format_size_bytes(num_bytes: int) -> str:
     return f"{num_bytes} B"
 
 
-def _scraper():
+def _scraper(proxies: Optional[Dict[str, str]] = None):
     scraper = cloudscraper.create_scraper()
     scraper.headers.update({
         "User-Agent": DEFAULT_HOSTER_USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     })
+    if proxies:
+        scraper.proxies.update(proxies)
     return scraper
 
 
@@ -186,12 +188,17 @@ def _flaresolverr_request_get(
     session_id: str = "",
     referer: str = "",
     max_timeout_ms: int = FLARESOLVERR_MAX_TIMEOUT_MS,
+    proxies: Optional[Dict[str, str]] = None,
 ) -> Optional[dict]:
     payload = {
         "cmd": "request.get",
         "url": url,
         "maxTimeout": max_timeout_ms,
     }
+    if proxies:
+        proxy_url = proxies.get("https") or proxies.get("http")
+        if proxy_url:
+            payload["proxy"] = {"url": proxy_url}
     if session_id:
         payload["session"] = session_id
     if referer:
@@ -226,7 +233,9 @@ def _solution_cookies(solution: Optional[dict]) -> Dict[str, str]:
     return cookies
 
 
-def get_flaresolverr_context_for_url(url: str, referer: str = "") -> Dict[str, object]:
+def get_flaresolverr_context_for_url(
+    url: str, referer: str = "", proxies: Optional[Dict[str, str]] = None
+) -> Dict[str, object]:
     """Use FlareSolverr to obtain Cloudflare cookies and browser context.
 
     Important: this visits only the origin root, not the large file URL itself,
@@ -236,7 +245,7 @@ def get_flaresolverr_context_for_url(url: str, referer: str = "") -> Dict[str, o
     if not parsed.scheme or not parsed.netloc:
         return {"cookies": {}, "user_agent": None}
     origin = f"{parsed.scheme}://{parsed.netloc}/"
-    solution = _flaresolverr_request_get(origin, referer=referer)
+    solution = _flaresolverr_request_get(origin, referer=referer, proxies=proxies)
     if not solution:
         return {"cookies": {}, "user_agent": None}
     return {
@@ -255,8 +264,10 @@ def _response_text(response) -> str:
     return getattr(response, "text", "") or ""
 
 
-def _get_page_with_flaresolverr(url: str, referer: str = "") -> Optional[tuple[str, Dict[str, str], str]]:
-    solution = _flaresolverr_request_get(url, referer=referer)
+def _get_page_with_flaresolverr(
+    url: str, referer: str = "", proxies: Optional[Dict[str, str]] = None
+) -> Optional[tuple[str, Dict[str, str], str]]:
+    solution = _flaresolverr_request_get(url, referer=referer, proxies=proxies)
     if not solution:
         return None
     return (
@@ -378,9 +389,10 @@ def _resolve_megaup_final_link(
     referer: str,
     cookies: Dict[str, str],
     user_agent: str,
+    proxies: Optional[Dict[str, str]] = None,
 ) -> tuple[str, Dict[str, str], str, str]:
     """Follow MegaUp's intermediate download page to the tokenized file URL."""
-    fs_context = get_flaresolverr_context_for_url(download_link, referer=referer)
+    fs_context = get_flaresolverr_context_for_url(download_link, referer=referer, proxies=proxies)
     merged_cookies = {**cookies, **(fs_context.get("cookies") or {})}
     browser_ua = fs_context.get("user_agent") or user_agent
     headers = {
@@ -397,6 +409,7 @@ def _resolve_megaup_final_link(
             timeout=30,
             allow_redirects=True,
             stream=True,
+            proxies=proxies,
         )
     except Exception as exc:
         print(f"[WARNING] MegaUp 최종 링크 확인 실패: {exc}")
@@ -416,13 +429,13 @@ def _resolve_megaup_final_link(
     return final_link, merged_cookies, browser_ua, response.url or download_link
 
 
-def parse_megaup_sync(url: str) -> Dict[str, object]:
-    scraper = _scraper()
+def parse_megaup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
+    scraper = _scraper(proxies)
     response = scraper.get(url, timeout=30)
     text = _response_text(response)
     fs_cookies: Dict[str, str] = {}
     if _cloudflare_challenge_seen(response, text):
-        fs_page = _get_page_with_flaresolverr(url)
+        fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
         if fs_page:
             text, fs_cookies, url = fs_page
     _raise_for_dead_page("MegaUp", text, getattr(response, "status_code", 0))
@@ -440,6 +453,7 @@ def parse_megaup_sync(url: str) -> Dict[str, object]:
         referer=referer,
         cookies=cookies,
         user_agent=user_agent,
+        proxies=proxies,
     )
 
     return HosterParseResult(
@@ -561,15 +575,15 @@ def _extract_datanodes_countdown_payload(html_text: str, file_code: str) -> Dict
     return payload
 
 
-def parse_datanodes_sync(url: str) -> Dict[str, object]:
+def parse_datanodes_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
     file_code, filename = _parse_datanodes_url(url)
-    scraper = _scraper()
+    scraper = _scraper(proxies)
 
     page_response = scraper.get(url, timeout=30, allow_redirects=True)
     page_text = _response_text(page_response)
     fs_cookies: Dict[str, str] = {}
     if _cloudflare_challenge_seen(page_response, page_text):
-        fs_page = _get_page_with_flaresolverr(url)
+        fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
         if fs_page:
             page_text, fs_cookies, url = fs_page
     _raise_for_dead_page("DataNodes", page_text, getattr(page_response, "status_code", 0))
@@ -637,12 +651,12 @@ def parse_datanodes_sync(url: str) -> Dict[str, object]:
     ).as_parse_result()
 
 
-def parse_rapidgator_constraints_sync(url: str) -> Dict[str, object]:
-    scraper = _scraper()
+def parse_rapidgator_constraints_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
+    scraper = _scraper(proxies)
     response = scraper.get(url, timeout=30)
     text = _response_text(response)
     if _cloudflare_challenge_seen(response, text):
-        fs_page = _get_page_with_flaresolverr(url)
+        fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
         if fs_page:
             text, _, url = fs_page
     _raise_for_dead_page("Rapidgator", text, getattr(response, "status_code", 0))
@@ -670,9 +684,11 @@ def _gofile_content_id(url: str) -> str:
     return match.group(1) if match else ""
 
 
-def _gofile_session() -> requests.Session:
+def _gofile_session(proxies: Optional[Dict[str, str]] = None) -> requests.Session:
     session = requests.Session()
     session.headers.update({"User-Agent": DEFAULT_HOSTER_USER_AGENT})
+    if proxies:
+        session.proxies.update(proxies)
     return session
 
 
@@ -742,12 +758,12 @@ def _gofile_result(node: Dict[str, object], token: str) -> Dict[str, object]:
     ).as_parse_result()
 
 
-def parse_gofile_sync(url: str) -> Dict[str, object]:
+def parse_gofile_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
     content_id = _gofile_content_id(url)
     if not content_id:
         raise HosterParseError("Gofile 링크에서 콘텐츠 ID를 찾을 수 없음")
 
-    session = _gofile_session()
+    session = _gofile_session(proxies)
     token = _gofile_guest_token(session)
     if not token:
         raise HosterParseError("Gofile 게스트 토큰 발급 실패")
@@ -768,10 +784,10 @@ def parse_gofile_sync(url: str) -> Dict[str, object]:
     return _gofile_result(node, token)
 
 
-def parse_blocked_hoster_sync(url: str) -> Dict[str, object]:
+def parse_blocked_hoster_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
     host = _host(url)
     if "send.now" in host:
-        fs_page = _get_page_with_flaresolverr(url)
+        fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
         if not fs_page:
             raise HosterParseError(
                 "Send.now는 Cloudflare 챌린지로 인해 브라우저 세션 없이 자동 다운로드를 지원하지 않음"
@@ -796,17 +812,19 @@ def parse_blocked_hoster_sync(url: str) -> Dict[str, object]:
     raise HosterParseError("지원하지 않는 호스팅 사이트")
 
 
-def parse_special_hoster_sync(url: str, password: Optional[str] = None) -> Dict[str, object]:
+def parse_special_hoster_sync(
+    url: str, password: Optional[str] = None, proxies: Optional[Dict[str, str]] = None
+) -> Dict[str, object]:
     """Resolve a special host page into the download-core parse_result shape."""
     host = _host(url)
     if host in {"megaup.net", "www.megaup.net"}:
-        return parse_megaup_sync(url)
+        return parse_megaup_sync(url, proxies=proxies)
     if host in {"datanodes.to", "www.datanodes.to"}:
-        return parse_datanodes_sync(url)
+        return parse_datanodes_sync(url, proxies=proxies)
     if host in {"rapidgator.net", "www.rapidgator.net"}:
-        return parse_rapidgator_constraints_sync(url)
+        return parse_rapidgator_constraints_sync(url, proxies=proxies)
     if host in {"gofile.io", "www.gofile.io"}:
-        return parse_gofile_sync(url)
+        return parse_gofile_sync(url, proxies=proxies)
     if host in {"send.now", "www.send.now"}:
-        return parse_blocked_hoster_sync(url)
+        return parse_blocked_hoster_sync(url, proxies=proxies)
     raise HosterParseError("지원하지 않는 호스팅 사이트")

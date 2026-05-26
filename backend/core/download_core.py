@@ -1725,23 +1725,86 @@ class DownloadCore:
 
         try:
             loop = asyncio.get_event_loop()
-            try:
-                parse_result = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None,
-                        lambda: parse_special_hoster_sync(req.url, req.password),
-                    ),
-                    timeout=SPECIAL_HOSTER_PARSE_TIMEOUT_SEC,
-                )
-            except asyncio.TimeoutError:
-                # The executor thread may linger until its own bounded calls
-                # finish, but the task fails now so the semaphore slot is freed
-                # and the row leaves the "parsing" state instead of hanging.
-                minutes = SPECIAL_HOSTER_PARSE_TIMEOUT_SEC // 60
-                raise Exception(
-                    f"호스팅 페이지 파싱 시간 초과 ({minutes}분). "
-                    "FlareSolverr 미응답 또는 호스트 차단 가능."
-                )
+            if not req.use_proxy:
+                try:
+                    parse_result = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            None,
+                            lambda: parse_special_hoster_sync(req.url, req.password),
+                        ),
+                        timeout=SPECIAL_HOSTER_PARSE_TIMEOUT_SEC,
+                    )
+                except asyncio.TimeoutError:
+                    # The executor thread may linger until its own bounded calls
+                    # finish, but the task fails now so the semaphore slot is freed
+                    # and the row leaves the "parsing" state instead of hanging.
+                    minutes = SPECIAL_HOSTER_PARSE_TIMEOUT_SEC // 60
+                    raise Exception(
+                        f"호스팅 페이지 파싱 시간 초과 ({minutes}분). "
+                        "FlareSolverr 미응답 또는 호스트 차단 가능."
+                    )
+            else:
+                # Proxy mode: route the parse request through user proxies and
+                # retry across proxies on failure (download step stays direct).
+                total_proxy_list = await proxy_manager.get_user_proxy_list(db)
+                total_proxies = len(total_proxy_list) if total_proxy_list else 0
+                MAX_RETRIES = min(MAX_DOWNLOAD_RETRIES_PROXY_CAP, total_proxies)
+
+                retry_count = 0
+                parse_result = None
+                while parse_result is None and retry_count < MAX_RETRIES:
+                    # Check the download-stopped state
+                    db.refresh(req)
+                    if req.status == StatusEnum.stopped:
+                        print(f"[LOG] 다운로드 정지됨, 파싱 중단: {req.id}")
+                        return
+
+                    proxy_addr = await proxy_manager.get_next_available_proxy(db, req.id)
+                    if not proxy_addr:
+                        raise Exception("모든 프록시 시도 실패")
+                    proxies = _build_proxy_dict(proxy_addr)
+
+                    # Throttle SSE frequency (every 50, or every 10 seconds)
+                    if self.should_send_sse(req.id, retry_count + 1):
+                        total_failed_count = await proxy_manager.get_total_failed_count(db)
+                        await sse_manager.broadcast_message("proxy_trying", {
+                            "id": req.id,
+                            "proxy": proxy_addr,
+                            "step": "파싱",
+                            "current": retry_count + 1,
+                            "total": total_proxies,
+                            "failed": total_failed_count,
+                        })
+                        print(f"[LOG] SSE 파싱시도 전송: {retry_count + 1}/{total_proxies}")
+
+                    try:
+                        parse_result = await asyncio.wait_for(
+                            loop.run_in_executor(
+                                None,
+                                lambda p=proxies: parse_special_hoster_sync(
+                                    req.url, req.password, proxies=p
+                                ),
+                            ),
+                            timeout=SPECIAL_HOSTER_PARSE_TIMEOUT_SEC,
+                        )
+                        if parse_result:
+                            break
+                    except asyncio.TimeoutError:
+                        await proxy_manager.mark_proxy_failed(db, proxy_addr)
+                        retry_count += 1
+                        continue
+                    except Exception as e:
+                        print(f"[LOG] 프록시 파싱 실패 {proxy_addr}: {e}")
+                        await proxy_manager.mark_proxy_failed(db, proxy_addr)
+                        retry_count += 1
+                        if retry_count >= MAX_RETRIES:
+                            raise
+                        continue
+
+                if not parse_result:
+                    raise Exception(
+                        f"프록시 파싱 실패 - 최대 재시도({MAX_RETRIES}) 초과"
+                    )
 
             file_info = parse_result.get("file_info") or {}
             if _should_replace_file_name(req.file_name, file_info.get("name")):
