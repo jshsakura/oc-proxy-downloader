@@ -165,6 +165,16 @@ def derive_display_name(url: str) -> str:
         if m:
             return f"1fichier:{m.group(1)}"
 
+    # MEGA: the id sits in the fragment (#!id!key) or path (/file/id), and the
+    # real name only comes from decrypting attributes during the download. Show
+    # the file id meanwhile so it's an identifier (and dot-free → replaceable).
+    if "mega.nz" in host or "mega.co.nz" in host or "mega.io" in host:
+        frag = parsed.fragment or ""
+        if frag.startswith("!"):
+            return f"mega:{frag[1:].split('!', 1)[0]}"
+        if "/file/" in (parsed.path or ""):
+            return f"mega:{parsed.path.split('/file/', 1)[1].split('/', 1)[0]}"
+
     # Generic URL: last path segment, falling back to the host
     path = (parsed.path or "").rstrip("/")
     if path:

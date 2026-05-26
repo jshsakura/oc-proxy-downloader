@@ -227,3 +227,16 @@ class TestErrorClassification:
         assert mh.is_mega_url("https://mega.nz/#!abc!key")
         assert not mh.is_mega_url("https://mega.nz/folder/abc#key")
         assert not mh.is_mega_url("https://1fichier.com/?x")
+
+
+class TestDeriveDisplayName:
+    """The pre-parse placeholder for MEGA must be a dot-free id (so it's later
+    replaceable), not the host 'mega.nz' which carries a '.' and looked resolved."""
+
+    def test_legacy_link_yields_mega_id(self):
+        from core.simple_parser import derive_display_name
+        assert derive_display_name("https://mega.nz/#!7V8zGDiK!key") == "mega:7V8zGDiK"
+
+    def test_new_link_yields_mega_id(self):
+        from core.simple_parser import derive_display_name
+        assert derive_display_name("https://mega.nz/file/AbCdEfGh#key") == "mega:AbCdEfGh"

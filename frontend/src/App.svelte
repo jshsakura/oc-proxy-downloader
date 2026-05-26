@@ -1482,9 +1482,10 @@
     return speed + " " + sizes[i];
   }
 
-  // A name like "1fichier:<id>" is a temporary URL-derived placeholder, not a real filename.
+  // A name like "1fichier:<id>" / "mega:<id>" is a temporary URL-derived
+  // placeholder (the real name arrives after parsing/decryption), not a filename.
   function isPlaceholderName(name) {
-    return !name || /^1fichier:/i.test(name.trim());
+    return !name || /^(1fichier|mega):/i.test(name.trim());
   }
 
   // What to show in the filename cell. When the real name hasn't been fetched
@@ -1500,17 +1501,17 @@
       return $t("file_name_fetching");
     if (st === "failed" || st === "stopped") return $t("file_name_failed");
     if (st === "done") return $t("file_name_unresolved");
-    // Unknown status — fall back to the 1fichier id if present, else N/A.
-    const m = (name || "").trim().match(/^1fichier:(.+)$/i);
+    // Unknown status — fall back to the id portion if present, else N/A.
+    const m = (name || "").trim().match(/^(?:1fichier|mega):(.+)$/i);
     return m ? m[1] : $t("file_name_na");
   }
 
-  // Tooltip: the real name, or the 1fichier id when only a placeholder exists.
+  // Tooltip: the real name, or the host:id when only a placeholder exists.
   function fileNameTitle(download) {
     const name = download?.filename;
     if (name && !isPlaceholderName(name)) return name;
-    const m = (name || "").trim().match(/^1fichier:(.+)$/i);
-    return m ? `1fichier: ${m[1]}` : displayFileName(download);
+    const m = (name || "").trim().match(/^(1fichier|mega):(.+)$/i);
+    return m ? `${m[1]}: ${m[2]}` : displayFileName(download);
   }
 
   function getStatusTooltip(download) {
