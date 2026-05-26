@@ -358,8 +358,13 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
         if wait_seconds and wait_seconds > MAX_WAIT_SECONDS:
             # Abnormally long wait → daily/rate limit. Don't hang in "parsing".
             print(f"[LOG] 대기시간 과다: {wait_seconds}초 (상한 {MAX_WAIT_SECONDS}초)")
+            # Embed the wait as "you must wait N minutes" so classify_error's
+            # _extract_retry_after captures the *real* wait — the next_retry_at
+            # then reflects when 1fichier actually unlocks, instead of defaulting
+            # to 10 min. ("대기시간이 너무" still routes it to the rate_limited kind.)
             raise Exception(
-                f"1fichier 대기시간이 너무 깁니다 ({wait_seconds // 60}분) — 무료 다운로드 한도일 수 있습니다. 잠시 후 다시 시도하세요"
+                f"1fichier 대기시간이 너무 깁니다 — 무료 다운로드 한도 "
+                f"(you must wait {wait_seconds // 60} minutes)"
             )
         if wait_seconds:
             print(f"[LOG] 대기시간: {wait_seconds}초")

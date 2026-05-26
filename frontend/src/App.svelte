@@ -1462,8 +1462,14 @@
   function formatWaitTime(seconds) {
     if (seconds == null || seconds < 0) return "0:00";
     const total = Math.max(0, Math.floor(seconds));
-    const m = Math.floor(total / 60);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
     const s = total % 60;
+    // Long quota waits (1fichier free limit) can be hours — show H:MM:SS so the
+    // countdown reads as a real recovery time instead of e.g. "240:30".
+    if (h > 0) {
+      return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    }
     return `${m}:${s.toString().padStart(2, "0")}`;
   }
 
