@@ -429,5 +429,8 @@
   "file_name_queued": "Đang chờ tên",
   "file_name_fetching": "Đang lấy tên…",
   "file_name_failed": "Không có tên",
-  "file_name_unresolved": "Không tìm thấy tên"
+  "file_name_unresolved": "Không tìm thấy tên",
+  "flaresolverr_url_label": "FlareSolverr URL",
+  "flaresolverr_url_hint": "For Cloudflare-protected hosts (MegaUp/GoFile, etc.). Leave empty to use the default (localhost:8191).",
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }

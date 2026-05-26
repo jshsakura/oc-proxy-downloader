@@ -429,5 +429,8 @@
   "file_name_queued": "Ad bekleniyor",
   "file_name_fetching": "Ad alınıyor…",
   "file_name_failed": "Ad kullanılamıyor",
-  "file_name_unresolved": "Ad bulunamadı"
+  "file_name_unresolved": "Ad bulunamadı",
+  "flaresolverr_url_label": "FlareSolverr URL",
+  "flaresolverr_url_hint": "For Cloudflare-protected hosts (MegaUp/GoFile, etc.). Leave empty to use the default (localhost:8191).",
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }

@@ -2,14 +2,15 @@
 
 ![Project Banner](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docs/banner.png)
 
-**1fichier & DataNodes download manager (proxy-based)**
+**1fichier · MEGA · DataNodes download manager — proxy-based, runs as a Docker container or a Windows app**
 
-A web application built with FastAPI + Svelte that provides stable file downloads through proxy servers.
+A FastAPI + Svelte web app for stable downloads from 1fichier, MEGA, DataNodes (and MegaUp/GoFile in Docker), with proxy support.
 
 ## ✨ Key Features
 
-- 🚀 **1fichier Optimized**: Automatic wait time detection and cooldown management (up to 24-hour wait)
-- 🧩 **DataNodes Support**: Automatic DataNodes link resolution and download
+- 🚀 **1fichier Optimized**: Automatic wait time detection and cooldown management (up to 24-hour wait), with a visible quota-recovery countdown
+- 🔐 **MEGA Support**: Public-link download with client-side AES decryption (filename, size, progress)
+- 🧩 **DataNodes / MegaUp / GoFile**: Automatic link resolution and download (MegaUp/GoFile need FlareSolverr — see below)
 - 🔄 **Smart Proxy**: Auto-rotation, failure detection, mixed local/proxy downloads
 - 📊 **Real-time Monitoring**: SSE-based real-time status updates and progress display
 - 🎯 **Concurrent Download Limits**: Semaphore-based limits for system stability
@@ -18,6 +19,16 @@ A web application built with FastAPI + Svelte that provides stable file download
 - 🌐 **Multilingual**: Full Korean/English support
 - 📱 **Responsive UI**: Mobile/Desktop optimized
 - 🛡️ **Optional Authentication**: JWT-based security (optional)
+
+## 🌩️ Host support & FlareSolverr
+
+| Host | Needs FlareSolverr | Windows app (no bundled FlareSolverr) |
+|------|--------------------|----------------------------------------|
+| 1fichier, MEGA | No | ✅ Works |
+| DataNodes | Only when Cloudflare-challenged | 🟡 Works unless challenged |
+| MegaUp, GoFile | Yes (Cloudflare) | ❌ Needs an external FlareSolverr |
+
+FlareSolverr is **bundled in `docker-compose.yml`** (sidecar) and wired automatically. You can override its address in **Settings → FlareSolverr URL** (or the `FLARESOLVERR_URL` env var) — useful for the Windows app, where you can point it at a separately-run FlareSolverr. (GoFile's listing API is also datacenter-IP gated, so it works best from a home/NAS IP.)
 
 ---
 

@@ -429,5 +429,8 @@
   "file_name_queued": "파일명 대기 중",
   "file_name_fetching": "파일명 가져오는 중…",
   "file_name_failed": "파일명 못 가져옴",
-  "file_name_unresolved": "파일명 확인 불가"
+  "file_name_unresolved": "파일명 확인 불가",
+  "flaresolverr_url_label": "FlareSolverr 주소",
+  "flaresolverr_url_hint": "Cloudflare 보호 호스트(MegaUp/GoFile 등)용. 비우면 기본값(localhost:8191)을 사용합니다.",
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }

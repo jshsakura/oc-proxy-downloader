@@ -21,12 +21,24 @@ import cloudscraper
 import requests
 from bs4 import BeautifulSoup
 
+from core.config import get_config
+
 
 DEFAULT_HOSTER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 DEFAULT_FLARESOLVERR_URL = os.environ.get("FLARESOLVERR_URL", "http://localhost:8191")
+
+
+def resolve_flaresolverr_url() -> str:
+    """FlareSolverr endpoint, in priority order: settings → env var → default.
+
+    Resolved at call time so the in-app Settings value takes effect without a
+    restart (and so the Windows app can point at a separately-run FlareSolverr).
+    """
+    configured = (get_config().get("flaresolverr_url") or "").strip()
+    return configured or DEFAULT_FLARESOLVERR_URL
 FLARESOLVERR_MAX_TIMEOUT_MS = int(os.environ.get("FLARESOLVERR_MAX_TIMEOUT_MS", "60000"))
 FLARESOLVERR_REQUEST_TIMEOUT_S = int(os.environ.get("FLARESOLVERR_REQUEST_TIMEOUT_S", "80"))
 
@@ -189,7 +201,7 @@ def _flaresolverr_request_get(
         }
     try:
         response = requests.post(
-            f"{DEFAULT_FLARESOLVERR_URL.rstrip('/')}/v1",
+            f"{resolve_flaresolverr_url().rstrip('/')}/v1",
             json=payload,
             timeout=FLARESOLVERR_REQUEST_TIMEOUT_S,
         )

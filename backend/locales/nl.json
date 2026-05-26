@@ -429,5 +429,8 @@
   "file_name_queued": "Naam in afwachting",
   "file_name_fetching": "Naam ophalen…",
   "file_name_failed": "Naam niet beschikbaar",
-  "file_name_unresolved": "Naam niet gevonden"
+  "file_name_unresolved": "Naam niet gevonden",
+  "flaresolverr_url_label": "FlareSolverr URL",
+  "flaresolverr_url_hint": "For Cloudflare-protected hosts (MegaUp/GoFile, etc.). Leave empty to use the default (localhost:8191).",
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }

@@ -69,7 +69,10 @@ def get_default_download_path():
 DEFAULT_CONFIG = {
     "download_path": get_default_download_path(),
     "theme": "light",
-    "language": "ko"
+    "language": "ko",
+    # FlareSolverr endpoint for Cloudflare-protected hosts (MegaUp/GoFile/etc.).
+    # Empty → fall back to the FLARESOLVERR_URL env var, then http://localhost:8191.
+    "flaresolverr_url": ""
 }
 
 def get_config():

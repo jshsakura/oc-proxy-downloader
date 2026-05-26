@@ -429,5 +429,8 @@
   "file_name_queued": "Nazwa oczekuje",
   "file_name_fetching": "Pobieranie nazwy…",
   "file_name_failed": "Nazwa niedostępna",
-  "file_name_unresolved": "Nazwa nieznaleziona"
+  "file_name_unresolved": "Nazwa nieznaleziona",
+  "flaresolverr_url_label": "FlareSolverr URL",
+  "flaresolverr_url_hint": "For Cloudflare-protected hosts (MegaUp/GoFile, etc.). Leave empty to use the default (localhost:8191).",
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }
