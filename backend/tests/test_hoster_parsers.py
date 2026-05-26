@@ -228,6 +228,7 @@ def test_blocked_hosts_are_identified():
 def _patch_gofile_tokens(monkeypatch):
     monkeypatch.setattr(hp, "_gofile_session", lambda: object())
     monkeypatch.setattr(hp, "_gofile_guest_token", lambda session: "guest-tok")
+    monkeypatch.setattr(hp, "_gofile_website_token", lambda session: "test-wt")
 
 
 def test_gofile_content_id_extraction():
@@ -292,7 +293,7 @@ def test_gofile_datacenter_ip_block_is_reported(monkeypatch):
         hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
 
 
-def test_gofile_contents_call_omits_wt_and_uses_web_params(monkeypatch):
+def test_gofile_contents_call_includes_wt_and_web_params(monkeypatch):
     captured = {}
 
     class _Resp:
@@ -311,12 +312,32 @@ def test_gofile_contents_call_omits_wt_and_uses_web_params(monkeypatch):
 
     monkeypatch.setattr(hp, "_gofile_session", lambda: _Sess())
     monkeypatch.setattr(hp, "_gofile_guest_token", lambda session: "guest-tok")
+    monkeypatch.setattr(hp, "_gofile_website_token", lambda session: "wt-123")
 
     hp.parse_special_hoster_sync("https://gofile.io/d/abc")
 
-    assert "wt" not in (captured["params"] or {})
+    # wt is now required by GoFile's listing API and must be sent.
+    assert captured["params"]["wt"] == "wt-123"
     assert captured["params"]["pageSize"] == "1000"
     assert captured["headers"]["Authorization"] == "Bearer guest-tok"
+
+
+def test_gofile_website_token_extracted_with_fallback(monkeypatch):
+    class _Resp:
+        def __init__(self, text):
+            self.text = text
+
+    class _Sess:
+        def __init__(self, text):
+            self._text = text
+
+        def get(self, url, timeout=None):
+            return _Resp(self._text)
+
+    # Extracted from config.js
+    assert hp._gofile_website_token(_Sess('const x = {wt: "abc123def"};')) == "abc123def"
+    # Falls back to the last-known value when the pattern is absent
+    assert hp._gofile_website_token(_Sess("no token here")) == hp.GOFILE_FALLBACK_WT
 
 
 def test_gofile_missing_content_is_reported_as_dead(monkeypatch):

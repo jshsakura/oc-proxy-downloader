@@ -32,9 +32,16 @@ FLARESOLVERR_REQUEST_TIMEOUT_S = int(os.environ.get("FLARESOLVERR_REQUEST_TIMEOU
 
 GOFILE_API_BASE = "https://api.gofile.io"
 _GOFILE_ID_RE = re.compile(r"/(?:d/)?([A-Za-z0-9]+)/?$")
+# The listing API requires the site's "website token" (wt). The web client reads
+# it from /dist/js/config.js; we fetch it live and fall back to the last-known
+# value if the format changes. Without wt the API returns error-notPremium even
+# from a residential IP — which previously looked like a datacenter-IP block.
+GOFILE_CONFIG_JS_URL = "https://gofile.io/dist/js/config.js"
+GOFILE_FALLBACK_WT = "4fd6sg89d7s6"
+_GOFILE_WT_RE = re.compile(r"""wt\s*[:=]\s*["']([A-Za-z0-9_\-]{6,})["']""")
 # Query params the GoFile web client sends for a folder listing (captured live).
-# Note: the listing API is gated by datacenter IP — it returns error-notPremium
-# from cloud/VPS IPs but works from residential IPs (e.g. a home NAS).
+# Note: even with wt, the listing API is also gated by datacenter IP — it returns
+# error-notPremium from cloud/VPS IPs but works from residential IPs (home NAS).
 _GOFILE_CONTENTS_PARAMS = {
     "contentFilter": "",
     "page": "1",
@@ -665,12 +672,19 @@ def _gofile_guest_token(session: requests.Session) -> str:
     return (payload.get("data") or {}).get("token") or ""
 
 
+def _gofile_website_token(session: requests.Session) -> str:
+    """Read the site's website token (wt) from config.js, with a static fallback."""
+    response = session.get(GOFILE_CONFIG_JS_URL, timeout=30)
+    match = _GOFILE_WT_RE.search(response.text or "")
+    return match.group(1) if match else GOFILE_FALLBACK_WT
+
+
 def _gofile_fetch_contents(
-    session: requests.Session, content_id: str, token: str
+    session: requests.Session, content_id: str, token: str, wt: str
 ) -> Dict[str, object]:
     response = session.get(
         f"{GOFILE_API_BASE}/contents/{content_id}",
-        params=_GOFILE_CONTENTS_PARAMS,
+        params={**_GOFILE_CONTENTS_PARAMS, "wt": wt},
         headers={"Authorization": f"Bearer {token}"},
         timeout=30,
     )
@@ -726,7 +740,8 @@ def parse_gofile_sync(url: str) -> Dict[str, object]:
     if not token:
         raise HosterParseError("Gofile 게스트 토큰 발급 실패")
 
-    payload = _gofile_fetch_contents(session, content_id, token)
+    wt = _gofile_website_token(session)
+    payload = _gofile_fetch_contents(session, content_id, token, wt)
     status = str(payload.get("status") or "")
     if status == "error-notPremium":
         raise HosterParseError(
