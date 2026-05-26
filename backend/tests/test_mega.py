@@ -202,3 +202,28 @@ async def test_streaming_decrypt_cancel(tmp_path):
             info, str(tmp_path / "c.bin"),
             is_cancelled=lambda: True,
         )
+
+
+class TestErrorClassification:
+    """MegaApiError → message → central classifier must land on the right kind."""
+
+    def test_dead_maps_to_dead_kind(self):
+        from core.error_messages import classify_failure_text, KIND_DEAD
+        msg = mh.mega_error_message(mh.MegaApiError(-9))
+        assert classify_failure_text(msg) == KIND_DEAD
+
+    def test_quota_maps_to_rate_limited(self):
+        from core.error_messages import classify_failure_text, KIND_RATE_LIMITED
+        msg = mh.mega_error_message(mh.MegaApiError(-17))
+        assert classify_failure_text(msg) == KIND_RATE_LIMITED
+
+    def test_transient_maps_to_transient(self):
+        from core.error_messages import classify_failure_text, KIND_TRANSIENT
+        msg = mh.mega_error_message(mh.MegaApiError(-3))
+        assert classify_failure_text(msg) == KIND_TRANSIENT
+
+    def test_is_mega_url(self):
+        assert mh.is_mega_url("https://mega.nz/file/abc#key")
+        assert mh.is_mega_url("https://mega.nz/#!abc!key")
+        assert not mh.is_mega_url("https://mega.nz/folder/abc#key")
+        assert not mh.is_mega_url("https://1fichier.com/?x")

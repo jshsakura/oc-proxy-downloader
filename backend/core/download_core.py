@@ -41,6 +41,14 @@ from core.hoster_parsers import (
     parse_special_hoster_sync,
 )
 from core.error_messages import apply_failure_to_request
+from core.mega_hoster import (
+    MegaApiError,
+    download_mega_file,
+    fetch_mega_file_info,
+    is_mega_url,
+    mega_error_message,
+    parse_mega_url,
+)
 from core import fichier_auth
 from core import cancel_signal
 from core.config import get_config
@@ -184,6 +192,20 @@ def _size_text_to_bytes(size_text: Optional[str]) -> int:
     unit = match.group(2).upper()
     multipliers = {'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
     return int(value * multipliers.get(unit, 1))
+
+
+def _format_bytes(num: int) -> str:
+    """Render a byte count as a display string (e.g. ``70.40 MB``).
+
+    Used for hosts that report raw byte sizes (MEGA), so the UI's file_size
+    column matches the page-string sizes other hosters provide.
+    """
+    size = float(max(0, num))
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{int(size)} B" if unit == "B" else f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} TB"
 
 
 class DownloadCore:
@@ -349,13 +371,17 @@ class DownloadCore:
             # However, for 1fichier, preparsing is needed to check the wait time and obtain a new download link.
             is_1fichier = "1fichier.com" in req.url
             is_special_hoster = is_special_hoster_url(req.url)
+            is_mega = is_mega_url(req.url)
             has_file_info = req.file_name and req.file_size and req.total_size and req.total_size > 0
 
             # On first add (no file name) → preparsing is always required.
             # On restart (file name present) → skip only for plain direct links.
-            # Hosting pages like 1fichier/MegaUp/DataNodes need their expiring final link
-            # re-fetched, so a resolve step is required even when file info is present.
-            skip_parsing = has_file_info and not is_1fichier and not is_special_hoster
+            # Hosting pages like 1fichier/MegaUp/DataNodes/MEGA need their expiring
+            # final link re-fetched, so a resolve step is required even when file
+            # info is present.
+            skip_parsing = (
+                has_file_info and not is_1fichier and not is_special_hoster and not is_mega
+            )
 
             # For a 1fichier local download with a file name present (restart), check the semaphore
             if is_1fichier and not req.use_proxy and has_file_info:
@@ -1326,6 +1352,10 @@ class DownloadCore:
         print(f"[DEBUG] _download_local_async 시작: {req.id}")
         await self.send_download_log(req.id, "로컬 다운로드 시작")
 
+        if is_mega_url(req.url):
+            await self._download_mega_async(req, db)
+            return
+
         if is_special_hoster_url(req.url):
             await self._download_special_hoster_async(req, db)
             return
@@ -1771,6 +1801,112 @@ class DownloadCore:
                 "status": "failed",
                 "message": verdict.user_message,
                 "stage": "파싱",
+                "raw_error": str(e),
+                "failure_kind": verdict.kind,
+                "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
+                "attempt_count": verdict.attempt_count,
+            })
+
+    async def _download_mega_async(self, req: DownloadRequest, db: Session):
+        """Resolve a MEGA public link and stream-decrypt it to disk.
+
+        MEGA content is client-side encrypted, so it gets its own path: parse the
+        link, fetch the temp URL/size/name from MEGA's API, then AES-CTR decrypt
+        while streaming. The temp URL expires, so this always re-resolves (never
+        skips parsing on restart).
+        """
+        print(f"[DEBUG] MEGA 다운로드 시작: {req.id} - {req.url}")
+        await self.send_download_update(req.id, {
+            "status": "parsing", "progress": 0, "message": "MEGA 링크 분석 중..."
+        })
+        req.status = StatusEnum.parsing
+        db.commit()
+
+        try:
+            file_id, key = parse_mega_url(req.url)
+            async with aiohttp.ClientSession() as session:
+                info = await fetch_mega_file_info(session, file_id, key)
+
+                if _should_replace_file_name(req.file_name, info.name):
+                    req.file_name = info.name
+                req.total_size = info.size
+                req.file_size = _format_bytes(info.size)
+                if req.original_url != req.url:
+                    req.original_url = req.url
+                if not req.save_path:
+                    req.save_path = generate_file_path(
+                        info.name or f"download_{req.id}", is_temporary=True
+                    )
+                if not req.started_at:
+                    req.started_at = datetime.datetime.now()
+                req.status = StatusEnum.downloading
+                db.commit()
+
+                await sse_manager.broadcast_message("filename_update", {
+                    "id": req.id, "filename": req.file_name, "file_size": req.file_size
+                })
+                await self.send_download_update(req.id, {
+                    "status": "downloading", "progress": 0, "message": "MEGA 다운로드 중..."
+                })
+
+                # Throttled progress: keep downloaded_size live, push SSE ~1/s.
+                last_sse = [0.0]
+
+                def progress_cb(downloaded: int, total: int):
+                    req.downloaded_size = downloaded
+                    now = time.time()
+                    if now - last_sse[0] >= 1.0 or downloaded >= total:
+                        last_sse[0] = now
+                        pct = round(downloaded / total * 100, 1) if total else 0
+                        asyncio.create_task(self.send_download_update(
+                            req.id, {"status": "downloading", "progress": pct}
+                        ))
+
+                written = await download_mega_file(
+                    session, info, req.save_path,
+                    progress_cb=progress_cb,
+                    is_cancelled=lambda: cancel_signal.is_cancelled(req.id),
+                )
+
+            # Rename .part → final name
+            final_path = get_final_file_path(req.save_path)
+            if req.save_path != final_path:
+                try:
+                    shutil.move(req.save_path, final_path)
+                    req.save_path = final_path
+                except Exception as rename_error:
+                    print(f"[WARNING] MEGA 파일 리네임 실패: {rename_error}")
+
+            req.status = StatusEnum.done
+            req.downloaded_size = written
+            req.finished_at = datetime.datetime.now()
+            db.commit()
+            await self.send_download_update(req.id, {
+                "status": "done", "progress": 100, "message": "다운로드 완료"
+            })
+            try:
+                send_telegram_notification(
+                    req.file_name, "success", language="ko",
+                    file_size_str=req.file_size, save_path=req.save_path,
+                    download_mode="local",
+                )
+            except Exception as telegram_error:
+                print(f"[WARNING] 텔레그램 성공 알림 실패: {telegram_error}")
+
+        except asyncio.CancelledError:
+            # stop_download_async owns the 'stopped' status; just unwind.
+            raise
+        except Exception as e:
+            print(f"[ERROR] MEGA 처리 실패: {e}")
+            message = mega_error_message(e) if isinstance(e, MegaApiError) else str(e)
+            verdict = apply_failure_to_request(req, "MEGA", message)
+            req.status = StatusEnum.failed
+            req.finished_at = datetime.datetime.now()
+            db.commit()
+            await self.send_download_update(req.id, {
+                "status": "failed",
+                "message": verdict.user_message,
+                "stage": "MEGA",
                 "raw_error": str(e),
                 "failure_kind": verdict.kind,
                 "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
