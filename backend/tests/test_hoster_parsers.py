@@ -83,14 +83,14 @@ def test_megaup_resolver_follows_download_token_page(monkeypatch):
         def close(self):
             pass
 
-    def fake_get(url, headers, cookies, timeout, allow_redirects, stream):
+    def fake_get(url, headers, cookies, timeout, allow_redirects, stream, proxies=None):
         captured.update({"url": url, "headers": headers, "cookies": cookies, "stream": stream})
         return _Resp()
 
     monkeypatch.setattr(
         hp,
         "get_flaresolverr_context_for_url",
-        lambda url, referer="": {"cookies": {"cf_clearance": "ok"}, "user_agent": "Chrome/142"},
+        lambda url, referer="", proxies=None: {"cookies": {"cf_clearance": "ok"}, "user_agent": "Chrome/142"},
     )
     monkeypatch.setattr(hp.requests, "get", fake_get)
 
@@ -226,7 +226,7 @@ def test_blocked_hosts_are_identified():
 
 
 def _patch_gofile_tokens(monkeypatch):
-    monkeypatch.setattr(hp, "_gofile_session", lambda: object())
+    monkeypatch.setattr(hp, "_gofile_session", lambda proxies=None: object())
     monkeypatch.setattr(hp, "_gofile_guest_token", lambda session: "guest-tok")
     monkeypatch.setattr(hp, "_gofile_website_token", lambda session: "test-wt")
 
@@ -310,7 +310,7 @@ def test_gofile_contents_call_includes_wt_and_web_params(monkeypatch):
             captured["headers"] = headers
             return _Resp()
 
-    monkeypatch.setattr(hp, "_gofile_session", lambda: _Sess())
+    monkeypatch.setattr(hp, "_gofile_session", lambda proxies=None: _Sess())
     monkeypatch.setattr(hp, "_gofile_guest_token", lambda session: "guest-tok")
     monkeypatch.setattr(hp, "_gofile_website_token", lambda session: "wt-123")
 
@@ -413,7 +413,7 @@ def test_sendnow_uses_flaresolverr_page_when_available(monkeypatch):
     monkeypatch.setattr(
         hp,
         "_get_page_with_flaresolverr",
-        lambda url, referer="": (html, {"cf_clearance": "ok"}, url),
+        lambda url, referer="", proxies=None: (html, {"cf_clearance": "ok"}, url),
     )
 
     result = hp.parse_special_hoster_sync("https://send.now/abc")
@@ -434,8 +434,81 @@ def test_sendnow_turnstile_is_reported_after_flaresolverr(monkeypatch):
     monkeypatch.setattr(
         hp,
         "_get_page_with_flaresolverr",
-        lambda url, referer="": (html, {"cf_clearance": "ok"}, url),
+        lambda url, referer="", proxies=None: (html, {"cf_clearance": "ok"}, url),
     )
 
     with pytest.raises(hp.HosterParseError, match="Turnstile 검증 필요"):
         hp.parse_special_hoster_sync("https://send.now/abc")
+
+
+# --- proxy threading (use_proxy parses through a user proxy) ---
+
+
+def test_gofile_session_applies_proxies():
+    proxies = {"http": "http://1.2.3.4:8080", "https": "http://1.2.3.4:8080"}
+    session = hp._gofile_session(proxies)
+    assert session.proxies.get("https") == "http://1.2.3.4:8080"
+    assert session.proxies.get("http") == "http://1.2.3.4:8080"
+
+
+def test_gofile_session_without_proxies_is_unset():
+    session = hp._gofile_session()
+    assert not session.proxies
+
+
+def test_flaresolverr_payload_includes_proxy(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"status": "ok", "solution": {}}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["payload"] = json
+        return _Resp()
+
+    monkeypatch.setattr(hp.requests, "post", fake_post)
+
+    proxies = {"http": "http://9.9.9.9:3128", "https": "http://9.9.9.9:3128"}
+    hp._flaresolverr_request_get("https://example.com", proxies=proxies)
+
+    assert captured["payload"]["proxy"] == {"url": "http://9.9.9.9:3128"}
+
+
+def test_flaresolverr_payload_omits_proxy_when_none(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"status": "ok", "solution": {}}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["payload"] = json
+        return _Resp()
+
+    monkeypatch.setattr(hp.requests, "post", fake_post)
+
+    hp._flaresolverr_request_get("https://example.com")
+
+    assert "proxy" not in captured["payload"]
+
+
+def test_special_hoster_forwards_proxies_to_gofile(monkeypatch):
+    seen = {}
+
+    def fake_gofile(url, proxies=None):
+        seen["proxies"] = proxies
+        return {"download_link": "https://store.gofile.io/x", "file_info": None}
+
+    monkeypatch.setattr(hp, "parse_gofile_sync", fake_gofile)
+
+    proxies = {"http": "http://7.7.7.7:80", "https": "http://7.7.7.7:80"}
+    hp.parse_special_hoster_sync("https://gofile.io/d/abc", proxies=proxies)
+
+    assert seen["proxies"] == proxies
