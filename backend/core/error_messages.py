@@ -210,6 +210,22 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("다운로드 링크를 찾을 수 없음", "1fichier 응답에서 다운로드 링크를 추출하지 못했습니다",
      "잠시 후 다시 시도하거나 프록시 모드를 켜세요.",
      KIND_BLOCKED, False),
+    # A page-load failure that carries an explicit HTTP status must defer to the
+    # status code: 404/410 are link-expiry/session-loss (transient), NOT a dead
+    # URL. These specific rules precede the generic "페이지 로드 실패" catch below
+    # so a 404 isn't mislabeled as "check the URL / blocked".
+    ("페이지 로드 실패: http 404",
+     "1fichier 페이지가 404 를 반환했습니다 (링크 만료 / 일시 세션 손실 / 파일 삭제 가능성)",
+     "다시 시도해주세요. 반복되면 '전체 링크 검수' 로 진짜 죽었는지 확인하세요.",
+     KIND_TRANSIENT, False),
+    ("페이지 로드 실패: http 410",
+     "1fichier 페이지가 410 (Gone) 을 반환했습니다 (링크 만료 / 일시 세션 손실 가능성)",
+     "다시 시도해주세요. 반복되면 '전체 링크 검수' 로 확인하세요.",
+     KIND_TRANSIENT, False),
+    ("페이지 로드 실패: http 503",
+     "1fichier 서버가 일시적으로 점검 중입니다 (페이지 로드 503)",
+     "잠시 후 다시 시도하세요.",
+     KIND_TRANSIENT, False),
     ("페이지 로드 실패", "1fichier 페이지를 가져오지 못했습니다",
      "URL 이 올바른지, 파일이 살아있는지 확인하세요.",
      KIND_BLOCKED, False),

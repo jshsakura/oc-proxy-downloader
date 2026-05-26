@@ -33,7 +33,7 @@
   "kind_auth_required": "로그인 필요",
   "kind_rate_limited": "1fichier 한도",
   "kind_cloudflare": "Cloudflare 차단",
-  "kind_proxy_blocked": "프록시 차단",
+  "kind_proxy_blocked": "IP 차단 (망 변경 필요)",
   "kind_blocked": "일시 차단",
   "kind_transient": "일시 오류",
   "kind_unknown": "분류 불명",
