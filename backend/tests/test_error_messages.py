@@ -315,3 +315,28 @@ class TestRetryGate:
         # item is released after a system update.
         req = _FakeReq(error="[파싱 실패] ... (페이지 로드 실패: HTTP 404)")
         assert is_retry_blocked_now(req, has_credentials=True) is None
+
+
+class TestRateLimitRealWait:
+    """The 1fichier '대기시간이 너무 깁니다' failure must carry the *real* wait
+    time so next_retry_at reflects when the quota actually unlocks (not a flat
+    10-min default). Regression for the 'don't know when it clears' issue."""
+
+    def test_long_wait_message_yields_rate_limited_with_real_retry_after(self):
+        msg = "1fichier 대기시간이 너무 깁니다 — 무료 다운로드 한도 (you must wait 240 minutes)"
+        c = classify_error("파싱", msg)
+        assert c.kind == KIND_RATE_LIMITED
+        assert c.retry_after_seconds == 240 * 60
+
+    def test_next_retry_at_matches_stated_wait(self):
+        future = datetime.datetime.now() + datetime.timedelta(minutes=240)
+        req = _FakeReq()
+        verdict = apply_failure_to_request(
+            req, "파싱",
+            "1fichier 대기시간이 너무 깁니다 — 무료 다운로드 한도 (you must wait 240 minutes)",
+        )
+        assert verdict.kind == KIND_RATE_LIMITED
+        # next_retry_at ~ now + 240min (+60s margin), well beyond the old 10-min default
+        assert req.next_retry_at is not None
+        delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
+        assert 240 * 60 <= delta <= 240 * 60 + 120
