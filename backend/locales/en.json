@@ -33,7 +33,7 @@
   "kind_auth_required": "Login required",
   "kind_rate_limited": "1fichier limit",
   "kind_cloudflare": "Cloudflare block",
-  "kind_proxy_blocked": "Proxy blocked",
+  "kind_proxy_blocked": "IP blocked (change network)",
   "kind_blocked": "Temporarily blocked",
   "kind_transient": "Transient error",
   "kind_unknown": "Unclassified",
