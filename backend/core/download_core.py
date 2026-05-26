@@ -1477,51 +1477,51 @@ class DownloadCore:
                                 if response.status not in [200, 206]:
                                     raise Exception(f"HTTP {response.status}: {response.reason}")
 
-                    # Get Content-Length (don't overwrite a total_size obtained during preparsing)
-                    content_length = response.headers.get('Content-Length')
-                    if content_length and (not req.total_size or req.total_size == 0):
-                        req.total_size = int(content_length) + initial_size
-                        db.commit()
-                        print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
+                                # Get Content-Length (don't overwrite a total_size obtained during preparsing)
+                                content_length = response.headers.get('Content-Length')
+                                if content_length and (not req.total_size or req.total_size == 0):
+                                    req.total_size = int(content_length) + initial_size
+                                    db.commit()
+                                    print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
 
-                    # Telegram download-start notification (after the HTTP connection succeeds)
-                    try:
-                        file_name = req.file_name or "Unknown File"
-                        file_size = req.file_size
-                        download_mode = "proxy" if proxy_url else "local"
-                        send_telegram_start_notification(file_name, download_mode, "ko", file_size)
-                        print(f"[LOG] 텔레그램 다운로드 시작 알림 전송: {file_name}")
-                    except Exception as telegram_error:
-                        print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
+                                # Telegram download-start notification (after the HTTP connection succeeds)
+                                try:
+                                    file_name = req.file_name or "Unknown File"
+                                    file_size = req.file_size
+                                    download_mode = "proxy" if proxy_url else "local"
+                                    send_telegram_start_notification(file_name, download_mode, "ko", file_size)
+                                    print(f"[LOG] 텔레그램 다운로드 시작 알림 전송: {file_name}")
+                                except Exception as telegram_error:
+                                    print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
 
-                    # Actual file download
-                    print(f"[DEBUG] 파일 다운로드 시작 - 초기크기: {initial_size}, 총크기: {req.total_size}")
-                    downloaded_size = await download_file_content(
-                        response, req.save_path, initial_size, req.total_size, req, db
-                    )
-                    print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
+                                # Actual file download
+                                print(f"[DEBUG] 파일 다운로드 시작 - 초기크기: {initial_size}, 총크기: {req.total_size}")
+                                downloaded_size = await download_file_content(
+                                    response, req.save_path, initial_size, req.total_size, req, db
+                                )
+                                print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
 
-                    # Rename the .part file to the final file name
-                    final_path = get_final_file_path(req.save_path)
-                    if req.save_path != final_path:
-                        try:
-                            shutil.move(req.save_path, final_path)
-                            print(f"[DEBUG] 파일 리네임: {req.save_path} -> {final_path}")
-                            req.save_path = final_path
-                            db.commit()  # Commit the file path change immediately
-                        except Exception as rename_error:
-                            print(f"[WARNING] 파일 리네임 실패: {rename_error}")
+                                # Rename the .part file to the final file name
+                                final_path = get_final_file_path(req.save_path)
+                                if req.save_path != final_path:
+                                    try:
+                                        shutil.move(req.save_path, final_path)
+                                        print(f"[DEBUG] 파일 리네임: {req.save_path} -> {final_path}")
+                                        req.save_path = final_path
+                                        db.commit()  # Commit the file path change immediately
+                                    except Exception as rename_error:
+                                        print(f"[WARNING] 파일 리네임 실패: {rename_error}")
 
-                    # Completion handling
-                    print(f"[LOG] 다운로드 완료 처리 시작: {req.id}")
-                    req.status = StatusEnum.done
-                    req.downloaded_size = downloaded_size
-                    req.finished_at = datetime.datetime.now()
-                    print(f"[LOG] 상태를 done으로 변경 완료")
+                                # Completion handling
+                                print(f"[LOG] 다운로드 완료 처리 시작: {req.id}")
+                                req.status = StatusEnum.done
+                                req.downloaded_size = downloaded_size
+                                req.finished_at = datetime.datetime.now()
+                                print(f"[LOG] 상태를 done으로 변경 완료")
 
-                    db.commit()
-                    download_success = True
-                    break  # Exit the retry loop on success
+                                db.commit()
+                                download_success = True
+                                break  # Exit the retry loop on success
 
                 except Exception as download_error:
                     print(f"[ERROR] 다운로드 실패 ({retry_count + 1}): {download_error}")
