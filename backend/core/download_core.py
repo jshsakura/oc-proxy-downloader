@@ -1827,8 +1827,11 @@ class DownloadCore:
             async with aiohttp.ClientSession() as session:
                 info = await fetch_mega_file_info(session, file_id, key)
 
-                if _should_replace_file_name(req.file_name, info.name):
-                    req.file_name = info.name
+                # MEGA's decrypted attributes are the authoritative name — apply
+                # unconditionally. (The URL alone only yields a host/id
+                # placeholder, e.g. "mega.nz", which can carry a '.' and would
+                # otherwise be mistaken for an already-resolved name.)
+                req.file_name = info.name
                 req.total_size = info.size
                 req.file_size = _format_bytes(info.size)
                 if req.original_url != req.url:
