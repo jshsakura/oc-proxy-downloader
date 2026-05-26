@@ -429,5 +429,8 @@
   "file_name_queued": "Name pending",
   "file_name_fetching": "Fetching name…",
   "file_name_failed": "Name unavailable",
-  "file_name_unresolved": "Name not found"
+  "file_name_unresolved": "Name not found",
+  "flaresolverr_url_label": "FlareSolverr URL",
+  "flaresolverr_url_hint": "For Cloudflare-protected hosts (MegaUp/GoFile, etc.). Leave empty to use the default (localhost:8191).",
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }

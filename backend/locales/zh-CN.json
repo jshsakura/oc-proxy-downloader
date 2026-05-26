@@ -429,5 +429,8 @@
   "file_name_queued": "文件名待获取",
   "file_name_fetching": "正在获取文件名…",
   "file_name_failed": "无法获取文件名",
-  "file_name_unresolved": "文件名未找到"
+  "file_name_unresolved": "文件名未找到",
+  "flaresolverr_url_label": "FlareSolverr URL",
+  "flaresolverr_url_hint": "For Cloudflare-protected hosts (MegaUp/GoFile, etc.). Leave empty to use the default (localhost:8191).",
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }

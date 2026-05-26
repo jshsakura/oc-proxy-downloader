@@ -311,6 +311,7 @@
       telegram_notify_start: currentSettings.telegram_notify_start === true,
       fichier_email: currentSettings.fichier_email || "",
       fichier_password: currentSettings.fichier_password || "",
+      flaresolverr_url: currentSettings.flaresolverr_url || "",
     };
     selectedTheme = settings.theme || $theme;
     originalTheme = $theme;
@@ -1157,6 +1158,20 @@
                 </div>
               </div>
             {/if}
+          </fieldset>
+
+          <fieldset class="form-group">
+            <legend>FlareSolverr</legend>
+            <label for="flaresolverr-url">{$t("flaresolverr_url_label")}</label>
+            <input
+              id="flaresolverr-url"
+              type="text"
+              class="input"
+              autocomplete="off"
+              placeholder={$t("flaresolverr_url_placeholder")}
+              bind:value={settings.flaresolverr_url}
+            />
+            <small class="input-hint">{$t("flaresolverr_url_hint")}</small>
           </fieldset>
 
           <fieldset class="form-group telegram-notifications">

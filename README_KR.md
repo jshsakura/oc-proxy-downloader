@@ -2,14 +2,15 @@
 
 ![Project Banner](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docs/banner.png)
 
-**1fichier · DataNodes 다운로드 관리 시스템 (프록시 기반)**
+**1fichier · MEGA · DataNodes 다운로드 관리자 — 프록시 기반, Docker 컨테이너 / Windows 앱으로 실행**
 
-FastAPI + Svelte로 구성된 웹 애플리케이션으로, 프록시를 통한 안정적인 파일 다운로드를 지원합니다.
+FastAPI + Svelte 웹 앱으로, 1fichier·MEGA·DataNodes(및 Docker에서 MegaUp/GoFile) 안정적 다운로드 + 프록시 지원.
 
 ## ✨ 주요 기능
 
-- 🚀 **1fichier 최적화**: 자동 대기시간 감지 및 쿨다운 관리 (최대 24시간 대기)
-- 🧩 **DataNodes 지원**: DataNodes 링크 자동 해석 및 다운로드
+- 🚀 **1fichier 최적화**: 자동 대기시간 감지 및 쿨다운 관리 (최대 24시간 대기), 한도 복구 시각 카운트다운 표시
+- 🔐 **MEGA 지원**: 공개 링크 다운로드 + 클라이언트 측 AES 복호화 (파일명/크기/진행률)
+- 🧩 **DataNodes / MegaUp / GoFile**: 링크 자동 해석 및 다운로드 (MegaUp/GoFile은 FlareSolverr 필요 — 아래 참고)
 - 🔄 **스마트 프록시**: 자동 순환, 실패 감지, 로컬/프록시 혼합 다운로드
 - 📊 **실시간 모니터링**: SSE 기반 실시간 상태 업데이트 및 진행률 표시
 - 🎯 **동시 다운로드 제한**: 시스템 안정성을 위한 세마포어 기반 제한
@@ -18,6 +19,16 @@ FastAPI + Svelte로 구성된 웹 애플리케이션으로, 프록시를 통한 
 - 🌐 **다국어**: 18개 언어 지원 (한국어·영어·일본어·중국어 간체/번체·스페인어·프랑스어·독일어·러시아어·포르투갈어(BR)·이탈리아어·베트남어·인도네시아어·태국어·터키어·폴란드어·아랍어(RTL)·네덜란드어). 언어 파일(`backend/locales/*.json`)만 추가하면 자동 인식
 - 📱 **반응형 UI**: 모바일/데스크톱 최적화
 - 🛡️ **선택적 인증**: JWT 기반 보안 (선택사항)
+
+## 🌩️ 호스트 지원 & FlareSolverr
+
+| 호스트 | FlareSolverr 필요 | Windows 앱(번들 없음) |
+|--------|-------------------|------------------------|
+| 1fichier, MEGA | 불필요 | ✅ 됨 |
+| DataNodes | Cloudflare 챌린지 때만 | 🟡 챌린지 안 뜨면 됨 |
+| MegaUp, GoFile | 필요 (Cloudflare) | ❌ 외부 FlareSolverr 필요 |
+
+FlareSolverr는 **`docker-compose.yml`에 사이드카로 번들**되어 자동 연결됩니다. 주소는 **설정 → FlareSolverr URL**(또는 `FLARESOLVERR_URL` 환경변수)에서 바꿀 수 있습니다 — Windows 앱에서 별도로 띄운 FlareSolverr를 가리킬 때 유용합니다. (GoFile 목록 조회는 데이터센터 IP도 차단하므로 가정용/NAS IP에서 가장 잘 됩니다.)
 
 ---
 

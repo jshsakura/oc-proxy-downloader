@@ -22,6 +22,7 @@ from typing import Optional
 import requests
 
 from core.ouo_resolver import OuoResolver, OuoResolverConfig
+from core.hoster_parsers import resolve_flaresolverr_url
 
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,8 @@ def _flaresolverr_reachable(url: str) -> bool:
 
 
 def _build_resolver() -> OuoResolver:
-    has_flaresolverr = _flaresolverr_reachable(_DEFAULT_FLARESOLVERR_URL)
+    flaresolverr_url = resolve_flaresolverr_url()
+    has_flaresolverr = _flaresolverr_reachable(flaresolverr_url)
     if has_flaresolverr:
         backend_order = (
             "curl_impersonate",
@@ -74,7 +76,7 @@ def _build_resolver() -> OuoResolver:
             "undetected_chromedriver",
             "ouo_bypass_legacy",
         )
-        logger.info(f"OuoResolver: FlareSolverr reachable at {_DEFAULT_FLARESOLVERR_URL}, using full backend chain")
+        logger.info(f"OuoResolver: FlareSolverr reachable at {flaresolverr_url}, using full backend chain")
     else:
         # Standalone (e.g. Windows binary without docker stack) — curl_impersonate
         # is the only backend that doesn't need FlareSolverr.
@@ -82,7 +84,7 @@ def _build_resolver() -> OuoResolver:
         logger.info("OuoResolver: FlareSolverr unreachable, standalone mode (curl_impersonate only)")
 
     config = OuoResolverConfig(
-        flaresolverr_url=_DEFAULT_FLARESOLVERR_URL,
+        flaresolverr_url=flaresolverr_url,
         allowed_download_hosts=_ALLOWED_HOSTS,
         accept_intermediate_hosts=False,
         preserve_unresolved_ouo_links=False,
