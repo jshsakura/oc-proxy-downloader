@@ -80,6 +80,23 @@ class MegaFileInfo:
     meta_mac: A32       # (mac0, mac1) expected after decryption
 
 
+def is_mega_url(url: str) -> bool:
+    """True for a MEGA *file* share link (folder links return False)."""
+    u = (url or "").lower()
+    if not any(domain in u for domain in ("mega.nz", "mega.co.nz", "mega.io")):
+        return False
+    return "/folder/" not in u and "#f!" not in u
+
+
+def mega_error_message(err: MegaApiError) -> str:
+    """Render a MegaApiError as text the central classifier routes to a kind."""
+    if err.is_dead:
+        return f"mega 파일 없음 또는 삭제됨 ({err})"
+    if err.is_quota:
+        return f"mega 대역폭 한도 초과 ({err})"
+    return f"mega 일시 오류 ({err})"
+
+
 def parse_mega_url(url: str) -> Tuple[str, str]:
     """Return ``(file_id, key)`` from a MEGA file share link.
 

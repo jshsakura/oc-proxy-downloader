@@ -115,6 +115,9 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("gofile 파일 없음", "Gofile 측에서 파일이 삭제되었거나 존재하지 않습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
+    ("mega 파일 없음", "MEGA 측에서 파일이 삭제되었거나 존재하지 않습니다",
+     "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
+     KIND_DEAD, True),
     ("파일명(확장자)을 확인할 수 없",
      "서버가 파일명을 제공하지 않아 다운로드를 중단했습니다",
      "이 링크는 파일명/확장자를 알 수 없습니다. 다른 미러를 사용하세요.",
@@ -150,6 +153,12 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      KIND_PROXY_BLOCKED, True),
 
     # --- rate_limited: explicit wait/quota messages ---
+    ("mega 대역폭 한도", "MEGA 대역폭 한도(IP당)에 걸렸습니다",
+     "잠시 후 다시 시도하세요. (대용량/연속 다운로드 시 IP 단위로 제한됩니다)",
+     KIND_RATE_LIMITED, True),
+    ("mega 일시 오류", "MEGA 가 일시적으로 응답하지 않습니다",
+     "잠시 후 자동으로 다시 시도합니다.",
+     KIND_TRANSIENT, False),
     ("1fichier 차단: 무료 다운로드 한도 초과",
      "1fichier 무료 다운로드 한도에 걸렸습니다",
      "프록시 모드를 켜거나 한도가 풀릴 때까지 기다리세요.",
