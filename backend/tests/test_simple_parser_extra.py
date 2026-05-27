@@ -158,6 +158,112 @@ def test_parse_simple_sync_returns_none_when_stopped_during_wait(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Cloudflare → FlareSolverr fallback
+# ---------------------------------------------------------------------------
+
+
+class _FakeCookieJar(list):
+    """List-backed cookie jar that also supports the requests ``set`` API."""
+
+    def set(self, name, value, domain=None):
+        cookie = MagicMock()
+        cookie.name = name
+        cookie.value = value
+        self.append(cookie)
+
+
+class TestIsCloudflareBlock:
+    def test_detects_cf_mitigated_header(self):
+        resp = MagicMock()
+        resp.headers = {"cf-mitigated": "challenge"}
+        resp.text = ""
+        assert sp._is_cloudflare_block(resp) is True
+
+    def test_detects_challenge_body(self):
+        resp = MagicMock()
+        resp.headers = {}
+        resp.text = "<html><title>Just a moment...</title>cf_chl</html>"
+        assert sp._is_cloudflare_block(resp) is True
+
+    def test_normal_page_is_not_a_block(self):
+        resp = MagicMock()
+        resp.headers = {}
+        resp.text = "<html><body>file.bin</body></html>"
+        assert sp._is_cloudflare_block(resp) is False
+
+
+def test_cloudflare_block_falls_back_to_flaresolverr(monkeypatch):
+    """A CF challenge on the first GET triggers a FlareSolverr cookie fetch and a retry."""
+    cf_response = MagicMock()
+    cf_response.status_code = 403
+    cf_response.text = "<html><title>Just a moment...</title></html>"
+    cf_response.headers = {"cf-mitigated": "challenge"}
+
+    ok_response = MagicMock()
+    ok_response.status_code = 200
+    ok_response.text = _make_wait_page_html(30)
+    ok_response.headers = {}
+
+    post_response = MagicMock()
+    post_response.status_code = 302
+    post_response.text = ""
+    post_response.headers = {"Location": "https://a-2.1fichier.com/p1/file.bin"}
+
+    scraper = MagicMock()
+    scraper.cookies = _FakeCookieJar()
+    scraper.get.side_effect = [cf_response, ok_response]
+    scraper.post.return_value = post_response
+
+    monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
+    monkeypatch.setattr(sp.time, "sleep", lambda s: None)
+
+    fs_calls = []
+
+    def fake_fs(url, referer="", proxies=None):
+        fs_calls.append(url)
+        return {"cookies": {"cf_clearance": "tok"}, "user_agent": "Chrome/142"}
+
+    monkeypatch.setattr(sp, "get_flaresolverr_context_for_url", fake_fs)
+
+    result = sp.parse_1fichier_simple_sync(
+        "https://1fichier.com/?abc",
+        password=None, proxies=None, proxy_addr=None,
+        download_id=None, sse_callback=None,
+    )
+
+    assert fs_calls, "FlareSolverr fallback was not invoked on a CF block"
+    assert scraper.get.call_count == 2, "GET was not retried after obtaining CF cookies"
+    assert result["download_link"].startswith("https://a-2.1fichier.com/")
+
+
+def test_cloudflare_block_without_fs_cookies_does_not_retry(monkeypatch):
+    """If FlareSolverr yields no cookies, no retry happens and the CF block surfaces."""
+    cf_response = MagicMock()
+    cf_response.status_code = 403
+    cf_response.text = "<html><title>Attention Required! | Cloudflare</title></html>"
+    cf_response.headers = {}
+
+    scraper = MagicMock()
+    scraper.cookies = _FakeCookieJar()
+    scraper.get.return_value = cf_response
+
+    monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
+    monkeypatch.setattr(
+        sp, "get_flaresolverr_context_for_url",
+        lambda url, referer="", proxies=None: {"cookies": {}, "user_agent": None},
+    )
+
+    with pytest.raises(Exception):
+        sp.parse_1fichier_simple_sync(
+            "https://1fichier.com/?abc",
+            password=None, proxies=None, proxy_addr=None,
+            download_id=None, sse_callback=None,
+        )
+
+    assert scraper.get.call_count == 1
+
+
+# ---------------------------------------------------------------------------
 # extract_file_info_simple — additional patterns
 # ---------------------------------------------------------------------------
 
