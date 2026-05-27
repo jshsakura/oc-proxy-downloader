@@ -24,8 +24,12 @@ ARG VERSION=dev
 WORKDIR /app
 
 # 시스템 패키지 설치 최적화 (단일 레이어)
+# tzdata 필수: python:3.11-slim 에는 zoneinfo 가 없어 TZ=Asia/Seoul 이 해석되지
+# 않고 datetime.now() 가 UTC 로 폴백된다. 그러면 requested_at 이 UTC 로 저장되어
+# 프론트가 보내는 로컬(KST) 기간 경계와 9시간 어긋나 기간 검색이 깨진다.
 RUN apt-get update && apt-get install -y \
     curl \
+    tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
