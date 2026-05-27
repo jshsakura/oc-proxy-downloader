@@ -15,6 +15,7 @@ from urllib.parse import urlparse, urlunparse
 from services.notification_service import send_telegram_wait_notification
 from core.config import CONFIG_DIR
 from core import cancel_signal
+from core.hoster_parsers import get_flaresolverr_context_for_url
 
 
 def _save_parse_debug(stage: str, status_code, body_text):
@@ -280,6 +281,31 @@ def is_likely_download_url(candidate, base_host=None):
 MAX_WAIT_SECONDS = 30 * 60
 
 
+# Markers of an unsolved Cloudflare challenge page/response.
+_CLOUDFLARE_MARKERS = (
+    "attention required! | cloudflare",
+    "checking your browser before accessing",
+    "just a moment",
+    "challenge-platform",
+    "cf_chl",
+    "cf-turnstile",
+)
+
+
+def _is_cloudflare_block(response) -> bool:
+    """True if cloudscraper failed to pass a Cloudflare challenge.
+
+    Covers both the non-200 challenge (403/503 + body markers / cf-mitigated
+    header) and the 200-but-challenge-body case, so the caller can fall back to
+    FlareSolverr before raising.
+    """
+    headers = getattr(response, "headers", {}) or {}
+    if str(headers.get("cf-mitigated", "")).lower() == "challenge":
+        return True
+    body = (getattr(response, "text", "") or "").lower()
+    return any(marker in body for marker in _CLOUDFLARE_MARKERS)
+
+
 def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None, download_id=None, sse_callback=None,
                                account_cookies=None):
     """
@@ -340,6 +366,30 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
 
         # Always save the GET response for debugging (so the flow is traceable even on success)
         _save_parse_debug("get", response.status_code, response.text)
+
+        # Cloudflare fallback: cloudscraper alone often can't pass modern CF
+        # challenges. If the response looks like an unsolved challenge, obtain
+        # cf_clearance cookies via FlareSolverr (a real browser) once, inject
+        # them into the scraper, and retry the GET before giving up.
+        if _is_cloudflare_block(response):
+            print(f"[LOG] 1fichier Cloudflare 차단 감지 → FlareSolverr 폴백 시도")
+            cf_context = get_flaresolverr_context_for_url(url, referer=url, proxies=proxies)
+            cf_cookies = cf_context.get("cookies") or {}
+            if cf_cookies:
+                for name, value in cf_cookies.items():
+                    try:
+                        scraper.cookies.set(name, value, domain=".1fichier.com")
+                    except Exception:
+                        pass
+                cf_ua = cf_context.get("user_agent")
+                if cf_ua:
+                    headers['User-Agent'] = cf_ua
+                print(f"[LOG] FlareSolverr 쿠키 확보({list(cf_cookies.keys())}), 페이지 재요청")
+                response = scraper.get(url, headers=headers, proxies=proxies, timeout=timeout_val)
+                print(f"[DEBUG] FlareSolverr 폴백 후 응답 코드: {response.status_code}")
+                _save_parse_debug("get_cf_retry", response.status_code, response.text)
+            else:
+                print(f"[WARNING] FlareSolverr 쿠키 확보 실패 — Cloudflare 우회 불가")
 
         if response.status_code != 200:
             print(f"[ERROR] 페이지 로드 실패 - 응답 내용: {response.text[:500]}")
