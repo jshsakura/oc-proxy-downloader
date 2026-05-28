@@ -31,7 +31,12 @@ async def get_download_history(
     limit: Optional[int] = None,
     offset: int = 0
 ):
-    """Get download history (default limit=200)"""
+    """Get download history.
+
+    ``limit=None`` (default) and ``limit<=0`` return all rows — the UI's "전체"
+    view should actually mean everything, not a silent 200-item cap. Pass an
+    explicit positive ``limit`` to cap the response.
+    """
     try:
         # Fetch recent downloads (descending by ID)
         base_query = db.query(DownloadRequest).order_by(desc(DownloadRequest.id))
@@ -39,15 +44,13 @@ async def get_download_history(
         # Total count (before applying offset/limit)
         total_count = base_query.count()
 
-        # Default limit=200
-        effective_limit = limit if limit is not None else 200
-
-        # Apply offset if present
+        # Apply offset and optional limit
         query = base_query
         if offset > 0:
             query = query.offset(offset)
+        if limit is not None and limit > 0:
+            query = query.limit(limit)
 
-        query = query.limit(effective_limit)
         downloads = query.all()
 
         history = []
