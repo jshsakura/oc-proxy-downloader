@@ -2500,11 +2500,15 @@
                           ></span>
                         </span>
                       {:else if download.status.toLowerCase() === "failed" && download.failure_kind}
-                        <!-- On failure show a single label: the classified reason (detail in tooltip) -->
-                        {$t("kind_" + download.failure_kind)}
+                        <!-- Retry-pending failures are still part of the queue
+                             (auto-retry on cooldown). Read as "재시도 대기" + countdown
+                             so they don't look terminal. The specific kind stays
+                             visible in the detail modal / tooltip. -->
                         {#if download.next_retry_at && new Date(download.next_retry_at).getTime() > currentTime}
-                          <!-- Show the cooldown countdown so it's clear when a retry becomes possible -->
+                          {$t("download_retry_pending")}
                           <span class="wait-countdown">({formatWaitTime((new Date(download.next_retry_at).getTime() - currentTime) / 1000)})</span>
+                        {:else}
+                          {$t("kind_" + download.failure_kind)}
                         {/if}
                       {:else}
                         {$t(`download_${download.status.toLowerCase()}`)}

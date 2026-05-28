@@ -104,6 +104,22 @@ TASK_CANCEL_TIMEOUT_SEC = 1.0
 SPECIAL_HOSTER_PARSE_TIMEOUT_SEC = 300  # 5 minutes
 
 
+def _clear_failure_metadata(req) -> None:
+    """On a successful completion, wipe leftover failure flags so the row no
+    longer carries a stale ``error`` / ``failure_kind`` / ``next_retry_at`` /
+    ``attempt_count`` into the 완료됨 tab. Retries that succeed shouldn't keep
+    dragging the old failure label, tooltip text, or cooldown countdown.
+    ``hasattr`` guards keep this safe on older schema versions.
+    """
+    req.error = None
+    if hasattr(req, "failure_kind"):
+        req.failure_kind = None
+    if hasattr(req, "next_retry_at"):
+        req.next_retry_at = None
+    if hasattr(req, "attempt_count"):
+        req.attempt_count = 0
+
+
 def _build_proxy_dict(proxy_addr: Optional[str]) -> Optional[Dict[str, str]]:
     """Convert ``proxy_addr`` (e.g. ``1.2.3.4:8080``) into the proxies dict that
     requests/aiohttp accept. Returns None if given None.
@@ -1204,6 +1220,7 @@ class DownloadCore:
         req.status = StatusEnum.done
         req.downloaded_size = downloaded_size
         req.finished_at = datetime.datetime.now()
+        _clear_failure_metadata(req)
         db.commit()
 
         await self.send_download_update(req.id, {
@@ -1587,6 +1604,7 @@ class DownloadCore:
                                 req.status = StatusEnum.done
                                 req.downloaded_size = downloaded_size
                                 req.finished_at = datetime.datetime.now()
+                                _clear_failure_metadata(req)
                                 print(f"[LOG] 상태를 done으로 변경 완료")
 
                                 db.commit()
@@ -2016,6 +2034,7 @@ class DownloadCore:
             req.status = StatusEnum.done
             req.downloaded_size = written
             req.finished_at = datetime.datetime.now()
+            _clear_failure_metadata(req)
             db.commit()
             await self.send_download_update(req.id, {
                 "status": "done", "progress": 100, "message": "다운로드 완료"

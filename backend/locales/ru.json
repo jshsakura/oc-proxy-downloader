@@ -11,6 +11,7 @@
   "download_done": "Готово",
   "download_stopped": "Остановлено",
   "download_failed": "Не удалось",
+  "download_retry_pending": "Ожидание повторной попытки",
   "download_parsing": "Анализ",
   "download_waiting": "Ожидание",
   "table_header_file_name": "Имя файла",

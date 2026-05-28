@@ -11,6 +11,7 @@
   "download_done": "Concluído",
   "download_stopped": "Parado",
   "download_failed": "Falhou",
+  "download_retry_pending": "Nova tentativa pendente",
   "download_parsing": "Analisando",
   "download_waiting": "Aguardando",
   "table_header_file_name": "Nome do arquivo",

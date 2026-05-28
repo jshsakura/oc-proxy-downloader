@@ -11,6 +11,7 @@
   "download_done": "เสร็จสิ้น",
   "download_stopped": "หยุดแล้ว",
   "download_failed": "ล้มเหลว",
+  "download_retry_pending": "รอลองใหม่",
   "download_parsing": "กำลังแยกวิเคราะห์",
   "download_waiting": "กำลังรอ",
   "table_header_file_name": "ชื่อไฟล์",

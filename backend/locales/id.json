@@ -11,6 +11,7 @@
   "download_done": "Selesai",
   "download_stopped": "Dihentikan",
   "download_failed": "Gagal",
+  "download_retry_pending": "Mencoba lagi tertunda",
   "download_parsing": "Mengurai",
   "download_waiting": "Menunggu",
   "table_header_file_name": "Nama Berkas",

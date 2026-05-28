@@ -11,6 +11,7 @@
   "download_done": "Hoàn tất",
   "download_stopped": "Đã dừng",
   "download_failed": "Thất bại",
+  "download_retry_pending": "Đang chờ thử lại",
   "download_parsing": "Đang phân tích",
   "download_waiting": "Đang chờ",
   "table_header_file_name": "Tên tệp",
