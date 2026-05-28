@@ -11,6 +11,7 @@
   "download_done": "完了",
   "download_stopped": "停止",
   "download_failed": "失敗",
+  "download_retry_pending": "再試行待ち",
   "download_parsing": "解析中",
   "download_waiting": "待機中",
   "table_header_file_name": "ファイル名",

@@ -11,6 +11,7 @@
   "download_done": "Voltooid",
   "download_stopped": "Gestopt",
   "download_failed": "Mislukt",
+  "download_retry_pending": "Wachten op nieuwe poging",
   "download_parsing": "Bezig met parseren",
   "download_waiting": "Wachten",
   "table_header_file_name": "Bestandsnaam",

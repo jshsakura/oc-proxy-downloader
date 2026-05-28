@@ -11,6 +11,7 @@
   "download_done": "Done",
   "download_stopped": "Stopped",
   "download_failed": "Failed",
+  "download_retry_pending": "Retry pending",
   "download_parsing": "Parsing",
   "download_waiting": "Waiting",
   "table_header_file_name": "File Name",

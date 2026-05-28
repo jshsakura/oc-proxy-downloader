@@ -11,6 +11,7 @@
   "download_done": "Tamamlandı",
   "download_stopped": "Durduruldu",
   "download_failed": "Başarısız",
+  "download_retry_pending": "Yeniden deneme bekleniyor",
   "download_parsing": "Ayrıştırılıyor",
   "download_waiting": "Bekleniyor",
   "table_header_file_name": "Dosya Adı",
