@@ -40,7 +40,7 @@ from core.hoster_parsers import (
     is_special_hoster_url,
     parse_special_hoster_sync,
 )
-from core.error_messages import apply_failure_to_request
+from core.error_messages import apply_failure_to_request, KIND_BLOCKED, KIND_RATE_LIMITED
 from core.mega_hoster import (
     MegaApiError,
     download_mega_file,
@@ -67,6 +67,13 @@ DEFAULT_DOWNLOAD_USER_AGENT = (
 MAX_PROXY_PARSE_RETRIES_CAP = 100
 MAX_DOWNLOAD_RETRIES_PROXY_CAP = 20
 MAX_DOWNLOAD_RETRIES_LOCAL = 3
+
+# 1fichier free-tier host backoff. When 1fichier rejects the download form or
+# signals a quota block, the server IP is flagged — hammering it just cascades
+# the same block to every queued download. Instead, pause ALL 1fichier-local
+# downloads for an increasing cooldown (reset on the next success), so a flagged
+# IP gets time to recover the way slow manual pacing used to.
+FICHIER_HOST_BACKOFF_SECONDS = (120, 300, 900, 1800)  # 2m → 5m → 15m → 30m (capped)
 
 # Per-site concurrent-download limits (host substring -> max concurrent).
 # Different hosts tolerate different parallelism, so each gets its own queue
@@ -226,6 +233,10 @@ class DownloadCore:
         self.last_sse_time: Dict[int, float] = {}  # Last SSE send time per download
         self.SSE_THROTTLE_INTERVAL = 10.0  # Send SSE only every 10 seconds
         self.SSE_THROTTLE_COUNT = 50  # Send SSE only every 50 failures
+        # 1fichier-local host backoff state (see FICHIER_HOST_BACKOFF_SECONDS).
+        # A consecutive block streak lengthens the cooldown; a success resets it.
+        self._fichier_cooldown_until: Optional[datetime.datetime] = None
+        self._fichier_block_streak = 0
 
     def should_send_sse(self, req_id: int, retry_count: int) -> bool:
         """Decide whether to send SSE (time + count based throttling)"""
@@ -239,6 +250,49 @@ class DownloadCore:
             self.last_sse_time[req_id] = current_time
             return True
         return False
+
+    def _register_fichier_block(self):
+        """A 1fichier-local attempt hit a host block/quota — extend the cooldown."""
+        self._fichier_block_streak += 1
+        idx = min(self._fichier_block_streak - 1, len(FICHIER_HOST_BACKOFF_SECONDS) - 1)
+        secs = FICHIER_HOST_BACKOFF_SECONDS[idx]
+        self._fichier_cooldown_until = datetime.datetime.now() + datetime.timedelta(seconds=secs)
+        print(f"[LOG] 1fichier 호스트 차단 감지 → {secs}s 백오프 (연속 {self._fichier_block_streak}회)")
+
+    def _register_fichier_success(self):
+        """A 1fichier-local download succeeded — clear the host backoff."""
+        if self._fichier_block_streak or self._fichier_cooldown_until:
+            print(f"[LOG] 1fichier 성공 → 호스트 백오프 해제")
+        self._fichier_block_streak = 0
+        self._fichier_cooldown_until = None
+
+    async def _await_fichier_cooldown(self, req: DownloadRequest, db: Session):
+        """If a 1fichier-local host backoff is active, wait it out before
+        attempting, so a flagged IP isn't hammered by the queue. Cancellable via
+        the stopped status. Holding the (max-1) semaphore here serializes the
+        backoff across all queued 1fichier-local downloads."""
+        cooldown_until = self._fichier_cooldown_until
+        if not cooldown_until or cooldown_until <= datetime.datetime.now():
+            return
+        remaining = int((cooldown_until - datetime.datetime.now()).total_seconds())
+        print(f"[LOG] 1fichier 호스트 백오프 대기 {remaining}s (id={req.id})")
+        req.status = StatusEnum.pending
+        db.commit()
+        await self.send_download_update(req.id, {
+            "status": "pending",
+            "message": "1fichier 차단 회피 대기 중...",
+            "next_retry_at": cooldown_until.isoformat(),
+        })
+        while True:
+            now = datetime.datetime.now()
+            target = self._fichier_cooldown_until
+            if not target or target <= now:
+                return
+            db.refresh(req)
+            if req.status == StatusEnum.stopped or cancel_signal.is_cancelled(req.id):
+                print(f"[LOG] 1fichier 백오프 대기 중 정지/취소: {req.id}")
+                return
+            await asyncio.sleep(min(2.0, (target - now).total_seconds()))
 
     async def send_download_update(self, req_id: int, update_data: Dict[str, Any]):
         """Send a unified download-status-update SSE"""
@@ -479,6 +533,14 @@ class DownloadCore:
                 async with self.fichier_local_semaphore:
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 획득: {req_id}")
 
+                    # Honor an active host backoff before touching 1fichier again
+                    # (avoids cascading the same form-rejection across the queue).
+                    await self._await_fichier_cooldown(req, db)
+                    db.refresh(req)
+                    if req.status == StatusEnum.stopped:
+                        print(f"[LOG] 1fichier 백오프 후 정지 상태, 시작 안 함: {req_id}")
+                        return
+
                     if skip_parsing:
                         # File info is present, so skip parsing and start downloading immediately
                         await self.send_download_update(req_id, {
@@ -496,6 +558,14 @@ class DownloadCore:
                     db.commit()
 
                     await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # Depends on whether parsing is skipped
+
+                    # Feed the result into the host backoff: a block/quota signal
+                    # extends the cooldown for the whole queue; a success resets it.
+                    db.refresh(req)
+                    if req.status == StatusEnum.done:
+                        self._register_fichier_success()
+                    elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED):
+                        self._register_fichier_block()
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
             else:
                 # General download (includes 1fichier proxy and plain URLs - max 5)
