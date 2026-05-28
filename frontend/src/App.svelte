@@ -537,6 +537,26 @@
     }
   }
 
+  // Filter a download list by the currently selected period. Used by the main
+  // grid so the list — not only the dashboard charts — respects the period bar.
+  // Compares each item's added date (created_at == requested_at). Items without
+  // a parseable date are kept rather than hidden.
+  function filterByPeriod(list) {
+    const { start, end } = getDashboardDateRange();
+    if (!start && !end) return list;
+    const startMs = start ? new Date(start + "T00:00:00").getTime() : null;
+    const endMs = end ? new Date(end + "T23:59:59.999").getTime() : null;
+    return list.filter((d) => {
+      const ds = d.created_at || d.finished_at;
+      if (!ds) return true;
+      const t = new Date(ds).getTime();
+      if (Number.isNaN(t)) return true;
+      if (startMs !== null && t < startMs) return false;
+      if (endMs !== null && t > endMs) return false;
+      return true;
+    });
+  }
+
   async function fetchDashboardStats() {
     try {
       const { start, end } = getDashboardDateRange();
@@ -1864,16 +1884,23 @@
   let workingCount = 0;
   let completedCount = 0;
   $: {
+    // Recompute when the period (or its custom dates) changes too — the list,
+    // not only the dashboard charts, must respect the period bar.
+    dashboardPeriod;
+    dashboardStartDate;
+    dashboardEndDate;
     if (!Array.isArray(downloads)) {
       workingCount = 0;
       completedCount = 0;
       filteredDownloads = [];
     } else {
-      // Step 1: apply the search filter
-      let filtered = downloads;
+      // Step 1: apply the period date-range filter (matches the period bar above)
+      let filtered = filterByPeriod(downloads);
+
+      // Step 2: apply the search filter
       if (searchQuery && searchQuery.trim()) {
         const query = searchQuery.trim().toLowerCase();
-        filtered = downloads.filter((d) => {
+        filtered = filtered.filter((d) => {
           const filename = d.filename?.toLowerCase() || "";
           const url = d.url?.toLowerCase() || "";
           return filename.includes(query) || url.includes(query);
