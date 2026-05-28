@@ -82,7 +82,9 @@ async def get_working_downloads(
     db: Session = Depends(get_db),
     page: int = 1,
     page_size: int = 50,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
 ):
     """Get in-progress downloads (all statuses except done)"""
     try:
@@ -90,6 +92,21 @@ async def get_working_downloads(
         query = db.query(DownloadRequest).filter(
             DownloadRequest.status != StatusEnum.done
         )
+
+        # Apply optional period filter (mirrors /history/period parsing)
+        if start_date:
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+            query = query.filter(DownloadRequest.requested_at >= start_dt)
+
+        if end_date:
+            try:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+            query = query.filter(DownloadRequest.requested_at < end_dt)
 
         # Add search condition
         if search and search.strip():
@@ -120,7 +137,9 @@ async def get_working_downloads(
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
-                "requested_at": download.requested_at.isoformat() if download.requested_at else None
+                "requested_at": download.requested_at.isoformat() if download.requested_at else None,
+                # Alias for the frontend grid — kept alongside requested_at for legacy callers
+                "created_at": download.requested_at.isoformat() if download.requested_at else None
             })
 
         total_pages = (total_count + page_size - 1) // page_size
@@ -133,6 +152,8 @@ async def get_working_downloads(
             "total_pages": total_pages
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[ERROR] Get working downloads failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -143,7 +164,9 @@ async def get_completed_downloads(
     db: Session = Depends(get_db),
     page: int = 1,
     page_size: int = 50,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
 ):
     """Get completed downloads (done status only)"""
     try:
@@ -151,6 +174,21 @@ async def get_completed_downloads(
         query = db.query(DownloadRequest).filter(
             DownloadRequest.status == StatusEnum.done
         )
+
+        # Apply optional period filter (mirrors /history/period parsing)
+        if start_date:
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+            query = query.filter(DownloadRequest.requested_at >= start_dt)
+
+        if end_date:
+            try:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+            query = query.filter(DownloadRequest.requested_at < end_dt)
 
         # Add search condition
         if search and search.strip():
@@ -182,6 +220,8 @@ async def get_completed_downloads(
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
                 "requested_at": download.requested_at.isoformat() if download.requested_at else None,
+                # Alias for the frontend grid — kept alongside requested_at for legacy callers
+                "created_at": download.requested_at.isoformat() if download.requested_at else None,
                 "finished_at": download.finished_at.isoformat() if download.finished_at else None
             })
 
@@ -195,6 +235,8 @@ async def get_completed_downloads(
             "total_pages": total_pages
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[ERROR] Get completed downloads failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
