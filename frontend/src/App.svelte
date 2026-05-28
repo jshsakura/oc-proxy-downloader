@@ -68,7 +68,13 @@
     "color: #bd93f9; font-weight: bold; font-size: 12px;"
   );
 
-  let downloads = [];
+  // Server-side pagination model:
+  //   - gridDownloads: the items currently rendered in the grid (one server page).
+  //   - activeDownloads: the small live list (in-progress only) powering gauges
+  //     and proxy/local stats.
+  // There is no single "all downloads" array on the client anymore.
+  let gridDownloads = [];
+  let activeDownloads = [];
   let url = "";
   let password = "";
   let eventSourceManager;
@@ -77,7 +83,9 @@
   let itemsPerPage = 10; // Default; changes dynamically with screen size
   let isDownloadsLoading = false;
   let isAddingDownload = false;
-  let activeDownloads = [];
+  // Server-reported total count for the currently active tab — used by
+  // pagination text and the dashboard fallback.
+  let currentTabTotalCount = 0;
 
   let showSettingsModal = false;
   let showPasswordModal = false;
@@ -131,6 +139,13 @@
 
   // Timer for debouncing
   let activeDownloadsTimer = null;
+  // Tab badge counts come from the server (/api/history/stats), not from a local sweep.
+  let workingCount = 0;
+  let completedCount = 0;
+  // Debounce timer for the grid fetch (currentTab/page/search/period change).
+  let _gridFetchTimer = null;
+  // Debounce timer for the tab count fetch.
+  let _tabCountsFetchTimer = null;
 
   // Batch SSE updates (requestAnimationFrame) — defer state assignment to the next frame
   let pendingStateUpdates = [];
@@ -229,9 +244,10 @@
 
     // Connect EventSource only when login is not required or already authenticated
     if (!$needsLogin || $isAuthenticated) {
-      fetchDownloads(currentPage);
-      connectEventSource();
+      fetchGridPage();
+      fetchTabCounts();
       fetchActiveDownloads();
+      connectEventSource();
       fetchProxyStatus();
       checkProxyAvailability();
 
@@ -421,9 +437,10 @@
 
   function handleLoginSuccess() {
     // After successful login, load the needed data and connect EventSource
-    fetchDownloads(currentPage);
-    connectEventSource();
+    fetchGridPage();
+    fetchTabCounts();
     fetchActiveDownloads();
+    connectEventSource();
     fetchProxyStatus();
     checkProxyAvailability();
 
@@ -537,26 +554,6 @@
     }
   }
 
-  // Filter a download list by the currently selected period. Used by the main
-  // grid so the list — not only the dashboard charts — respects the period bar.
-  // Compares each item's added date (created_at == requested_at). Items without
-  // a parseable date are kept rather than hidden.
-  function filterByPeriod(list) {
-    const { start, end } = getDashboardDateRange();
-    if (!start && !end) return list;
-    const startMs = start ? new Date(start + "T00:00:00").getTime() : null;
-    const endMs = end ? new Date(end + "T23:59:59.999").getTime() : null;
-    return list.filter((d) => {
-      const ds = d.created_at || d.finished_at;
-      if (!ds) return true;
-      const t = new Date(ds).getTime();
-      if (Number.isNaN(t)) return true;
-      if (startMs !== null && t < startMs) return false;
-      if (endMs !== null && t > endMs) return false;
-      return true;
-    });
-  }
-
   async function fetchDashboardStats() {
     try {
       const { start, end } = getDashboardDateRange();
@@ -629,6 +626,25 @@
     if (dashboardPeriod) scheduleDashboardFetch();
   }
 
+  // Status considered "active" (lives in the activeDownloads list).
+  // Matches the backend /downloads/active filter (parsing/downloading/waiting/failed/pending).
+  function isActiveStatus(status) {
+    const s = (status || "").toLowerCase();
+    return (
+      s === "pending" ||
+      s === "parsing" ||
+      s === "proxying" ||
+      s === "downloading" ||
+      s === "waiting" ||
+      s === "failed"
+    );
+  }
+
+  // "done" sits in the completed tab; everything else (active/failed/stopped) is "working".
+  function isCompletedStatus(status) {
+    return (status || "").toLowerCase() === "done";
+  }
+
   function connectEventSource() {
     if (!eventSourceManager) {
       eventSourceManager = new EventSourceManager();
@@ -648,22 +664,43 @@
         }
         // Normalize the ID type (convert to number)
         const downloadId = Number.parseInt(updatedDownload.id, 10);
+        if (!downloadId || Number.isNaN(downloadId)) {
+          console.warn("❌ 잘못된 다운로드 데이터 무시:", updatedDownload);
+          return;
+        }
 
-        // Batch the state assignment: merge against the latest downloads at queue-run time
+        // Batch the state assignment against the latest snapshots at queue-run time.
         queueStateUpdate(() => {
           let proxyStatsChanged = false;
-          const currentIndex = downloads.findIndex((d) => Number.parseInt(d.id, 10) === downloadId);
 
-          if (currentIndex !== -1) {
-            // Handle proxy-status reset (when status is stopped, failed, done)
+          // Patch the row in the grid (if it is on the currently-visible page).
+          const gridIndex = gridDownloads.findIndex(
+            (d) => Number.parseInt(d.id, 10) === downloadId,
+          );
+          if (gridIndex !== -1) {
+            gridDownloads = gridDownloads.map((d, i) =>
+              i === gridIndex ? { ...d, ...updatedDownload } : d,
+            );
+          }
+
+          // Patch / add / remove the row in the active list.
+          const activeIndex = activeDownloads.findIndex(
+            (d) => Number.parseInt(d.id, 10) === downloadId,
+          );
+          const stillActive = isActiveStatus(updatedDownload.status);
+
+          if (activeIndex !== -1) {
+            // Handle proxy-status reset when an active proxy item leaves the active set.
             if (
               proxyStats.status === "trying" &&
-              ["stopped", "failed", "done"].includes(updatedDownload.status?.toLowerCase())
+              ["stopped", "failed", "done"].includes(
+                updatedDownload.status?.toLowerCase(),
+              )
             ) {
-              const otherProxyDownloads = downloads.filter(
+              const otherProxyDownloads = activeDownloads.filter(
                 (d) =>
                   Number.parseInt(d.id, 10) !== downloadId &&
-                  (d.status === "parsing" || d.status === "downloading")
+                  (d.status === "parsing" || d.status === "downloading"),
               );
 
               if (otherProxyDownloads.length === 0) {
@@ -671,35 +708,53 @@
                 proxyStats.currentProxy = null;
                 proxyStats.tryStartTime = null;
                 proxyStatsChanged = true;
-                console.log(`🔄 다운로드 ${downloadId} 상태 변경으로 인한 프록시 상태 리셋`);
+                console.log(
+                  `🔄 다운로드 ${downloadId} 상태 변경으로 인한 프록시 상태 리셋`,
+                );
               }
             }
 
-            downloads = downloads.map((d, i) =>
-              i === currentIndex ? { ...d, ...updatedDownload } : d
-            );
-            // Only clear the wait countdown when the download genuinely leaves
-            // the wait (started downloading / finished / failed / stopped). A
-            // stray "parsing"/"proxying" status_update mid-wait must NOT wipe an
-            // active countdown — that left rows stuck on "파싱중" with no timer.
-            if (
-              ["downloading", "done", "failed", "stopped"].includes(
-                (updatedDownload.status || "").toLowerCase(),
-              ) &&
-              downloadWaitInfo[downloadId]
-            ) {
-              delete downloadWaitInfo[downloadId];
-              downloadWaitInfo = { ...downloadWaitInfo };
+            if (stillActive) {
+              activeDownloads = activeDownloads.map((d, i) =>
+                i === activeIndex ? { ...d, ...updatedDownload } : d,
+              );
+            } else {
+              activeDownloads = activeDownloads.filter(
+                (_, i) => i !== activeIndex,
+              );
             }
-            updateStats(downloads);
-            if (proxyStatsChanged) {
-              proxyStats = { ...proxyStats };
-            }
-          } else if (downloadId && !Number.isNaN(downloadId) && updatedDownload.url) {
-            downloads = [updatedDownload, ...downloads];
-            updateStats(downloads);
-          } else {
-            console.warn("❌ 잘못된 다운로드 데이터 무시:", updatedDownload);
+            updateStats(activeDownloads);
+          } else if (stillActive) {
+            // The item just became active from off-page — resync the live list rather than guess.
+            fetchActiveDownloads();
+          }
+
+          // Only clear the wait countdown when the download genuinely leaves the wait
+          // (started downloading / finished / failed / stopped). A stray "parsing" /
+          // "proxying" status_update mid-wait must NOT wipe an active countdown.
+          if (
+            ["downloading", "done", "failed", "stopped"].includes(
+              (updatedDownload.status || "").toLowerCase(),
+            ) &&
+            downloadWaitInfo[downloadId]
+          ) {
+            delete downloadWaitInfo[downloadId];
+            downloadWaitInfo = { ...downloadWaitInfo };
+          }
+
+          // Tab-boundary crossings (e.g. downloading→done) shuffle which items
+          // belong to working vs completed — refresh the grid + counts.
+          const movedToCompleted = isCompletedStatus(updatedDownload.status);
+          const movedToWorking =
+            !isCompletedStatus(updatedDownload.status) &&
+            (gridIndex !== -1 || activeIndex !== -1);
+          if (movedToCompleted || movedToWorking || gridIndex === -1) {
+            scheduleGridFetch();
+            scheduleTabCountsFetch();
+          }
+
+          if (proxyStatsChanged) {
+            proxyStats = { ...proxyStats };
           }
         });
       }
@@ -707,9 +762,12 @@
       // Handle batch updates
       if (message.type === "batch_status_update") {
         queueStateUpdate(() => {
-          let hasChanges = false;
+          let gridChanged = false;
+          let activeChanged = false;
           let proxyStatsChanged = false;
-          const newDownloads = [...downloads];
+          let crossedTabBoundary = false;
+          const nextGrid = [...gridDownloads];
+          let nextActive = [...activeDownloads];
 
           message.data.forEach((updatedDownload) => {
             // Also map the failure message to error_message
@@ -720,29 +778,49 @@
             ) {
               updatedDownload.error_message = updatedDownload.message;
             }
-            const index = newDownloads.findIndex((d) => d.id === updatedDownload.id);
-            if (index !== -1) {
-              const oldDownload = newDownloads[index];
-              newDownloads[index] = { ...newDownloads[index], ...updatedDownload };
-              hasChanges = true;
 
-              // When a proxy download changes to stopped, failed, or done, reset the proxy status only if no other proxy download is in progress
+            // Patch the grid in place when the row is currently visible.
+            const gridIdx = nextGrid.findIndex((d) => d.id === updatedDownload.id);
+            if (gridIdx !== -1) {
+              const oldStatus = nextGrid[gridIdx].status;
+              nextGrid[gridIdx] = { ...nextGrid[gridIdx], ...updatedDownload };
+              gridChanged = true;
+              if (
+                isCompletedStatus(oldStatus) !==
+                isCompletedStatus(updatedDownload.status)
+              ) {
+                crossedTabBoundary = true;
+              }
+            } else {
+              // Off-page row changed status — its tab/page placement may have shifted.
+              crossedTabBoundary = true;
+            }
+
+            // Patch / remove the row in the active list.
+            const activeIdx = nextActive.findIndex(
+              (d) => d.id === updatedDownload.id,
+            );
+            const stillActive = isActiveStatus(updatedDownload.status);
+            if (activeIdx !== -1) {
+              const oldDownload = nextActive[activeIdx];
+
+              // When a proxy download leaves the active set, maybe reset proxy state.
               if (
                 oldDownload.use_proxy &&
                 oldDownload.status !== updatedDownload.status &&
-                ["stopped", "failed", "done"].includes(updatedDownload.status?.toLowerCase())
+                ["stopped", "failed", "done"].includes(
+                  updatedDownload.status?.toLowerCase(),
+                )
               ) {
-                // Check whether there are other active proxy downloads
-                const otherActiveProxyDownloads = newDownloads.filter(
+                const otherActiveProxyDownloads = nextActive.filter(
                   (d) =>
                     d.use_proxy &&
                     d.id !== updatedDownload.id &&
                     ["pending", "proxying", "parsing", "downloading"].includes(
-                      d.status?.toLowerCase()
-                    )
+                      d.status?.toLowerCase(),
+                    ),
                 );
 
-                // Reset the proxy status only when there are no other active proxy downloads
                 if (otherActiveProxyDownloads.length === 0) {
                   proxyStats.status = "";
                   proxyStats.currentProxy = "";
@@ -752,22 +830,39 @@
                   proxyStatsChanged = true;
                   console.log(`[LOG] 마지막 프록시 다운로드 종료, 프록시 상태 초기화`);
                 } else {
-                  console.log(`[LOG] 다른 프록시 다운로드 진행 중 (${otherActiveProxyDownloads.length}개), 프록시 상태 유지`);
+                  console.log(
+                    `[LOG] 다른 프록시 다운로드 진행 중 (${otherActiveProxyDownloads.length}개), 프록시 상태 유지`,
+                  );
                 }
               }
-            } else {
-              newDownloads.unshift(updatedDownload);
-              hasChanges = true;
+
+              if (stillActive) {
+                nextActive[activeIdx] = { ...oldDownload, ...updatedDownload };
+              } else {
+                nextActive = nextActive.filter((_, i) => i !== activeIdx);
+              }
+              activeChanged = true;
+            } else if (stillActive) {
+              // New active item — schedule a resync to pick it up authoritatively.
+              crossedTabBoundary = true;
             }
           });
 
-          if (hasChanges) {
-            downloads = newDownloads;
-            // Update only the stats (fetchActiveDownloads is handled separately via debouncing)
-            updateStats(downloads);
+          if (gridChanged) {
+            gridDownloads = nextGrid;
+          }
+          if (activeChanged) {
+            activeDownloads = nextActive;
+            updateStats(activeDownloads);
           }
           if (proxyStatsChanged) {
             proxyStats = { ...proxyStats };
+          }
+          if (crossedTabBoundary) {
+            scheduleGridFetch();
+            scheduleTabCountsFetch();
+            // Also resync the active list when items appeared/disappeared off-grid.
+            fetchActiveDownloads();
           }
         });
       }
@@ -803,12 +898,14 @@
           proxyStats = { ...proxyStats };
           // Also update that download's status in the main grid (so it is not missed)
           if (id) {
-            const download = downloads.find(d => d.id === id);
-            if (download) {
-              const failedText = failed > 0 ? $t("proxy_failed_count_suffix", { count: failed }) : '';
-              download.proxy_message = `${step} - ${proxy} (${current}/${total})${failedText}`;
-              downloads = [...downloads];
-            }
+            const failedText = failed > 0 ? $t("proxy_failed_count_suffix", { count: failed }) : '';
+            const proxyMessage = `${step} - ${proxy} (${current}/${total})${failedText}`;
+            gridDownloads = gridDownloads.map((d) =>
+              d.id === id ? { ...d, proxy_message: proxyMessage } : d,
+            );
+            activeDownloads = activeDownloads.map((d) =>
+              d.id === id ? { ...d, proxy_message: proxyMessage } : d,
+            );
 
             // Remove the wait info once the proxy task starts
             if (downloadWaitInfo[id]) {
@@ -835,11 +932,13 @@
 
           // Also update that download's status in the main grid
           if (id) {
-            const download = downloads.find(d => d.id === id);
-            if (download) {
-              download.proxy_message = `${proxy} - ${msg || step}`;
-              downloads = [...downloads];
-            }
+            const proxyMessage = `${proxy} - ${msg || step}`;
+            gridDownloads = gridDownloads.map((d) =>
+              d.id === id ? { ...d, proxy_message: proxyMessage } : d,
+            );
+            activeDownloads = activeDownloads.map((d) =>
+              d.id === id ? { ...d, proxy_message: proxyMessage } : d,
+            );
           }
         });
       }
@@ -858,11 +957,13 @@
 
           // Also update that download's status in the main grid
           if (id) {
-            const download = downloads.find(d => d.id === id);
-            if (download) {
-              download.proxy_message = msg || step;
-              downloads = [...downloads];
-            }
+            const proxyMessage = msg || step;
+            gridDownloads = gridDownloads.map((d) =>
+              d.id === id ? { ...d, proxy_message: proxyMessage } : d,
+            );
+            activeDownloads = activeDownloads.map((d) =>
+              d.id === id ? { ...d, proxy_message: proxyMessage } : d,
+            );
           }
         });
       }
@@ -919,7 +1020,7 @@
 
         // Reset the proxy status (only when no other download is using a proxy)
         if (proxyStats.status === "trying") {
-          const otherProxyDownloads = downloads.filter(d =>
+          const otherProxyDownloads = activeDownloads.filter(d =>
             d.id !== id &&
             (d.status === "parsing" || d.status === "downloading")
           );
@@ -952,22 +1053,24 @@
         console.log("📁 filename_update 메시지 수신:", message.data);
         const { id, filename, file_size } = message.data;
         queueStateUpdate(() => {
-          const currentIndex = downloads.findIndex((d) => d.id === id);
-          if (currentIndex !== -1) {
-            downloads = downloads.map((d, i) => {
-              if (i === currentIndex) {
-                console.log(
-                  `📁 파일명 업데이트: ID=${id}, ${d.filename} → ${filename}, 크기: ${file_size}`
-                );
-                return {
+          gridDownloads = gridDownloads.map((d) =>
+            d.id === id
+              ? {
                   ...d,
                   filename: filename || d.filename,
                   file_size: file_size || d.file_size,
-                };
-              }
-              return d;
-            });
-          }
+                }
+              : d,
+          );
+          activeDownloads = activeDownloads.map((d) =>
+            d.id === id
+              ? {
+                  ...d,
+                  filename: filename || d.filename,
+                  file_size: file_size || d.file_size,
+                }
+              : d,
+          );
         });
       }
 
@@ -979,18 +1082,21 @@
 
       if (message.type === "force_refresh") {
         console.log("🔄 Force refresh 요청 수신:", message.data);
-        // Reload the entire download list
-        fetchDownloads();
+        // Reload the visible page + live list + tab counts.
+        fetchGridPage();
+        fetchActiveDownloads();
+        fetchTabCounts();
       }
 
       // Single probe result — just a light row update.
       if (message.type === "probe_result") {
         const { id, failure_kind, next_retry_at, kind, summary } = message.data;
         queueStateUpdate(() => {
-          downloads = downloads.map((d) =>
-            d.id === id
-              ? { ...d, failure_kind, next_retry_at }
-              : d
+          gridDownloads = gridDownloads.map((d) =>
+            d.id === id ? { ...d, failure_kind, next_retry_at } : d,
+          );
+          activeDownloads = activeDownloads.map((d) =>
+            d.id === id ? { ...d, failure_kind, next_retry_at } : d,
           );
         });
         if (kind === "alive") {
@@ -1016,10 +1122,15 @@
           // Update the audited row in place and clear its spinner — no full reload.
           if (item && item.id != null) {
             queueStateUpdate(() => {
-              downloads = downloads.map((d) =>
+              gridDownloads = gridDownloads.map((d) =>
                 d.id === item.id
                   ? { ...d, failure_kind: item.failure_kind, next_retry_at: item.next_retry_at }
-                  : d
+                  : d,
+              );
+              activeDownloads = activeDownloads.map((d) =>
+                d.id === item.id
+                  ? { ...d, failure_kind: item.failure_kind, next_retry_at: item.next_retry_at }
+                  : d,
               );
             });
             if (auditingIds.has(item.id)) {
@@ -1046,76 +1157,132 @@
     }
   }
 
-  // Quiet background sync (no flicker) - uses the existing fetchDownloads
+  // Quiet background sync (no flicker) — re-fetch the visible grid page and
+  // the live active list. No client-side "all rows" array anymore.
   async function syncDownloadsSilently() {
-    try {
-      const response = await fetch(`/api/history/`, { timeout: 10000 });
+    await Promise.all([
+      fetchGridPage({ silent: true }),
+      fetchActiveDownloads(),
+      fetchTabCounts(),
+    ]);
 
-      if (response.ok) {
-        const data = await response.json();
-        const historyData = data.history || [];
-        downloads = historyData;
-
-        // Clean up wait info for completed or stopped downloads
-        Object.keys(downloadWaitInfo).forEach(downloadId => {
-          const id = parseInt(downloadId);
-          const download = downloads.find(d => d.id === id);
-          if (!download || download.status === 'stopped' || download.status === 'done' || download.status === 'failed') {
-            delete downloadWaitInfo[downloadId];
-          }
-        });
-        downloadWaitInfo = { ...downloadWaitInfo };
+    // Clean up wait info for items that finished while we were away.
+    Object.keys(downloadWaitInfo).forEach((downloadId) => {
+      const id = parseInt(downloadId);
+      const stillActive = activeDownloads.find((d) => d.id === id);
+      if (!stillActive) {
+        delete downloadWaitInfo[downloadId];
       }
-    } catch (error) {
-      console.error("Background sync failed:", error);
-    }
+    });
+    downloadWaitInfo = { ...downloadWaitInfo };
   }
 
-  async function fetchDownloads(page = 1, retryCount = 0) {
-    isDownloadsLoading = true;
+  // Fetch one page of the grid for the current tab, search, and period range.
+  // `{ silent: true }` skips the loading skeleton — used by background syncs.
+  async function fetchGridPage({ silent = false } = {}) {
+    if (!silent) {
+      isDownloadsLoading = true;
+    }
+
+    const endpoint =
+      currentTab === "completed"
+        ? "/api/downloads/completed"
+        : "/api/downloads/working";
+    const params = new URLSearchParams();
+    params.set("page", String(currentPage));
+    params.set("page_size", String(itemsPerPage));
+    if (searchQuery && searchQuery.trim()) {
+      params.set("search", searchQuery.trim());
+    }
+    const { start, end } = getDashboardDateRange();
+    if (start) params.set("start_date", start);
+    if (end) params.set("end_date", end);
 
     try {
-      const response = await fetch(`/api/history/`, { timeout: 10000 });
-
+      const response = await fetch(`${endpoint}?${params.toString()}`);
       if (response.ok) {
         const data = await response.json();
-        const historyData = data.history || [];
-        downloads = historyData;
-        currentPage = 1;
-        totalPages = 1;
-
-        updateStats(historyData);
-      } else {
-        console.error("History API failed with status:", response.status);
-        const errorText = await response.text();
-        console.error("Error response:", errorText);
-
-        // Retry logic
-        if (
-          retryCount < 2 &&
-          (response.status >= 500 || response.status === 0)
-        ) {
-          console.log(`재시도 중.. (${retryCount + 1}/3)`);
-          setTimeout(() => fetchDownloads(page, retryCount + 1), 2000);
-          return;
+        gridDownloads = Array.isArray(data.downloads) ? data.downloads : [];
+        totalPages = data.total_pages || 0;
+        currentTabTotalCount = data.total_count || 0;
+        // Server is authoritative for totalPages; snap back if currentPage is now stale.
+        if (currentPage > totalPages && totalPages > 0) {
+          currentPage = totalPages;
         }
-        downloads = [];
+      } else {
+        console.error("Grid fetch failed with status:", response.status);
+        gridDownloads = [];
+        totalPages = 0;
+        currentTabTotalCount = 0;
       }
     } catch (error) {
-      console.error("Error fetching downloads:", error);
-
-      // Retry on network error
-      if (retryCount < 2) {
-        console.log(`네트워크 오류 재시도 중.. (${retryCount + 1}/3)`);
-        setTimeout(() => fetchDownloads(page, retryCount + 1), 2000);
-        return;
-      }
-      downloads = [];
+      console.error("Error fetching grid page:", error);
+      gridDownloads = [];
+      totalPages = 0;
+      currentTabTotalCount = 0;
     } finally {
-      if (retryCount === 0 || retryCount >= 2) {
+      if (!silent) {
         isDownloadsLoading = false;
       }
     }
+  }
+
+  // Coalesce rapid changes (tab/page/search/period) into one fetch.
+  function scheduleGridFetch() {
+    if (_gridFetchTimer) clearTimeout(_gridFetchTimer);
+    _gridFetchTimer = setTimeout(() => {
+      fetchGridPage();
+    }, 150);
+  }
+
+  // Fetch the small live list (in-progress items) for gauges + proxy/local stats.
+  async function fetchActiveDownloads() {
+    try {
+      const response = await fetch("/api/downloads/active");
+      if (response.ok) {
+        const data = await response.json();
+        activeDownloads = Array.isArray(data.downloads) ? data.downloads : [];
+        updateStats(activeDownloads);
+      }
+    } catch (error) {
+      console.error("Error fetching active downloads:", error);
+    }
+  }
+
+  // Pull both tab badge counts in a single request — /history/stats already
+  // exposes status_counts and honors the period range.
+  async function fetchTabCounts() {
+    const params = new URLSearchParams();
+    const { start, end } = getDashboardDateRange();
+    if (start) params.set("start_date", start);
+    if (end) params.set("end_date", end);
+
+    const qs = params.toString();
+    const url = qs ? `/api/history/stats?${qs}` : "/api/history/stats";
+
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        const statusCounts = data.by_status || {};
+        const done = statusCounts.done || 0;
+        let working = 0;
+        for (const [key, value] of Object.entries(statusCounts)) {
+          if (key !== "done") working += value || 0;
+        }
+        workingCount = working;
+        completedCount = done;
+      }
+    } catch (error) {
+      console.error("Error fetching tab counts:", error);
+    }
+  }
+
+  function scheduleTabCountsFetch() {
+    if (_tabCountsFetchTimer) clearTimeout(_tabCountsFetchTimer);
+    _tabCountsFetchTimer = setTimeout(() => {
+      fetchTabCounts();
+    }, 150);
   }
 
   function updateProxyStats(downloadsData) {
@@ -1243,7 +1410,10 @@
         url = "";
         password = "";
         hasPassword = false;
-        fetchDownloads(); // Refresh the list immediately
+        // Refresh the list immediately — visible page, live list, and badge counts.
+        fetchGridPage();
+        fetchActiveDownloads();
+        fetchTabCounts();
       } else {
         const errorData = await response.json();
         toast.error($t("add_download_failed", { detail: errorData.detail }));
@@ -1253,18 +1423,6 @@
       toast.error($t("add_download_error"));
     } finally {
       isAddingDownload = false;
-    }
-  }
-
-  async function fetchActiveDownloads() {
-    try {
-      const response = await fetch("/api/downloads/active");
-      if (response.ok) {
-        const data = await response.json();
-        activeDownloads = data.active_downloads;
-      }
-    } catch (error) {
-      console.error("Error fetching active downloads:", error);
     }
   }
 
@@ -1338,7 +1496,10 @@
       const data = await response.json();
       toast.success($t("bulk_delete_success", { count: data.deleted_count }));
       selectedIds = new Set();
-      fetchDownloads();
+      // Refresh visible grid + live list + tab counts.
+      fetchGridPage();
+      fetchActiveDownloads();
+      fetchTabCounts();
     } catch (e) {
       console.error("bulk delete error:", e);
       toast.error(`bulk delete error: ${e.message}`);
@@ -1448,7 +1609,11 @@
           });
           if (response.ok) {
             toast.success($t("download_deleted_success"));
-            downloads = Array.isArray(downloads) ? downloads.filter((download) => download.id !== id) : [];
+            // Optimistically drop from both grid and active lists; refresh badge counts.
+            gridDownloads = gridDownloads.filter((d) => d.id !== id);
+            activeDownloads = activeDownloads.filter((d) => d.id !== id);
+            scheduleTabCountsFetch();
+            scheduleGridFetch();
           } else {
             const errorData = await response.json();
             toast.error(
@@ -1689,11 +1854,8 @@
     const newItemsPerPage = calculateItemsPerPage();
     if (newItemsPerPage !== itemsPerPage) {
       itemsPerPage = newItemsPerPage;
-      // Adjust if the current page is out of the valid range
-      totalPages = Math.ceil(filteredDownloads.length / itemsPerPage);
-      if (currentPage > totalPages && totalPages > 0) {
-        currentPage = totalPages;
-      }
+      // Re-fetch with the new page size; server is authoritative for totalPages.
+      scheduleGridFetch();
     }
   }
 
@@ -1856,8 +2018,7 @@
 
   // Search input handler (client-side filtering only)
   function handleSearchInput() {
-    // filteredDownloads updates automatically when the query changes
-    // Filtering happens only on the client side, with no API call
+    // The grid reactive coalesces a fetch with the new search term.
     currentPage = 1; // Move to the first page on search
   }
 
@@ -1879,82 +2040,28 @@
 
   // (old) toggleDashboard — the dashboard is always expanded, so the toggle was removed.
 
-  // Unified filtering and counting (all computed in a single pass)
-  let filteredDownloads = [];
-  let workingCount = 0;
-  let completedCount = 0;
+  // Re-fetch the visible grid whenever a relevant parameter changes (coalesced).
+  // The grid renders gridDownloads directly — one server page at a time.
   $: {
-    // Recompute when the period (or its custom dates) changes too — the list,
-    // not only the dashboard charts, must respect the period bar.
+    currentTab;
+    currentPage;
+    searchQuery;
     dashboardPeriod;
     dashboardStartDate;
     dashboardEndDate;
-    if (!Array.isArray(downloads)) {
-      workingCount = 0;
-      completedCount = 0;
-      filteredDownloads = [];
-    } else {
-      // Step 1: apply the period date-range filter (matches the period bar above)
-      let filtered = filterByPeriod(downloads);
-
-      // Step 2: apply the search filter
-      if (searchQuery && searchQuery.trim()) {
-        const query = searchQuery.trim().toLowerCase();
-        filtered = filtered.filter((d) => {
-          const filename = d.filename?.toLowerCase() || "";
-          const url = d.url?.toLowerCase() || "";
-          return filename.includes(query) || url.includes(query);
-        });
-      }
-
-      // Step 2: classify in a single pass (working/completed)
-      const working = [];
-      const completed = [];
-
-      for (const d of filtered) {
-        const status = d.status?.toLowerCase?.() || "";
-        const isCompleted = status === "done" ||
-          (status === "stopped" && (d.progress >= 100 || getDownloadProgress(d) >= 100));
-
-        if (isCompleted) {
-          completed.push(d);
-        } else {
-          working.push(d);
-        }
-      }
-
-      workingCount = working.length;
-      completedCount = completed.length;
-
-      // Step 3: sort based on the current tab
-      if (currentTab === "working") {
-        filteredDownloads = working;
-      } else {
-        // Completed tab: sort newest first
-        filteredDownloads = completed.sort((a, b) => {
-          const aTime = new Date(a.finished_at || a.created_at || a.updated_at || 0);
-          const bTime = new Date(b.finished_at || b.created_at || b.updated_at || 0);
-          return bTime.getTime() - aTime.getTime();
-        });
-      }
-    }
+    itemsPerPage;
+    scheduleGridFetch();
   }
 
-  // Page calculation
+  // Tab counts come from /history/stats, honoring the active period.
   $: {
-    totalPages = Math.ceil(filteredDownloads.length / itemsPerPage);
-    if (currentPage > totalPages && totalPages > 0) {
-      currentPage = totalPages;
-    }
+    dashboardPeriod;
+    dashboardStartDate;
+    dashboardEndDate;
+    scheduleTabCountsFetch();
   }
 
-  // Downloads per page
-  $: paginatedDownloads = filteredDownloads.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
-
-  // Page function
+  // Page navigation — server is authoritative for totalPages.
   function goToPage(page) {
     if (page >= 1 && page <= totalPages) {
       currentPage = page;
@@ -1966,27 +2073,25 @@
     currentPage = 1;
   }
 
-  $: activeProxyDownloadCount = Array.isArray(downloads) ? downloads.filter(
+  // Live proxy gauge count comes from the active list, not the full history.
+  $: activeProxyDownloadCount = activeDownloads.filter(
     (d) =>
       d.use_proxy &&
-      ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || "")
-  ).length : 0;
-  // Select-all reflects the currently-rendered (paginated) rows.
+      ["downloading", "proxying"].includes(d.status?.toLowerCase?.() || ""),
+  ).length;
+
+  // Select-all reflects the currently-rendered rows (the visible grid page).
   $: someVisibleSelected =
-    Array.isArray(paginatedDownloads) &&
-    paginatedDownloads.some((d) => selectedIds.has(d.id));
+    gridDownloads.some((d) => selectedIds.has(d.id));
   $: allVisibleSelected =
-    Array.isArray(paginatedDownloads) &&
-    paginatedDownloads.length > 0 &&
-    paginatedDownloads.every((d) => selectedIds.has(d.id));
-  $: dashboardSummaryTotal = dashboardStats?.total ?? downloads.length;
-  $: dashboardSummarySuccessRate = dashboardStats?.success_rate ?? (downloads.length > 0
-    ? (completedCount / downloads.length) * 100
-    : 0);
-  $: dashboardSummaryBytes = dashboardStats?.total_bytes ?? downloads.reduce(
-    (total, download) => total + (download.total_size || 0),
-    0
-  );
+    gridDownloads.length > 0 &&
+    gridDownloads.every((d) => selectedIds.has(d.id));
+
+  // Dashboard summary cards rely on the server-side stats response;
+  // fall back to 0 when the stats haven't loaded yet (no client-side total).
+  $: dashboardSummaryTotal = dashboardStats?.total ?? 0;
+  $: dashboardSummarySuccessRate = dashboardStats?.success_rate ?? 0;
+  $: dashboardSummaryBytes = dashboardStats?.total_bytes ?? 0;
 </script>
 
 <main>
@@ -2295,7 +2400,7 @@
 
       <div
         class="table-container"
-        class:empty-table={filteredDownloads.length === 0}
+        class:empty-table={gridDownloads.length === 0}
       >
         <table>
           <thead>
@@ -2305,7 +2410,7 @@
                   checked={allVisibleSelected}
                   indeterminate={someVisibleSelected && !allVisibleSelected}
                   ariaLabel={$t("select_count", { count: selectedIds.size })}
-                  on:change={() => toggleSelectAll(paginatedDownloads)}
+                  on:change={() => toggleSelectAll(gridDownloads)}
                 />
               </th>
               <th>{$t("table_header_file_name")}</th>
@@ -2339,7 +2444,7 @@
                   <td class="center-align"><Skeleton width="76px" height="28px" radius="6px" /></td>
                 </tr>
               {/each}
-            {:else if filteredDownloads.length === 0}
+            {:else if gridDownloads.length === 0}
               <tr class="empty-row">
                 <td
                   colspan={currentTab === "completed" ? 8 : 9}
@@ -2351,7 +2456,7 @@
                 </td>
               </tr>
             {:else}
-              {#each paginatedDownloads as download (download.id)}
+              {#each gridDownloads as download (download.id)}
                 <tr class:is-selected={selectedIds.has(download.id)}>
                   <td class="select-col">
                     <Checkbox
@@ -2482,11 +2587,16 @@
 
                           if (response.ok) {
                             const result = await response.json();
-                            // Update the frontend state
-                            downloads = downloads.map((d) =>
+                            // Update the frontend state (grid + live list).
+                            gridDownloads = gridDownloads.map((d) =>
                               d.id === download.id
                                 ? { ...d, use_proxy: result.use_proxy }
-                                : d
+                                : d,
+                            );
+                            activeDownloads = activeDownloads.map((d) =>
+                              d.id === download.id
+                                ? { ...d, use_proxy: result.use_proxy }
+                                : d,
                             );
                           } else {
                             toast.error(
@@ -2654,13 +2764,13 @@
           <div>{$t("pagination_page_info", { currentPage, totalPages })}</div>
         {/if}
         <div class="items-info">
-          {#if filteredDownloads.length > 0}
+          {#if currentTabTotalCount > 0}
             {$t("pagination_items_info", {
-              total: filteredDownloads.length,
+              total: currentTabTotalCount,
               start: (currentPage - 1) * itemsPerPage + 1,
               end: Math.min(
                 currentPage * itemsPerPage,
-                filteredDownloads.length
+                currentTabTotalCount
               ),
             })}
           {/if}
