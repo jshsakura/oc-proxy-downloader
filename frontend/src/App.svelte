@@ -2415,13 +2415,13 @@
               </th>
               <th>{$t("table_header_file_name")}</th>
               <th class="center-align">{$t("table_header_status")}</th>
-              <th class="center-align">{$t("table_header_size")}</th>
+              <th class="center-align col-size">{$t("table_header_size")}</th>
               <th class="center-align">{$t("table_header_progress")}</th>
               {#if currentTab !== "completed"}
-                <th class="center-align">{$t("table_header_speed")}</th>
+                <th class="center-align col-speed">{$t("table_header_speed")}</th>
               {/if}
-              <th class="center-align">{$t("table_header_requested_date")}</th>
-              <th class="center-align">{$t("table_header_proxy")}</th>
+              <th class="center-align col-date">{$t("table_header_requested_date")}</th>
+              <th class="center-align col-proxy">{$t("table_header_proxy")}</th>
               <th class="center-align actions-header"
                 >{$t("table_header_actions")}</th
               >
@@ -2434,13 +2434,13 @@
                   <td class="select-col"><Skeleton width="18px" height="18px" radius="5px" /></td>
                   <td><Skeleton width="80%" height="14px" radius="3px" /></td>
                   <td class="center-align"><Skeleton width="64px" height="22px" radius="10px" /></td>
-                  <td class="center-align"><Skeleton width="52px" height="14px" radius="3px" /></td>
+                  <td class="center-align col-size"><Skeleton width="52px" height="14px" radius="3px" /></td>
                   <td class="center-align"><Skeleton width="100%" height="8px" radius="4px" /></td>
                   {#if currentTab !== "completed"}
-                    <td class="center-align"><Skeleton width="52px" height="14px" radius="3px" /></td>
+                    <td class="center-align col-speed"><Skeleton width="52px" height="14px" radius="3px" /></td>
                   {/if}
-                  <td class="center-align"><Skeleton width="82px" height="14px" radius="3px" /></td>
-                  <td class="center-align"><Skeleton width="44px" height="22px" radius="10px" /></td>
+                  <td class="center-align col-date"><Skeleton width="82px" height="14px" radius="3px" /></td>
+                  <td class="center-align col-proxy"><Skeleton width="44px" height="22px" radius="10px" /></td>
                   <td class="center-align"><Skeleton width="76px" height="28px" radius="6px" /></td>
                 </tr>
               {/each}
@@ -2520,7 +2520,7 @@
                       {/if}
                     </span>
                   </td>
-                  <td class="center-align">
+                  <td class="center-align col-size">
                     {download.total_size
                       ? formatBytes(download.total_size)
                       : download.file_size || "-"}
@@ -2541,7 +2541,7 @@
                     </div>
                   </td>
                   {#if currentTab !== "completed"}
-                    <td class="center-align speed-cell">
+                    <td class="center-align speed-cell col-speed">
                       {#if download.download_speed && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying" || download.status.toLowerCase() === "parsing")}
                         <span
                           class="speed-text {download.use_proxy
@@ -2564,12 +2564,12 @@
                     </td>
                   {/if}
                   <td
-                    class="center-align"
+                    class="center-align col-date"
                     title={formatFullDateTime(download.created_at)}
                   >
                     {formatDate(download.created_at)}
                   </td>
-                  <td class="proxy-toggle-cell">
+                  <td class="proxy-toggle-cell col-proxy">
                     <button
                       type="button"
                       class="grid-proxy-toggle {download.use_proxy

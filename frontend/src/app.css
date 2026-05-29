@@ -1075,18 +1075,39 @@ select.input option {
   }
 
   .table-container {
-    overflow-x: auto; /* Enable horizontal scrolling for tables */
-    overflow-y: auto; /* Enable vertical scrolling for tables */
-    max-height: 60vh; /* 모바일에서는 60% 높이로 제한 */
+    overflow-x: hidden; /* Secondary columns are hidden below; no side-scroll needed. */
+    overflow-y: auto;
+    max-height: 60vh;
   }
 
   table {
-    width: 100%; /* Ensure table takes full width */
+    width: 100%;
+    table-layout: fixed; /* Honor the tighter widths below without runaway columns. */
   }
 
   th, td {
-    padding: 0.75rem;
+    padding: 0.5rem 0.4rem;
     font-size: 0.8rem;
+  }
+
+  /* Mobile: keep only the essentials in the row (name + status + progress +
+     actions). Size, speed, date, and the proxy toggle are still available in
+     the detail modal and on wider screens — they were squeezing the row
+     unreadably on phones. */
+  .col-size,
+  .col-speed,
+  .col-date,
+  .col-proxy {
+    display: none;
+  }
+
+  /* Filename column should truncate cleanly rather than push the row wider. */
+  table td:nth-child(2),
+  table th:nth-child(2) {
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .actions {
