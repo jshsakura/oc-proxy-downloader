@@ -433,5 +433,10 @@
   "file_name_unresolved": "找不到檔名",
   "flaresolverr_url_label": "FlareSolverr URL",
   "flaresolverr_url_hint": "For Cloudflare-protected hosts (MegaUp/GoFile, etc.). Leave empty to use the default (localhost:8191).",
+  "concurrency_legend": "並行下載",
+  "max_concurrent_label": "最大並行下載數（總計）",
+  "max_concurrent_hint": "所有主機的全域上限。數值越大，同時佔用的頻寬越多。",
+  "max_per_host_label": "每個主機的最大下載數",
+  "max_per_host_hint": "為每個主機設定獨立佇列，避免某主機的大檔案拖慢另一主機的小檔案。",
   "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }

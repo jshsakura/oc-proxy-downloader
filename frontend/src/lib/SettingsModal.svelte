@@ -312,6 +312,8 @@
       fichier_email: currentSettings.fichier_email || "",
       fichier_password: currentSettings.fichier_password || "",
       flaresolverr_url: currentSettings.flaresolverr_url || "",
+      max_concurrent_downloads: currentSettings.max_concurrent_downloads ?? 8,
+      max_per_host_downloads: currentSettings.max_per_host_downloads ?? 3,
     };
     selectedTheme = settings.theme || $theme;
     originalTheme = $theme;
@@ -1172,6 +1174,31 @@
               bind:value={settings.flaresolverr_url}
             />
             <small class="input-hint">{$t("flaresolverr_url_hint")}</small>
+          </fieldset>
+
+          <fieldset class="form-group">
+            <legend>{$t("concurrency_legend")}</legend>
+            <label for="max-concurrent">{$t("max_concurrent_label")}</label>
+            <input
+              id="max-concurrent"
+              type="number"
+              min="1"
+              max="32"
+              class="input"
+              bind:value={settings.max_concurrent_downloads}
+            />
+            <small class="input-hint">{$t("max_concurrent_hint")}</small>
+
+            <label for="max-per-host">{$t("max_per_host_label")}</label>
+            <input
+              id="max-per-host"
+              type="number"
+              min="1"
+              max="32"
+              class="input"
+              bind:value={settings.max_per_host_downloads}
+            />
+            <small class="input-hint">{$t("max_per_host_hint")}</small>
           </fieldset>
 
           <fieldset class="form-group telegram-notifications">

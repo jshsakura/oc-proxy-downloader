@@ -433,5 +433,10 @@
   "file_name_unresolved": "ファイル名不明",
   "flaresolverr_url_label": "FlareSolverr URL",
   "flaresolverr_url_hint": "For Cloudflare-protected hosts (MegaUp/GoFile, etc.). Leave empty to use the default (localhost:8191).",
+  "concurrency_legend": "同時ダウンロード",
+  "max_concurrent_label": "最大同時ダウンロード数（全体）",
+  "max_concurrent_hint": "全ホスト合計の上限です。大きくするほど一度に多くの帯域を使います。",
+  "max_per_host_label": "ホストごとの最大ダウンロード数",
+  "max_per_host_hint": "あるホストの大きなファイルが別ホストの小さなファイルを待たせないよう、ホストごとに別キューを使います。",
   "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }

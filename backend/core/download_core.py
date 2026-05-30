@@ -21,7 +21,7 @@ from typing import Optional, Dict, Any, AsyncGenerator
 from sqlalchemy.orm import Session
 
 from .models import DownloadRequest, StatusEnum
-from .config import get_download_path
+from .config import get_download_path, get_config
 from .db import SessionLocal
 from services.sse_manager import sse_manager
 from services.notification_service import send_telegram_start_notification, send_telegram_notification
@@ -77,7 +77,7 @@ FICHIER_HOST_BACKOFF_SECONDS = (120, 300, 900, 1800)  # 2m → 5m → 15m → 30
 
 # Per-site concurrent-download limits (host substring -> max concurrent).
 # Different hosts tolerate different parallelism, so each gets its own queue
-# instead of sharing one global limit. Unlisted hosts use MAX_GENERAL_DOWNLOADS.
+# instead of sharing one global limit. Unlisted hosts use MAX_PER_HOST_DOWNLOADS.
 # (1fichier local has its own dedicated semaphore — max 1 — handled separately.)
 SITE_DOWNLOAD_LIMITS = {
     "megaup.net": 2,
@@ -86,6 +86,41 @@ SITE_DOWNLOAD_LIMITS = {
     "rapidgator.net": 1,
     "send.now": 1,
 }
+
+# Smart-download concurrency defaults (overridable via config.json).
+# - GLOBAL ceiling: hard cap on total simultaneous downloads (the "max download
+#   count"). Held only AFTER a per-host slot is acquired, so it bounds the total
+#   without ever letting one host's queue block another host.
+# - PER-HOST default: hosts not in SITE_DOWNLOAD_LIMITS each get their own queue
+#   of this size, instead of all sharing a single pool. This is what lets a
+#   small file on host B start while big files saturate host A.
+DEFAULT_MAX_CONCURRENT_DOWNLOADS = 8
+DEFAULT_MAX_PER_HOST_DOWNLOADS = 3
+# Sane bounds so a bad config value can't open unlimited sockets or stall everything.
+CONCURRENCY_MIN = 1
+CONCURRENCY_MAX = 32
+
+
+def _read_concurrency_limits() -> tuple:
+    """Read (global_ceiling, per_host_default) from config, clamped to sane bounds.
+
+    External/user data, so validate at the boundary and fall back to defaults on
+    anything non-numeric instead of letting a bad value break admission control.
+    """
+    cfg = get_config()
+
+    def _clamp(value, fallback):
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return fallback
+        return max(CONCURRENCY_MIN, min(CONCURRENCY_MAX, n))
+
+    global_ceiling = _clamp(cfg.get("max_concurrent_downloads"), DEFAULT_MAX_CONCURRENT_DOWNLOADS)
+    per_host_default = _clamp(cfg.get("max_per_host_downloads"), DEFAULT_MAX_PER_HOST_DOWNLOADS)
+    # Per-host can never exceed the global ceiling — that would be meaningless.
+    per_host_default = min(per_host_default, global_ceiling)
+    return global_ceiling, per_host_default
 
 # Wait limit for when the SSE callback pushes a message to the main loop's event queue.
 # Too long blocks the sync executor thread; too short drops SSE under heavy load.
@@ -239,11 +274,13 @@ class DownloadCore:
         # Concurrency limit for 1fichier local downloads (to work around the free-tier limit)
         self.MAX_FICHIER_LOCAL_DOWNLOADS = 1
         self.fichier_local_semaphore = asyncio.Semaphore(self.MAX_FICHIER_LOCAL_DOWNLOADS)
-        # Concurrency limit for proxy and general downloads
-        self.MAX_GENERAL_DOWNLOADS = 5
-        self.general_download_semaphore = asyncio.Semaphore(self.MAX_GENERAL_DOWNLOADS)
-        # Per-site semaphores (lazily created in the running loop), keyed by the
-        # SITE_DOWNLOAD_LIMITS host substring.
+        # Smart-download admission control. Every non-1fichier-local download
+        # acquires its per-host semaphore first (host isolation), then the global
+        # ceiling (total cap). Limits come from config so the user can tune them.
+        self.MAX_CONCURRENT_DOWNLOADS, self.MAX_PER_HOST_DOWNLOADS = _read_concurrency_limits()
+        self.total_download_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_DOWNLOADS)
+        # Per-host semaphores (lazily created in the running loop), keyed by the
+        # SITE_DOWNLOAD_LIMITS host substring or, for unlisted hosts, the hostname.
         self._site_semaphores: Dict[str, asyncio.Semaphore] = {}
         # For throttling SSE message frequency
         self.last_sse_time: Dict[int, float] = {}  # Last SSE send time per download
@@ -253,6 +290,36 @@ class DownloadCore:
         # A consecutive block streak lengthens the cooldown; a success resets it.
         self._fichier_cooldown_until: Optional[datetime.datetime] = None
         self._fichier_block_streak = 0
+
+    def refresh_concurrency_settings(self) -> None:
+        """Re-read concurrency limits from config and apply them to NEW downloads.
+
+        Called when settings are saved so changes take effect without a restart.
+        In-flight downloads keep the semaphore objects they already acquired, so
+        the new caps bind as those drain — total concurrency may briefly exceed a
+        lowered limit, then self-corrects. Per-host semaphores are rebuilt lazily.
+        """
+        self.MAX_CONCURRENT_DOWNLOADS, self.MAX_PER_HOST_DOWNLOADS = _read_concurrency_limits()
+        self.total_download_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_DOWNLOADS)
+        self._site_semaphores = {}
+        print(
+            f"[LOG] 동시 다운로드 설정 갱신 → 전체 {self.MAX_CONCURRENT_DOWNLOADS}개 / "
+            f"호스트당 {self.MAX_PER_HOST_DOWNLOADS}개"
+        )
+
+    def _resolve_host_limit(self, url: Optional[str]) -> tuple:
+        """Map a URL to its (host_key, per_host_max) for per-host admission.
+
+        Listed hosts (SITE_DOWNLOAD_LIMITS) keep their tuned limit and are keyed
+        by the matched substring; every other host is keyed by its hostname and
+        shares the default per-host cap. The key is what gives each host its own
+        semaphore, so one host's queue never blocks another's.
+        """
+        host = (urlparse(url or "").hostname or "").lower()
+        site_key = next((k for k in SITE_DOWNLOAD_LIMITS if k in host), None)
+        if site_key is not None:
+            return site_key, SITE_DOWNLOAD_LIMITS[site_key]
+        return (host or "_default"), self.MAX_PER_HOST_DOWNLOADS
 
     def should_send_sse(self, req_id: int, retry_count: int) -> bool:
         """Decide whether to send SSE (time + count based throttling)"""
@@ -591,57 +658,57 @@ class DownloadCore:
                     download_type = "일반"
                 print(f"[DEBUG] {download_type} 다운로드 시작: {req_id}")
 
-                # Pick the per-site semaphore so each host has its own queue
-                # (falls back to the shared general semaphore for unlisted hosts).
-                host = (urlparse(req.original_url or req.url or "").hostname or "").lower()
-                site_key = next((k for k in SITE_DOWNLOAD_LIMITS if k in host), None)
-                if site_key is not None:
-                    site_sem = self._site_semaphores.get(site_key)
-                    if site_sem is None:
-                        site_sem = asyncio.Semaphore(SITE_DOWNLOAD_LIMITS[site_key])
-                        self._site_semaphores[site_key] = site_sem
-                    download_semaphore = site_sem
-                    download_semaphore_max = SITE_DOWNLOAD_LIMITS[site_key]
-                else:
-                    download_semaphore = self.general_download_semaphore
-                    download_semaphore_max = self.MAX_GENERAL_DOWNLOADS
+                # Smart admission: every host gets its OWN queue, so several big
+                # files on one host never starve a small file on another host.
+                host_key, per_host_max = self._resolve_host_limit(req.original_url or req.url)
+                host_semaphore = self._site_semaphores.get(host_key)
+                if host_semaphore is None:
+                    host_semaphore = asyncio.Semaphore(per_host_max)
+                    self._site_semaphores[host_key] = host_semaphore
 
-                # Apply the per-site download concurrency limit
-                # Check whether to wait on the semaphore
-                if download_semaphore._value == 0:  # The semaphore is already in use
+                # If either the host queue or the global ceiling is full, mark the
+                # download pending so the UI shows it is waiting its turn.
+                if host_semaphore._value == 0 or self.total_download_semaphore._value == 0:
                     print(f"[DEBUG] {download_type} 다운로드 제한 도달, 순서 대기 중: {req_id}")
                     await self.send_download_update(req_id, {
                         "status": "pending",
-                        "message": f"다운로드 순서를 기다리는 중... (최대 {download_semaphore_max}개 동시 실행)"
+                        "message": (
+                            f"다운로드 순서를 기다리는 중... "
+                            f"(호스트당 {per_host_max}개 / 전체 {self.MAX_CONCURRENT_DOWNLOADS}개 동시 실행)"
+                        )
                     })
                     # Update the status in the DB
                     req.status = StatusEnum.pending
                     db.commit()
 
-                async with download_semaphore:
-                    print(f"[DEBUG] {download_type} 다운로드 세마포어 획득: {req_id}")
+                # Acquire the host slot FIRST, then the global ceiling. A task
+                # waiting on the global cap holds only its own host slot, so it can
+                # never block a different host from starting.
+                async with host_semaphore:
+                    async with self.total_download_semaphore:
+                        print(f"[DEBUG] {download_type} 다운로드 세마포어 획득: {req_id}")
 
-                    if skip_parsing:
-                        # File info is present, so skip parsing and start downloading immediately
-                        await self.send_download_update(req_id, {
-                            "status": "downloading",
-                            "message": f"{download_type} 다운로드 시작 중..."
-                        })
-                        req.status = StatusEnum.downloading
-                    else:
-                        # When parsing is required
-                        await self.send_download_update(req_id, {
-                            "status": "parsing",
-                            "message": f"대기 완료, {download_type} 다운로드 시작 중..."
-                        })
-                        req.status = StatusEnum.parsing
-                    db.commit()
+                        if skip_parsing:
+                            # File info is present, so skip parsing and start downloading immediately
+                            await self.send_download_update(req_id, {
+                                "status": "downloading",
+                                "message": f"{download_type} 다운로드 시작 중..."
+                            })
+                            req.status = StatusEnum.downloading
+                        else:
+                            # When parsing is required
+                            await self.send_download_update(req_id, {
+                                "status": "parsing",
+                                "message": f"대기 완료, {download_type} 다운로드 시작 중..."
+                            })
+                            req.status = StatusEnum.parsing
+                        db.commit()
 
-                    if is_1fichier:
-                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 1fichier proxy download
-                    else:
-                        await self._download_local_async(req, db)  # Plain URL download
-                    print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
+                        if is_1fichier:
+                            await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 1fichier proxy download
+                        else:
+                            await self._download_local_async(req, db)  # Plain URL download
+                        print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
 
         except asyncio.CancelledError:
             # Download cancelled
@@ -2254,7 +2321,7 @@ class DownloadCore:
             print(f"[DEBUG] 세마포어 해제 대기 완료, 자동 시작 체크")
 
             # Log the current semaphore state
-            print(f"[DEBUG] 현재 세마포어 상태 - 1fichier: {self.fichier_local_semaphore._value}, 일반: {self.general_download_semaphore._value}")
+            print(f"[DEBUG] 현재 세마포어 상태 - 1fichier: {self.fichier_local_semaphore._value}, 전체: {self.total_download_semaphore._value}")
 
             await self._start_next_pending_download()
         except Exception as e:
