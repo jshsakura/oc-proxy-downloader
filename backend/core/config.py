@@ -72,7 +72,12 @@ DEFAULT_CONFIG = {
     "language": "ko",
     # FlareSolverr endpoint for Cloudflare-protected hosts (MegaUp/GoFile/etc.).
     # Empty → fall back to the FLARESOLVERR_URL env var, then http://localhost:8191.
-    "flaresolverr_url": ""
+    "flaresolverr_url": "",
+    # Smart-download concurrency. The global ceiling bounds total simultaneous
+    # downloads; the per-host cap keeps a few big files on one host from starving
+    # small files on another host (each host gets its own queue). See download_core.
+    "max_concurrent_downloads": 8,
+    "max_per_host_downloads": 3
 }
 
 def get_config():

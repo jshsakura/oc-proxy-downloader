@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from core.config import get_config, save_config, get_download_path, get_default_download_path, IS_STANDALONE
 from core.db import get_db
 from core.version import CURRENT_VERSION
+from core.download_core import download_core
 from services.notification_service import send_telegram_notification
 
 
@@ -64,6 +65,9 @@ async def update_settings_endpoint(settings: dict, request: Request):
 
         # Save the settings
         save_config(settings)
+
+        # Apply concurrency changes to new downloads without a restart.
+        download_core.refresh_concurrency_settings()
 
         return {"success": True, "message": "설정이 저장되었습니다."}
 

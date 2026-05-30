@@ -433,5 +433,10 @@
   "file_name_unresolved": "파일명 확인 불가",
   "flaresolverr_url_label": "FlareSolverr 주소",
   "flaresolverr_url_hint": "Cloudflare 보호 호스트(MegaUp/GoFile 등)용. 비우면 기본값(localhost:8191)을 사용합니다.",
+  "concurrency_legend": "동시 다운로드",
+  "max_concurrent_label": "최대 동시 다운로드 (전체)",
+  "max_concurrent_hint": "모든 호스트를 합친 전체 상한입니다. 높일수록 한 번에 더 많은 대역폭을 사용합니다.",
+  "max_per_host_label": "호스트당 최대 다운로드",
+  "max_per_host_hint": "한 호스트의 큰 파일이 다른 호스트의 작은 파일을 굶기지 않도록 호스트마다 별도 큐를 둡니다.",
   "flaresolverr_url_placeholder": "http://flaresolverr:8191"
 }
