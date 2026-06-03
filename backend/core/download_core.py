@@ -36,6 +36,7 @@ from core.simple_parser import (
     is_1fichier_placeholder_name,
 )
 from core.hoster_parsers import (
+    fetch_special_hoster_file_info_sync,
     get_flaresolverr_context_for_url,
     is_special_hoster_url,
     parse_special_hoster_sync,
@@ -282,6 +283,12 @@ class DownloadCore:
         # Per-host semaphores (lazily created in the running loop), keyed by the
         # SITE_DOWNLOAD_LIMITS host substring or, for unlisted hosts, the hostname.
         self._site_semaphores: Dict[str, asyncio.Semaphore] = {}
+        # Up-front name/size resolution for special hosters runs OUTSIDE the
+        # download slots, so a queued item shows its real name while it waits its
+        # turn (no perpetual skeleton). Bounded so 85 queued items don't fan out
+        # into 85 simultaneous page GETs against the same host.
+        self.MAX_SPECIAL_PREPARSE = 4
+        self.special_preparse_semaphore = asyncio.Semaphore(self.MAX_SPECIAL_PREPARSE)
         # For throttling SSE message frequency
         self.last_sse_time: Dict[int, float] = {}  # Last SSE send time per download
         self.SSE_THROTTLE_INTERVAL = 10.0  # Send SSE only every 10 seconds
@@ -473,6 +480,53 @@ class DownloadCore:
             except Exception as preparse_error:
                 print(f"[WARNING] 사전파싱 실패: {preparse_error}")
 
+    async def _perform_special_preparse(self, req: DownloadRequest, db: Session):
+        """Resolve a special-hoster item's name/size up-front, off the download slot.
+
+        Runs a single info-only page GET (no link resolution) so a queued item
+        shows its real filename while it waits for a download slot, instead of a
+        stuck skeleton. Best-effort: a failure leaves resolution to the full
+        parser at download time.
+        """
+        if req.file_name and not _name_needs_resolution(req.file_name) and req.file_size:
+            return
+        source_url = req.original_url or req.url
+        if not is_special_hoster_url(source_url):
+            return
+
+        async with self.special_preparse_semaphore:
+            db.refresh(req)
+            if req.status not in (StatusEnum.pending, StatusEnum.parsing):
+                return  # cancelled / already advanced while queued
+
+            loop = asyncio.get_event_loop()
+            info = await loop.run_in_executor(
+                None, lambda: fetch_special_hoster_file_info_sync(source_url)
+            )
+            if not info:
+                return
+
+            changed = False
+            if _should_replace_file_name(req.file_name, info.get("name")):
+                req.file_name = info["name"]
+                changed = True
+            if info.get("size") and not req.file_size:
+                req.file_size = info["size"]
+                total_bytes = _size_text_to_bytes(info["size"])
+                if total_bytes and (not req.total_size or req.total_size == 0):
+                    req.total_size = total_bytes
+                changed = True
+            if not changed:
+                return
+
+            db.commit()
+            print(f"[LOG] 특수 호스터 사전조회: id={req.id}, name='{req.file_name}', size='{req.file_size}'")
+            await sse_manager.broadcast_message("filename_update", {
+                "id": req.id,
+                "filename": req.file_name,
+                "file_size": req.file_size,
+            })
+
     async def send_download_log(self, req_id: int, message: str, level: str = "info"):
         """Send a download-log SSE"""
         try:
@@ -657,6 +711,12 @@ class DownloadCore:
                 else:
                     download_type = "일반"
                 print(f"[DEBUG] {download_type} 다운로드 시작: {req_id}")
+
+                # Resolve the special-hoster name/size BEFORE queueing on the
+                # download slot, so a queued item shows its real filename instead
+                # of a stuck skeleton while it waits its turn.
+                if not skip_parsing:
+                    await self._perform_special_preparse(req, db)
 
                 # Smart admission: every host gets its OWN queue, so several big
                 # files on one host never starve a small file on another host.

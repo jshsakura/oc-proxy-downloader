@@ -300,16 +300,42 @@ def _raise_for_dead_page(host_label: str, text: str, status_code: int) -> None:
         raise HosterParseError(f"{host_label} 파일 없음 또는 삭제됨")
 
 
+# Real download filenames end in one of these. A bare "." (e.g. the version tag
+# "[1.0.1]" inside an SEO page title) must NOT qualify, otherwise a truncated
+# page <title> like "Game [1.0.1][UPD]… by NxBrew" gets saved as the filename.
+_KNOWN_FILE_EXTENSIONS = (
+    ".nsp", ".xci", ".nsz", ".xcz", ".zip", ".rar", ".7z", ".tar", ".gz",
+    ".iso", ".wbfs", ".rvz", ".bin", ".exe", ".apk", ".mkv", ".mp4", ".avi",
+    ".pdf", ".cia", ".3ds", ".wad", ".rom",
+)
+# Strip a leading "Download:" label and a trailing site tag (" - MegaUp",
+# "| Rapidgator", "… by NxBrew", "- NxBrew", etc.) including any leading
+# separator/ellipsis run, so what remains is just the filename.
+_TITLE_PREFIX_RE = re.compile(r"^\s*Download(?:ing)?(?: file)?\s*:?\s*", re.I)
+_TITLE_SITE_SUFFIX_RE = re.compile(
+    r"\s*[-|–·•…\s]*(?:by\s+)?(?:MegaUp|Rapidgator|NxBrew)\b.*$", re.I
+)
+
+
+def _has_known_extension(text: str) -> bool:
+    """True when the cleaned title ends in a real download extension."""
+    lowered = text.lower()
+    return any(lowered.endswith(ext) for ext in _KNOWN_FILE_EXTENSIONS)
+
+
 def _extract_title_filename(soup: BeautifulSoup, fallback_url: str) -> str:
     for selector in ("h1", "h2", "title"):
         node = soup.select_one(selector)
         if not node:
             continue
         text = node.get_text(" ", strip=True)
-        text = re.sub(r"^\s*Download(?:ing)?(?: file)?\s*:?\s*", "", text, flags=re.I)
-        text = re.sub(r"\s*-\s*(MegaUp|Rapidgator).*$", "", text, flags=re.I)
-        if text and "." in text:
-            return text.strip()
+        text = _TITLE_PREFIX_RE.sub("", text)
+        text = _TITLE_SITE_SUFFIX_RE.sub("", text)
+        text = text.rstrip(" .…").strip()
+        # Only accept a page title as the filename when it actually ends in a
+        # real extension; otherwise it's an SEO/heading string, not the file.
+        if text and _has_known_extension(text):
+            return text
 
     parsed = urlparse(fallback_url)
     filename = unquote((parsed.path or "").rstrip("/").rsplit("/", 1)[-1])
@@ -828,3 +854,41 @@ def parse_special_hoster_sync(
     if host in {"send.now", "www.send.now"}:
         return parse_blocked_hoster_sync(url, proxies=proxies)
     raise HosterParseError("지원하지 않는 호스팅 사이트")
+
+
+# Hosts whose name/size can be read from a single page GET, without resolving
+# the (per-request, expiring) download link. GoFile is excluded — its listing
+# API is datacenter-IP gated, so a server-side info fetch returns nothing.
+_INFO_ONLY_HOSTS = {
+    "megaup.net", "www.megaup.net", "datanodes.to", "www.datanodes.to",
+}
+
+
+def fetch_special_hoster_file_info_sync(
+    url: str, proxies: Optional[Dict[str, str]] = None
+) -> Dict[str, str]:
+    """Fetch only the filename/size of a special-host page (no link resolution).
+
+    A lightweight, idempotent GET used to fill in a queued item's name/size
+    while it waits for a download slot. Returns ``{}`` (never raises) when the
+    host is unsupported for info-only reads or anything goes wrong — the full
+    parser still runs at download time and is the source of truth.
+    """
+    host = _host(url)
+    if host not in _INFO_ONLY_HOSTS:
+        return {}
+    try:
+        scraper = _scraper(proxies)
+        response = scraper.get(url, timeout=30)
+        text = _response_text(response)
+        if _cloudflare_challenge_seen(response, text):
+            fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
+            if fs_page:
+                text, _, url = fs_page
+        if host in {"megaup.net", "www.megaup.net"}:
+            soup = BeautifulSoup(text, "html.parser")
+            return _extract_megaup_file_info(soup, url, text)
+        return _extract_datanodes_file_info(url, text)
+    except Exception as exc:
+        print(f"[WARNING] 특수 호스터 정보 사전조회 실패({_host(url)}): {exc}")
+        return {}

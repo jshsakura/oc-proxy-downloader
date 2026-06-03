@@ -512,3 +512,58 @@ def test_special_hoster_forwards_proxies_to_gofile(monkeypatch):
     hp.parse_special_hoster_sync("https://gofile.io/d/abc", proxies=proxies)
 
     assert seen["proxies"] == proxies
+
+
+# --- Title-based filename extraction (SEO page-title vs. real filename) ---
+
+def _soup(html_text):
+    return hp.BeautifulSoup(html_text, "html.parser")
+
+
+def test_title_extraction_rejects_seo_page_title_and_falls_back_to_url():
+    # A truncated NxBrew post <title> with a "[1.0.1]" version dot must NOT be
+    # mistaken for the real filename — fall back to the hoster URL's filename.
+    html = (
+        "<html><head><title>Freaky Trip [0100B4101CB08800][v65536]"
+        "[1.0.1][UPD]… by NxBrew</title></head>"
+        "<body><h1>Freaky Trip [0100B4101CB08800][v65536][1.0.1][UPD]"
+        "… by NxBrew</h1></body></html>"
+    )
+    got = hp._extract_title_filename(_soup(html), "https://datanodes.to/abc/Freaky.Trip.UPD.nsp")
+    assert got == "Freaky.Trip.UPD.nsp"
+
+
+def test_title_extraction_keeps_real_filename_and_strips_site_suffix():
+    html = "<html><head><title>My.Game.v1.0.1.nsp - MegaUp</title></head></html>"
+    assert hp._extract_title_filename(_soup(html), "https://x/y") == "My.Game.v1.0.1.nsp"
+
+
+def test_title_extraction_rejects_version_only_heading():
+    html = "<html><head><h1>Some Game [1.0.1] Update</h1></head></html>"
+    got = hp._extract_title_filename(_soup(html), "https://datanodes.to/code/realname.xci")
+    assert got == "realname.xci"
+
+
+def test_fetch_info_only_returns_empty_for_unsupported_host():
+    # GoFile is IP-gated; no server-side info read, no network call.
+    assert hp.fetch_special_hoster_file_info_sync("https://gofile.io/d/abc") == {}
+
+
+def test_fetch_info_only_reads_datanodes_name_and_size(monkeypatch):
+    page = "<html><title>Download File</title><strong>movie.rar 2.19 GB</strong></html>"
+    fake = _FakeScraper(get_response=_FakeResponse(page))
+    monkeypatch.setattr(hp.cloudscraper, "create_scraper", lambda: fake)
+
+    info = hp.fetch_special_hoster_file_info_sync(
+        "https://datanodes.to/f0mley3vka9k/movie.rar"
+    )
+    assert info["name"] == "movie.rar"
+    assert info["size"] == "2.19 GB"
+
+
+def test_fetch_info_only_swallows_errors(monkeypatch):
+    def _boom():
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(hp.cloudscraper, "create_scraper", lambda: _boom())
+    assert hp.fetch_special_hoster_file_info_sync("https://datanodes.to/x/y.rar") == {}
