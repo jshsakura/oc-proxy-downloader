@@ -144,8 +144,16 @@
   let completedCount = 0;
   // Debounce timer for the grid fetch (currentTab/page/search/period change).
   let _gridFetchTimer = null;
+  // First-pending timestamp for the grid fetch, so a continuous event storm
+  // can't postpone the fetch forever AND can't fire more than once per maxWait.
+  let _gridFetchFirstPending = 0;
   // Debounce timer for the tab count fetch.
   let _tabCountsFetchTimer = null;
+  // Hard floor between grid reloads — a safety net so nothing (duplicate events,
+  // fail-cycling, a missed guard) can ever reload the visible list faster than
+  // this. 150ms debounce still coalesces normal bursts; this just caps the worst
+  // case so the page can never visibly jerk multiple times a second.
+  const GRID_FETCH_MAX_WAIT_MS = 2000;
 
   // Batch SSE updates (requestAnimationFrame) — defer state assignment to the next frame
   let pendingStateUpdates = [];
@@ -761,12 +769,20 @@
           const crossedTabBoundary =
             prevStatus != null &&
             isCompletedStatus(prevStatus) !== isCompletedStatus(updatedDownload.status);
-          // prevStatus == null && gridIndex == -1 → an item we've never seen on
-          // the grid or in the active list (new, or moved in from off-page): pull
-          // it in. A known off-page item just ticking progress (prevStatus set)
-          // must NOT refetch — that was refetching the whole grid every tick.
-          const isNewOrUnknown = gridIndex === -1 && prevStatus == null;
-          if (crossedTabBoundary || isNewOrUnknown) {
+          // An off-grid item we've never seen (prevStatus null) only deserves a
+          // grid pull if it's actually arriving — an *incoming* status (pending/
+          // parsing/downloading/...). A terminal status (failed/stopped/done) for
+          // an unknown id is a duplicate or late event for something off-page, and
+          // firing on it caused a per-second grid reload during fail-cycling
+          // (DataNodes node outage → many parse→download→failed in a row, plus
+          // duplicate failed events). Those must NOT refetch.
+          const newStatus = (updatedDownload.status || "").toLowerCase();
+          const isIncoming =
+            newStatus === "pending" || newStatus === "parsing" ||
+            newStatus === "proxying" || newStatus === "downloading" ||
+            newStatus === "waiting";
+          const isNewIncoming = gridIndex === -1 && prevStatus == null && isIncoming;
+          if (crossedTabBoundary || isNewIncoming) {
             scheduleGridFetch();
             scheduleTabCountsFetch();
           }
@@ -812,14 +828,19 @@
             } else {
               // Off-page row: only force a grid refetch if it actually crossed the
               // working↔completed boundary (detected from its active-list status)
-              // or we've never seen it (new/unknown — surface it). A known off-page
-              // item just ticking progress must NOT refetch — that was reloading
-              // the whole grid on every batch and made the list jerk.
+              // or it's newly arriving with an incoming status (surface it). A
+              // known off-page item ticking progress, or a terminal/duplicate
+              // event for an unknown id, must NOT refetch — that reloaded the whole
+              // grid on every batch and made the list jerk.
               const activeOld = nextActive.find((d) => d.id === updatedDownload.id);
-              if (
-                activeOld == null ||
-                isCompletedStatus(activeOld.status) !==
-                  isCompletedStatus(updatedDownload.status)
+              const s = (updatedDownload.status || "").toLowerCase();
+              const incoming =
+                s === "pending" || s === "parsing" || s === "proxying" ||
+                s === "downloading" || s === "waiting";
+              if (activeOld == null) {
+                if (incoming) crossedTabBoundary = true;
+              } else if (
+                isCompletedStatus(activeOld.status) !== isCompletedStatus(s)
               ) {
                 crossedTabBoundary = true;
               }
@@ -1256,12 +1277,20 @@
     }
   }
 
-  // Coalesce rapid changes (tab/page/search/period) into one fetch.
+  // Coalesce rapid changes (tab/page/search/period/SSE) into one fetch. Debounces
+  // 150ms after the last request, but never waits longer than GRID_FETCH_MAX_WAIT_MS
+  // from the first pending request — so a continuous event storm both can't starve
+  // the fetch and can't reload the list more than once per maxWait window.
   function scheduleGridFetch() {
+    const now = Date.now();
+    if (!_gridFetchFirstPending) _gridFetchFirstPending = now;
+    const elapsed = now - _gridFetchFirstPending;
+    const delay = Math.max(0, Math.min(150, GRID_FETCH_MAX_WAIT_MS - elapsed));
     if (_gridFetchTimer) clearTimeout(_gridFetchTimer);
     _gridFetchTimer = setTimeout(() => {
+      _gridFetchFirstPending = 0;
       fetchGridPage();
-    }, 150);
+    }, delay);
   }
 
   // Fetch the small live list (in-progress items) for gauges + proxy/local stats.
