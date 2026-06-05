@@ -123,6 +123,19 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "이 링크는 파일명/확장자를 알 수 없습니다. 다른 미러를 사용하세요.",
      KIND_DEAD, True),
 
+    # --- special-hoster download node unreachable (per-node / port issue) ---
+    # datanodes pins a file to one storage node; some nodes serve on a
+    # non-standard port (e.g. :8443). If that node/port is unreachable from this
+    # network the connect times out. Re-resolving hands back the same node, so the
+    # message names the exact host:port and the likely port-block cause. Transient
+    # (auto-retries) — recoverable if the node recovers or the port is opened.
+    ("다운로드노드연결실패",
+     "다운로드 노드에 연결할 수 없습니다 (노드 일시 장애 또는 비표준 포트 차단 가능)",
+     "이 파일이 배정된 노드(주소가 메시지에 표시됨)에 연결이 안 됩니다. 노드가 일시적으로 죽었거나, "
+     "비표준 포트(예: 8443)가 공유기/방화벽/ISP에서 막혔을 수 있습니다. 잠시 후 자동 재시도되며, "
+     "계속 실패하면 해당 포트 아웃바운드를 허용하거나 VPN/프록시를 사용하세요.",
+     KIND_TRANSIENT, False),
+
     # --- auth_required: guest slots / registered-user only ---
     ("rapidgator 무료 모드는 500 mb 초과",
      "Rapidgator 무료 모드 제한으로 이 파일을 받을 수 없습니다",

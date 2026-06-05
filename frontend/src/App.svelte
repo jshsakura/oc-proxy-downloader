@@ -1289,7 +1289,11 @@
     if (_gridFetchTimer) clearTimeout(_gridFetchTimer);
     _gridFetchTimer = setTimeout(() => {
       _gridFetchFirstPending = 0;
-      fetchGridPage();
+      // Silent: a coalesced/background refetch (SSE event, tab/page/search change)
+      // must NOT flash the loading skeleton. The skeleton has different dimensions
+      // than real rows, so toggling it on every refetch made the grid flicker AND
+      // the layout jump/widen. Only the initial mount load shows the skeleton.
+      fetchGridPage({ silent: true });
     }, delay);
   }
 

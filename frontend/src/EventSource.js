@@ -1,4 +1,10 @@
 // EventSource management module
+// Per-message console logging is dev-only noise — every SSE event (heartbeat,
+// status_update, flush, ...) printed a line, flooding the production console.
+// Flip to true locally when debugging the SSE stream.
+const SSE_DEBUG = false;
+const sseLog = (...args) => { if (SSE_DEBUG) console.log(...args); };
+
 export class EventSourceManager {
   constructor() {
     this.eventSource = null;
@@ -19,7 +25,7 @@ export class EventSourceManager {
     this.eventSource = new EventSource("/api/events");
 
     this.eventSource.onopen = () => {
-      console.log("EventSource connected");
+      sseLog("EventSource connected");
       this.reconnectAttempts = 0; // Reset retry count on successful connection
     };
 
@@ -29,19 +35,19 @@ export class EventSourceManager {
         
         // heartbeat and connection messages are used only to check connection status
         if (message.type === "heartbeat") {
-          console.log("💓 SSE heartbeat received", message.queue_size ? `(queue: ${message.queue_size})` : "");
+          sseLog("💓 SSE heartbeat received", message.queue_size ? `(queue: ${message.queue_size})` : "");
           return;
         }
         
         if (message.type === "connection") {
-          console.log("🔌 SSE connection established:", message.status);
+          sseLog("🔌 SSE connection established:", message.status);
           return;
         }
 
         // Important messages are handled immediately
         if (message.type === "force_refresh" || message.type === "test_message") {
           if (onMessage) {
-            console.log("📨 Priority SSE message:", message.type);
+            sseLog("📨 Priority SSE message:", message.type);
             onMessage(message);
           }
           return;
@@ -49,14 +55,14 @@ export class EventSourceManager {
 
         // status_update messages are debounced (but important states are handled immediately)
         if (message.type === "status_update") {
-          console.log("📨 Status update received:", message.data.id, "진행률:" + message.data.progress + "%", "상태:" + message.data.status);
+          sseLog("📨 Status update received:", message.data.id, "진행률:" + message.data.progress + "%", "상태:" + message.data.status);
           
           // Important state changes are handled immediately (stopped, done, failed, downloading)
           if (message.data.status === "stopped" || 
               message.data.status === "done" || 
               message.data.status === "failed" ||
               (message.data.status === "downloading" && message.data.progress > 0)) {
-            console.log("📨 즉시 처리:", message.data.id, message.data.status);
+            sseLog("📨 즉시 처리:", message.data.id, message.data.status);
             if (onMessage) {
               onMessage(message);
             }
@@ -69,7 +75,7 @@ export class EventSourceManager {
 
         // All other messages are handled immediately
         if (onMessage) {
-          console.log("📨 SSE message received:", message.type);
+          sseLog("📨 SSE message received:", message.type);
           onMessage(message);
         }
       } catch (error) {
@@ -128,7 +134,7 @@ export class EventSourceManager {
   flushUpdates() {
     if (this.updateQueue.size === 0) return;
     
-    console.log(`📦 Flushing ${this.updateQueue.size} queued updates`);
+    sseLog(`📦 Flushing ${this.updateQueue.size} queued updates`);
     
     // Process all queued updates in a batch
     const updates = Array.from(this.updateQueue.values());

@@ -1586,6 +1586,20 @@ class DownloadCore:
                             raise
                         continue  # retry the same current_url
 
+                    # Same-URL retries exhausted on a special-hoster node
+                    # connection failure. Re-resolving is futile — datanodes pins a
+                    # file to its node, so it hands back the SAME unreachable node.
+                    # Fail now with a clear, node-specific message (which host:port,
+                    # and the likely non-standard-port block cause) instead of
+                    # looping on a guaranteed-dead reparse. (Expiry/404 still
+                    # re-parses below; that's a genuinely fresh-link case.)
+                    if conn_failed and not expired:
+                        node = urlparse(current_url).netloc or current_url
+                        raise Exception(
+                            f"다운로드노드연결실패: {node} 에 연결할 수 없습니다 "
+                            f"(노드 일시 장애 또는 비표준 포트 차단 가능)"
+                        )
+
                     should_reparse = expired or conn_failed
                     can_reparse = (
                         should_reparse
