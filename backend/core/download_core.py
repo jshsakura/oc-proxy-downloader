@@ -139,6 +139,15 @@ TASK_CANCEL_TIMEOUT_SEC = 1.0
 # Exceeding this cap fails the download with a clear message and frees the slot.
 SPECIAL_HOSTER_PARSE_TIMEOUT_SEC = 300  # 5 minutes
 
+# Special-hoster per-request download nodes (e.g. node42.datanodes.to) are
+# assigned per file, and the file is pinned to its node — so re-resolving the
+# page hands back the SAME node. When that node has a transient outage (connect
+# timeout / reset / refused) the stable node URL itself recovers within seconds,
+# and the existing .part resumes via a Range request. So on a node connection
+# failure, retry the SAME url on this short backoff BEFORE falling through to a
+# (futile, same-node) re-parse or a hard failure.
+SPECIAL_NODE_RETRY_BACKOFF_SEC = (5, 15, 30)
+
 
 def _clear_failure_metadata(req) -> None:
     """On a successful completion, wipe leftover failure flags so the row no
@@ -1319,7 +1328,7 @@ class DownloadCore:
         try:
             file_name = req.file_name or "Unknown File"
             file_size = req.file_size
-            send_telegram_start_notification(file_name, download_mode, "ko", file_size)
+            send_telegram_start_notification(file_name, download_mode, "ko", file_size, file_size_bytes=req.total_size)
             print(f"[LOG] 텔레그램 다운로드 시작 알림 전송: {file_name}")
         except Exception as telegram_error:
             print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
@@ -1409,6 +1418,43 @@ class DownloadCore:
             print(f"[ERROR] 재파싱 오류: {reparse_error}")
             return None
 
+    async def _reparse_special_for_retry(
+        self,
+        req: DownloadRequest,
+        proxies: Optional[Dict[str, str]] = None,
+    ):
+        """Re-resolve a special-hoster page (datanodes/MegaUp/...) to a fresh link.
+
+        Special hosters spread files across per-request download nodes (e.g.
+        node42.datanodes.to). When the assigned node is dead/unreachable, the
+        stored node URL keeps failing — re-parsing the original page makes the
+        host hand out a new node. Same result format as
+        ``parse_special_hoster_sync``; returns ``None`` on failure.
+        """
+        source_url = req.original_url or req.url
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,
+                lambda: parse_special_hoster_sync(source_url, req.password, proxies=proxies),
+            )
+        except Exception as reparse_error:
+            print(f"[ERROR] 특수 호스터 재파싱 오류: {reparse_error}")
+            return None
+
+    async def _sleep_unless_cancelled(self, req: DownloadRequest, seconds: float) -> bool:
+        """Sleep up to ``seconds``, returning True if the download was cancelled
+        meanwhile so the caller can abort the wait. Polls once a second so a stop
+        press doesn't have to sit out the whole backoff."""
+        waited = 0.0
+        while waited < seconds:
+            if cancel_signal.is_cancelled(req.id):
+                return True
+            step = min(1.0, seconds - waited)
+            await asyncio.sleep(step)
+            waited += step
+        return cancel_signal.is_cancelled(req.id)
+
     async def _download_file_directly(
         self,
         req: DownloadRequest,
@@ -1443,11 +1489,13 @@ class DownloadCore:
             timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=300)
 
             reparse_attempted = 0
+            same_url_retries = 0
             current_url = download_url
             current_cookies = cookies or {}
             current_ua = user_agent
             current_referer = referer
             reparse_url = choose_1fichier_parse_url(parse_url)
+            is_special = is_special_hoster_url(req.original_url or req.url)
             flaresolverr_cookie_attempted = False
 
             while True:
@@ -1498,31 +1546,75 @@ class DownloadCore:
                             return  # Exit immediately on success
                 except Exception as e:
                     err_text = str(e)
+                    lowered = err_text.lower()
                     expired = ("HTTP 404" in err_text or "HTTP 410" in err_text
                                or "Not Found" in err_text or "Gone" in err_text)
+                    # Special hosters assign a per-request download node; a connect
+                    # timeout / refused / reset means that node is unreachable, so
+                    # re-resolving the page yields a fresh node instead of hammering
+                    # the dead one. (1fichier links don't rotate this way, so this
+                    # extra trigger is scoped to special hosters.)
+                    conn_failed = is_special and any(k in lowered for k in (
+                        "timeout", "timed out", "connection reset",
+                        "connection refused", "cannot connect",
+                        "server disconnected", "connection closed",
+                    ))
+
+                    # Transient node outage: the node URL is stable (the file is
+                    # pinned to its node), so re-resolving would just hand back the
+                    # same dead node. Retry the SAME url on a short backoff first —
+                    # the node typically recovers within seconds and the .part
+                    # resumes via Range. Only when these are exhausted do we fall
+                    # through to a re-parse / failure.
+                    if (
+                        conn_failed
+                        and not expired
+                        and same_url_retries < len(SPECIAL_NODE_RETRY_BACKOFF_SEC)
+                    ):
+                        backoff = SPECIAL_NODE_RETRY_BACKOFF_SEC[same_url_retries]
+                        same_url_retries += 1
+                        total_tries = len(SPECIAL_NODE_RETRY_BACKOFF_SEC)
+                        print(f"[WARNING] 특수 호스터 노드 연결 실패({err_text}) - "
+                              f"동일 URL 재시도 {same_url_retries}/{total_tries} "
+                              f"({backoff}s 대기)")
+                        await self.send_download_update(req.id, {
+                            "status": "downloading",
+                            "message": f"노드 일시 장애 — {backoff}초 후 재시도 "
+                                       f"({same_url_retries}/{total_tries})",
+                        })
+                        if await self._sleep_unless_cancelled(req, backoff):
+                            raise
+                        continue  # retry the same current_url
+
+                    should_reparse = expired or conn_failed
                     can_reparse = (
-                        reparse_url
-                        and expired
+                        should_reparse
                         and reparse_attempted < max_reparse
+                        and (reparse_url or is_special)
                     )
                     if not can_reparse:
                         raise
 
                     reparse_attempted += 1
-                    print(f"[WARNING] 다운로드 링크 만료/세션손실 감지({err_text}), "
-                          f"재파싱 시도 {reparse_attempted}/{max_reparse}")
+                    reason = "노드 연결 실패" if conn_failed and not expired else "링크 만료/세션손실"
+                    print(f"[WARNING] 다운로드 실패({reason}: {err_text}) - "
+                          f"재해석 시도 {reparse_attempted}/{max_reparse}")
 
-                    new_result = await self._reparse_for_retry(
-                        req, reparse_url, proxy_addr=None, proxies=None,
-                    )
+                    if is_special:
+                        new_result = await self._reparse_special_for_retry(req, proxies=None)
+                    else:
+                        new_result = await self._reparse_for_retry(
+                            req, reparse_url, proxy_addr=None, proxies=None,
+                        )
                     if not new_result or not new_result.get('download_link'):
                         raise Exception("재파싱 실패: 새 다운로드 링크를 얻지 못함")
 
-                    current_url = new_result['download_link']
+                    new_url = new_result['download_link']
+                    print(f"[LOG] 재해석 새 링크 획득: {new_url} (이전: {current_url})")
+                    current_url = new_url
                     current_cookies = new_result.get('cookies') or current_cookies
                     current_ua = new_result.get('user_agent') or current_ua
                     current_referer = new_result.get('referer') or current_referer
-                    print(f"[LOG] 재파싱으로 새 다운로드 링크 획득: {current_url}")
                     # Retry on the next loop iteration
 
         except Exception as e:
@@ -1554,8 +1646,13 @@ class DownloadCore:
                     processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
                 print(f"[DEBUG] 텔레그램 실패 알림 전송 시작: {req.file_name}")
-                send_telegram_notification(req.file_name, "failed", error=user_message, language="ko",
-                                         file_size_str=req.file_size, requested_time=processing_time)
+                send_telegram_notification(
+                    req.file_name, "failed", error=user_message, language="ko",
+                    file_size_str=req.file_size, requested_time=processing_time,
+                    download_mode="proxy" if req.use_proxy else "local",
+                    attempted_url=current_url, attempt_count=verdict.attempt_count,
+                    failure_kind=verdict.kind,
+                )
             except Exception as telegram_error:
                 print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")
 
@@ -1703,7 +1800,7 @@ class DownloadCore:
                                     file_name = req.file_name or "Unknown File"
                                     file_size = req.file_size
                                     download_mode = "proxy" if proxy_url else "local"
-                                    send_telegram_start_notification(file_name, download_mode, "ko", file_size)
+                                    send_telegram_start_notification(file_name, download_mode, "ko", file_size, file_size_bytes=req.total_size)
                                     print(f"[LOG] 텔레그램 다운로드 시작 알림 전송: {file_name}")
                                 except Exception as telegram_error:
                                     print(f"[WARNING] 텔레그램 다운로드 시작 알림 실패: {telegram_error}")
@@ -1884,8 +1981,13 @@ class DownloadCore:
                     processing_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
                 print(f"[DEBUG] 텔레그램 실패 알림 전송 시작: {req.file_name}")
-                send_telegram_notification(req.file_name, "failed", error=user_message, language="ko",
-                                         file_size_str=req.file_size, requested_time=processing_time)
+                send_telegram_notification(
+                    req.file_name, "failed", error=user_message, language="ko",
+                    file_size_str=req.file_size, requested_time=processing_time,
+                    download_mode="proxy" if req.use_proxy else "local",
+                    attempted_url=download_url or req.url,
+                    attempt_count=verdict.attempt_count, failure_kind=verdict.kind,
+                )
             except Exception as telegram_error:
                 print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")
 
@@ -2067,7 +2169,11 @@ class DownloadCore:
                 user_agent=parse_result.get("user_agent"),
                 referer=parse_result.get("referer") or req.url,
                 parse_url=req.url,
-                max_reparse=0,
+                # 1 re-resolution allowed: if the assigned node (e.g.
+                # node42.datanodes.to) is dead/unreachable and the download fails
+                # (connect timeout, expiry, ...), re-parse once so the host hands
+                # out a fresh node URL instead of retrying the same dead node.
+                max_reparse=1,
             )
         except Exception as e:
             print(f"[ERROR] 특수 호스팅 처리 실패: {e}")

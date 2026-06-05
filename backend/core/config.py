@@ -77,7 +77,11 @@ DEFAULT_CONFIG = {
     # downloads; the per-host cap keeps a few big files on one host from starving
     # small files on another host (each host gets its own queue). See download_core.
     "max_concurrent_downloads": 8,
-    "max_per_host_downloads": 3
+    "max_per_host_downloads": 3,
+    # Below this size (MB), the Telegram start notification is suppressed so a
+    # small file sends only one (completion) message instead of a near-
+    # simultaneous start+complete pair. 0 disables the suppression.
+    "telegram_small_file_threshold_mb": 100
 }
 
 def get_config():

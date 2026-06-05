@@ -677,6 +677,11 @@
           const gridIndex = gridDownloads.findIndex(
             (d) => Number.parseInt(d.id, 10) === downloadId,
           );
+          // Pre-patch status, so we can tell an in-place sub-status change
+          // (e.g. downloading→stopped, still in the working tab) from a real
+          // working↔completed tab crossing (see the refetch guard below).
+          const prevGridStatus =
+            gridIndex !== -1 ? gridDownloads[gridIndex].status : null;
           if (gridIndex !== -1) {
             gridDownloads = gridDownloads.map((d, i) =>
               i === gridIndex ? { ...d, ...updatedDownload } : d,
@@ -687,6 +692,8 @@
           const activeIndex = activeDownloads.findIndex(
             (d) => Number.parseInt(d.id, 10) === downloadId,
           );
+          const prevActiveStatus =
+            activeIndex !== -1 ? activeDownloads[activeIndex].status : null;
           const stillActive = isActiveStatus(updatedDownload.status);
 
           if (activeIndex !== -1) {
@@ -742,13 +749,24 @@
             downloadWaitInfo = { ...downloadWaitInfo };
           }
 
-          // Tab-boundary crossings (e.g. downloading→done) shuffle which items
-          // belong to working vs completed — refresh the grid + counts.
-          const movedToCompleted = isCompletedStatus(updatedDownload.status);
-          const movedToWorking =
-            !isCompletedStatus(updatedDownload.status) &&
-            (gridIndex !== -1 || activeIndex !== -1);
-          if (movedToCompleted || movedToWorking || gridIndex === -1) {
+          // Refetch the grid ONLY when an item actually crosses the
+          // working↔completed tab boundary (which changes which tab it belongs
+          // to), or when it isn't on the visible page at all (a new/off-page item
+          // that may now belong here). A sub-status change that stays within the
+          // working tab (downloading→stopped/paused/failed, or a progress tick) is
+          // already reflected by the in-place patch above — refetching the whole
+          // grid there replaced the entire list and made it visibly jerk on every
+          // stop/pause press and on each progress update.
+          const prevStatus = prevGridStatus ?? prevActiveStatus;
+          const crossedTabBoundary =
+            prevStatus != null &&
+            isCompletedStatus(prevStatus) !== isCompletedStatus(updatedDownload.status);
+          // prevStatus == null && gridIndex == -1 → an item we've never seen on
+          // the grid or in the active list (new, or moved in from off-page): pull
+          // it in. A known off-page item just ticking progress (prevStatus set)
+          // must NOT refetch — that was refetching the whole grid every tick.
+          const isNewOrUnknown = gridIndex === -1 && prevStatus == null;
+          if (crossedTabBoundary || isNewOrUnknown) {
             scheduleGridFetch();
             scheduleTabCountsFetch();
           }
@@ -792,8 +810,19 @@
                 crossedTabBoundary = true;
               }
             } else {
-              // Off-page row changed status — its tab/page placement may have shifted.
-              crossedTabBoundary = true;
+              // Off-page row: only force a grid refetch if it actually crossed the
+              // working↔completed boundary (detected from its active-list status)
+              // or we've never seen it (new/unknown — surface it). A known off-page
+              // item just ticking progress must NOT refetch — that was reloading
+              // the whole grid on every batch and made the list jerk.
+              const activeOld = nextActive.find((d) => d.id === updatedDownload.id);
+              if (
+                activeOld == null ||
+                isCompletedStatus(activeOld.status) !==
+                  isCompletedStatus(updatedDownload.status)
+              ) {
+                crossedTabBoundary = true;
+              }
             }
 
             // Patch / remove the row in the active list.
@@ -1402,7 +1431,11 @@
       });
       if (response.ok) {
         const newDownload = await response.json();
-        if (newDownload.status === "waiting" && newDownload.message_key) {
+        if (newDownload.already_completed) {
+          // Same file was already downloaded and is still on disk — quietly say
+          // so instead of starting a redundant download.
+          toast.info($t(newDownload.message_key, newDownload.message_args));
+        } else if (newDownload.status === "waiting" && newDownload.message_key) {
           toast.info($t(newDownload.message_key, newDownload.message_args));
         } else if (!isAutoDownload) {
           toast.success($t("download_added_successfully"));

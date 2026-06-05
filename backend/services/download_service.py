@@ -8,14 +8,30 @@ New async download service
 
 import asyncio
 import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from core.models import DownloadRequest, StatusEnum
 from core.db import SessionLocal
+from core.config import get_config
 from core.download_core import download_core
+from core.error_messages import is_retry_blocked_now
 from core.proxy_manager import proxy_manager
 from services.sse_manager import sse_manager
+
+# How often the background sweeper scans for failed downloads whose retry
+# cooldown (next_retry_at) has arrived. Short enough that a 30s transient
+# backoff isn't delayed much, cheap enough to run forever.
+RETRY_SWEEP_INTERVAL_SEC = 15
+
+
+def _has_fichier_credentials() -> bool:
+    """True if a 1fichier account is configured — the criterion for whether an
+    auth_required failure is worth auto-retrying."""
+    cfg = get_config()
+    email = (cfg.get("fichier_email") or "").strip()
+    password = cfg.get("fichier_password") or ""
+    return bool(email and password)
 
 
 class DownloadService:
@@ -24,6 +40,7 @@ class DownloadService:
     def __init__(self):
         self.download_tasks: Dict[int, asyncio.Task] = {}
         self.is_running = False
+        self._retry_sweeper_task: Optional[asyncio.Task] = None
 
     async def start(self):
         """Start the service"""
@@ -36,6 +53,9 @@ class DownloadService:
         # Reset all downloads to stopped status at startup
         await self._reset_all_downloads()
 
+        # Start the background auto-retry sweeper
+        self._retry_sweeper_task = asyncio.create_task(self._retry_sweeper_loop())
+
     async def stop(self):
         """Stop the service"""
         if not self.is_running:
@@ -44,10 +64,69 @@ class DownloadService:
         print("[LOG] Stopping DownloadService...")
         self.is_running = False
 
+        # Stop the auto-retry sweeper
+        if self._retry_sweeper_task is not None:
+            self._retry_sweeper_task.cancel()
+            self._retry_sweeper_task = None
+
         # Clean up all download tasks
         await download_core.cleanup_all_tasks()
 
         print("[LOG] DownloadService stopped")
+
+    async def _retry_sweeper_loop(self):
+        """Re-run failed downloads whose retry cooldown has arrived.
+
+        Transient failures (node outage, timeout, 5xx) are stamped with a
+        ``next_retry_at`` backoff at failure time, but until now nothing acted on
+        it — a download that died on a brief blip stayed failed forever. This loop
+        is that missing piece: it periodically picks up due, non-terminal failures
+        and restarts them, preserving ``attempt_count`` so the existing backoff
+        keeps escalating (30s → 2m → 8m → 30m) on repeat failure.
+        """
+        while self.is_running:
+            await asyncio.sleep(RETRY_SWEEP_INTERVAL_SEC)
+            if not self.is_running:
+                break
+            # Resilience: one bad sweep must not kill the loop, or every later
+            # auto-retry silently stops. Log and continue on the next tick.
+            try:
+                await self._sweep_due_retries()
+            except Exception as e:
+                print(f"[ERROR] 자동 재시도 스윕 실패: {e}")
+
+    async def _sweep_due_retries(self):
+        """Restart every failed download whose ``next_retry_at`` has passed."""
+        with SessionLocal() as db:
+            now = datetime.datetime.now()
+            due = db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.failed,
+                DownloadRequest.next_retry_at.isnot(None),
+                DownloadRequest.next_retry_at <= now,
+            ).order_by(DownloadRequest.next_retry_at.asc()).all()
+
+            if not due:
+                return
+
+            has_creds = _has_fichier_credentials()
+            for req in due:
+                # Skip permanent failures (dead / auth_required w/o account).
+                if is_retry_blocked_now(req, has_creds) is not None:
+                    continue
+
+                # Auto-retry — unlike a manual forced retry, KEEP attempt_count /
+                # attempts_json so the backoff keeps escalating; just clear the
+                # cooldown + error and re-queue. downloaded_size is preserved so
+                # the existing .part resumes instead of restarting from zero.
+                print(f"[LOG] 자동 재시도: id={req.id} ({req.file_name})")
+                req.status = StatusEnum.pending
+                req.error = None
+                req.failure_kind = None
+                req.next_retry_at = None
+                req.finished_at = None
+                db.commit()
+
+                await download_core.start_download_async(req, db)
 
     async def _reset_all_downloads(self):
         """Reset all download statuses at startup"""

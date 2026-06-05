@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import asyncio
 import httpx
+import os
 import re
 from urllib.parse import urlparse, unquote, urlunparse
 
@@ -59,6 +60,23 @@ def _should_skip_retry(req: DownloadRequest, has_credentials: bool) -> Optional[
     """
     return is_retry_blocked_now(req, has_credentials)
 
+def _find_completed_duplicate(db: Session, url: str) -> Optional[DownloadRequest]:
+    """Return a prior completed download of the same URL whose file is still on
+    disk, or None. Used to skip re-downloading something already fetched — the
+    cleaned ``url`` is the canonical key, so a re-add of the same link matches.
+    The newest match wins, and the on-disk check guards against a row that says
+    ``done`` while the file was deleted/moved (then a real re-download is wanted).
+    """
+    candidates = db.query(DownloadRequest).filter(
+        DownloadRequest.url == url,
+        DownloadRequest.status == StatusEnum.done,
+    ).order_by(DownloadRequest.id.desc()).all()
+    for req in candidates:
+        if req.save_path and os.path.exists(req.save_path):
+            return req
+    return None
+
+
 router = APIRouter(prefix="/api", tags=["downloads"])
 
 
@@ -96,6 +114,22 @@ async def add_download(
         # Clean up the 1fichier URL (strip affiliate params etc. from file
         # pages, but preserve the download host).
         url = clean_1fichier_url(url)
+
+        # If this exact URL was already downloaded and the file is still on disk,
+        # don't re-download — quietly tell the client it's already complete.
+        existing_done = _find_completed_duplicate(db, url)
+        if existing_done is not None:
+            print(f"[LOG] 중복 다운로드 무시 - 이미 완료됨: id={existing_done.id} ({existing_done.file_name})")
+            return {
+                "success": True,
+                "already_completed": True,
+                "message_key": "download_already_completed",
+                "message_args": {"name": existing_done.file_name or url},
+                "id": existing_done.id,
+                "url": url,
+                "file_name": existing_done.file_name,
+                "status": "done",
+            }
 
         # Create the new download request. For URLs that came in via ouo
         # unwrap, preserve the original ouo link in original_url so it can be

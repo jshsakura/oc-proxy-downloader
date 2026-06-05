@@ -8,9 +8,16 @@ import asyncio
 import threading
 import requests
 import datetime
+from urllib.parse import urlparse
 from services.sse_manager import sse_manager
 from core.config import get_config
 from core.i18n import get_translations
+
+
+# Below this size, the start ping is suppressed so small files send only one
+# (completion) notification instead of a near-simultaneous start+complete pair.
+# Overridable via the "telegram_small_file_threshold_mb" config key.
+DEFAULT_SMALL_FILE_THRESHOLD_MB = 100
 
 
 def send_sse_message(message_type: str, data: dict):
@@ -104,7 +111,7 @@ def send_telegram_wait_notification(file_name: str, wait_minutes: int, language:
         print(f"[LOG] 텔레그램 알림 실패: {e}")
 
 
-def send_telegram_start_notification(file_name: str, download_mode: str, language: str = "ko", file_size_str: str = None):
+def send_telegram_start_notification(file_name: str, download_mode: str, language: str = "ko", file_size_str: str = None, file_size_bytes: int = None):
     """Telegram download-start notification"""
     print(f"[DEBUG] 텔레그램 시작 알림 호출됨: file_name={file_name}, download_mode={download_mode}")
     try:
@@ -118,6 +125,13 @@ def send_telegram_start_notification(file_name: str, download_mode: str, languag
 
         if not bot_token or not chat_id or not notify_start:
             print(f"[DEBUG] 텔레그램 시작 알림 조건 불만족 - 전송 중단")
+            return
+
+        # Small files: skip the start ping; the completion notification alone is
+        # enough. Only suppress when the size is known to be below the threshold.
+        threshold_mb = config.get("telegram_small_file_threshold_mb", DEFAULT_SMALL_FILE_THRESHOLD_MB)
+        if file_size_bytes and threshold_mb and file_size_bytes < threshold_mb * 1024 * 1024:
+            print(f"[DEBUG] 작은 파일({file_size_bytes}B < {threshold_mb}MB) - 시작 알림 생략")
             return
 
         translations = get_translations(language)
@@ -177,7 +191,8 @@ def send_telegram_start_notification(file_name: str, download_mode: str, languag
 
 def send_telegram_notification(file_name: str, status: str, error: str = None, language: str = "ko",
                               file_size_str: str = None, download_time: str = None,
-                              save_path: str = None, requested_time: str = None, download_mode: str = None):
+                              save_path: str = None, requested_time: str = None, download_mode: str = None,
+                              attempted_url: str = None, attempt_count: int = None, failure_kind: str = None):
     """Telegram completion/failure notification"""
     try:
         print(f"[DEBUG] send_telegram_notification 호출됨: file_name={file_name}, status={status}")
@@ -250,13 +265,37 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
             error_text = translations.get("telegram_error", "Error")
             failed_time_text = translations.get("telegram_failed_time", "실패시간")
 
+            # Extra tracking detail — only the parts we actually have. This turns a
+            # bare "it failed" into something diagnosable: which kind of error,
+            # how many attempts, which mode, and the exact host/URL that was tried
+            # (the node URL is the key clue for datanodes-style per-node outages).
+            detail_lines = []
+            if failure_kind:
+                kind_text = translations.get("telegram_failure_kind", "오류 유형")
+                detail_lines.append(f"🏷️ <b>{kind_text}</b>\n<code>{failure_kind}</code>")
+            if attempt_count:
+                attempts_text = translations.get("telegram_attempt_count", "시도 횟수")
+                detail_lines.append(f"🔁 <b>{attempts_text}</b>\n<code>{attempt_count}</code>")
+            if download_mode:
+                mode_text = translations.get("telegram_download_mode", "Download Mode")
+                mode_display = "프록시" if download_mode == "proxy" else ("로컬" if language == "ko" else download_mode.title())
+                detail_lines.append(f"🔧 <b>{mode_text}</b>\n<code>{mode_display}</code>")
+            if attempted_url:
+                host = urlparse(attempted_url).netloc or attempted_url
+                host_text = translations.get("telegram_attempted_host", "시도한 서버")
+                url_text = translations.get("telegram_attempted_url", "시도한 주소")
+                short_url = attempted_url if len(attempted_url) <= 200 else attempted_url[:200] + "…"
+                detail_lines.append(f"🌐 <b>{host_text}</b>\n<code>{host}</code>")
+                detail_lines.append(f"🔗 <b>{url_text}</b>\n<code>{short_url}</code>")
+            detail_block = ("\n\n" + "\n\n".join(detail_lines)) if detail_lines else ""
+
             message = f"""❌ <b>OC-Proxy: {failed_text}</b> 💥
 
 📁 <b>{filename_text}</b>
 <code>{file_name}</code>
 
 ❌ <b>{error_text}</b>
-<code>{error or ('알 수 없는 오류' if language == 'ko' else 'Unknown error')}</code>
+<code>{error or ('알 수 없는 오류' if language == 'ko' else 'Unknown error')}</code>{detail_block}
 
 🕐 <b>{failed_time_text}</b>
 <code>{current_time}</code>"""
