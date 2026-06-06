@@ -1559,27 +1559,41 @@ class DownloadCore:
                         "connection refused", "cannot connect",
                         "server disconnected", "connection closed",
                     ))
+                    # Mid-transfer drop: the connection WAS established and bytes
+                    # were flowing, but it was cut before Content-Length was met
+                    # (flaky node / CDN reset). Unlike conn_failed this is NOT a
+                    # node-reachability problem — the node is fine — so it must NOT
+                    # become a "node unreachable" verdict. Retry the SAME url and
+                    # RESUME from the .part via Range.
+                    stream_incomplete = is_special and any(k in lowered for k in (
+                        "payload is not completed",
+                        "not enough data to satisfy content length",
+                        "contentlengtherror",
+                        "response payload is not completed",
+                        "incompleteread", "incomplete read",
+                    ))
 
-                    # Transient node outage: the node URL is stable (the file is
-                    # pinned to its node), so re-resolving would just hand back the
-                    # same dead node. Retry the SAME url on a short backoff first —
-                    # the node typically recovers within seconds and the .part
-                    # resumes via Range. Only when these are exhausted do we fall
-                    # through to a re-parse / failure.
+                    # Transient node outage / mid-stream drop: retry the SAME url on
+                    # a short backoff first — the node usually recovers within
+                    # seconds and the .part resumes via Range. (Re-resolving is
+                    # futile for a connect failure since datanodes pins a file to
+                    # its node; for a stream drop the same url just resumes.) Only
+                    # when these are exhausted do we fall through.
                     if (
-                        conn_failed
+                        (conn_failed or stream_incomplete)
                         and not expired
                         and same_url_retries < len(SPECIAL_NODE_RETRY_BACKOFF_SEC)
                     ):
                         backoff = SPECIAL_NODE_RETRY_BACKOFF_SEC[same_url_retries]
                         same_url_retries += 1
                         total_tries = len(SPECIAL_NODE_RETRY_BACKOFF_SEC)
-                        print(f"[WARNING] 특수 호스터 노드 연결 실패({err_text}) - "
-                              f"동일 URL 재시도 {same_url_retries}/{total_tries} "
+                        reason = "전송 중 연결 끊김" if stream_incomplete else "노드 연결 실패"
+                        print(f"[WARNING] 특수 호스터 {reason}({err_text}) - "
+                              f"동일 URL 이어받기 재시도 {same_url_retries}/{total_tries} "
                               f"({backoff}s 대기)")
                         await self.send_download_update(req.id, {
                             "status": "downloading",
-                            "message": f"노드 일시 장애 — {backoff}초 후 재시도 "
+                            "message": f"{reason} — {backoff}초 후 이어받기 재시도 "
                                        f"({same_url_retries}/{total_tries})",
                         })
                         if await self._sleep_unless_cancelled(req, backoff):

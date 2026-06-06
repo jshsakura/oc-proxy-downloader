@@ -277,6 +277,17 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("http 504", "게이트웨이 타임아웃이 발생했습니다",
      "네트워크가 불안정한 경우입니다. 잠시 후 다시 시도하세요.",
      KIND_TRANSIENT, False),
+    # Mid-transfer drop: connection established and bytes flowed, but it was cut
+    # before Content-Length was met (flaky node / CDN reset). Resumable via Range.
+    ("payload is not completed", "다운로드 중 연결이 끊겨 파일을 다 받지 못했습니다",
+     "이어받기로 자동 재시도됩니다. 노드/CDN이 전송 중 연결을 끊은 일시적 현상입니다.",
+     KIND_TRANSIENT, False),
+    ("not enough data to satisfy content length", "다운로드 중 연결이 끊겨 파일을 다 받지 못했습니다",
+     "이어받기로 자동 재시도됩니다. 노드/CDN이 전송 중 연결을 끊은 일시적 현상입니다.",
+     KIND_TRANSIENT, False),
+    ("incomplete read", "다운로드 중 연결이 끊겨 파일을 다 받지 못했습니다",
+     "이어받기로 자동 재시도됩니다.",
+     KIND_TRANSIENT, False),
     ("timeout", "응답 대기 시간이 초과되었습니다",
      "네트워크 상태를 확인하거나 프록시를 변경해 다시 시도하세요.",
      KIND_TRANSIENT, False),
