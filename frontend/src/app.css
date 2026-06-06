@@ -1101,19 +1101,35 @@ select.input option {
     display: none;
   }
 
-  /* Filename column should truncate cleanly rather than push the row wider. */
+  /* Give the few visible columns compact FIXED widths so the filename column
+     takes ALL the remaining space (table-layout: fixed divides the rest to the
+     width-less column). Before, the name had max-width:0 (→ squeezed to nothing)
+     while .actions kept its 150px min-width and hogged the row — hence "title
+     too short, actions too big". Hidden columns (size/speed/date/proxy) still
+     count for nth-child, so these indexes are correct. */
+  table th:nth-child(1), table td:nth-child(1) { width: 26px; padding-left: 0.6rem; }
+  table th:nth-child(3), table td:nth-child(3) { width: 54px; }   /* status */
+  table th:nth-child(5), table td:nth-child(5) { width: 42px; }   /* progress */
+  table th:last-child,    table td:last-child   { width: 118px; } /* actions (≤4 icons) */
+
+  /* Filename column: no width → it absorbs the remaining space; truncate text. */
   table td:nth-child(2),
   table th:nth-child(2) {
-    max-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .filename { max-width: none; min-width: 0; }   /* drop the desktop 250/150 caps */
 
+  /* Compact the action icons so up to 4 fit the 118px column on one line. */
   .actions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    min-width: 0;
+    gap: 0.15rem;
+    flex-wrap: nowrap;
+    justify-content: center;
   }
+  .actions-cell { padding-left: 0.2rem; padding-right: 0.2rem; }
+  .button-icon { padding: 0.25rem; }
 
   .button {
     padding: 0.6rem 1rem;
@@ -1337,8 +1353,11 @@ tbody tr:hover {
   background-color: rgba(var(--primary-color-rgb), 0.05);
 }
 .filename {
-  max-width: 250px;
-  min-width: 150px;
+  /* The title is the most important column — let it take real width. Capped so a
+     very long .rar name still truncates instead of pushing the table wider. */
+  width: 40%;
+  max-width: 460px;
+  min-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1353,9 +1372,9 @@ tbody tr:hover {
 }
 .actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
   justify-content: center;
-  min-width: 150px;
+  min-width: 0;            /* size to the buttons, don't hog the row */
   white-space: nowrap;
 }
 .actions-header {
