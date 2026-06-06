@@ -81,7 +81,11 @@ DEFAULT_CONFIG = {
     # Below this size (MB), the Telegram start notification is suppressed so a
     # small file sends only one (completion) message instead of a near-
     # simultaneous start+complete pair. 0 disables the suppression.
-    "telegram_small_file_threshold_mb": 100
+    "telegram_small_file_threshold_mb": 100,
+    # Max hoster pages parsed at once (cloudscraper/FlareSolverr are CPU-heavy).
+    # Bulk-adding many links queues their parses instead of thrashing the CPU and
+    # stalling the API. Applied as the asyncio default thread-pool size at startup.
+    "parse_concurrency": 3
 }
 
 def get_config():

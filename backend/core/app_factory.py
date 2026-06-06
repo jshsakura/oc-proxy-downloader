@@ -4,6 +4,7 @@ import os
 import signal
 import sys
 import atexit
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.staticfiles import StaticFiles
@@ -24,7 +25,16 @@ from core.db import engine
 from core.models import Base
 from core.i18n import load_all_translations
 from core.db import get_db
+from core.config import get_config
 from sqlalchemy import text
+
+# Heavy hoster parses (cloudscraper / FlareSolverr) run via loop.run_in_executor
+# on the asyncio DEFAULT thread pool (≈ cpu+4 workers). A bulk-add fired one parse
+# per download all at once, thrashing a NAS CPU and stalling every request for
+# 10-30s. Capping the default pool turns parsing into a queue: only this many run
+# at a time, the rest wait. FastAPI's sync routes use anyio's SEPARATE pool, so
+# the API/DB stay responsive regardless. Overridable via config "parse_concurrency".
+DEFAULT_PARSE_CONCURRENCY = 3
 
 # Authentication settings
 AUTH_USERNAME = os.getenv('AUTH_USERNAME')
@@ -57,6 +67,18 @@ async def _shutdown_step(label: str, coro_fn, timeout: float = SHUTDOWN_TIMEOUT_
 async def lifespan(app: FastAPI):
     """Manage the application lifecycle"""
     print("[LOG] *** 애플리케이션 시작 ***")
+
+    # Bound the asyncio default thread pool so concurrent hoster parses queue
+    # instead of stampeding the CPU (see DEFAULT_PARSE_CONCURRENCY note above).
+    try:
+        parse_workers = int(get_config().get("parse_concurrency", DEFAULT_PARSE_CONCURRENCY))
+    except (TypeError, ValueError):
+        parse_workers = DEFAULT_PARSE_CONCURRENCY
+    parse_workers = max(1, min(8, parse_workers))
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=parse_workers, thread_name_prefix="parse")
+    )
+    print(f"[LOG] 파싱 스레드풀 {parse_workers}개로 제한 (동시 파싱 큐)")
 
     # Initialize the translation cache
     load_all_translations()
