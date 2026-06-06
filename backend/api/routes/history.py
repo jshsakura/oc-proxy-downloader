@@ -259,7 +259,6 @@ async def get_active_downloads(db: Session = Depends(get_db)):
 
         downloads = []
         for download in active_downloads:
-            print(f"[DEBUG] Active download DB values: id={download.id}, file_name='{download.file_name}', file_size='{download.file_size}', total_size={download.total_size}, downloaded_size={download.downloaded_size}")
             downloads.append({
                 "id": download.id,
                 "url": download.url,

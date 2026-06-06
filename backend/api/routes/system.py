@@ -1,12 +1,22 @@
 # -*- coding: utf-8 -*-
 import time
+import asyncio
 import psutil
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api", tags=["system"])
 _PROCESS = psutil.Process()
+# Prime both CPU counters so later interval=None calls return a delta (non-blocking)
+# instead of needing a blocking sample window.
 _PROCESS.cpu_percent(interval=None)
+psutil.cpu_percent(interval=None)
+
+# Stats are polled every few seconds by every open tab. Cache briefly so a burst
+# of concurrent polls is served from one computation instead of recomputing each.
+_STATS_TTL_SEC = 2.0
+_stats_cache = {"ts": 0.0, "data": None}
+_stats_lock = asyncio.Lock()
 
 
 class ClientError(BaseModel):
@@ -30,7 +40,25 @@ async def log_client_error(err: ClientError):
 
 @router.get("/system/stats")
 async def get_system_stats():
-    cpu_percent = psutil.cpu_percent(interval=0.5)
+    # Serve from cache when fresh (coalesces bursts of concurrent polls).
+    now = time.monotonic()
+    if _stats_cache["data"] is not None and (now - _stats_cache["ts"]) < _STATS_TTL_SEC:
+        return _stats_cache["data"]
+    async with _stats_lock:
+        now = time.monotonic()
+        if _stats_cache["data"] is not None and (now - _stats_cache["ts"]) < _STATS_TTL_SEC:
+            return _stats_cache["data"]
+        data = _collect_system_stats()
+        _stats_cache["data"] = data
+        _stats_cache["ts"] = now
+        return data
+
+
+def _collect_system_stats():
+    # interval=None → non-blocking (delta since the last call); NEVER use a
+    # blocking interval here — this runs on the event loop and a 0.5s sample
+    # froze every request. All other psutil calls below are fast syscalls.
+    cpu_percent = psutil.cpu_percent(interval=None)
     cpu_count = psutil.cpu_count(logical=True)
     cpu_count_physical = psutil.cpu_count(logical=False)
     process_cpu_percent = _PROCESS.cpu_percent(interval=None)
@@ -43,9 +71,7 @@ async def get_system_stats():
 
     load_avg_1, load_avg_5, load_avg_15 = psutil.getloadavg()
 
-    uptime_seconds = int(psutil.boot_time())
-    import time
-    uptime_seconds = int(time.time() - uptime_seconds)
+    uptime_seconds = int(time.time() - int(psutil.boot_time()))
 
     return {
         "cpu": {
