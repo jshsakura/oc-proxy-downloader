@@ -20,9 +20,15 @@ from core.proxy_manager import proxy_manager
 from services.sse_manager import sse_manager
 
 # How often the background sweeper scans for failed downloads whose retry
-# cooldown (next_retry_at) has arrived. Short enough that a 30s transient
-# backoff isn't delayed much, cheap enough to run forever.
-RETRY_SWEEP_INTERVAL_SEC = 15
+# cooldown (next_retry_at) has arrived.
+RETRY_SWEEP_INTERVAL_SEC = 20
+
+# Max downloads the sweeper re-runs PER cycle. Re-running a special-hoster/1fichier
+# item triggers a heavy parse (cloudscraper + possibly FlareSolverr, multi-second,
+# holds a thread-pool slot). Firing every due item at once exhausted the pool and
+# made ALL API responses queue for 10-30s. One at a time spreads that load — the
+# next due item is just picked up on the following cycle.
+MAX_RETRIES_PER_SWEEP = 1
 
 
 def _has_fichier_credentials() -> bool:
@@ -109,6 +115,7 @@ class DownloadService:
                 return
 
             has_creds = _has_fichier_credentials()
+            started = 0
             for req in due:
                 # Skip permanent failures (dead / auth_required w/o account).
                 if is_retry_blocked_now(req, has_creds) is not None:
@@ -127,6 +134,13 @@ class DownloadService:
                 db.commit()
 
                 await download_core.start_download_async(req, db)
+
+                # One (heavy) re-parse per cycle — the rest wait for the next tick
+                # so a batch of simultaneously-due failures can't stampede the
+                # thread pool and stall every API request.
+                started += 1
+                if started >= MAX_RETRIES_PER_SWEEP:
+                    break
 
     async def _reset_all_downloads(self):
         """Reset all download statuses at startup"""
