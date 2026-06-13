@@ -56,6 +56,21 @@ _UNKNOWN_MAX_ATTEMPTS = 3  # beyond this many accumulated attempts, quarantine a
 _TRANSIENT_MAX_ATTEMPTS = len(_TRANSIENT_BACKOFF)
 _ATTEMPTS_RING_SIZE = 5  # attempts_json ring-buffer length
 
+# Auto-retry ceiling per recoverable kind. Once a failure has accumulated this
+# many attempts without success, `_compute_next_retry_at` returns None so the
+# background sweeper stops re-running it forever. The download stays 'failed'
+# with a note; a manual "다시 받기" resets attempt_count and grants a fresh budget.
+# Kinds NOT listed here (DEAD / AUTH_REQUIRED / unknown_terminal) are already
+# terminal and never auto-retry; UNKNOWN is bounded separately by
+# `_UNKNOWN_MAX_ATTEMPTS` (quarantine → unknown_terminal).
+_MAX_AUTO_RETRY_ATTEMPTS = {
+    KIND_TRANSIENT: _TRANSIENT_MAX_ATTEMPTS,  # 6 (matches the backoff schedule)
+    KIND_RATE_LIMITED: 5,
+    KIND_CLOUDFLARE: 5,
+    KIND_PROXY_BLOCKED: 8,  # 30s apart — a few extra, a different proxy IP may pass
+    KIND_BLOCKED: 5,
+}
+
 
 @dataclass(frozen=True)
 class ClassifiedError:
@@ -405,6 +420,12 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
     if kind in TERMINAL_KINDS:
         return None
 
+    # Stop auto-retrying once the per-kind ceiling is reached so a recoverable
+    # failure can't loop forever (e.g. proxy_blocked every 30s indefinitely).
+    cap = _MAX_AUTO_RETRY_ATTEMPTS.get(kind)
+    if cap is not None and attempt_count >= cap:
+        return None
+
     if kind == KIND_RATE_LIMITED:
         # If 1fichier specified a wait time, use it + a 60s margin.
         # Otherwise 600s (10 minutes).
@@ -546,6 +567,14 @@ def apply_failure_to_request(
     )
 
     user_message = classified.to_user_message()
+    # When a recoverable failure has used up its auto-retry budget, the action
+    # text above still implies "auto-retry soon" — append a note so the user
+    # knows the loop has stopped and a manual retry is now required.
+    if next_retry_at is None and kind not in TERMINAL_KINDS:
+        user_message += (
+            f"\n자동 재시도 {attempt_count}회를 모두 사용했습니다. "
+            "원인이 해소되었다면 '다시 받기'로 수동 재시도하세요."
+        )
 
     # Reflect to columns (compat: setattr stays safe even where new columns are absent from the model)
     req.error = user_message

@@ -244,6 +244,34 @@ class TestApplyFailure:
         assert req.failure_kind == "unknown_terminal"
         assert req.next_retry_at is None
 
+    def test_transient_stops_auto_retry_after_ceiling(self):
+        """A transient failure must stop auto-retrying once its ceiling is hit,
+        instead of re-running on the capped 30m backoff forever."""
+        req = _FakeReq()
+        for i in range(6):  # _TRANSIENT_MAX_ATTEMPTS
+            apply_failure_to_request(req, "다운로드", f"Read timeout (attempt {i})")
+        assert req.failure_kind == KIND_TRANSIENT
+        assert req.attempt_count == 6
+        assert req.next_retry_at is None  # auto-retry exhausted
+        assert "수동 재시도" in req.error
+
+    def test_proxy_blocked_stops_after_ceiling(self):
+        """proxy_blocked retried every 30s must not loop forever — it stops at its cap."""
+        req = _FakeReq()
+        for i in range(8):  # proxy_blocked ceiling
+            apply_failure_to_request(req, "파싱", f"professional infrastructure detected #{i}")
+        assert req.failure_kind == KIND_PROXY_BLOCKED
+        assert req.next_retry_at is None
+        # The capping verdict's message tells the user to retry manually.
+        assert "수동 재시도" in req.error
+
+    def test_proxy_blocked_still_retries_below_ceiling(self):
+        """Below the ceiling, proxy_blocked keeps its short auto-retry cooldown."""
+        req = _FakeReq()
+        apply_failure_to_request(req, "파싱", "professional infrastructure detected #1")
+        assert req.failure_kind == KIND_PROXY_BLOCKED
+        assert req.next_retry_at is not None
+
     def test_duplicate_apply_within_window_is_a_noop(self):
         """Even if the handler chain calls twice in a row with the same raw, the
         attempt_count/ring buffer must increase only once. (Guards against operational defect #1.)"""
