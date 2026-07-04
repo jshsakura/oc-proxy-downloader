@@ -10,7 +10,7 @@ FastAPI + Svelte 웹 앱으로, 1fichier·MEGA·DataNodes·MegaUp(Docker) 안정
 
 - 🚀 **1fichier 최적화**: 자동 대기시간 감지 및 쿨다운 관리 (최대 24시간 대기), 한도 복구 시각 카운트다운 표시
 - 🔐 **MEGA 지원**: 공개 링크 다운로드 + 클라이언트 측 AES 복호화 (파일명/크기/진행률)
-- 🧩 **DataNodes / MegaUp**: 링크 자동 해석 및 다운로드 (MegaUp은 FlareSolverr 필요 — 아래 참고)
+- 🧩 **DataNodes / MegaUp / MediaFire / Pixeldrain / Bunkr**: 링크 자동 해석 및 다운로드 (MegaUp은 FlareSolverr 필요 — 아래 참고)
 - 🔄 **스마트 프록시**: 자동 순환, 실패 감지, 로컬/프록시 혼합 다운로드
 - 📊 **실시간 모니터링**: SSE 기반 실시간 상태 업데이트 및 진행률 표시
 - 🎯 **동시 다운로드 제한**: 시스템 안정성을 위한 세마포어 기반 제한
@@ -25,8 +25,11 @@ FastAPI + Svelte 웹 앱으로, 1fichier·MEGA·DataNodes·MegaUp(Docker) 안정
 | 호스트 | FlareSolverr 필요 | Windows 앱(번들 없음) |
 |--------|-------------------|------------------------|
 | 1fichier, MEGA | 불필요 | ✅ 됨 |
-| DataNodes | Cloudflare 챌린지 때만 | 🟡 챌린지 안 뜨면 됨 |
+| Pixeldrain | 불필요 (공개 API) | ✅ 됨 |
+| GoFile | 불필요 (가정용 IP만) | ✅ 가정용 IP/NAS에서 됨 |
+| DataNodes, MediaFire | Cloudflare 챌린지 때만 | 🟡 챌린지 안 뜨면 됨 |
 | MegaUp | 필요 (Cloudflare) | ❌ 외부 FlareSolverr 필요 |
+| Bunkr | Cloudflare 챌린지 때 | 🟡 베스트에포트; 암호화 CDN 링크는 해석 못 할 수 있음 |
 
 FlareSolverr는 **`docker-compose.yml`에 사이드카로 번들**되어 자동 연결됩니다. 주소는 **설정 → FlareSolverr URL**(또는 `FLARESOLVERR_URL` 환경변수)에서 바꿀 수 있습니다 — Windows 앱에서 별도로 띄운 FlareSolverr를 가리킬 때 유용합니다.
 

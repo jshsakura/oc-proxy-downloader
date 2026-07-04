@@ -10,7 +10,7 @@ A FastAPI + Svelte web app for stable downloads from 1fichier, MEGA, DataNodes, 
 
 - 🚀 **1fichier Optimized**: Automatic wait time detection and cooldown management (up to 24-hour wait), with a visible quota-recovery countdown
 - 🔐 **MEGA Support**: Public-link download with client-side AES decryption (filename, size, progress)
-- 🧩 **DataNodes / MegaUp**: Automatic link resolution and download (MegaUp needs FlareSolverr — see below)
+- 🧩 **DataNodes / MegaUp / MediaFire / Pixeldrain / Bunkr**: Automatic link resolution and download (MegaUp needs FlareSolverr — see below)
 - 🔄 **Smart Proxy**: Auto-rotation, failure detection, mixed local/proxy downloads
 - 📊 **Real-time Monitoring**: SSE-based real-time status updates and progress display
 - 🎯 **Concurrent Download Limits**: Semaphore-based limits for system stability
@@ -25,8 +25,11 @@ A FastAPI + Svelte web app for stable downloads from 1fichier, MEGA, DataNodes, 
 | Host | Needs FlareSolverr | Windows app (no bundled FlareSolverr) |
 |------|--------------------|----------------------------------------|
 | 1fichier, MEGA | No | ✅ Works |
-| DataNodes | Only when Cloudflare-challenged | 🟡 Works unless challenged |
+| Pixeldrain | No (public API) | ✅ Works |
+| GoFile | No (residential IP only) | ✅ Works from a home IP/NAS |
+| DataNodes, MediaFire | Only when Cloudflare-challenged | 🟡 Works unless challenged |
 | MegaUp | Yes (Cloudflare) | ❌ Needs an external FlareSolverr |
+| Bunkr | When Cloudflare-challenged | 🟡 Best-effort; encrypted-CDN links may not resolve |
 
 FlareSolverr is **bundled in `docker-compose.yml`** (sidecar) and wired automatically. You can override its address in **Settings → FlareSolverr URL** (or the `FLARESOLVERR_URL` env var) — useful for the Windows app, where you can point it at a separately-run FlareSolverr.
 
