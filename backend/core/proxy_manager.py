@@ -20,6 +20,12 @@ from .models import ProxyStatus, UserProxy, StatusEnum
 from .db import get_db
 
 
+# A failed proxy is put on a cooldown instead of being retired permanently; once the
+# window elapses it re-enters the rotation, so a single transient blip no longer removes
+# a proxy from the pool forever. This is what lets the pool self-heal.
+PROXY_FAILURE_COOLDOWN_SEC = 600  # 10 minutes
+
+
 class ProxyManager:
     """Asynchronous proxy manager"""
 
@@ -65,20 +71,36 @@ class ProxyManager:
             if not proxy_list:
                 return None
 
-            # Query already-failed proxies (those with success == False)
+            # A failed proxy is excluded only while its cooldown is still active. Once the
+            # cooldown elapses (or no failure time was recorded) it re-enters the pool, so
+            # the pool self-heals from transient failures instead of shrinking forever.
+            now = datetime.datetime.now()
+            cooldown = datetime.timedelta(seconds=PROXY_FAILURE_COOLDOWN_SEC)
             failed_proxies = db.query(ProxyStatus).filter(
                 ProxyStatus.success == False
             ).all()
-            failed_proxy_addresses = {f"{p.ip}:{p.port}" for p in failed_proxies}
+            cooling_addresses = {
+                f"{p.ip}:{p.port}"
+                for p in failed_proxies
+                if p.last_failed_at is not None and (now - p.last_failed_at) < cooldown
+            }
 
-            print(f"[DEBUG] 전체 프록시: {len(proxy_list)}, 실패한 프록시: {len(failed_proxy_addresses)}")
+            print(f"[DEBUG] 전체 프록시: {len(proxy_list)}, 쿨다운 중: {len(cooling_addresses)}")
 
-            # Filter to only proxies that have not failed
-            available_proxies = [proxy for proxy in proxy_list if proxy not in failed_proxy_addresses]
+            # Proxies not currently on cooldown
+            available_proxies = [proxy for proxy in proxy_list if proxy not in cooling_addresses]
 
             if not available_proxies:
-                print(f"[WARNING] 사용 가능한 프록시가 없음. 전체: {len(proxy_list)}, 실패: {len(failed_proxy_addresses)}")
-                return None
+                # Every proxy is cooling down. Rather than give up, retry the one that
+                # failed longest ago — it is the most likely to have recovered by now.
+                failed_at_by_addr = {f"{p.ip}:{p.port}": p.last_failed_at for p in failed_proxies}
+                oldest_first = sorted(
+                    proxy_list,
+                    key=lambda addr: failed_at_by_addr.get(addr) or datetime.datetime.min,
+                )
+                selected_proxy = oldest_first[0]
+                print(f"[WARNING] 모든 프록시가 쿨다운 중 — 가장 오래 전에 실패한 프록시 재시도: {selected_proxy}")
+                return selected_proxy
 
             # Use a lock to protect concurrent access
             async with self._proxy_lock:
@@ -127,16 +149,21 @@ class ProxyManager:
                 ProxyStatus.port == port
             ).first()
 
+            now = datetime.datetime.now()
             if existing:
                 existing.success = False
-                existing.last_used_at = datetime.datetime.now()
+                existing.last_status = 'fail'
+                existing.last_used_at = now
+                existing.last_failed_at = now
                 print(f"[LOG] 프록시 실패 업데이트: {proxy_addr}")
             else:
                 proxy_status = ProxyStatus(
                     ip=ip,
                     port=port,
                     success=False,
-                    last_used_at=datetime.datetime.now()
+                    last_status='fail',
+                    last_used_at=now,
+                    last_failed_at=now
                 )
                 db.add(proxy_status)
                 print(f"[LOG] 프록시 실패 새로 기록: {proxy_addr}")
@@ -201,15 +228,16 @@ class ProxyManager:
 
     def _detect_proxy_type(self, address: str) -> str:
         """Detect the form of a proxy address"""
-        if address.startswith(('http://', 'https://')):
-            return "list"
-
-        ip_port_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$'
-        if re.match(ip_port_pattern, address):
-            return "single"
+        return detect_proxy_type(address)
 
 def detect_proxy_type(address: str) -> str:
-    """Detect the form of a proxy address (public function)"""
+    """Detect the form of a proxy address (public function)
+
+    - http(s):// URL  -> "list"  (a URL that yields a proxy list)
+    - IP:PORT         -> "single"
+    - host:PORT       -> "single"
+    - anything else   -> "list"  (best-effort fallback)
+    """
     if address.startswith(('http://', 'https://')):
         return "list"
 
@@ -217,11 +245,11 @@ def detect_proxy_type(address: str) -> str:
     if re.match(ip_port_pattern, address):
         return "single"
 
-        domain_port_pattern = r'^[a-zA-Z0-9.-]+:\d+$'
-        if re.match(domain_port_pattern, address):
-            return "single"
+    domain_port_pattern = r'^[a-zA-Z0-9.-]+:\d+$'
+    if re.match(domain_port_pattern, address):
+        return "single"
 
-        return "list"
+    return "list"
 
     async def test_proxy_async(self, proxy_addr: str, timeout: int = 15, lenient_mode: bool = False) -> bool:
         """Asynchronous proxy test"""
