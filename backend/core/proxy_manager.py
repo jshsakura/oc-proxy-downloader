@@ -12,12 +12,10 @@ import datetime
 import re
 import time
 import random
-from typing import List, Optional, Tuple, AsyncGenerator
+from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
 
 from .models import ProxyStatus, UserProxy, StatusEnum
-from .db import get_db
 
 
 # A failed proxy is put on a cooldown instead of being retired permanently; once the
@@ -360,7 +358,7 @@ def detect_proxy_type(address: str) -> str:
         """Asynchronous batch proxy test"""
 
         if not batch_proxies:
-            print(f"[LOG] 테스트할 프록시가 없음")
+            print("[LOG] 테스트할 프록시가 없음")
             return [], []
 
         mode_text = " (관대한 모드)" if lenient_mode else ""
@@ -439,7 +437,7 @@ def detect_proxy_type(address: str) -> str:
         unused_proxies = [p for p in user_proxy_list if p not in used_proxy_addresses]
 
         if not unused_proxies:
-            print(f"[LOG] 사용 가능한 프록시가 없음")
+            print("[LOG] 사용 가능한 프록시가 없음")
             return None
 
         # Place successful proxies first by priority

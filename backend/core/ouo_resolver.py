@@ -19,10 +19,10 @@ import random
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Protocol, Tuple
-from urllib.parse import urljoin, urlparse, urlencode
+from typing import Any, Dict, Optional, Protocol, Tuple
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
