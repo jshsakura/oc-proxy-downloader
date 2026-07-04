@@ -7,6 +7,7 @@ import base64
 import pytest
 
 from core import hoster_parsers as hp
+from core import hoster_sites as hs
 
 
 # --- fakes ------------------------------------------------------------------
@@ -52,9 +53,9 @@ class _FakeScraper:
 # --- Pixeldrain -------------------------------------------------------------
 
 def test_pixeldrain_id_extraction():
-    assert hp._pixeldrain_file_id("https://pixeldrain.com/u/AbCd123") == "AbCd123"
-    assert hp._pixeldrain_file_id("https://pixeldrain.com/api/file/XyZ9") == "XyZ9"
-    assert hp._pixeldrain_file_id("https://pixeldrain.com/") == ""
+    assert hs._pixeldrain_file_id("https://pixeldrain.com/u/AbCd123") == "AbCd123"
+    assert hs._pixeldrain_file_id("https://pixeldrain.com/api/file/XyZ9") == "XyZ9"
+    assert hs._pixeldrain_file_id("https://pixeldrain.com/") == ""
 
 
 def test_pixeldrain_resolves_api_download_link(monkeypatch):
@@ -153,9 +154,9 @@ def test_bunkr_encrypted_page_raises(monkeypatch):
 
 
 def test_bunkr_rejects_asset_extensions():
-    assert hp._is_bunkr_file_link("https://bunkr.si/app.js") is False
-    assert hp._is_bunkr_file_link("https://cdn.bunkr.ru/video.mkv") is True
-    assert hp._is_bunkr_file_link("https://example.com/video.mkv") is False
+    assert hs._is_bunkr_file_link("https://bunkr.si/app.js") is False
+    assert hs._is_bunkr_file_link("https://cdn.bunkr.ru/video.mkv") is True
+    assert hs._is_bunkr_file_link("https://example.com/video.mkv") is False
 
 
 # --- Registry dispatch ------------------------------------------------------

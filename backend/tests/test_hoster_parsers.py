@@ -4,6 +4,7 @@
 import pytest
 
 from core import hoster_parsers as hp
+from core import hoster_sites as hs
 
 
 class _FakeCookies:
@@ -54,7 +55,7 @@ def test_megaup_parser_extracts_file_info_and_download_link(monkeypatch):
         lambda: _FakeScraper(get_response=_FakeResponse(html)),
     )
     monkeypatch.setattr(
-        hp,
+        hs,
         "_resolve_megaup_final_link",
         lambda link, **kwargs: (link, kwargs["cookies"], kwargs["user_agent"], kwargs["referer"]),
     )
@@ -88,13 +89,13 @@ def test_megaup_resolver_follows_download_token_page(monkeypatch):
         return _Resp()
 
     monkeypatch.setattr(
-        hp,
+        hs,
         "get_flaresolverr_context_for_url",
         lambda url, referer="", proxies=None: {"cookies": {"cf_clearance": "ok"}, "user_agent": "Chrome/142"},
     )
     monkeypatch.setattr(hp.requests, "get", fake_get)
 
-    final_link, cookies, user_agent, referer = hp._resolve_megaup_final_link(
+    final_link, cookies, user_agent, referer = hs._resolve_megaup_final_link(
         "https://download.megaup.net/?url=abc",
         referer="https://megaup.net/id/movie.rar",
         cookies={"sid": "cookie"},
@@ -226,16 +227,16 @@ def test_blocked_hosts_are_identified():
 
 
 def _patch_gofile_tokens(monkeypatch):
-    monkeypatch.setattr(hp, "_gofile_session", lambda proxies=None: object())
-    monkeypatch.setattr(hp, "_gofile_guest_token", lambda session: "guest-tok")
-    monkeypatch.setattr(hp, "_gofile_website_token", lambda session: "test-wt")
+    monkeypatch.setattr(hs, "_gofile_session", lambda proxies=None: object())
+    monkeypatch.setattr(hs, "_gofile_guest_token", lambda session: "guest-tok")
+    monkeypatch.setattr(hs, "_gofile_website_token", lambda session: "test-wt")
 
 
 def test_gofile_content_id_extraction():
-    assert hp._gofile_content_id("https://gofile.io/d/6uARDV") == "6uARDV"
-    assert hp._gofile_content_id("https://gofile.io/6uARDV") == "6uARDV"
-    assert hp._gofile_content_id("https://gofile.io/d/6uARDV/") == "6uARDV"
-    assert hp._gofile_content_id("https://gofile.io/") == ""
+    assert hs._gofile_content_id("https://gofile.io/d/6uARDV") == "6uARDV"
+    assert hs._gofile_content_id("https://gofile.io/6uARDV") == "6uARDV"
+    assert hs._gofile_content_id("https://gofile.io/d/6uARDV/") == "6uARDV"
+    assert hs._gofile_content_id("https://gofile.io/") == ""
 
 
 def test_gofile_single_file_resolves_direct_link(monkeypatch):
@@ -254,7 +255,7 @@ def test_gofile_single_file_resolves_direct_link(monkeypatch):
             },
         },
     }
-    monkeypatch.setattr(hp, "_gofile_fetch_contents", lambda *a, **k: contents)
+    monkeypatch.setattr(hs, "_gofile_fetch_contents", lambda *a, **k: contents)
 
     result = hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
 
@@ -274,7 +275,7 @@ def test_gofile_top_level_file_resolves_direct_link(monkeypatch):
             "link": "https://store2.gofile.io/download/xyz/single.zip",
         },
     }
-    monkeypatch.setattr(hp, "_gofile_fetch_contents", lambda *a, **k: contents)
+    monkeypatch.setattr(hs, "_gofile_fetch_contents", lambda *a, **k: contents)
 
     result = hp.parse_special_hoster_sync("https://gofile.io/d/abc")
 
@@ -285,7 +286,7 @@ def test_gofile_top_level_file_resolves_direct_link(monkeypatch):
 def test_gofile_datacenter_ip_block_is_reported(monkeypatch):
     _patch_gofile_tokens(monkeypatch)
     monkeypatch.setattr(
-        hp, "_gofile_fetch_contents",
+        hs, "_gofile_fetch_contents",
         lambda *a, **k: {"status": "error-notPremium", "data": {}},
     )
 
@@ -310,9 +311,9 @@ def test_gofile_contents_call_includes_wt_and_web_params(monkeypatch):
             captured["headers"] = headers
             return _Resp()
 
-    monkeypatch.setattr(hp, "_gofile_session", lambda proxies=None: _Sess())
-    monkeypatch.setattr(hp, "_gofile_guest_token", lambda session: "guest-tok")
-    monkeypatch.setattr(hp, "_gofile_website_token", lambda session: "wt-123")
+    monkeypatch.setattr(hs, "_gofile_session", lambda proxies=None: _Sess())
+    monkeypatch.setattr(hs, "_gofile_guest_token", lambda session: "guest-tok")
+    monkeypatch.setattr(hs, "_gofile_website_token", lambda session: "wt-123")
 
     hp.parse_special_hoster_sync("https://gofile.io/d/abc")
 
@@ -335,15 +336,15 @@ def test_gofile_website_token_extracted_with_fallback(monkeypatch):
             return _Resp(self._text)
 
     # Extracted from config.js
-    assert hp._gofile_website_token(_Sess('const x = {wt: "abc123def"};')) == "abc123def"
+    assert hs._gofile_website_token(_Sess('const x = {wt: "abc123def"};')) == "abc123def"
     # Falls back to the last-known value when the pattern is absent
-    assert hp._gofile_website_token(_Sess("no token here")) == hp.GOFILE_FALLBACK_WT
+    assert hs._gofile_website_token(_Sess("no token here")) == hs.GOFILE_FALLBACK_WT
 
 
 def test_gofile_missing_content_is_reported_as_dead(monkeypatch):
     _patch_gofile_tokens(monkeypatch)
     monkeypatch.setattr(
-        hp, "_gofile_fetch_contents",
+        hs, "_gofile_fetch_contents",
         lambda *a, **k: {"status": "error-notFound", "data": {}},
     )
 
@@ -363,7 +364,7 @@ def test_gofile_multi_file_folder_is_reported(monkeypatch):
             },
         },
     }
-    monkeypatch.setattr(hp, "_gofile_fetch_contents", lambda *a, **k: contents)
+    monkeypatch.setattr(hs, "_gofile_fetch_contents", lambda *a, **k: contents)
 
     with pytest.raises(hp.HosterParseError, match="여러 개"):
         hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
@@ -411,7 +412,7 @@ def test_sendnow_uses_flaresolverr_page_when_available(monkeypatch):
     """
 
     monkeypatch.setattr(
-        hp,
+        hs,
         "_get_page_with_flaresolverr",
         lambda url, referer="", proxies=None: (html, {"cf_clearance": "ok"}, url),
     )
@@ -432,7 +433,7 @@ def test_sendnow_turnstile_is_reported_after_flaresolverr(monkeypatch):
     """
 
     monkeypatch.setattr(
-        hp,
+        hs,
         "_get_page_with_flaresolverr",
         lambda url, referer="", proxies=None: (html, {"cf_clearance": "ok"}, url),
     )
@@ -446,13 +447,13 @@ def test_sendnow_turnstile_is_reported_after_flaresolverr(monkeypatch):
 
 def test_gofile_session_applies_proxies():
     proxies = {"http": "http://1.2.3.4:8080", "https": "http://1.2.3.4:8080"}
-    session = hp._gofile_session(proxies)
+    session = hs._gofile_session(proxies)
     assert session.proxies.get("https") == "http://1.2.3.4:8080"
     assert session.proxies.get("http") == "http://1.2.3.4:8080"
 
 
 def test_gofile_session_without_proxies_is_unset():
-    session = hp._gofile_session()
+    session = hs._gofile_session()
     assert not session.proxies
 
 
