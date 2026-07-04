@@ -108,12 +108,31 @@ def _is_cloudflare_challenge(response) -> bool:
 # Config
 # ---------------------------------------------------------------------------
 
+# Every file host the downloader can actually handle. An ouo link commonly wraps
+# any of these, so the resolver must accept them as a valid *final* URL — keep
+# this in sync with the hosters the app supports (see hoster_parsers.SPECIAL_HOSTS
+# and mega_hoster). Substring forms so they match both host-only and full URLs.
+SUPPORTED_DOWNLOAD_HOSTS: Tuple[str, ...] = (
+    "1fichier",
+    "mega.nz",
+    "mega.co.nz",
+    "mega.io",
+    "mediafire",
+    "pixeldrain",
+    "gofile",
+    "katfile",
+    "datanodes",
+    "megaup.net",
+    "send.now",
+)
+
+
 @dataclass(frozen=True)
 class OuoResolverConfig:
     flaresolverr_url: str = "http://localhost:8191"
 
     # Allowed hosts for the *final* URL (the one we persist).
-    allowed_download_hosts: Tuple[str, ...] = ("1fichier.com",)
+    allowed_download_hosts: Tuple[str, ...] = SUPPORTED_DOWNLOAD_HOSTS
     # Intermediate redirect hosts (e.g. frdl.my, freedl.ink) accepted as final
     # when accept_intermediate_hosts is True.
     allowed_intermediate_hosts: Tuple[str, ...] = ("frdl.my", "freedl.ink")
@@ -174,12 +193,12 @@ class OuoResolverConfig:
         the resolver without changing their config schema.
         """
         cfg = crawling_config or {}
-        allowed_hosts_raw = cfg.get("allowed_download_hosts", ["1fichier.com", "freedl", "datanodes"])
+        allowed_hosts_raw = cfg.get("allowed_download_hosts", list(SUPPORTED_DOWNLOAD_HOSTS))
         if not isinstance(allowed_hosts_raw, list):
-            allowed_hosts_raw = ["1fichier.com"]
+            allowed_hosts_raw = list(SUPPORTED_DOWNLOAD_HOSTS)
         allowed_hosts = tuple(
             str(h).strip().lower() for h in allowed_hosts_raw if str(h).strip()
-        ) or ("1fichier.com",)
+        ) or SUPPORTED_DOWNLOAD_HOSTS
 
         intermediate_raw = cfg.get("allowed_intermediate_hosts", ["frdl.my", "freedl.ink"])
         if not isinstance(intermediate_raw, list):
@@ -439,11 +458,12 @@ class OuoBypass:
                 return None
 
             final_url = result2["solution"].get("url", "")
-            for host in ("1fichier", "mega.nz", "mediafire", "pixeldrain", "gofile", "katfile", "datanodes", "frdl.my", "freedl"):
+            bypass_hosts = SUPPORTED_DOWNLOAD_HOSTS + ("frdl.my", "freedl")
+            for host in bypass_hosts:
                 if host in final_url.lower():
                     return final_url
             html2 = result2["solution"]["response"]
-            for host in ("1fichier", "mega.nz", "mediafire", "pixeldrain", "gofile", "katfile", "datanodes", "frdl.my", "freedl"):
+            for host in bypass_hosts:
                 m = re.search(rf'https?://[^\s"\'>]*{re.escape(host)}[^\s"\'>]*', html2, re.I)
                 if m:
                     return m.group(0)
