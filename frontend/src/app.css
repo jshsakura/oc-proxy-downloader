@@ -2348,6 +2348,12 @@ label {
   );
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.8s ease-in-out infinite;
+  /* Universal safety net: a skeleton (Skeleton.svelte is flex-shrink:0) can
+     never exceed its container, so a fixed/100% width beside another item can
+     never spill out of a card or row. Caps only when space is tight; a no-op
+     when the container is wide enough. */
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* Skeleton page layout */
@@ -2425,13 +2431,23 @@ label {
   flex-direction: column;
   gap: 0.6rem;
   min-height: 110px;
+  /* Mirror the real .monitor-card: let the grid track shrink so nothing
+     overflows the card. */
+  min-width: 0;
+  overflow: hidden;
 }
 
 .skeleton-monitor-body {
-  display: flex;
+  /* Mirror the real .monitor-body grid (fixed gauge + flexible bar). A flex
+     row with a width:100% bar next to the fixed 86px circle overflows the
+     card, because .skeleton is flex-shrink:0; the minmax(0,1fr) track keeps
+     the bar inside no matter the card width. */
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
   gap: 0.7rem;
   align-items: center;
   flex: 1;
+  min-width: 0;
 }
 
 .skeleton-tabs-row {
