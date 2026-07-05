@@ -1112,6 +1112,11 @@ class DownloadCore:
                                 if proxy_addr:
                                     proxies = _build_proxy_dict(proxy_addr)
                                     print(f"[LOG] 다음 프록시로 재시도: {proxy_addr}")
+                                    # MUST increment before continue: get_next_available_proxy
+                                    # now always returns a proxy (cooldown fallback), so this
+                                    # counter is the loop's only bound — skipping it here would
+                                    # spin forever once every proxy is on cooldown.
+                                    retry_count += 1
                                     continue
                                 else:
                                     print(f"[ERROR] 더 이상 사용 가능한 프록시가 없음")
@@ -1936,7 +1941,14 @@ class DownloadCore:
 
                         continue
                     else:
-                        raise download_error
+                        # Non-proxy (local) download: retry in-place for transient
+                        # blips up to MAX_DOWNLOAD_RETRIES_LOCAL instead of failing
+                        # on the first error (the loop is already bounded for this).
+                        retry_count += 1
+                        if retry_count >= MAX_DOWNLOAD_RETRIES:
+                            raise download_error
+                        print(f"[LOG] 로컬 다운로드 재시도... ({retry_count}/{MAX_DOWNLOAD_RETRIES})")
+                        continue
 
             if not download_success:
                 if req.use_proxy:
@@ -2487,25 +2499,18 @@ class DownloadCore:
         """Task cleanup"""
         # Clear the cancel signal too, to prevent in-memory leaks.
         cancel_signal.clear(req_id)
+        # Idempotent: the stop handler may have already removed the task.
+        self.download_tasks.pop(req_id, None)
+        # Free this download's proxy-rotation index so the dict can't grow forever.
+        proxy_manager.release_download(req_id)
+        print(f"[LOG] 다운로드 태스크 정리: {req_id}")
 
-        if req_id in self.download_tasks:
-            del self.download_tasks[req_id]
-            print(f"[LOG] 다운로드 태스크 정리: {req_id}")
-
-            # Check whether the download was stopped before deciding to auto-start
-            try:
-                db = SessionLocal()
-                req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
-                if req and req.status == StatusEnum.stopped:
-                    print(f"[LOG] 정지된 다운로드이므로 자동시작 건너뜀: {req_id}")
-                    db.close()
-                    return
-                db.close()
-            except Exception as e:
-                print(f"[WARNING] 상태 확인 실패, 자동시작 진행: {e}")
-
-            # After a download completes, auto-start a pending download (with a slight delay to let the semaphore release)
-            asyncio.create_task(self._delayed_start_next_pending())
+        # Always try to start the next pending download. A slot frees up whether
+        # this one completed, failed, or was *stopped* — and the sweep only starts
+        # rows still in 'pending' state, so the just-finished/stopped download is
+        # never itself restarted here. (Previously a stop returned early and left
+        # other queued downloads stranded until an unrelated download finished.)
+        asyncio.create_task(self._delayed_start_next_pending())
 
     async def _delayed_start_next_pending(self):
         """Start a pending download after a delay for the semaphore to release"""

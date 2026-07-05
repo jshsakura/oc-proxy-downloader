@@ -128,6 +128,22 @@ class TestSelfHealingPool:
         finally:
             session.close()
 
+    def test_release_download_drops_rotation_index(self):
+        pm = ProxyManager()
+        pm.download_proxy_index[42] = 3
+        pm.release_download(42)
+        assert 42 not in pm.download_proxy_index
+        # Idempotent: releasing an unknown id is a no-op, not a KeyError.
+        pm.release_download(999)
+
+    def test_proxy_test_methods_are_bound_to_the_class(self):
+        # Regression: an indentation bug had nested these as dead functions inside
+        # the module-level detect_proxy_type, so proxy_manager.test_proxy_async
+        # raised AttributeError. They must be real ProxyManager methods again.
+        pm = ProxyManager()
+        for name in ("test_proxy_async", "get_working_proxy_async", "mark_proxy_used"):
+            assert callable(getattr(pm, name)), name
+
     def test_mark_failed_records_failure_time(self):
         session = SessionLocal()
         try:

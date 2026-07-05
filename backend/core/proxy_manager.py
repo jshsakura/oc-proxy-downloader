@@ -228,27 +228,6 @@ class ProxyManager:
         """Detect the form of a proxy address"""
         return detect_proxy_type(address)
 
-def detect_proxy_type(address: str) -> str:
-    """Detect the form of a proxy address (public function)
-
-    - http(s):// URL  -> "list"  (a URL that yields a proxy list)
-    - IP:PORT         -> "single"
-    - host:PORT       -> "single"
-    - anything else   -> "list"  (best-effort fallback)
-    """
-    if address.startswith(('http://', 'https://')):
-        return "list"
-
-    ip_port_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$'
-    if re.match(ip_port_pattern, address):
-        return "single"
-
-    domain_port_pattern = r'^[a-zA-Z0-9.-]+:\d+$'
-    if re.match(domain_port_pattern, address):
-        return "single"
-
-    return "list"
-
     async def test_proxy_async(self, proxy_addr: str, timeout: int = 15, lenient_mode: bool = False) -> bool:
         """Asynchronous proxy test"""
 
@@ -506,6 +485,33 @@ def detect_proxy_type(address: str) -> str:
         except Exception as e:
             print(f"[LOG] 프록시 사용 기록 실패 ({proxy_addr}): {e}")
             db.rollback()
+
+    def release_download(self, download_id: int) -> None:
+        """Drop a finished download's rotation index so the dict can't grow
+        unboundedly over the process lifetime."""
+        self.download_proxy_index.pop(download_id, None)
+
+
+def detect_proxy_type(address: str) -> str:
+    """Detect the form of a proxy address (public function)
+
+    - http(s):// URL  -> "list"  (a URL that yields a proxy list)
+    - IP:PORT         -> "single"
+    - host:PORT       -> "single"
+    - anything else   -> "list"  (best-effort fallback)
+    """
+    if address.startswith(('http://', 'https://')):
+        return "list"
+
+    ip_port_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$'
+    if re.match(ip_port_pattern, address):
+        return "single"
+
+    domain_port_pattern = r'^[a-zA-Z0-9.-]+:\d+$'
+    if re.match(domain_port_pattern, address):
+        return "single"
+
+    return "list"
 
 
 # Global instance
