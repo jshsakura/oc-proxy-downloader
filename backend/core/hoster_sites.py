@@ -33,6 +33,7 @@ from core.hoster_common import (
     _format_size_bytes,
     _get_page_with_flaresolverr,
     _host,
+    _json_or_raise,
     _raise_for_dead_page,
     _requires_turnstile,
     _response_text,
@@ -395,7 +396,7 @@ def _gofile_session(proxies: Optional[Dict[str, str]] = None) -> requests.Sessio
 
 def _gofile_guest_token(session: requests.Session) -> str:
     response = session.post(f"{GOFILE_API_BASE}/accounts", timeout=30)
-    payload = response.json() or {}
+    payload = _json_or_raise(response, "Gofile")
     if payload.get("status") != "ok":
         return ""
     return (payload.get("data") or {}).get("token") or ""
@@ -417,7 +418,7 @@ def _gofile_fetch_contents(
         headers={"Authorization": f"Bearer {token}"},
         timeout=30,
     )
-    return response.json() or {}
+    return _json_or_raise(response, "Gofile")
 
 
 def _gofile_pick_file_node(data: Dict[str, object]) -> Dict[str, object]:
@@ -528,6 +529,13 @@ def _pixeldrain_file_id(url: str) -> str:
 
 
 def parse_pixeldrain_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
+    # A /l/ URL is a *list* (album), not a single file — the file API can't resolve
+    # it, so say so clearly instead of returning a false "deleted" error.
+    if "/l/" in (urlparse(url or "").path or ""):
+        raise HosterParseError(
+            "Pixeldrain 리스트(앨범) 링크는 지원하지 않음 — 개별 파일(/u/) 링크를 사용하세요"
+        )
+
     file_id = _pixeldrain_file_id(url)
     if not file_id:
         raise HosterParseError("Pixeldrain 링크에서 파일 ID를 찾을 수 없음")
@@ -538,7 +546,7 @@ def parse_pixeldrain_sync(url: str, proxies: Optional[Dict[str, str]] = None) ->
         session.proxies.update(proxies)
 
     info_response = session.get(f"{PIXELDRAIN_API_BASE}/file/{file_id}/info", timeout=30)
-    info_json = info_response.json() or {}
+    info_json = _json_or_raise(info_response, "Pixeldrain")
     if info_response.status_code == 404 or info_json.get("success") is False:
         raise HosterParseError("Pixeldrain 파일 없음 또는 삭제됨")
 
@@ -639,9 +647,12 @@ BUNKR_HOSTS = (
 )
 _BUNKR_ASSET_EXT = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp", ".woff", ".woff2")
 _BUNKR_CDN_RE = re.compile(r'https?://[^\s"\'<>]+', re.IGNORECASE)
+# Bunkr *page* routes (the HTML album/file/video pages) — never the actual file,
+# so we must reject them, including the page's own og:url / canonical link.
+_BUNKR_PAGE_ROUTES = ("/f/", "/v/", "/i/", "/d/", "/a/")
 
 
-def _is_bunkr_file_link(candidate: str) -> bool:
+def _is_bunkr_file_link(candidate: str, page_url: str = "") -> bool:
     if not candidate:
         return False
     parsed = urlparse(candidate)
@@ -649,36 +660,53 @@ def _is_bunkr_file_link(candidate: str) -> bool:
     path = (parsed.path or "").lower()
     if parsed.scheme not in {"http", "https"} or not host:
         return False
-    if "bunkr" not in host and not host.startswith("get."):
+    # Must be a Bunkr-family host (cdn.bunkr.*, get.bunkrr.*, a bunkr.* mirror). A
+    # bare "get.*" on some unrelated domain is an ad/redirect anchor, not the file.
+    if "bunkr" not in host:
         return False
     if path.endswith(_BUNKR_ASSET_EXT):
         return False
-    # Accept a real media path (has a file-ish last segment) or a /download route.
+    # A /f/, /v/, /i/, /d/, /a/ path is a Bunkr HTML page, not the file — reject it
+    # (this is what stops the page's own URL being saved as the "download").
+    if any(path.startswith(route) for route in _BUNKR_PAGE_ROUTES):
+        return False
+    if page_url and candidate.rstrip("/") == page_url.rstrip("/"):
+        return False
+    # A real file link: a CDN/download route, or a last segment with an extension.
     last_segment = path.rstrip("/").rsplit("/", 1)[-1]
-    return "/download" in path or "." in last_segment
+    return "/file/" in path or "/download" in path or "." in last_segment
 
 
 def _extract_bunkr_link(html_text: str, base_url: str) -> str:
     soup = BeautifulSoup(html_text or "", "html.parser")
+    # 1) an explicit download button / CDN anchor
     for anchor in soup.select("a[href]"):
         href = html.unescape((anchor.get("href") or "").strip())
-        text = anchor.get_text(" ", strip=True).lower()
         if not href or href.startswith("#"):
             continue
-        if "download" in text or "/download" in href.lower() or href.lower().startswith("https://get."):
-            candidate = urljoin(base_url, href)
-            if _is_bunkr_file_link(candidate):
-                return candidate
+        text = anchor.get_text(" ", strip=True).lower()
+        looks_like_download = (
+            "download" in text
+            or "/download" in href.lower()
+            or "/file/" in href.lower()
+            or "get." in (urlparse(href).netloc or "").lower()
+        )
+        candidate = urljoin(base_url, href)
+        if looks_like_download and _is_bunkr_file_link(candidate, base_url):
+            return candidate
 
+    # 2) a direct media element
     source = soup.select_one("source[src], video[src], img#image[src]")
     if source and source.get("src"):
         candidate = urljoin(base_url, html.unescape((source.get("src") or "").strip()))
-        if _is_bunkr_file_link(candidate):
+        if _is_bunkr_file_link(candidate, base_url):
             return candidate
 
+    # 3) last resort: any Bunkr CDN URL in the raw HTML (the validator excludes the
+    # page's own URL, assets, and page routes, so this can't return the HTML page).
     for match in _BUNKR_CDN_RE.finditer(html_text or ""):
         candidate = html.unescape(match.group(0))
-        if "bunkr" in urlparse(candidate).netloc.lower() and _is_bunkr_file_link(candidate):
+        if _is_bunkr_file_link(candidate, base_url):
             return candidate
     return ""
 

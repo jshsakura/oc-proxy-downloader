@@ -159,6 +159,67 @@ def test_bunkr_rejects_asset_extensions():
     assert hs._is_bunkr_file_link("https://example.com/video.mkv") is False
 
 
+def test_bunkr_accepts_extensionless_get_file_route():
+    # Regression H4: the get.*/file/ download route (no extension) must validate.
+    assert hs._is_bunkr_file_link("https://get.bunkrr.su/file/123456") is True
+
+
+def test_bunkr_rejects_page_route_and_page_url():
+    # Regression H3: the page's own /f/ URL must never be returned as the file.
+    assert hs._is_bunkr_file_link("https://bunkr.si/f/archive.part1.rar") is False
+    page = "https://bunkr.si/f/archive.part1.rar"
+    assert hs._is_bunkr_file_link(page, page) is False
+
+
+def test_bunkr_rejects_unrelated_get_domain():
+    # Regression L2: a get.* host that isn't Bunkr is an ad/redirect, not a file.
+    assert hs._is_bunkr_file_link("https://get.evil.com/malware.exe") is False
+
+
+def test_bunkr_encrypted_page_with_own_url_raises(monkeypatch):
+    # An archive file page exposing only its own canonical /f/ URL (no CDN link)
+    # must fail loudly, not save the HTML page as the file.
+    page = (
+        '<html><head><link rel="canonical" href="https://bunkr.si/f/archive.rar">'
+        '<meta property="og:url" content="https://bunkr.si/f/archive.rar"></head>'
+        '<body><h1>archive.rar</h1></body></html>'
+    )
+    monkeypatch.setattr(hp.cloudscraper, "create_scraper", lambda: _FakeScraper(_Resp(page)))
+    with pytest.raises(hp.HosterParseError):
+        hp.parse_bunkr_sync("https://bunkr.si/f/archive.rar")
+
+
+# --- Pixeldrain edge cases --------------------------------------------------
+
+def test_pixeldrain_list_url_raises_clear_error(monkeypatch):
+    # M6: a /l/ list link must give a clear "use individual file" error, not a
+    # false "deleted". No network call should happen.
+    def _boom():
+        raise AssertionError("must not open a session for a list URL")
+    monkeypatch.setattr(hp.requests, "Session", _boom)
+    with pytest.raises(hp.HosterParseError, match="리스트"):
+        hp.parse_pixeldrain_sync("https://pixeldrain.com/l/AbCd")
+
+
+def test_pixeldrain_non_json_response_raises_hosterparseerror(monkeypatch):
+    # M1: a Cloudflare/HTML error body must become a HosterParseError, not a raw
+    # JSONDecodeError.
+    class _HtmlResp:
+        status_code = 503
+        def json(self):
+            raise ValueError("Expecting value: line 1 column 1")
+
+    class _Sess:
+        headers = {}
+        proxies = {}
+        def get(self, *a, **k):
+            return _HtmlResp()
+
+    monkeypatch.setattr(hp.requests, "Session", lambda: _Sess())
+    with pytest.raises(hp.HosterParseError):
+        hp.parse_pixeldrain_sync("https://pixeldrain.com/u/AbCd")
+
+
 # --- Registry dispatch ------------------------------------------------------
 
 def test_registry_recognizes_new_hosts_and_www_aliases():

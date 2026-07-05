@@ -47,6 +47,7 @@ __all__ = [
     '_get_page_with_flaresolverr',
     '_has_known_extension',
     '_host',
+    '_json_or_raise',
     '_raise_for_dead_page',
     '_requires_turnstile',
     '_response_text',
@@ -258,6 +259,23 @@ def _response_text(response) -> str:
     return getattr(response, "text", "") or ""
 
 
+def _json_or_raise(response, host_label: str) -> dict:
+    """Parse a JSON API response, converting a non-JSON body into a classifiable
+    ``HosterParseError`` instead of a raw ``JSONDecodeError``.
+
+    A hoster behind Cloudflare (or hitting a 5xx) returns an HTML challenge/error
+    page; calling ``.json()`` on it raises ``ValueError`` that escapes as an
+    opaque "Expecting value" failure and, in proxy mode, wrongly marks a healthy
+    proxy as failed. Routing it through a HosterParseError keeps it classifiable.
+    """
+    try:
+        return response.json() or {}
+    except ValueError:
+        raise HosterParseError(
+            f"{host_label} API가 JSON이 아닌 응답 반환 (Cloudflare 차단/오류 페이지 가능성)"
+        )
+
+
 def _get_page_with_flaresolverr(
     url: str, referer: str = "", proxies: Optional[Dict[str, str]] = None
 ) -> Optional[tuple[str, Dict[str, str], str]]:
@@ -282,13 +300,17 @@ def _requires_turnstile(html_text: str) -> bool:
 
 def _raise_for_dead_page(host_label: str, text: str, status_code: int) -> None:
     lowered = (text or "").lower()
+    # Specific phrases only. A bare "not found" is too broad — it appears in i18n
+    # strings and inline JS bundles (MediaFire/Bunkr ship them), which would flag a
+    # live page as deleted and hand it to the retry sweeper as a dead file.
     dead_markers = (
         "file not found",
         "could not be found",
         "file was deleted",
+        "file has been deleted",
         "file expired",
-        "not found",
         "deleted by",
+        "no longer available",
     )
     if status_code == 404 or any(marker in lowered for marker in dead_markers):
         raise HosterParseError(f"{host_label} 파일 없음 또는 삭제됨")
