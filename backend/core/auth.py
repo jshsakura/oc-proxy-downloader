@@ -5,30 +5,34 @@ Manages login authentication via environment variables
 Login attempt rate limiting (5 minute block after 5 failures)
 """
 import os
+import secrets
 import jwt
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from fastapi import HTTPException, Depends, status, Request
+from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from passlib.context import CryptContext
 
 # Get authentication settings from environment variables
 AUTH_USERNAME = os.getenv('AUTH_USERNAME')
-AUTH_PASSWORD = os.getenv('AUTH_PASSWORD') 
-JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'default-secret-key-change-in-production')
+AUTH_PASSWORD = os.getenv('AUTH_PASSWORD')
 JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
 JWT_EXPIRATION_HOURS = int(os.getenv('JWT_EXPIRATION_HOURS', '24'))
 
-# Check whether authentication is enabled
+# Authentication is enabled only when BOTH credentials are configured, matching the
+# documented behavior ("no auth if not set"). The previous fallback force-enabled
+# auth with publicly-known admin/admin credentials — a footgun that advertised the
+# API as protected when the credentials were guessable.
 AUTHENTICATION_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
 
-# Temporary enablement for development/testing (lets you test the login screen even without env vars)
-if not AUTHENTICATION_ENABLED:
-    # Set up a temporary test account
-    AUTH_USERNAME = AUTH_USERNAME or 'admin'
-    AUTH_PASSWORD = AUTH_PASSWORD or 'admin'
-    AUTHENTICATION_ENABLED = True
-    print(f"[개발모드] 임시 로그인 활성화 - 사용자명: {AUTH_USERNAME}, 비밀번호: {AUTH_PASSWORD}")
+_DEFAULT_JWT_SECRET = 'default-secret-key-change-in-production'
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', _DEFAULT_JWT_SECRET)
+# If auth is on but the secret was left at the public default, tokens would be
+# trivially forgeable. Generate a strong random per-process key and warn instead.
+if AUTHENTICATION_ENABLED and JWT_SECRET_KEY == _DEFAULT_JWT_SECRET:
+    JWT_SECRET_KEY = secrets.token_urlsafe(48)
+    print("[WARNING] JWT_SECRET_KEY is unset/default — generated a random key for "
+          "this run. Set JWT_SECRET_KEY to keep sessions valid across restarts.")
 
 # Context for password hashing (also supports plaintext comparison in simple cases)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

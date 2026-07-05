@@ -7,12 +7,8 @@ A flexible parsing system that adapts to site structure changes
 import re
 import lxml.html
 import json
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 import logging
-
-# Removed the send_telegram_wait_notification dependency - keep pure parsing logic only
-from .db import SessionLocal
-from .models import DownloadRequest
 
 logger = logging.getLogger(__name__)
 
@@ -190,25 +186,17 @@ class FichierParser:
                     wait_seconds = wait_minutes * 60  # Convert minutes to seconds
                     print(f"[LOG] 1fichier 대기시간 감지: {wait_minutes}분 ({wait_seconds}초)")
 
-                    # Telegram notification when the wait is 5 minutes or more (local downloads only)
+                    # Wait handling (incl. any Telegram notification) is delegated
+                    # to the caller; just record the detected wait here. (The old
+                    # DB lookup here referenced an undefined `url` — this method has
+                    # no such parameter — and only fed a since-removed notify call.)
                     if wait_minutes >= 5:
-                        try:
-
-                            with SessionLocal() as db:
-                                req = db.query(DownloadRequest).filter(DownloadRequest.url == url).first()
-                                file_name = req.file_name if req and req.file_name else "1fichier File"
-                                file_size = req.file_size if req and req.file_size else None
-
-                            # Changed so the Telegram notification is handled by the caller
-                            # send_telegram_wait_notification(file_name, wait_minutes, "ko", file_size)
-                            print(f"[PARSER] 대기 시간 감지: {file_name}, {wait_minutes}분")
-                        except Exception as e:
-                            print(f"[WARN] 텔레그램 대기시간 알림 실패: {e}")
+                        print(f"[PARSER] 대기 시간 감지: {wait_minutes}분")
 
                     return None  # Return None as before to delegate wait-time handling
 
             # First search for direct download link patterns with regex
-            print(f"[DEBUG] 정규식 패턴 검색 시작...")
+            print("[DEBUG] 정규식 패턴 검색 시작...")
             download_patterns = [
                 r'https?://a-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',     # a-<number>.1fichier.com/<hash>
                 r'https?://cdn-\d+\.1fichier\.com/[a-zA-Z0-9_\-/]+',   # cdn-<number>.1fichier.com/<hash>
@@ -232,7 +220,7 @@ class FichierParser:
                         else:
                             print(f"[DEBUG] 링크 검증 실패: {match}")
             
-            print(f"[DEBUG] 모든 정규식 패턴에서 유효한 다운로드 링크를 찾지 못함")
+            print("[DEBUG] 모든 정규식 패턴에서 유효한 다운로드 링크를 찾지 못함")
 
             # Check for JavaScript redirects or dynamically generated links
             js_patterns = [
@@ -271,14 +259,14 @@ class FichierParser:
             # Specifically check a-<number> pattern links
             a_pattern_links = [a.get('href') for a in all_links if a.get('href') and 'a-' in a.get('href')]
             if a_pattern_links:
-                print(f"[DEBUG] a-숫자 패턴 링크들:")
+                print("[DEBUG] a-숫자 패턴 링크들:")
                 for link in a_pattern_links:
                     print(f"[DEBUG]   {link}")
 
             # Check problem links such as cgu.html
             problem_links = [a.get('href') for a in all_links if a.get('href') and any(x in a.get('href').lower() for x in ['cgu.html', 'tarifs', 'console'])]
             if problem_links:
-                print(f"[DEBUG] 문제 링크들 (제외되어야 함):")
+                print("[DEBUG] 문제 링크들 (제외되어야 함):")
                 for link in problem_links:
                     print(f"[DEBUG]   {link}")
 
@@ -307,13 +295,13 @@ class FichierParser:
                     continue
             
             # If all selectors failed, try the heuristic approach
-            print(f"[DEBUG] 모든 선택자 실패 - 휴리스틱 방법 시도")
+            print("[DEBUG] 모든 선택자 실패 - 휴리스틱 방법 시도")
             fallback_link = self._heuristic_link_extraction(doc, base_url)
             if fallback_link:
                 print(f"[LOG] 휴리스틱 방법으로 링크 발견: {fallback_link}")
                 return fallback_link
             
-            print(f"[ERROR] 다운로드 링크를 찾을 수 없습니다")
+            print("[ERROR] 다운로드 링크를 찾을 수 없습니다")
             return None
             
         except Exception as e:
@@ -345,7 +333,7 @@ class FichierParser:
     def _is_valid_download_link(self, link):
         """Validate a download link"""
         if not link or not isinstance(link, str):
-            print(f"[DEBUG] 링크 검증 실패: 빈 링크 또는 잘못된 타입")
+            print("[DEBUG] 링크 검증 실패: 빈 링크 또는 잘못된 타입")
             return False
 
         print(f"[DEBUG] 링크 검증 중: {link}")
