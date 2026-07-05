@@ -806,65 +806,32 @@
   }
 
   .detail-table th {
-    flex: 0 0 180px;
+    flex: 0 0 160px;
     font-weight: 600;
+    /* The label column reads as a tinted strip (the "darker" side) so it is
+       clearly distinct from the value column. Theme-aware via the CSS vars —
+       no per-theme hardcoding needed. */
+    background: var(--bg-secondary);
     color: var(--text-secondary);
-    text-align: center;
+    text-align: left;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
 
   .detail-table td {
     flex: 1;
+    /* The value column is the "lighter" side — plain card background. */
+    background: var(--card-background);
     color: var(--text-primary);
     word-break: break-all;
     word-wrap: break-word;
     min-width: 200px;
   }
 
-  /* Per-theme styles */
-  :global(body.dark) .detail-table th {
-    background-color: transparent;
-    color: #9ca3af;
-  }
-
-  :global(body.dark) .detail-table td {
-    background-color: #1f2937;
-    color: #f3f4f6;
-  }
-
-  :global(body.dark) .detail-table th,
-  :global(body.dark) .detail-table td {
-    border-bottom-color: #4b5563;
-  }
-
-  /* Dracula theme */
-  :global(body.dracula) .detail-table th {
-    background-color: transparent;
-    color: #6272a4;
-  }
-
-  :global(body.dracula) .detail-table td {
-    background-color: #282a36;
-    color: #f8f8f2;
-  }
-
-  :global(body.dracula) .detail-table th,
-  :global(body.dracula) .detail-table td {
-    border-bottom-color: #44475a;
-  }
-
-  /* Hover effect */
+  /* Hover tints the whole row with a subtle primary wash (theme-aware). */
+  .detail-table tr:hover th,
   .detail-table tr:hover td {
-    background-color: var(--bg-secondary);
-  }
-
-  :global(body.dark) .detail-table tr:hover td {
-    background-color: #374151;
-  }
-
-  :global(body.dracula) .detail-table tr:hover td {
-    background-color: #44475a;
+    background-color: rgba(var(--primary-color-rgb), 0.08);
   }
 
   /* Remove the top border of the first row (merge with the modal border) */
