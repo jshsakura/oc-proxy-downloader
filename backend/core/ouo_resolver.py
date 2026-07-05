@@ -66,6 +66,9 @@ class OuoBackend:
 # that block chrome110/chrome107 — keep the order so we waste no time on the
 # blocked profiles in cache-warm scenarios.
 _IMPERSONATION_PROFILES = ("safari15_5", "chrome110", "chrome107")
+# ouo's anchor reCAPTCHA v3 sitekey (works for ouo.io + ouo.press). Used only as a
+# fallback when it can't be scraped live from the page — see _resolve_via_curl_impersonate.
+_OUO_FALLBACK_SITEKEY = "6Lcr1ncUAAAAAH3cghg6cOTPGARa8adOf-y9zv2x"
 
 
 def _curl_browser_headers(hostname: str, referer: str) -> Dict[str, str]:
@@ -901,69 +904,85 @@ class OuoResolver:
         ouo_id = ouo_url.split('/')[-1]
         home_url = f"{parsed.scheme}://{parsed.hostname}/"
 
-        client = curl_requests.Session()
-        res = None
-        selected_profile = None
+        # Context-managed so the libcurl handle is always closed — this runs per
+        # download and previously leaked a session on every resolve.
+        with curl_requests.Session() as client:
+            res = None
+            selected_profile = None
 
-        for profile in _IMPERSONATION_PROFILES:
-            client.headers.update(_curl_browser_headers(parsed.hostname, referer=home_url))
-            try:
-                client.get(home_url, impersonate=profile, timeout=30)
-                candidate = client.get(ouo_url, impersonate=profile, timeout=30)
-            except Exception as exc:
-                self.logger.debug(f"curl profile {profile} threw: {exc}")
-                continue
+            for profile in _IMPERSONATION_PROFILES:
+                client.headers.update(_curl_browser_headers(parsed.hostname, referer=home_url))
+                try:
+                    client.get(home_url, impersonate=profile, timeout=30)
+                    candidate = client.get(ouo_url, impersonate=profile, timeout=30)
+                except Exception as exc:
+                    self.logger.debug(f"curl profile {profile} threw: {exc}")
+                    continue
 
-            if _is_cloudflare_challenge(candidate):
+                if _is_cloudflare_challenge(candidate):
+                    res = candidate
+                    continue
+
+                selected_profile = profile
                 res = candidate
-                continue
-
-            selected_profile = profile
-            res = candidate
-            break
-
-        if selected_profile is None or res is None:
-            return None
-
-        # ouo's anchor reCAPTCHA sitekey is hardcoded in their JS and works
-        # for both ouo.io and ouo.press. We don't need to scrape it per page.
-        ouo_sitekey = "6Lcr1ncUAAAAAH3cghg6cOTPGARa8adOf-y9zv2x"
-
-        next_url = f"{parsed.scheme}://{parsed.hostname}/go/{ouo_id}"
-        for _ in range(2):
-            if res.headers.get('Location'):
                 break
 
-            try:
-                soup = BeautifulSoup(res.content, 'lxml')
-            except Exception:
-                soup = BeautifulSoup(res.content, 'html.parser')
-
-            form = soup.find("form")
-            if form is None:
+            if selected_profile is None or res is None:
                 return None
 
-            inputs = form.find_all("input", {"name": re.compile(r"token$")})
-            if not inputs:
-                return None
+            # Prefer the sitekey scraped live from the page; fall back to the
+            # known ouo.io/ouo.press anchor sitekey. A silent fallback is exactly
+            # what used to mask a sitekey rotation, so warn when we can't find it.
+            page_html = getattr(res, "text", None) or (res.content or b"").decode("utf-8", "ignore")
+            sitekey_match = re.search(r"6L[0-9A-Za-z_-]{38}", page_html)
+            if sitekey_match:
+                ouo_sitekey = sitekey_match.group(0)
+            else:
+                ouo_sitekey = _OUO_FALLBACK_SITEKEY
+                self.logger.warning(
+                    "curl_impersonate: reCAPTCHA sitekey not found on ouo page — "
+                    "using fallback (ouo may have rotated it)"
+                )
 
-            data = {i.get('name'): i.get('value') for i in inputs}
-            x_token = self._solve_recaptcha_v3_token(ouo_sitekey, ouo_url)
-            if not x_token:
-                return None
-            data['x-token'] = x_token
+            next_url = f"{parsed.scheme}://{parsed.hostname}/go/{ouo_id}"
+            for _ in range(2):
+                if res.headers.get('Location'):
+                    break
 
-            res = client.post(
-                next_url,
-                data=data,
-                headers={'content-type': 'application/x-www-form-urlencoded'},
-                allow_redirects=False,
-                impersonate=selected_profile,
-                timeout=30,
-            )
-            next_url = f"{parsed.scheme}://{parsed.hostname}/xreallcygo/{ouo_id}"
+                try:
+                    soup = BeautifulSoup(res.content, 'lxml')
+                except Exception:
+                    soup = BeautifulSoup(res.content, 'html.parser')
 
-        return res.headers.get('Location')
+                form = soup.find("form")
+                if form is None:
+                    return None
+
+                inputs = form.find_all("input", {"name": re.compile(r"token$")})
+                if not inputs:
+                    return None
+
+                data = {i.get('name'): i.get('value') for i in inputs}
+                x_token = self._solve_recaptcha_v3_token(ouo_sitekey, ouo_url)
+                if not x_token:
+                    self.logger.warning(
+                        "curl_impersonate: reCAPTCHA token solve failed "
+                        "(sitekey rotated?) — falling back to slower backends"
+                    )
+                    return None
+                data['x-token'] = x_token
+
+                res = client.post(
+                    next_url,
+                    data=data,
+                    headers={'content-type': 'application/x-www-form-urlencoded'},
+                    allow_redirects=False,
+                    impersonate=selected_profile,
+                    timeout=30,
+                )
+                next_url = f"{parsed.scheme}://{parsed.hostname}/xreallcygo/{ouo_id}"
+
+            return res.headers.get('Location')
 
     def _solve_recaptcha_v3_token(self, sitekey: str, page_url: str) -> Optional[str]:
         """Get a reCAPTCHA v3 token via Google's anchor + reload API.

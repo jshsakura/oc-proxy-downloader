@@ -101,7 +101,11 @@ async def add_download(
         original_ouo_url: Optional[str] = None
         if is_ouo_url(url):
             original_ouo_url = url
-            unwrapped = unwrap_if_ouo(url)
+            # unwrap_if_ouo is fully synchronous and can take minutes (FlareSolverr,
+            # curl_cffi, headless browser). Never run it on the event loop or it
+            # freezes every SSE stream and API request — offload to a worker thread.
+            loop = asyncio.get_event_loop()
+            unwrapped = await loop.run_in_executor(None, unwrap_if_ouo, url)
             if unwrapped:
                 print(f"[LOG] ouo unwrap: {url} -> {unwrapped}")
                 url = unwrapped
