@@ -8,7 +8,8 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-from core.config import get_config, save_config, get_download_path, get_default_download_path, IS_STANDALONE
+from core.config import (get_config, save_config, get_download_path, get_default_download_path,
+                         IS_STANDALONE, mask_secrets, restore_masked_secrets)
 from core.db import get_db
 from core.version import CURRENT_VERSION
 from core.download_core import download_core
@@ -50,8 +51,8 @@ except ImportError:
 async def get_settings_endpoint(request: Request):
     """Get settings"""
     try:
-        config = get_config()
-        return config
+        # Stored credentials never leave the server in readable form.
+        return mask_secrets(get_config())
     except Exception as e:
         print(f"[ERROR] Get settings failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -61,7 +62,10 @@ async def get_settings_endpoint(request: Request):
 async def update_settings_endpoint(settings: dict, request: Request):
     """Update settings"""
     try:
-        print(f"[LOG] Updating settings: {settings}")
+        # An unchanged form echoes the placeholder back; keep the stored value
+        # rather than overwriting the credential with asterisks.
+        settings = restore_masked_secrets(settings, get_config())
+        print(f"[LOG] Updating settings: {list(settings)}")
 
         # Save the settings
         save_config(settings)
