@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import string
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
@@ -49,6 +50,20 @@ TOKEN_TIMEOUT_S = 60
 # a later one fires the request that yields the file URL.
 ACTION_ROUNDS = 8
 ACTION_ROUND_WAIT_MS = 6_000
+
+# Wall-clock budget for one solve, deliberately under download_core's 300s
+# SPECIAL_HOSTER_PARSE_TIMEOUT_SEC. That outer cap runs on asyncio.wait_for, which
+# abandons the await but cannot stop this thread — so without a budget of its own a
+# slow solve would keep holding _SOLVE_LOCK after its download was already failed,
+# and every queued link behind it would stall. The step timeouts below can sum past
+# this; the deadline is what actually bounds the run.
+SOLVE_BUDGET_SEC = 270
+# Longest a queued solve waits for the lock. What is left afterwards still has to be
+# enough to finish, hence the floor below.
+LOCK_WAIT_SEC = 150
+# Starting a browser with less than this remaining only burns the slot: the host's
+# own countdown alone is ~15s and the click rounds add ~50s more.
+MIN_SOLVE_BUDGET_SEC = 90
 
 TURNSTILE_CONTAINER = ".cf-turnstile"
 # The checkbox sits this far in from the widget container's left edge, vertically centred.
@@ -183,9 +198,38 @@ def _require_display() -> None:
         )
 
 
-def _poll(page: Page, probe: Callable[[], object], seconds: int):
-    """Call probe once a second until it returns something truthy."""
+class Deadline:
+    """A shared wall-clock budget for one solve.
+
+    Every wait in the flow is drawn from the same pot, so a page that is slow in
+    several places cannot add its step timeouts together and outlive the run.
+    """
+
+    def __init__(self, budget_seconds: float) -> None:
+        self._expires_at = time.monotonic() + budget_seconds
+
+    def remaining(self) -> float:
+        return max(0.0, self._expires_at - time.monotonic())
+
+    def expired(self) -> bool:
+        return self.remaining() <= 0
+
+    def check(self, stage: str) -> None:
+        if self.expired():
+            raise HosterParseError(
+                f"브라우저 캡차 우회 제한시간({SOLVE_BUDGET_SEC}초)을 초과했습니다 (중단 지점: {stage})"
+            )
+
+    def budget_ms(self, wanted_ms: int) -> int:
+        """``wanted_ms`` clipped to what is left, so no single call outlives the budget."""
+        return max(1, int(min(wanted_ms, self.remaining() * 1000)))
+
+
+def _poll(page: Page, probe: Callable[[], object], seconds: int, deadline: Deadline):
+    """Call probe once a second until it returns something truthy or time runs out."""
     for _ in range(seconds):
+        if deadline.expired():
+            return None
         value = probe()
         if value:
             return value
@@ -203,49 +247,58 @@ def _turnstile_box(page: Page) -> Optional[dict]:
     return None
 
 
-def _await_page_ready(page: Page, flow: BrowserFlow) -> None:
+def _await_page_ready(page: Page, flow: BrowserFlow, deadline: Deadline) -> None:
     """Wait out the host's pre-check animation; clicking through it is ignored."""
     if not flow.ready_text:
         return
-    _poll(page, lambda: page.locator(f"text={flow.ready_text}").count(), READY_TEXT_TIMEOUT_S)
+    _poll(page, lambda: page.locator(f"text={flow.ready_text}").count(),
+          READY_TEXT_TIMEOUT_S, deadline)
     page.wait_for_timeout(SUBMIT_SETTLE_MS // 2)
 
 
-def _reach_captcha(page: Page, flow: BrowserFlow) -> Optional[dict]:
+def _reach_captcha(page: Page, flow: BrowserFlow, deadline: Deadline) -> Optional[dict]:
     """Advance to the captcha step, re-clicking when a popunder eats the click."""
     if not flow.submit_selector:
-        return _poll(page, lambda: _turnstile_box(page), WIDGET_TIMEOUT_S)
+        return _poll(page, lambda: _turnstile_box(page), WIDGET_TIMEOUT_S, deadline)
 
     for _ in range(SUBMIT_ATTEMPTS):
+        deadline.check("1단계 버튼")
         submit = page.locator(flow.submit_selector).first
         if not submit.count():
             break
-        submit.click(timeout=CLICK_TIMEOUT_MS)
+        submit.click(timeout=deadline.budget_ms(CLICK_TIMEOUT_MS))
         page.wait_for_timeout(SUBMIT_SETTLE_MS)
-        box = _poll(page, lambda: _turnstile_box(page), WIDGET_TIMEOUT_S)
+        box = _poll(page, lambda: _turnstile_box(page), WIDGET_TIMEOUT_S, deadline)
         if box:
             return box
     return None
 
 
-def _solve_turnstile(page: Page, box: dict) -> str:
+def _solve_turnstile(page: Page, box: dict, deadline: Deadline) -> str:
     """Tick the Turnstile checkbox and wait for the token to be written back."""
     page.mouse.click(box["x"] + CHECKBOX_OFFSET_X, box["y"] + box["height"] / 2)
-    token = _poll(page, lambda: page.evaluate(TOKEN_JS), TOKEN_TIMEOUT_S)
+    token = _poll(page, lambda: page.evaluate(TOKEN_JS), TOKEN_TIMEOUT_S, deadline)
     if not token:
+        deadline.check("Turnstile 토큰 대기")
         raise HosterParseError(
             "Turnstile 캡차를 통과하지 못했습니다 (토큰 미발급)"
         )
     return str(token)
 
 
-def _drive_to_download(page: Page, flow: BrowserFlow, captured: Dict[str, str]) -> str:
+def _drive_to_download(
+    page: Page,
+    flow: BrowserFlow,
+    captured: Dict[str, str],
+    deadline: Deadline,
+) -> str:
     """Press the action button until the browser starts fetching the file."""
     for _ in range(ACTION_ROUNDS):
+        deadline.check("다운로드 시작 버튼")
         action = page.locator(flow.action_selector).first
         if action.count():
-            action.click(timeout=CLICK_TIMEOUT_MS)
-        page.wait_for_timeout(ACTION_ROUND_WAIT_MS)
+            action.click(timeout=deadline.budget_ms(CLICK_TIMEOUT_MS))
+        page.wait_for_timeout(min(ACTION_ROUND_WAIT_MS, deadline.budget_ms(ACTION_ROUND_WAIT_MS)))
         if captured.get("url"):
             return captured["url"]
     raise HosterParseError(
@@ -266,9 +319,11 @@ def solve_download_page(
     ``proxies`` routes the browser through the same proxy the rest of the parse
     uses, so the captcha is solved from the address that will fetch the file.
 
-    Solves are serialised process-wide; see ``_SOLVE_LOCK``.
+    Solves are serialised process-wide and bounded by ``SOLVE_BUDGET_SEC``; see
+    ``_SOLVE_LOCK``.
     """
     _require_display()
+    deadline = Deadline(SOLVE_BUDGET_SEC)
     proxy = _proxy_settings(proxies)
     captured: Dict[str, str] = {}
 
@@ -277,31 +332,48 @@ def solve_download_page(
         # Only the URL is wanted; the real transfer is done by the app's downloader.
         download.cancel()
 
-    with _SOLVE_LOCK, sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)
-        try:
-            context = browser.new_context(
-                viewport=VIEWPORT,
-                accept_downloads=True,
-                proxy=proxy,
+    if not _SOLVE_LOCK.acquire(timeout=LOCK_WAIT_SEC):
+        raise HosterParseError(
+            "다른 링크의 캡차를 처리 중이라 대기열에서 시간이 초과되었습니다"
+        )
+    try:
+        # Waiting for the lock spends the same budget, so a solve that could no
+        # longer finish is dropped here instead of occupying the slot to no end.
+        if deadline.remaining() < MIN_SOLVE_BUDGET_SEC:
+            raise HosterParseError(
+                "다른 링크의 캡차를 처리 중이라 대기열에서 시간이 초과되었습니다"
             )
-            page = context.new_page()
-            page.on("download", on_download)
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=False)
+            try:
+                context = browser.new_context(
+                    viewport=VIEWPORT,
+                    accept_downloads=True,
+                    proxy=proxy,
+                )
+                page = context.new_page()
+                page.on("download", on_download)
 
-            page.goto(url, wait_until="networkidle", timeout=PAGE_LOAD_TIMEOUT_MS)
-            _await_page_ready(page, flow)
+                page.goto(
+                    url,
+                    wait_until="networkidle",
+                    timeout=deadline.budget_ms(PAGE_LOAD_TIMEOUT_MS),
+                )
+                _await_page_ready(page, flow, deadline)
 
-            box = _reach_captcha(page, flow)
-            if box:
-                _solve_turnstile(page, box)
+                box = _reach_captcha(page, flow, deadline)
+                if box:
+                    _solve_turnstile(page, box, deadline)
 
-            link = _drive_to_download(page, flow, captured)
-            cookies = _usable_cookies(context.cookies(), url)
-            user_agent = str(page.evaluate(USER_AGENT_JS))
-            return BrowserSolveResult(
-                download_link=link,
-                cookies=cookies,
-                user_agent=user_agent,
-            )
-        finally:
-            browser.close()
+                link = _drive_to_download(page, flow, captured, deadline)
+                cookies = _usable_cookies(context.cookies(), url)
+                user_agent = str(page.evaluate(USER_AGENT_JS))
+                return BrowserSolveResult(
+                    download_link=link,
+                    cookies=cookies,
+                    user_agent=user_agent,
+                )
+            finally:
+                browser.close()
+    finally:
+        _SOLVE_LOCK.release()

@@ -220,3 +220,55 @@ def test_solves_are_serialised_process_wide(monkeypatch):
         t.join()
 
     assert overlap["max"] == 1, "browsers must never run concurrently"
+
+
+# --- time budget ---
+
+
+def test_budget_stays_under_the_outer_parse_cap():
+    """download_core aborts the await at 300s but cannot stop this thread, so the
+    solve must finish on its own before then or it keeps holding the lock."""
+    from core.download_core import SPECIAL_HOSTER_PARSE_TIMEOUT_SEC
+
+    assert bs.SOLVE_BUDGET_SEC < SPECIAL_HOSTER_PARSE_TIMEOUT_SEC
+    assert bs.LOCK_WAIT_SEC + bs.MIN_SOLVE_BUDGET_SEC <= bs.SOLVE_BUDGET_SEC
+
+
+def test_deadline_reports_expiry_with_the_stage():
+    d = bs.Deadline(0)
+
+    assert d.expired()
+    with pytest.raises(HosterParseError, match="제한시간"):
+        d.check("토큰 대기")
+
+
+def test_deadline_clips_a_step_timeout_to_what_is_left():
+    assert bs.Deadline(1).budget_ms(60_000) <= 1_000
+    assert bs.Deadline(600).budget_ms(20_000) == 20_000
+
+
+def test_lock_is_released_when_a_solve_fails(monkeypatch):
+    """A raise inside the browser must not strand the lock and wedge the queue."""
+    monkeypatch.setenv("DISPLAY", ":99")
+
+    def boom():
+        raise RuntimeError("browser died")
+
+    monkeypatch.setattr(bs, "sync_playwright", boom)
+
+    with pytest.raises(RuntimeError):
+        bs.solve_download_page("https://datanodes.to/abc", bs.DATANODES_FLOW)
+
+    assert bs._SOLVE_LOCK.acquire(timeout=1), "lock must be free after a failure"
+    bs._SOLVE_LOCK.release()
+
+
+def test_queued_solve_gives_up_when_no_useful_time_remains(monkeypatch):
+    """Rather than start a browser it cannot finish, a link that waited too long
+    fails as transient so the retry logic picks it up later."""
+    monkeypatch.setenv("DISPLAY", ":99")
+    monkeypatch.setattr(bs, "MIN_SOLVE_BUDGET_SEC", 10 ** 6)
+    monkeypatch.setattr(bs, "sync_playwright", lambda: pytest.fail("must not launch"))
+
+    with pytest.raises(HosterParseError, match="대기열에서 시간이 초과"):
+        bs.solve_download_page("https://datanodes.to/abc", bs.DATANODES_FLOW)
