@@ -230,6 +230,13 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "'다시 받기' 로 재시도하세요. 반복되면 최신 버전으로 업데이트해주세요.",
      KIND_TRANSIENT, False),
 
+    ("대기열에서 시간이 초과", "다른 링크의 캡차 처리를 기다리다 대기열에서 밀렸습니다",
+     "캡차 우회는 한 번에 하나씩만 처리됩니다. 잠시 후 자동으로 재시도됩니다.",
+     KIND_TRANSIENT, False),
+    ("브라우저 캡차 우회 제한시간", "브라우저 캡차 우회가 제한시간 안에 끝나지 않았습니다",
+     "사이트가 느리거나 응답이 바뀐 경우입니다. 잠시 후 다시 시도하세요.",
+     KIND_TRANSIENT, False),
+
     # --- in-page Turnstile handled by the headful browser fallback ---
     ("turnstile 캡차를 통과하지 못했습니다", "브라우저로도 Turnstile 캡차를 통과하지 못했습니다",
      "잠시 후 다시 시도하세요. 반복되면 해당 호스터가 캡차 난이도를 올린 것일 수 있습니다.",
