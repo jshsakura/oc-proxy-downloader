@@ -14,6 +14,7 @@ the container provides through Xvfb.
 from __future__ import annotations
 
 import os
+import string
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
@@ -52,6 +53,12 @@ TURNSTILE_CONTAINER = ".cf-turnstile"
 # The checkbox sits this far in from the widget container's left edge, vertically centred.
 CHECKBOX_OFFSET_X = 30
 MIN_WIDGET_HEIGHT = 10
+
+# The character set http.cookies accepts in a cookie name; anything else raises
+# CookieError when aiohttp builds the jar for the download.
+LEGAL_COOKIE_NAME_CHARS = frozenset(
+    string.ascii_letters + string.digits + "!#$%&'*+-.^_`|~:"
+)
 
 TOKEN_JS = (
     "() => {const e = document.querySelector('[name=\"cf-turnstile-response\"]');"
@@ -101,6 +108,29 @@ def flow_for_host(host: str) -> BrowserFlow:
     """The flow registered for this host, or a generic click-the-download-button one."""
     normalised = (host or "").lower().removeprefix("www.")
     return _FLOWS.get(normalised, DEFAULT_FLOW)
+
+
+def _usable_cookies(raw_cookies, url: str) -> Dict[str, str]:
+    """Keep only the cookies the file server could plausibly want.
+
+    The page loads popunder ad networks, which drop their own cookies into the
+    same browser context. Those are useless to the download and dangerous to
+    forward: a name that ``http.cookies`` rejects — an empty one in particular —
+    makes aiohttp raise ``Illegal key ''`` the moment the transfer starts. So the
+    set is narrowed to the host's own cookies with names that are legal to send.
+    """
+    host = (urlparse(url).hostname or "").lower()
+    usable: Dict[str, str] = {}
+    for cookie in raw_cookies:
+        name = cookie.get("name") or ""
+        domain = (cookie.get("domain") or "").lstrip(".").lower()
+        if not name or not domain:
+            continue
+        if not set(name) <= LEGAL_COOKIE_NAME_CHARS:
+            continue
+        if host == domain or host.endswith(f".{domain}"):
+            usable[name] = cookie.get("value") or ""
+    return usable
 
 
 def _proxy_settings(proxies: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
@@ -254,7 +284,7 @@ def solve_download_page(
                 _solve_turnstile(page, box)
 
             link = _drive_to_download(page, flow, captured)
-            cookies = {c["name"]: c["value"] for c in context.cookies()}
+            cookies = _usable_cookies(context.cookies(), url)
             user_agent = str(page.evaluate(USER_AGENT_JS))
             return BrowserSolveResult(
                 download_link=link,

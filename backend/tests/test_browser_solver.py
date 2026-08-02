@@ -29,6 +29,51 @@ def test_unknown_host_gets_the_generic_flow():
     assert flow.submit_selector is None
 
 
+# --- cookie filtering ---
+
+
+def _cookie(name, domain, value="v"):
+    return {"name": name, "domain": domain, "value": value}
+
+
+def test_empty_cookie_name_is_dropped():
+    """aiohttp raises CookieError("Illegal key ''") the moment such a cookie is
+    handed to the download session."""
+    raw = [_cookie("", ".datanodes.to"), _cookie("file_code", ".datanodes.to", "abc")]
+
+    assert bs._usable_cookies(raw, "https://datanodes.to/abc") == {"file_code": "abc"}
+
+
+def test_cookie_names_with_illegal_characters_are_dropped():
+    raw = [_cookie("bad name", ".datanodes.to"), _cookie("ok_name", ".datanodes.to")]
+
+    assert set(bs._usable_cookies(raw, "https://datanodes.to/abc")) == {"ok_name"}
+
+
+def test_third_party_ad_cookies_are_not_forwarded():
+    """Popunder ad networks drop cookies into the same context; the file server
+    has no use for them."""
+    raw = [
+        _cookie("cf_clearance", ".datanodes.to"),
+        _cookie("csu", "ukankingwithea.com"),
+    ]
+
+    assert set(bs._usable_cookies(raw, "https://datanodes.to/abc")) == {"cf_clearance"}
+
+
+def test_parent_domain_cookies_are_kept_for_a_subdomain_page():
+    raw = [_cookie("sess", ".datanodes.to")]
+
+    assert set(bs._usable_cookies(raw, "https://www.datanodes.to/abc")) == {"sess"}
+
+
+def test_cookie_without_a_domain_is_dropped():
+    """A blank domain would otherwise match every host through the suffix test."""
+    raw = [_cookie("orphan", "")]
+
+    assert bs._usable_cookies(raw, "https://datanodes.to/abc") == {}
+
+
 # --- proxy translation ---
 
 

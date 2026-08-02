@@ -222,6 +222,14 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("send.now turnstile", "Send.now 사이트 내부 Turnstile 검증이 필요합니다",
      "FlareSolverr 로 Cloudflare 는 통과했지만 내부 캡차는 자동 처리할 수 없습니다. 다른 미러를 사용하세요.",
      KIND_CLOUDFLARE, True),
+    # --- browser-fallback session hand-off ---
+    # A cookie the browser picked up (usually from a popunder ad domain) that
+    # http.cookies refuses to serialise. Retrying works because the cookie set is
+    # filtered now, so this must not read as an unclassified failure.
+    ("illegal key", "브라우저 세션의 쿠키를 다운로드에 넘기지 못했습니다",
+     "'다시 받기' 로 재시도하세요. 반복되면 최신 버전으로 업데이트해주세요.",
+     KIND_TRANSIENT, False),
+
     # --- in-page Turnstile handled by the headful browser fallback ---
     ("turnstile 캡차를 통과하지 못했습니다", "브라우저로도 Turnstile 캡차를 통과하지 못했습니다",
      "잠시 후 다시 시도하세요. 반복되면 해당 호스터가 캡차 난이도를 올린 것일 수 있습니다.",

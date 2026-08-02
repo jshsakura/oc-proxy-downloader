@@ -368,3 +368,13 @@ class TestRateLimitRealWait:
         assert req.next_retry_at is not None
         delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
         assert 240 * 60 <= delta <= 240 * 60 + 120
+
+
+class TestBrowserFallbackCookieHandoff:
+    def test_illegal_cookie_key_is_transient_not_unclassified(self):
+        """http.cookies rejects a cookie the browser picked up. The cookie set is
+        filtered now, so a retry succeeds — it must not read as an unknown cause."""
+        c = classify_error("다운로드", "Illegal key ''")
+        assert c.kind == KIND_TRANSIENT
+        assert c.definitive is False
+        assert "원인을 자동으로 분류하지 못했습니다" not in c.summary
