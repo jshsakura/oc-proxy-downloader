@@ -30,6 +30,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     tzdata \
+    xvfb \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -39,6 +40,18 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
     pip install -r requirements.txt && \
     pip install beautifulsoup4
+
+# Chromium for the in-page-Turnstile fallback (DataNodes/Send.now). Installed into
+# a shared location because the app runs as the unprivileged "appuser", which has
+# no access to root's ~/.cache. --with-deps pulls the X/font/NSS libraries Chromium
+# needs; Turnstile only issues a token to a headful browser, hence Xvfb above.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN apt-get update \
+    && patchright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && rm -rf /ms-playwright/chromium_headless_shell-* /ms-playwright/ffmpeg-* \
+    && chmod -R 755 /ms-playwright
 
 # 백엔드 소스는 의존성 설치 후 복사 (소스 변경 시에만 재빌드)
 COPY backend/ ./backend/
@@ -56,6 +69,7 @@ ENV DOWNLOAD_PATH=/downloads \
     PGID=1000 \
     TZ=Asia/Seoul \
     PYTHONPATH=/app \
+    DISPLAY=:99 \
     APP_VERSION=${VERSION}
     # 인증 관련 환경변수 (선택사항)
     # AUTH_USERNAME=admin \
@@ -87,8 +101,12 @@ chown -R $PUID:$PGID /app/backend\n\
 # 타임존 설정\n\
 export TZ=$TZ\n\
 \n\
+# Turnstile 캡차 우회용 가상 디스플레이.\n\
+# 헤드리스 크로미움에는 Turnstile 이 토큰을 내주지 않으므로 headful 로 띄워야 한다.\n\
+Xvfb "$DISPLAY" -screen 0 1280x1200x24 -nolisten tcp &\n\
+\n\
 # 애플리케이션 실행\n\
-cd /app && su appuser -c "python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"\n\
+cd /app && su appuser -c "DISPLAY=$DISPLAY PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"\n\
 ' > /start.sh && chmod +x /start.sh
 
 CMD ["/start.sh"] 

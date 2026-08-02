@@ -222,6 +222,16 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("send.now turnstile", "Send.now 사이트 내부 Turnstile 검증이 필요합니다",
      "FlareSolverr 로 Cloudflare 는 통과했지만 내부 캡차는 자동 처리할 수 없습니다. 다른 미러를 사용하세요.",
      KIND_CLOUDFLARE, True),
+    # --- in-page Turnstile handled by the headful browser fallback ---
+    ("turnstile 캡차를 통과하지 못했습니다", "브라우저로도 Turnstile 캡차를 통과하지 못했습니다",
+     "잠시 후 다시 시도하세요. 반복되면 해당 호스터가 캡차 난이도를 올린 것일 수 있습니다.",
+     KIND_CLOUDFLARE, False),
+    ("캡차는 통과했지만", "캡차는 통과했으나 호스터가 다운로드 링크를 발급하지 않았습니다",
+     "잠시 후 다시 시도하세요. 호스터의 대기시간/동시 다운로드 제한일 수 있습니다.",
+     KIND_TRANSIENT, False),
+    ("x 디스플레이가 필요합니다", "브라우저 캡차 우회용 X 디스플레이(Xvfb)가 실행되지 않았습니다",
+     "컨테이너를 최신 이미지로 업데이트하세요. 직접 실행 중이라면 Xvfb 를 띄우고 DISPLAY 를 설정해야 합니다.",
+     KIND_BLOCKED, True),
     ("cloudflare", "Cloudflare 챌린지 또는 보안 검사에 막혔습니다",
      "잠시 후 다시 시도하거나 다른 네트워크/프록시로 시도하세요.",
      KIND_CLOUDFLARE, False),
@@ -235,7 +245,9 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("다운로드 폼", "1fichier 페이지 구조 변경 또는 캡차 발생",
      "잠시 후 다시 시도하세요. 반복되면 issue 를 등록해주세요.",
      KIND_BLOCKED, False),
-    ("다운로드 링크를 찾을 수 없음", "1fichier 응답에서 다운로드 링크를 추출하지 못했습니다",
+    # Every hoster raises "<Host> 다운로드 링크를 찾을 수 없음", so the summary must stay
+    # host-agnostic — the raw message already names the host in parentheses.
+    ("다운로드 링크를 찾을 수 없음", "호스터 응답에서 다운로드 링크를 추출하지 못했습니다",
      "잠시 후 다시 시도하거나 프록시 모드를 켜세요.",
      KIND_BLOCKED, False),
     # A page-load failure that carries an explicit HTTP status must defer to the
