@@ -55,14 +55,20 @@ def test_proxy_credentials_are_split_out_of_the_url():
 # --- display guard ---
 
 
-def test_missing_display_fails_fast_with_a_clear_message(monkeypatch):
-    """Turnstile issues no token headless, so a missing X display must not be
-    reported as a generic parse failure."""
-    monkeypatch.setattr(bs.sys, "platform", "linux")
+def test_without_a_display_the_fallback_names_docker_as_the_requirement(monkeypatch):
+    """Standalone builds ship no browser and no display, so the user must be told
+    that rather than getting a missing-executable crash out of Playwright."""
     monkeypatch.delenv("DISPLAY", raising=False)
 
-    with pytest.raises(HosterParseError, match="X 디스플레이가 필요합니다"):
+    with pytest.raises(HosterParseError, match="Docker 버전에서만 지원됩니다"):
         bs.solve_download_page("https://datanodes.to/abc", bs.DATANODES_FLOW)
+
+
+def test_display_present_means_the_fallback_is_allowed_to_run(monkeypatch):
+    """The guard must not reject the Docker image, where Xvfb sets DISPLAY."""
+    monkeypatch.setenv("DISPLAY", ":99")
+
+    assert bs._require_display() is None
 
 
 # --- datanodes wiring ---

@@ -14,7 +14,6 @@ the container provides through Xvfb.
 from __future__ import annotations
 
 import os
-import sys
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
@@ -130,11 +129,17 @@ def _proxy_settings(proxies: Optional[Dict[str, str]]) -> Optional[Dict[str, str
 
 
 def _require_display() -> None:
-    """Turnstile never issues a token headless, so a real X display is mandatory."""
-    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+    """Refuse early anywhere the fallback cannot actually run.
+
+    Turnstile never issues a token to a headless browser, so a real display is
+    mandatory. Only the Docker image provides one (Xvfb) and ships Chromium; the
+    standalone builds bundle neither, so they must fail with a reason the user can
+    act on instead of a missing-executable crash from deep inside Playwright.
+    """
+    if not os.environ.get("DISPLAY"):
         raise HosterParseError(
-            "브라우저 캡차 우회에 X 디스플레이가 필요합니다 "
-            "(컨테이너에서 Xvfb 가 뜨지 않아 DISPLAY 가 비어 있음)"
+            "이 호스터는 브라우저 캡차 우회가 필요하며 Docker 버전에서만 지원됩니다 "
+            "(standalone 빌드에는 브라우저가 포함되어 있지 않습니다)"
         )
 
 
