@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import string
+import threading
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
@@ -59,6 +60,15 @@ MIN_WIDGET_HEIGHT = 10
 LEGAL_COOKIE_NAME_CHARS = frozenset(
     string.ascii_letters + string.digits + "!#$%&'*+-.^_`|~:"
 )
+
+# One browser at a time, process-wide. Parses run on a thread pool sized by
+# "parse_concurrency" (default 3), so bulk-adding links would otherwise start that
+# many headful Chromium instances at once — several hundred MB of RAM each on a
+# NAS, and a burst of near-simultaneous hits that pushes the host into serving
+# harder challenges. Downloads stay parallel; only the captcha step is serialised.
+# Each solve already spans the host's countdown (~40-60s), so this also keeps the
+# request rate to roughly one per minute without an artificial sleep.
+_SOLVE_LOCK = threading.Lock()
 
 TOKEN_JS = (
     "() => {const e = document.querySelector('[name=\"cf-turnstile-response\"]');"
@@ -255,6 +265,8 @@ def solve_download_page(
 
     ``proxies`` routes the browser through the same proxy the rest of the parse
     uses, so the captcha is solved from the address that will fetch the file.
+
+    Solves are serialised process-wide; see ``_SOLVE_LOCK``.
     """
     _require_display()
     proxy = _proxy_settings(proxies)
@@ -265,7 +277,7 @@ def solve_download_page(
         # Only the URL is wanted; the real transfer is done by the app's downloader.
         download.cancel()
 
-    with sync_playwright() as pw:
+    with _SOLVE_LOCK, sync_playwright() as pw:
         browser = pw.chromium.launch(headless=False)
         try:
             context = browser.new_context(
