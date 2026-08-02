@@ -175,3 +175,48 @@ def test_datanodes_turnstile_page_goes_straight_to_the_browser(monkeypatch):
     assert posts == [], "the captcha page must short-circuit before the download2 POST"
     assert calls[0][0] == "https://datanodes.to/abc"
     assert calls[0][1] is bs.DATANODES_FLOW
+
+
+# --- serialisation ---
+
+
+def test_solves_are_serialised_process_wide(monkeypatch):
+    """parse_concurrency (default 3) would otherwise start three headful Chromium
+    instances at once and hit the host in a burst."""
+    import threading
+
+    monkeypatch.setenv("DISPLAY", ":99")
+    overlap = {"max": 0, "current": 0}
+    guard = threading.Lock()
+
+    class _FakePlaywright:
+        def __enter__(self):
+            # Raising out of __enter__ skips __exit__, so the occupancy window is
+            # opened and closed here rather than across the two hooks.
+            import time
+            with guard:
+                overlap["current"] += 1
+                overlap["max"] = max(overlap["max"], overlap["current"])
+            time.sleep(0.05)
+            with guard:
+                overlap["current"] -= 1
+            raise RuntimeError("stop after entry")
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(bs, "sync_playwright", lambda: _FakePlaywright())
+
+    def run():
+        try:
+            bs.solve_download_page("https://datanodes.to/abc", bs.DATANODES_FLOW)
+        except RuntimeError:
+            pass
+
+    threads = [threading.Thread(target=run) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert overlap["max"] == 1, "browsers must never run concurrently"
