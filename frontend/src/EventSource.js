@@ -22,7 +22,13 @@ export class EventSourceManager {
     // Save the last onMessage callback (for reconnection)
     this.lastOnMessage = onMessage;
 
-    this.eventSource = new EventSource("/api/events");
+    // EventSource cannot carry an Authorization header, so when authentication is
+    // enabled the stream takes the token as a query parameter instead. Without it
+    // the API guard rejects the connection and the grid stops updating live.
+    const token = localStorage.getItem("auth_token");
+    this.eventSource = new EventSource(
+      token ? `/api/events?token=${encodeURIComponent(token)}` : "/api/events"
+    );
 
     this.eventSource.onopen = () => {
       sseLog("EventSource connected");

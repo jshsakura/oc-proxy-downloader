@@ -88,6 +88,36 @@ DEFAULT_CONFIG = {
     "parse_concurrency": 3
 }
 
+# Credentials that must never leave the server in readable form. They grant
+# control of a Telegram bot and a 1fichier account, so the settings API returns a
+# placeholder and the stored value is kept when that placeholder comes back.
+SECRET_CONFIG_KEYS = frozenset({
+    "telegram_bot_token",
+    "fichier_password",
+})
+SECRET_PLACEHOLDER = "********"
+
+
+def mask_secrets(config: dict) -> dict:
+    """A copy of ``config`` with stored credentials replaced by the placeholder."""
+    return {
+        key: SECRET_PLACEHOLDER if key in SECRET_CONFIG_KEYS and value else value
+        for key, value in config.items()
+    }
+
+
+def restore_masked_secrets(incoming: dict, stored: dict) -> dict:
+    """Put back any credential the client echoed as the placeholder.
+
+    The settings form round-trips whatever it was shown, so without this a save
+    from an unchanged form would overwrite the real credential with asterisks.
+    """
+    return {
+        key: stored.get(key, "") if key in SECRET_CONFIG_KEYS and value == SECRET_PLACEHOLDER else value
+        for key, value in incoming.items()
+    }
+
+
 def get_config():
     # Create CONFIG_DIR
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)

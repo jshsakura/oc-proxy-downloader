@@ -15,7 +15,7 @@ from core.version import CURRENT_VERSION
 
 from services.sse_manager import sse_manager
 from services.download_service import download_service
-from api.middleware import log_requests
+from api.middleware import log_requests, require_api_auth
 from api.routes import downloads, settings, events, auth, locales
 from api.routes.proxy import router as proxy_router
 from api.routes.history import router as history_router
@@ -168,8 +168,10 @@ def create_app() -> FastAPI:
                 content={"error": "Internal server error", "type": error_type}
             )
 
-    # Add middleware
+    # Add middleware. Registration order is reversed at request time, so listing
+    # the auth guard after the logger puts it in front of every API handler.
     app.middleware("http")(log_requests)
+    app.middleware("http")(require_api_auth)
 
     # Set up the API router
     api_router = APIRouter()
