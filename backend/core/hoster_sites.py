@@ -18,6 +18,7 @@ from urllib.parse import unquote, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from core.browser_solver import flow_for_host, solve_download_page
 from core.hoster_common import (
     DEFAULT_HOSTER_USER_AGENT,
     HosterParseError,
@@ -209,6 +210,28 @@ def parse_megaup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dic
     ).as_parse_result()
 
 
+def _solve_via_browser(
+    url: str,
+    file_info: Optional[Dict[str, str]],
+    referer: str,
+    proxies: Optional[Dict[str, str]] = None,
+) -> Dict[str, object]:
+    """Resolve a Turnstile-guarded page with the headful browser fallback.
+
+    Only reached once the cheap cloudscraper path has proven that the host is
+    sitting behind an in-page captcha, so the browser cost is paid at most once
+    per link instead of on every parse.
+    """
+    result = solve_download_page(url, flow_for_host(_host(url)), proxies)
+    return HosterParseResult(
+        download_link=result.download_link,
+        file_info=file_info or None,
+        cookies=result.cookies,
+        user_agent=result.user_agent,
+        referer=referer,
+    ).as_parse_result()
+
+
 def _parse_datanodes_url(url: str) -> tuple[str, str]:
     parsed = urlparse(url)
     parts = [p for p in (parsed.path or "").split("/") if p]
@@ -279,6 +302,9 @@ def _extract_datanodes_countdown_payload(html_text: str, file_code: str) -> Dict
 
 def parse_datanodes_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
     file_code, filename = _parse_datanodes_url(url)
+    # The browser fallback has to start from the file page, not from whatever the
+    # Cloudflare fallback below may rewrite ``url`` to.
+    source_url = url
     scraper = _scraper(proxies)
 
     page_response = scraper.get(url, timeout=30, allow_redirects=True)
@@ -312,6 +338,11 @@ def parse_datanodes_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> 
         )
         page_text = _response_text(first_response)
 
+    # Since 2026-07 DataNodes gates the countdown step behind a Turnstile widget.
+    # No amount of form replay clears it, so hand the page straight to the browser.
+    if _requires_turnstile(page_text):
+        return _solve_via_browser(source_url, file_info, "https://datanodes.to/download", proxies)
+
     payload = _extract_datanodes_countdown_payload(page_text, file_code)
     response = scraper.post(
         "https://datanodes.to/download",
@@ -342,6 +373,8 @@ def parse_datanodes_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> 
     if not _is_datanodes_download_link(download_link):
         body = _response_text(response)
         _raise_for_dead_page("DataNodes", body, getattr(response, "status_code", 0))
+        if _requires_turnstile(body):
+            return _solve_via_browser(source_url, file_info, "https://datanodes.to/download", proxies)
         raise HosterParseError("DataNodes 다운로드 링크를 찾을 수 없음")
 
     return HosterParseResult(
@@ -496,11 +529,11 @@ def parse_blocked_hoster_sync(url: str, proxies: Optional[Dict[str, str]] = None
             )
         text, cookies, final_url = fs_page
         _raise_for_dead_page("Send.now", text, 200)
-        if _requires_turnstile(text):
-            raise HosterParseError(
-                "Send.now Turnstile 검증 필요 (FlareSolverr Cloudflare 통과 후 사이트 내부 캡차에서 중단)"
-            )
         file_info = _extract_datanodes_file_info(final_url or url, text)
+        # FlareSolverr clears Cloudflare's interstitial but not the site's own
+        # Turnstile widget; that one needs a real browser session.
+        if _requires_turnstile(text):
+            return _solve_via_browser(url, file_info, final_url or url, proxies)
         download_link = _extract_download_link_from_html(text, final_url or url)
         if not download_link:
             raise HosterParseError("Send.now 다운로드 링크를 찾을 수 없음")

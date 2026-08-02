@@ -5,6 +5,7 @@ import pytest
 
 from core import hoster_parsers as hp
 from core import hoster_sites as hs
+from core.browser_solver import BrowserSolveResult
 
 
 class _FakeCookies:
@@ -424,22 +425,38 @@ def test_sendnow_uses_flaresolverr_page_when_available(monkeypatch):
     assert result["file_info"]["name"] == "movie.rar"
 
 
-def test_sendnow_turnstile_is_reported_after_flaresolverr(monkeypatch):
+def test_sendnow_turnstile_falls_back_to_browser(monkeypatch):
+    """FlareSolverr clears Cloudflare but not the site's own Turnstile widget,
+    so the parse has to hand the page to the headful browser solver."""
     html = """
     <html>
       <title>Download Challenge</title>
       <form><input name="cf-turnstile-response"></form>
     </html>
     """
+    calls = []
 
     monkeypatch.setattr(
         hs,
         "_get_page_with_flaresolverr",
         lambda url, referer="", proxies=None: (html, {"cf_clearance": "ok"}, url),
     )
+    monkeypatch.setattr(
+        hs,
+        "solve_download_page",
+        lambda url, flow, proxies=None: calls.append((url, flow, proxies))
+        or BrowserSolveResult(
+            download_link="https://cdn.send.now/file.bin",
+            cookies={"session": "x"},
+            user_agent="UA/1.0",
+        ),
+    )
 
-    with pytest.raises(hp.HosterParseError, match="Turnstile 검증 필요"):
-        hp.parse_special_hoster_sync("https://send.now/abc")
+    result = hp.parse_special_hoster_sync("https://send.now/abc")
+
+    assert result["download_link"] == "https://cdn.send.now/file.bin"
+    assert result["cookies"] == {"session": "x"}
+    assert calls and calls[0][0] == "https://send.now/abc"
 
 
 # --- proxy threading (use_proxy parses through a user proxy) ---
