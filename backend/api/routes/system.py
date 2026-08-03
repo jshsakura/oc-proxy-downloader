@@ -28,7 +28,7 @@ class ClientError(BaseModel):
 
 
 @router.post("/log-error")
-async def log_client_error(err: ClientError):
+def log_client_error(err: ClientError):
     with open("/tmp/client-errors.log", "a") as f:
         f.write(f"\n=== CLIENT ERROR ===\n")
         f.write(f"msg={err.msg}\n")

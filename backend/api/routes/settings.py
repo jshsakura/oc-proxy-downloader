@@ -48,7 +48,7 @@ except ImportError:
 
 
 @router.get("/settings")
-async def get_settings_endpoint(request: Request):
+def get_settings_endpoint(request: Request):
     """Get settings"""
     try:
         # Stored credentials never leave the server in readable form.
@@ -59,7 +59,7 @@ async def get_settings_endpoint(request: Request):
 
 
 @router.post("/settings")
-async def update_settings_endpoint(settings: dict, request: Request):
+def update_settings_endpoint(settings: dict, request: Request):
     """Update settings"""
     try:
         # An unchanged form echoes the placeholder back; keep the stored value
@@ -81,7 +81,7 @@ async def update_settings_endpoint(settings: dict, request: Request):
 
 
 @router.get("/default_download_path")
-async def get_default_download_path_endpoint(request: Request):
+def get_default_download_path_endpoint(request: Request):
     """Get the default download path for the current environment"""
     try:
         default_path = get_default_download_path()
@@ -96,7 +96,7 @@ async def get_default_download_path_endpoint(request: Request):
 
 
 @router.post("/select_folder")
-async def select_folder(request: Request):
+def select_folder(request: Request):
     """Folder selection dialog (supported only in standalone environments)"""
     # Disable the folder selection dialog in Docker environments
     if os.environ.get("CONFIG_PATH"):
@@ -150,7 +150,7 @@ async def select_folder(request: Request):
 
 
 @router.get("/debug/parse-response")
-async def get_debug_parse_response(stage: str = "post"):
+def get_debug_parse_response(stage: str = "post"):
     """Download the body of the last 1fichier parse response.
 
     Parameter ``stage`` = ``get`` or ``post`` (default post). The body is
@@ -226,7 +226,7 @@ async def test_fichier_login(request: Request):
 
 
 @router.post("/telegram/test")
-async def test_telegram_notification(request: Request):
+def test_telegram_notification(request: Request):
     """Test Telegram notifications"""
     try:
         print(f"[LOG] 텔레그램 테스트 알림 시작")
