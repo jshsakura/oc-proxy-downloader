@@ -1,5 +1,6 @@
 <script>
   import { t } from "./i18n.js";
+  import { authenticatedFetch } from "./auth.js";
   import FolderIcon from "../icons/FolderIcon.svelte";
   import StopIcon from "../icons/StopIcon.svelte";
   import ResumeIcon from "../icons/ResumeIcon.svelte";
@@ -15,13 +16,11 @@
 
     try {
       isStoppingAll = true;
-      const response = await fetch("/api/downloads/stop-all-local", {
+      const response = await authenticatedFetch("/api/downloads/stop-all-local", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-        },
-      });
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         const result = await response.json();
         console.log("로컬 다운로드 정지 완료:", result.message);
@@ -40,13 +39,11 @@
 
     try {
       isRestartingAll = true;
-      const response = await fetch("/api/downloads/restart-failed-local", {
+      const response = await authenticatedFetch("/api/downloads/restart-failed-local", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-        },
-      });
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         const result = await response.json();
         console.log("로컬 다운로드 재시작 완료:", result.message);
