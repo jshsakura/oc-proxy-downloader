@@ -17,7 +17,10 @@ ROUTES_DIR = pathlib.Path("api/routes")
 
 def _route_handlers(path: pathlib.Path):
     """Every function in ``path`` that FastAPI serves, with its node."""
-    tree = ast.parse(path.read_text())
+    # Explicit encoding: the sources carry Korean comments, and read_text() would
+    # otherwise use the platform default — cp1252 on the Windows release runner,
+    # which cannot decode them.
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
             continue
