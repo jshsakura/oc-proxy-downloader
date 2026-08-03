@@ -13,6 +13,11 @@ services:
       # 경로 설정
       - DOWNLOAD_PATH=/downloads
       - CONFIG_PATH=/config
+
+      # FlareSolverr 연동 (아래 flaresolverr 서비스로 자동 연결)
+      # Cloudflare 인터스티셜이 걸린 호스터(MegaUp/1fichier 폴백 등)에 필요.
+      # 별도 컨테이너이므로 localhost 가 아니라 서비스 이름으로 가리켜야 함.
+      - FLARESOLVERR_URL=http://flaresolverr:8191
       
       # 인증 설정 (보안을 위해 설정 권장)
       - AUTH_USERNAME=admin                    # 로그인 사용자명
@@ -63,6 +68,17 @@ services:
         reservations:
           cpus: '0.5'      # CPU 예약
           memory: 256M     # 메모리 예약
+
+  # Cloudflare 챌린지 우회용 헤드리스 브라우저.
+  # 앱과 같은 네트워크에 두어야 cf_clearance 쿠키의 egress IP 가 일치한다.
+  # 8191 포트는 앱만 쓰므로 호스트로 노출하지 않는다.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - TZ=Asia/Seoul
+      - LOG_LEVEL=info
+    restart: unless-stopped
 
 # 네트워크 설정 (선택사항)
 networks:
