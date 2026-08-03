@@ -378,3 +378,33 @@ class TestBrowserFallbackCookieHandoff:
         assert c.kind == KIND_TRANSIENT
         assert c.definitive is False
         assert "원인을 자동으로 분류하지 못했습니다" not in c.summary
+
+
+class TestQueuedIsNotAFailure:
+    def test_waiting_in_a_queue_does_not_spend_the_retry_budget(self):
+        """A long queue must not cost a link its attempts. With the old TRANSIENT
+        classification, six turns of waiting exhausted auto-retry and the link was
+        effectively dropped."""
+        req = _FakeReq()
+        msg = "같은 사이트의 다른 링크를 처리하는 중이라 대기열에서 시간이 초과되었습니다"
+
+        for _ in range(10):
+            verdict = apply_failure_to_request(req, "파싱", msg)
+            # Vary nothing but the clock; the duplicate guard keys on the raw text,
+            # so assert on the running total instead of each call.
+
+        assert verdict.kind == "queued"
+        assert req.attempt_count == 0, "queueing must not count as an attempt"
+        assert req.next_retry_at is not None, "a queued link must stay scheduled"
+
+    def test_a_real_failure_after_queueing_still_has_its_full_budget(self):
+        req = _FakeReq()
+        apply_failure_to_request(
+            req, "파싱",
+            "같은 사이트의 다른 링크를 처리하는 중이라 대기열에서 시간이 초과되었습니다",
+        )
+
+        apply_failure_to_request(req, "다운로드", "HTTP 503: Service Unavailable")
+
+        assert req.attempt_count == 1
+        assert req.next_retry_at is not None

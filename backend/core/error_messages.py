@@ -47,6 +47,9 @@ KIND_CLOUDFLARE = "cloudflare"
 KIND_PROXY_BLOCKED = "proxy_blocked"
 KIND_BLOCKED = "blocked"
 KIND_TRANSIENT = "transient"
+# Not a failure: the link is waiting its turn in a per-site queue. Kept apart from
+# TRANSIENT so queueing never spends the retry budget a real failure needs.
+KIND_QUEUED = "queued"
 KIND_UNKNOWN = "unknown"
 
 # Retry policy — referenced by `_compute_next_retry_at`.
@@ -230,9 +233,9 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "'다시 받기' 로 재시도하세요. 반복되면 최신 버전으로 업데이트해주세요.",
      KIND_TRANSIENT, False),
 
-    ("대기열에서 시간이 초과", "다른 링크의 캡차 처리를 기다리다 대기열에서 밀렸습니다",
-     "캡차 우회는 한 번에 하나씩만 처리됩니다. 잠시 후 자동으로 재시도됩니다.",
-     KIND_TRANSIENT, False),
+    ("대기열에서 시간이 초과", "같은 사이트의 다른 링크를 처리하는 중이라 순서를 기다립니다",
+     "사이트별로 한 번에 하나씩 처리됩니다. 순서가 되면 자동으로 이어서 받습니다.",
+     KIND_QUEUED, False),
     ("브라우저 캡차 우회 제한시간", "브라우저 캡차 우회가 제한시간 안에 끝나지 않았습니다",
      "사이트가 느리거나 응답이 바뀐 경우입니다. 잠시 후 다시 시도하세요.",
      KIND_TRANSIENT, False),
@@ -453,6 +456,11 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
     if cap is not None and attempt_count >= cap:
         return None
 
+    if kind == KIND_QUEUED:
+        # Short, jittered, and uncapped above — the queue drains on its own, so
+        # giving up here would lose a link for no reason.
+        return now + timedelta(seconds=45 + random.randint(0, 30))
+
     if kind == KIND_RATE_LIMITED:
         # If 1fichier specified a wait time, use it + a 60s margin.
         # Otherwise 600s (10 minutes).
@@ -572,7 +580,10 @@ def apply_failure_to_request(
     })
     attempts = attempts[-_ATTEMPTS_RING_SIZE:]
 
-    attempt_count = (getattr(req, "attempt_count", 0) or 0) + 1
+    # Waiting in a queue is scheduling, not failing: leave the retry budget alone
+    # so a long queue cannot exhaust the attempts a real failure would need.
+    previous_count = getattr(req, "attempt_count", 0) or 0
+    attempt_count = previous_count if classified.kind == KIND_QUEUED else previous_count + 1
 
     # Decide on Dead promotion
     kind = classified.kind

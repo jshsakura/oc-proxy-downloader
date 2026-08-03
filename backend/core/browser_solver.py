@@ -17,6 +17,7 @@ import os
 import string
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
@@ -76,14 +77,36 @@ LEGAL_COOKIE_NAME_CHARS = frozenset(
     string.ascii_letters + string.digits + "!#$%&'*+-.^_`|~:"
 )
 
-# One browser at a time, process-wide. Parses run on a thread pool sized by
-# "parse_concurrency" (default 3), so bulk-adding links would otherwise start that
-# many headful Chromium instances at once — several hundred MB of RAM each on a
-# NAS, and a burst of near-simultaneous hits that pushes the host into serving
-# harder challenges. Downloads stay parallel; only the captcha step is serialised.
-# Each solve already spans the host's countdown (~40-60s), so this also keeps the
-# request rate to roughly one per minute without an artificial sleep.
-_SOLVE_LOCK = threading.Lock()
+# Captcha solving is gated on two axes.
+#
+# Per host: one solve at a time for a given site. A site is never hit
+# concurrently, so its rate stays near one request per solve (~40-60s, the
+# countdown dominates) and it has no reason to serve harder challenges. Two
+# different sites do not queue behind each other.
+#
+# Across hosts: a ceiling on how many browsers exist at once, because each headful
+# Chromium costs several hundred MB and parses run on a thread pool
+# ("parse_concurrency", default 3) that would otherwise start one per link.
+DEFAULT_MAX_CONCURRENT_BROWSERS = 2
+
+_HOST_LOCKS: Dict[str, threading.Lock] = {}
+_HOST_LOCKS_GUARD = threading.Lock()
+_BROWSER_SLOTS = threading.BoundedSemaphore(DEFAULT_MAX_CONCURRENT_BROWSERS)
+
+
+# Matched by the error classifier as KIND_QUEUED, which retries on a short delay
+# without spending the retry budget a real failure needs.
+QUEUE_WAIT_MESSAGE = "같은 사이트의 다른 링크를 처리하는 중이라 대기열에서 시간이 초과되었습니다"
+
+
+def _host_lock(host: str) -> threading.Lock:
+    """The queue for one site, created on first use."""
+    with _HOST_LOCKS_GUARD:
+        lock = _HOST_LOCKS.get(host)
+        if lock is None:
+            lock = threading.Lock()
+            _HOST_LOCKS[host] = lock
+        return lock
 
 TOKEN_JS = (
     "() => {const e = document.querySelector('[name=\"cf-turnstile-response\"]');"
@@ -181,6 +204,34 @@ def _proxy_settings(proxies: Optional[Dict[str, str]]) -> Optional[Dict[str, str
     if parsed.password:
         settings["password"] = parsed.password
     return settings
+
+
+@contextmanager
+def _queued_browser_slot(host: str, deadline: "Deadline"):
+    """Take this site's turn, then one of the shared browser slots.
+
+    Both waits draw on the solve's own budget, and running out of either yields a
+    "queued" error rather than a failure: the link goes back to the queue with its
+    retry budget intact instead of being spent on standing in line.
+
+    The site queue is taken first so that a link waiting for a busy browser pool
+    still holds its site's turn — two links for one site can never overlap.
+    """
+    site_queue = _host_lock(host)
+    if not site_queue.acquire(timeout=min(LOCK_WAIT_SEC, deadline.remaining())):
+        raise HosterParseError(QUEUE_WAIT_MESSAGE)
+    try:
+        if deadline.remaining() < MIN_SOLVE_BUDGET_SEC:
+            raise HosterParseError(QUEUE_WAIT_MESSAGE)
+        slot_wait = max(1.0, deadline.remaining() - MIN_SOLVE_BUDGET_SEC)
+        if not _BROWSER_SLOTS.acquire(timeout=slot_wait):
+            raise HosterParseError(QUEUE_WAIT_MESSAGE)
+        try:
+            yield
+        finally:
+            _BROWSER_SLOTS.release()
+    finally:
+        site_queue.release()
 
 
 def _require_display() -> None:
@@ -319,8 +370,8 @@ def solve_download_page(
     ``proxies`` routes the browser through the same proxy the rest of the parse
     uses, so the captcha is solved from the address that will fetch the file.
 
-    Solves are serialised process-wide and bounded by ``SOLVE_BUDGET_SEC``; see
-    ``_SOLVE_LOCK``.
+    Solves queue per site and are bounded by ``SOLVE_BUDGET_SEC``; see
+    ``_host_lock`` and ``_BROWSER_SLOTS``.
     """
     _require_display()
     deadline = Deadline(SOLVE_BUDGET_SEC)
@@ -332,17 +383,8 @@ def solve_download_page(
         # Only the URL is wanted; the real transfer is done by the app's downloader.
         download.cancel()
 
-    if not _SOLVE_LOCK.acquire(timeout=LOCK_WAIT_SEC):
-        raise HosterParseError(
-            "다른 링크의 캡차를 처리 중이라 대기열에서 시간이 초과되었습니다"
-        )
-    try:
-        # Waiting for the lock spends the same budget, so a solve that could no
-        # longer finish is dropped here instead of occupying the slot to no end.
-        if deadline.remaining() < MIN_SOLVE_BUDGET_SEC:
-            raise HosterParseError(
-                "다른 링크의 캡차를 처리 중이라 대기열에서 시간이 초과되었습니다"
-            )
+    host = (urlparse(url).hostname or "").lower()
+    with _queued_browser_slot(host, deadline):
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=False)
             try:
@@ -375,5 +417,3 @@ def solve_download_page(
                 )
             finally:
                 browser.close()
-    finally:
-        _SOLVE_LOCK.release()
