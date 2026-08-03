@@ -81,6 +81,13 @@ a = Analysis(
         'jinja2',
         'aiofiles',
         'psutil',
+        # core.browser_solver imports these at module scope, so the app cannot
+        # even start without them bundled — the captcha guard that keeps the
+        # standalone build out of the browser path runs *after* the import.
+        'patchright',
+        'patchright.sync_api',
+        'greenlet',
+        'pyee',
     ],
     hookspath=[],
     hooksconfig={},
