@@ -12,16 +12,29 @@
 - 예외 처리로 인한 추적 불가능 상황 방지
 - 실제 오류 발생 시 명확한 오류 메시지 출력
 
-## 현재 순환 임포트 문제
-```
-core/__init__.py → parser.py → download_core.py → proxy_manager.py → download_core.py (download_manager)
-```
+## 비동기 처리 원칙 (절대 규칙)
 
-### 해결 방안
-1. `download_manager`를 별도 파일로 분리
-2. 또는 `proxy_manager.py`에서 `download_manager` 의존성 제거
-3. 모듈 구조 재설계
+이 규칙들을 어겨서 백엔드가 통째로 멈춘 적이 있다. 지키는지는
+`backend/tests/test_event_loop_safety.py` 가 트리 전체를 훑어 검사한다.
 
-## 비동기 처리 원칙
-- 비동기 흐름이 중단되지 않도록 설계
-- 꼼수 대신 근본적인 구조 개선 우선
+### 이벤트 루프를 막지 않는다
+- **`await` 가 없는 라우트 핸들러는 `async def` 로 쓰지 않는다.**
+  await 하지 않는 `async def` 는 이벤트 루프에서 그대로 실행되므로, 그 안의
+  DB 쿼리·파일 읽기·psutil 호출이 **앱의 모든 요청을 함께 멈춘다.** 다운로드가
+  진행률을 쓰는 동안의 SQLite 락 경합만으로도 충분하다.
+- `def` 로 선언하면 FastAPI 가 anyio 스레드풀에서 실행하므로 아무리 느려도
+  루프를 죽이지 않는다.
+
+### 느린 작업이 공용 풀을 독점하지 않게 한다
+- asyncio 기본 executor 는 앱의 **모든** `run_in_executor` 호출이 공유한다.
+  분 단위로 걸리는 작업을 여기 올리면 나머지가 굶는다.
+- 캡차(브라우저) 파싱은 `core/executors.py` 의 전용 풀을 쓴다.
+  `core.browser_solver.BROWSER_FLOW_HOSTS` 에 호스트를 추가하면 라우팅도
+  같이 따라오는지 테스트가 확인한다.
+- 순서를 기다리며 워커를 붙잡지 않는다. 대기가 길어지면 `KIND_QUEUED` 로
+  넘겨 재예약한다 — 재시도 예산을 쓰지 않으므로 유실되지 않는다.
+
+### 중단 가능하게 만든다
+- `asyncio.wait_for` 는 await 를 포기할 뿐 **스레드를 멈추지 못한다.**
+  블로킹 작업에는 자체 예산(deadline)을 두어 바깥 타임아웃보다 먼저 끝나게 한다.
+- 락·세마포어 해제는 반드시 `finally` 에서 한다.
