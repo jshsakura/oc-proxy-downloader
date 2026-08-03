@@ -28,6 +28,7 @@ from core.hoster_common import HosterParseError
 
 
 __all__ = [
+    'BROWSER_FLOW_HOSTS',
     'BrowserFlow',
     'BrowserSolveResult',
     'flow_for_host',
@@ -59,9 +60,12 @@ ACTION_ROUND_WAIT_MS = 6_000
 # and every queued link behind it would stall. The step timeouts below can sum past
 # this; the deadline is what actually bounds the run.
 SOLVE_BUDGET_SEC = 270
-# Longest a queued solve waits for the lock. What is left afterwards still has to be
-# enough to finish, hence the floor below.
-LOCK_WAIT_SEC = 150
+# How briefly a solve waits for its turn before handing the link back to the queue.
+# Deliberately tiny: this call runs on the asyncio default executor, which the whole
+# app shares, so a thread parked here is a thread the API cannot use. Waiting long
+# also buys nothing — KIND_QUEUED reschedules without spending the retry budget, so
+# coming back in a minute costs the link nothing and costs the backend nothing.
+LOCK_WAIT_SEC = 3
 # Starting a browser with less than this remaining only burns the slot: the host's
 # own countdown alone is ~15s and the click rounds add ~50s more.
 MIN_SOLVE_BUDGET_SEC = 90
@@ -150,6 +154,10 @@ _FLOWS = {
     "datanodes.to": DATANODES_FLOW,
     "send.now": SEND_NOW_FLOW,
 }
+
+# Hosts known to need the browser. Used to route their parses onto the dedicated
+# pool in core.executors, so a minutes-long solve never occupies a shared worker.
+BROWSER_FLOW_HOSTS = frozenset(_FLOWS)
 
 
 def flow_for_host(host: str) -> BrowserFlow:

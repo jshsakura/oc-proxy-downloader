@@ -25,8 +25,13 @@ def _display_filename(download: DownloadRequest) -> str:
 router = APIRouter(prefix="/api", tags=["history"])
 
 
+# These read endpoints are what the UI polls to stay alive, and none of them await
+# anything — as `async def` they ran their SQLite queries straight on the event
+# loop, so any lock contention (progress writes during an active download) froze
+# every request in the app, not just theirs. Declared sync, FastAPI runs them on
+# anyio's own threadpool and the loop stays free no matter how busy parsing is.
 @router.get("/history/")
-async def get_download_history(
+def get_download_history(
     db: Session = Depends(get_db),
     limit: Optional[int] = None,
     offset: int = 0
@@ -78,7 +83,7 @@ async def get_download_history(
 
 
 @router.get("/downloads/working")
-async def get_working_downloads(
+def get_working_downloads(
     db: Session = Depends(get_db),
     page: int = 1,
     page_size: int = 50,
@@ -160,7 +165,7 @@ async def get_working_downloads(
 
 
 @router.get("/downloads/completed")
-async def get_completed_downloads(
+def get_completed_downloads(
     db: Session = Depends(get_db),
     page: int = 1,
     page_size: int = 50,
@@ -243,7 +248,7 @@ async def get_completed_downloads(
 
 
 @router.get("/downloads/active")
-async def get_active_downloads(db: Session = Depends(get_db)):
+def get_active_downloads(db: Session = Depends(get_db)):
     """Get active downloads (legacy compatibility)"""
     try:
         # In-progress downloads (failed ones are included in the display too)

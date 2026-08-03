@@ -35,6 +35,9 @@ from sqlalchemy import text
 # at a time, the rest wait. FastAPI's sync routes use anyio's SEPARATE pool, so
 # the API/DB stay responsive regardless. Overridable via config "parse_concurrency".
 DEFAULT_PARSE_CONCURRENCY = 3
+# Spare workers on top of the parse budget so a handful of slow blocking calls
+# cannot leave the API with nothing to run on.
+EXECUTOR_HEADROOM_WORKERS = 4
 
 # Authentication settings
 AUTH_USERNAME = os.getenv('AUTH_USERNAME')
@@ -75,10 +78,18 @@ async def lifespan(app: FastAPI):
     except (TypeError, ValueError):
         parse_workers = DEFAULT_PARSE_CONCURRENCY
     parse_workers = max(1, min(8, parse_workers))
+    # Every run_in_executor caller in the app draws on this one pool, including the
+    # status endpoints the UI polls, so a pool sized purely for parsing left the
+    # backend unable to answer whenever the slow parses filled it. Captcha parses
+    # now have their own pool (core.executors); the headroom here covers the other
+    # calls that can block for minutes — ouo unwrapping and FlareSolverr solves.
+    executor_workers = parse_workers + EXECUTOR_HEADROOM_WORKERS
     asyncio.get_running_loop().set_default_executor(
-        ThreadPoolExecutor(max_workers=parse_workers, thread_name_prefix="parse")
+        ThreadPoolExecutor(max_workers=executor_workers, thread_name_prefix="parse")
     )
-    print(f"[LOG] 파싱 스레드풀 {parse_workers}개로 제한 (동시 파싱 큐)")
+    print(f"[LOG] 파싱 스레드풀 {parse_workers}개 + 여유 "
+          f"{EXECUTOR_HEADROOM_WORKERS}개 = {executor_workers}개 "
+          f"(캡차 파싱은 별도 풀)")
 
     # Initialize the translation cache
     load_all_translations()
