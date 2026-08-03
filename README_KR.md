@@ -20,18 +20,45 @@ FastAPI + Svelte 웹 앱으로, 1fichier·MEGA·DataNodes·MegaUp(Docker) 안정
 - 📱 **반응형 UI**: 모바일/데스크톱 최적화
 - 🛡️ **선택적 인증**: JWT 기반 보안 (선택사항)
 
-## 🌩️ 호스트 지원 & FlareSolverr
+## 🐳 실행 환경 (Docker 전제)
 
-| 호스트 | FlareSolverr 필요 | Windows 앱(번들 없음) |
-|--------|-------------------|------------------------|
-| 1fichier, MEGA | 불필요 | ✅ 됨 |
-| Pixeldrain | 불필요 (공개 API) | ✅ 됨 |
-| GoFile | 불필요 (가정용 IP만) | ✅ 가정용 IP/NAS에서 됨 |
-| DataNodes, MediaFire | Cloudflare 챌린지 때만 | 🟡 챌린지 안 뜨면 됨 |
-| MegaUp | 필요 (Cloudflare) | ❌ 외부 FlareSolverr 필요 |
-| Bunkr | Cloudflare 챌린지 때 | 🟡 베스트에포트; 암호화 CDN 링크는 해석 못 할 수 있음 |
+**이 프로젝트는 Docker 환경을 전제로 만들어졌습니다.** 일부 호스터는 사이트에 박힌
+Cloudflare Turnstile 캡차를 통과해야 하는데, 여기엔 **실제 브라우저**가 필요합니다.
+헤드리스로는 토큰이 발급되지 않아 가상 디스플레이(Xvfb) 위에서 Chromium을 띄워야 하고,
+그 둘은 **Docker 이미지에만 포함**되어 있습니다.
 
-FlareSolverr는 **`docker-compose.yml`에 사이드카로 번들**되어 자동 연결됩니다. 주소는 **설정 → FlareSolverr URL**(또는 `FLARESOLVERR_URL` 환경변수)에서 바꿀 수 있습니다 — Windows 앱에서 별도로 띄운 FlareSolverr를 가리킬 때 유용합니다.
+`docker compose` 로 실행하면 **FlareSolverr까지 같이 뜹니다.** 별도 설치나 주소 설정이
+필요 없고, 앱이 서비스 이름(`http://flaresolverr:8191`)으로 자동 연결합니다.
+
+```bash
+docker compose up -d      # 앱 + FlareSolverr 동시 기동
+```
+
+> TrueNAS/Synology 앱처럼 컨테이너를 **따로** 설치하는 경우에는 서비스 이름 DNS가 통하지
+> 않습니다. **설정 → FlareSolverr URL** 에 `http://<호스트 IP>:<공개 포트>` 형식으로
+> 직접 넣어주세요.
+
+Windows 실행 파일은 **단일 파일 유지를 위해 브라우저를 번들하지 않습니다.** 아래 표에서
+❌ 인 호스터는 Windows 버전에서 지원되지 않으며, 링크를 추가하면 즉시 안내 메시지가 뜹니다.
+
+## 🌩️ 호스트별 지원
+
+| 호스트 | 필요한 것 | Windows 앱 |
+|--------|-----------|------------|
+| 1fichier, MEGA | 없음 | ✅ 됨 |
+| Pixeldrain | 없음 (공개 API) | ✅ 됨 |
+| GoFile | 가정용 IP (데이터센터 IP 차단) | ✅ 가정용 IP/NAS에서 됨 |
+| MediaFire | Cloudflare 챌린지 때 FlareSolverr | 🟡 챌린지 안 뜨면 됨 |
+| MegaUp | FlareSolverr (항상) | ❌ 외부 FlareSolverr 필요 |
+| Bunkr | Cloudflare 챌린지 때 FlareSolverr | 🟡 암호화 CDN 링크는 해석 못 할 수 있음 |
+| **DataNodes** | **브라우저 (Turnstile 캡차)** | ❌ **Docker 전용** |
+| Send.now | 보통 FlareSolverr, 캡차 시 브라우저 | 🟡 캡차가 뜨면 실패 |
+
+캡차 우회는 **사이트별로 한 번에 하나씩** 처리됩니다. 링크를 많이 걸어두어도 순서대로
+진행되며, 순서를 기다리는 동안에는 재시도 횟수가 소모되지 않습니다.
+
+> 데이터센터/VPS IP에서는 Turnstile이 토큰을 내주지 않습니다. 가정용 회선(NAS 등)에서
+> 동작을 확인했습니다.
 
 ---
 

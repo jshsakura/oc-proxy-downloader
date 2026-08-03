@@ -328,3 +328,36 @@ def test_queue_timeout_is_reported_as_queued_not_as_a_failure():
     from core.error_messages import KIND_QUEUED, classify_error
 
     assert classify_error("파싱", bs.QUEUE_WAIT_MESSAGE).kind == KIND_QUEUED
+
+
+# --- builds without a browser ---
+
+
+def test_browser_only_hosts_are_refused_before_any_network_work(monkeypatch):
+    """On the standalone build these links can never succeed, so the user should
+    hear that immediately instead of after a page fetch and a form POST."""
+    from core import hoster_parsers as hp
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(hp, "parse_datanodes_sync",
+                        lambda *a, **k: pytest.fail("must not reach the parser"))
+
+    with pytest.raises(HosterParseError, match="Docker 버전에서만 지원됩니다"):
+        hp.parse_special_hoster_sync("https://datanodes.to/abc")
+
+
+def test_hosts_without_a_captcha_are_unaffected_without_a_browser(monkeypatch):
+    """Only the browser-flow hosts are gated; everything else still parses."""
+    from core import hoster_parsers as hp
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(hp, "parse_pixeldrain_sync", lambda *a, **k: {"download_link": "ok"})
+
+    assert hp.parse_special_hoster_sync("https://pixeldrain.com/u/abc")["download_link"] == "ok"
+
+
+def test_browser_support_follows_the_display(monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":99")
+    assert bs.is_browser_supported()
+    monkeypatch.delenv("DISPLAY", raising=False)
+    assert not bs.is_browser_supported()

@@ -29,9 +29,12 @@ from core.hoster_common import HosterParseError
 
 __all__ = [
     'BROWSER_FLOW_HOSTS',
+    'BROWSER_REQUIRED_HOSTS',
+    'BROWSER_UNSUPPORTED_MESSAGE',
     'BrowserFlow',
     'BrowserSolveResult',
     'flow_for_host',
+    'is_browser_supported',
     'solve_download_page',
 ]
 
@@ -102,6 +105,13 @@ _BROWSER_SLOTS = threading.BoundedSemaphore(DEFAULT_MAX_CONCURRENT_BROWSERS)
 # without spending the retry budget a real failure needs.
 QUEUE_WAIT_MESSAGE = "같은 사이트의 다른 링크를 처리하는 중이라 대기열에서 시간이 초과되었습니다"
 
+# Classified by error_messages as a terminal, clearly-explained failure rather than
+# something the user could fix by retrying.
+BROWSER_UNSUPPORTED_MESSAGE = (
+    "이 호스터는 브라우저 캡차 우회가 필요하며 Docker 버전에서만 지원됩니다 "
+    "(standalone 빌드에는 브라우저가 포함되어 있지 않습니다)"
+)
+
 
 def _host_lock(host: str) -> threading.Lock:
     """The queue for one site, created on first use."""
@@ -155,9 +165,16 @@ _FLOWS = {
     "send.now": SEND_NOW_FLOW,
 }
 
-# Hosts known to need the browser. Used to route their parses onto the dedicated
-# pool in core.executors, so a minutes-long solve never occupies a shared worker.
+# Hosts that have a browser flow at all. Used to route their parses onto the
+# dedicated pool in core.executors, so a minutes-long solve never occupies a
+# shared worker.
 BROWSER_FLOW_HOSTS = frozenset(_FLOWS)
+
+# The subset where the browser is unavoidable: every free download ends at a
+# captcha, so a build without one can refuse the link immediately. Send.now is
+# deliberately absent — it only shows a captcha sometimes, and FlareSolverr still
+# resolves the rest, so gating it up front would break links that do work.
+BROWSER_REQUIRED_HOSTS = frozenset({"datanodes.to"})
 
 
 def flow_for_host(host: str) -> BrowserFlow:
@@ -242,19 +259,24 @@ def _queued_browser_slot(host: str, deadline: "Deadline"):
         site_queue.release()
 
 
-def _require_display() -> None:
-    """Refuse early anywhere the fallback cannot actually run.
+def is_browser_supported() -> bool:
+    """Whether this build can actually drive a browser.
 
     Turnstile never issues a token to a headless browser, so a real display is
-    mandatory. Only the Docker image provides one (Xvfb) and ships Chromium; the
-    standalone builds bundle neither, so they must fail with a reason the user can
-    act on instead of a missing-executable crash from deep inside Playwright.
+    required. Only the Docker image provides one (Xvfb) and ships Chromium.
     """
-    if not os.environ.get("DISPLAY"):
-        raise HosterParseError(
-            "이 호스터는 브라우저 캡차 우회가 필요하며 Docker 버전에서만 지원됩니다 "
-            "(standalone 빌드에는 브라우저가 포함되어 있지 않습니다)"
-        )
+    return bool(os.environ.get("DISPLAY"))
+
+
+def _require_display() -> None:
+    """Refuse anywhere the fallback cannot run, with a reason the user can act on.
+
+    Without this the standalone build would crash deep inside Playwright with a
+    missing-executable error, because the import that pulls Playwright in happens
+    long before anything checks whether a browser exists.
+    """
+    if not is_browser_supported():
+        raise HosterParseError(BROWSER_UNSUPPORTED_MESSAGE)
 
 
 class Deadline:

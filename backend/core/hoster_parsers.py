@@ -35,6 +35,11 @@ from core.hoster_common import (
 from core.hoster_sites import *  # noqa: F403
 from core.hoster_sites import BUNKR_HOSTS, _extract_megaup_file_info
 # info_extract targets are also resolved via globals() by HOSTER_REGISTRY:
+from core.browser_solver import (
+    BROWSER_REQUIRED_HOSTS,
+    BROWSER_UNSUPPORTED_MESSAGE,
+    is_browser_supported,
+)
 from core.hoster_sites import (  # noqa: F401
     _extract_datanodes_file_info,
     _extract_mediafire_file_info,
@@ -121,6 +126,11 @@ def parse_special_hoster_sync(
     spec = _HOST_TO_SPEC.get(_host(url))
     if spec is None:
         raise HosterParseError("지원하지 않는 호스팅 사이트")
+    # Hosts that always end at a captcha are refused up front on builds without a
+    # browser. Discovering it mid-parse still failed, but only after a page fetch
+    # and a form POST that could never lead anywhere.
+    if _host(url).removeprefix("www.") in BROWSER_REQUIRED_HOSTS and not is_browser_supported():
+        raise HosterParseError(BROWSER_UNSUPPORTED_MESSAGE)
     return globals()[spec.parse](url, proxies=proxies)
 
 

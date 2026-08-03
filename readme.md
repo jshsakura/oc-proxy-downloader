@@ -20,18 +20,47 @@ A FastAPI + Svelte web app for stable downloads from 1fichier, MEGA, DataNodes, 
 - 📱 **Responsive UI**: Mobile/Desktop optimized
 - 🛡️ **Optional Authentication**: JWT-based security (optional)
 
-## 🌩️ Host support & FlareSolverr
+## 🐳 Runtime (Docker is the target)
 
-| Host | Needs FlareSolverr | Windows app (no bundled FlareSolverr) |
-|------|--------------------|----------------------------------------|
-| 1fichier, MEGA | No | ✅ Works |
-| Pixeldrain | No (public API) | ✅ Works |
-| GoFile | No (residential IP only) | ✅ Works from a home IP/NAS |
-| DataNodes, MediaFire | Only when Cloudflare-challenged | 🟡 Works unless challenged |
-| MegaUp | Yes (Cloudflare) | ❌ Needs an external FlareSolverr |
-| Bunkr | When Cloudflare-challenged | 🟡 Best-effort; encrypted-CDN links may not resolve |
+**This project is built for Docker.** Some hosts gate their downloads behind a
+Cloudflare Turnstile widget embedded in the page, and clearing it takes a **real
+browser** — headless never gets a token, so Chromium has to run against a virtual
+display (Xvfb). Both ship **only in the Docker image**.
 
-FlareSolverr is **bundled in `docker-compose.yml`** (sidecar) and wired automatically. You can override its address in **Settings → FlareSolverr URL** (or the `FLARESOLVERR_URL` env var) — useful for the Windows app, where you can point it at a separately-run FlareSolverr.
+Running with `docker compose` brings **FlareSolverr up alongside the app**. There is
+nothing to install or configure: the app reaches it by service name
+(`http://flaresolverr:8191`).
+
+```bash
+docker compose up -d      # app + FlareSolverr together
+```
+
+> Installing the containers **separately** — TrueNAS or Synology apps, for instance —
+> means service-name DNS does not resolve. Set **Settings → FlareSolverr URL** to
+> `http://<host IP>:<published port>` instead.
+
+The Windows executable **bundles no browser**, to stay a single portable file. Hosts
+marked ❌ below are unsupported there, and adding such a link reports that right away.
+
+## 🌩️ Host support
+
+| Host | Requires | Windows app |
+|------|----------|-------------|
+| 1fichier, MEGA | nothing | ✅ Works |
+| Pixeldrain | nothing (public API) | ✅ Works |
+| GoFile | a residential IP (datacenter IPs are blocked) | ✅ Works from a home IP/NAS |
+| MediaFire | FlareSolverr when Cloudflare-challenged | 🟡 Works unless challenged |
+| MegaUp | FlareSolverr (always) | ❌ Needs an external FlareSolverr |
+| Bunkr | FlareSolverr when challenged | 🟡 Encrypted-CDN links may not resolve |
+| **DataNodes** | **a browser (Turnstile captcha)** | ❌ **Docker only** |
+| Send.now | FlareSolverr, or a browser when captcha-gated | 🟡 Fails if a captcha appears |
+
+Captcha solving runs **one link at a time per site**. Queue up as many as you like —
+they are worked through in order, and waiting for a turn never costs a link its
+retry budget.
+
+> Turnstile does not issue tokens to datacenter/VPS addresses. Verified working from
+> a residential connection (NAS).
 
 ---
 
