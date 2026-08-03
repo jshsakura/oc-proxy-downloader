@@ -42,6 +42,7 @@ from core.hoster_parsers import (
     parse_special_hoster_sync,
 )
 from core.error_messages import apply_failure_to_request, KIND_BLOCKED, KIND_RATE_LIMITED
+from core.executors import parse_executor_for
 from core.mega_hoster import (
     MegaApiError,
     download_mega_file,
@@ -2086,7 +2087,7 @@ class DownloadCore:
                 try:
                     parse_result = await asyncio.wait_for(
                         loop.run_in_executor(
-                            None,
+                            parse_executor_for(req.url),
                             lambda: parse_special_hoster_sync(req.url, req.password),
                         ),
                         timeout=SPECIAL_HOSTER_PARSE_TIMEOUT_SEC,
@@ -2137,7 +2138,7 @@ class DownloadCore:
                     try:
                         parse_result = await asyncio.wait_for(
                             loop.run_in_executor(
-                                None,
+                                parse_executor_for(req.url),
                                 lambda p=proxies: parse_special_hoster_sync(
                                     req.url, req.password, proxies=p
                                 ),
