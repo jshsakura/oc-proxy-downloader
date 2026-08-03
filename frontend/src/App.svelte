@@ -10,16 +10,14 @@
     initializeLocale,
     loadTranslations,
     fetchAvailableLanguages,
-    formatTimestamp,
-  } from "./lib/i18n.js";
+    formatTimestamp } from "./lib/i18n.js";
   import {
     needsLogin,
     authLoading,
     isAuthenticated,
     authRequired,
     authManager,
-    authUser,
-  } from "./lib/auth.js";
+    authUser, authenticatedFetch } from "./lib/auth.js";
   import LoginScreen from "./lib/LoginScreen.svelte";
   import DetailModal from "./lib/DetailModal.svelte";
   import PauseIcon from "./icons/PauseIcon.svelte";
@@ -122,8 +120,7 @@
     totalAttempting: 0,
     status: "",
     lastError: "",
-    activeDownloadCount: 0,
-  };
+    activeDownloadCount: 0 };
 
   let localStats = {
     localDownloadCount: 0,
@@ -131,8 +128,7 @@
     localCurrentFile: "",
     localProgress: 0,
     localWaitTime: 0,
-    activeLocalDownloads: [],
-  };
+    activeLocalDownloads: [] };
 
   let downloadProxyInfo = {};
   let downloadWaitInfo = {};
@@ -212,8 +208,7 @@
     title = null,
     icon = null,
     confirmText = null,
-    cancelText = null,
-  }) {
+    cancelText = null }) {
     confirmMessage = message;
     confirmAction = () => {
       onConfirm && onConfirm();
@@ -477,7 +472,7 @@
 
   async function fetchSettings() {
     try {
-      const response = await fetch("/api/settings");
+      const response = await authenticatedFetch("/api/settings");
       if (response.ok) {
         const settingsData = await response.json();
         currentSettings = settingsData;
@@ -492,7 +487,7 @@
 
   async function fetchProxyStatus() {
     try {
-      const response = await fetch("/api/proxy-status");
+      const response = await authenticatedFetch("/api/proxy-status");
       if (response.ok) {
         const data = await response.json();
         proxyStats = {
@@ -502,8 +497,7 @@
           usedProxies: data.used_proxies,
           successCount: data.success_count,
           failCount: data.fail_count,
-          status_message: data.status_message,
-        };
+          status_message: data.status_message };
       }
     } catch (error) {
       console.error($t("proxy_status_fetch_failed"), error);
@@ -512,7 +506,7 @@
 
   async function checkProxyAvailability() {
     try {
-      const response = await fetch("/api/proxies/available");
+      const response = await authenticatedFetch("/api/proxies/available");
       if (response.ok) {
         const data = await response.json();
         proxyAvailable = data.available;
@@ -582,7 +576,7 @@
 
   async function fetchSystemStats() {
     try {
-      const response = await fetch("/api/system/stats");
+      const response = await authenticatedFetch("/api/system/stats");
       if (response.ok) {
         systemStats = await response.json();
       }
@@ -1042,8 +1036,7 @@
         const { id, remaining, total } = message.data;
         downloadWaitInfo[id] = {
           remaining_time: remaining,
-          total_time: total,
-        };
+          total_time: total };
         queueStateUpdate(() => {
           downloadWaitInfo = { ...downloadWaitInfo };
         });
@@ -1108,8 +1101,7 @@
               ? {
                   ...d,
                   filename: filename || d.filename,
-                  file_size: file_size || d.file_size,
-                }
+                  file_size: file_size || d.file_size }
               : d,
           );
           activeDownloads = activeDownloads.map((d) =>
@@ -1117,8 +1109,7 @@
               ? {
                   ...d,
                   filename: filename || d.filename,
-                  file_size: file_size || d.file_size,
-                }
+                  file_size: file_size || d.file_size }
               : d,
           );
         });
@@ -1300,7 +1291,7 @@
   // Fetch the small live list (in-progress items) for gauges + proxy/local stats.
   async function fetchActiveDownloads() {
     try {
-      const response = await fetch("/api/downloads/active");
+      const response = await authenticatedFetch("/api/downloads/active");
       if (response.ok) {
         const data = await response.json();
         activeDownloads = Array.isArray(data.downloads) ? data.downloads : [];
@@ -1444,8 +1435,7 @@
         d.total_size > 0
           ? Math.round((d.downloaded_size / d.total_size) * 100)
           : 0,
-      status: d.status,
-    }));
+      status: d.status }));
 
     localStats = { ...localStats };
   }
@@ -1457,11 +1447,10 @@
     
     isAddingDownload = true;
     try {
-      const response = await fetch("/api/download/", {
+      const response = await authenticatedFetch("/api/download/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, password, use_proxy: useProxy }),
-      });
+        body: JSON.stringify({ url, password, use_proxy: useProxy }) });
       if (response.ok) {
         const newDownload = await response.json();
         if (newDownload.already_completed) {
@@ -1505,11 +1494,10 @@
 
     // Send exactly the payload received from the modal's 'start' event.
     try {
-      const response = await fetch("/api/downloads/audit", {
+      const response = await authenticatedFetch("/api/downloads/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+        body: JSON.stringify(payload) });
       if (response.status === 409) {
         toast.warning($t("audit_already_running"));
         return;
@@ -1545,11 +1533,10 @@
     const ids = pendingBulkDelete;
     pendingBulkDelete = [];
     try {
-      const response = await fetch("/api/downloads/bulk-delete", {
+      const response = await authenticatedFetch("/api/downloads/bulk-delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
-      });
+        body: JSON.stringify({ ids }) });
       if (!response.ok) {
         let detail = response.statusText;
         try {
@@ -1670,9 +1657,8 @@
       message: $t("delete_confirm"),
       onConfirm: async () => {
         try {
-          const response = await fetch(`/api/delete/${id}`, {
-            method: "DELETE",
-          });
+          const response = await authenticatedFetch(`/api/delete/${id}`, {
+            method: "DELETE" });
           if (response.ok) {
             toast.success($t("download_deleted_success"));
             // Optimistically drop from both grid and active lists; refresh badge counts.
@@ -1695,8 +1681,7 @@
       icon: '<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>',
       confirmText: $t("button_delete"),
       cancelText: $t("button_cancel"),
-      isDeleteAction: true,
-    });
+      isDeleteAction: true });
   }
 
   function formatBytes(bytes, decimals = 2) {
@@ -1782,8 +1767,7 @@
         return $t("status_tooltip_failed_with_proxy", {
           error: download.error_message,
           proxy: proxyInfo.proxy,
-          proxy_error: proxyInfo.error,
-        });
+          proxy_error: proxyInfo.error });
       }
       return download.error_message;
     }
@@ -1792,8 +1776,7 @@
       const statusIcon = {
         trying: "🔄",
         success: "✅",
-        failed: "❌",
-      };
+        failed: "❌" };
 
       const icon = statusIcon[proxyInfo.status] || "❓";
       let tooltip = `${icon} ${$t("proxy_tooltip_proxy")}: ${proxyInfo.proxy}\n${$t("proxy_tooltip_step")}: ${proxyInfo.step}`;
@@ -1821,8 +1804,7 @@
       downloading: $t("download_downloading"),
       done: $t("download_done"),
       stopped: $t("download_stopped"),
-      failed: $t("download_failed"),
-    };
+      failed: $t("download_failed") };
 
     return statusTooltips[download.status.toLowerCase()] || download.status;
   }
@@ -1838,15 +1820,13 @@
     if (date.toDateString() === today.toDateString()) {
       return date.toLocaleTimeString(currentLocale, {
         hour: "2-digit",
-        minute: "2-digit",
-      });
+        minute: "2-digit" });
     }
 
     // Otherwise: short, localized date
     return date.toLocaleDateString(currentLocale, {
       month: "short",
-      day: "numeric",
-    });
+      day: "numeric" });
   }
 
   function formatFullDateTime(dateString) {
@@ -1993,16 +1973,15 @@
 
   async function openFolderDialog() {
     try {
-      const response = await fetch("/api/select_folder");
+      const response = await authenticatedFetch("/api/select_folder");
       if (response.ok) {
         const data = await response.json();
         if (data.path) {
           downloadPath = data.path;
-          await fetch("/api/settings", {
+          await authenticatedFetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ download_path: downloadPath }),
-          });
+            body: JSON.stringify({ download_path: downloadPath }) });
         }
       } else {
         console.error("Failed to open folder dialog");
@@ -2024,15 +2003,13 @@
 
   async function redownload(download) {
     try {
-      const response = await fetch("/api/download/", {
+      const response = await authenticatedFetch("/api/download/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: download.url,
           password: "",
-          use_proxy: download.use_proxy || false,
-        }),
-      });
+          use_proxy: download.use_proxy || false }) });
       if (response.ok) {
         toast.success($t("redownload_requested"));
         syncDownloadsSilently(); // Quiet update on re-download request
@@ -2651,8 +2628,7 @@
                             `/api/downloads/${download.id}/proxy-toggle`,
                             {
                               method: "PUT",
-                              headers: { "Content-Type": "application/json" },
-                            }
+                              headers: { "Content-Type": "application/json" } }
                           );
 
                           if (response.ok) {
@@ -2841,8 +2817,7 @@
               end: Math.min(
                 currentPage * itemsPerPage,
                 currentTabTotalCount
-              ),
-            })}
+              ) })}
           {/if}
         </div>
       </div>

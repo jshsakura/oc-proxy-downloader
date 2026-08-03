@@ -19,8 +19,7 @@
     authRequired,
     isAuthenticated,
     authUser,
-    authManager,
-  } from "./auth.js";
+    authManager, authenticatedFetch } from "./auth.js";
 
   const dispatch = createEventDispatcher();
 
@@ -112,14 +111,12 @@
     }
     fichierTestLoading = true;
     try {
-      const res = await fetch("/api/fichier/test-login", {
+      const res = await authenticatedFetch("/api/fichier/test-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: settings.fichier_email,
-          password: settings.fichier_password,
-        }),
-      });
+          password: settings.fichier_password }) });
       const data = await res.json();
       if (data.success) {
         toast.success(data.message || $t("fichier_test_login"));
@@ -139,8 +136,7 @@
     current_version: "v1.0.0",
     latest_version: null,
     update_available: false,
-    error: null,
-  };
+    error: null };
   let isLoadingVersion = false;
 
   $: isSettingsLoading = !settings || Object.keys(settings).length === 0;
@@ -151,7 +147,7 @@
 
   async function loadUserProxies() {
     try {
-      const response = await fetch("/api/proxies/");
+      const response = await authenticatedFetch("/api/proxies/");
       if (response.ok) {
         const data = await response.json();
         userProxies = data.proxies || [];
@@ -170,14 +166,12 @@
 
     isAddingProxy = true;
     try {
-      const response = await fetch("/api/proxies", {
+      const response = await authenticatedFetch("/api/proxies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           address: newProxyAddress.trim(),
-          description: newProxyDescription.trim(),
-        }),
-      });
+          description: newProxyDescription.trim() }) });
 
       if (response.ok) {
         toast.success($t("proxy_added_success"));
@@ -198,9 +192,8 @@
 
   async function deleteProxy(proxyId) {
     try {
-      const response = await fetch(`/api/proxies/${proxyId}`, {
-        method: "DELETE",
-      });
+      const response = await authenticatedFetch(`/api/proxies/${proxyId}`, {
+        method: "DELETE" });
 
       if (response.ok) {
         toast.success($t("proxy_deleted_success"));
@@ -216,9 +209,8 @@
 
   async function toggleProxy(proxyId) {
     try {
-      const response = await fetch(`/api/proxies/${proxyId}/toggle`, {
-        method: "PUT",
-      });
+      const response = await authenticatedFetch(`/api/proxies/${proxyId}/toggle`, {
+        method: "PUT" });
 
       if (response.ok) {
         await loadUserProxies();
@@ -238,8 +230,7 @@
     return new Date(dateString).toLocaleDateString(currentLocale, {
       year: "numeric",
       month: "long",
-      day: "numeric",
-    });
+      day: "numeric" });
   }
 
   async function copyToClipboard(text) {
@@ -272,17 +263,14 @@
     }
 
     try {
-      const response = await fetch("/api/telegram/test", {
+      const response = await authenticatedFetch("/api/telegram/test", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
-        },
+          Authorization: `Bearer ${localStorage.getItem("access_token")}` },
         body: JSON.stringify({
           bot_token: settings.telegram_bot_token,
-          chat_id: settings.telegram_chat_id,
-        }),
-      });
+          chat_id: settings.telegram_chat_id }) });
 
       if (response.ok) {
         toast.success($t("telegram_test_success"));
@@ -313,8 +301,7 @@
       fichier_password: currentSettings.fichier_password || "",
       flaresolverr_url: currentSettings.flaresolverr_url || "",
       max_concurrent_downloads: currentSettings.max_concurrent_downloads ?? 8,
-      max_per_host_downloads: currentSettings.max_per_host_downloads ?? 3,
-    };
+      max_per_host_downloads: currentSettings.max_per_host_downloads ?? 3 };
     selectedTheme = settings.theme || $theme;
     originalTheme = $theme;
     selectedLocale = localStorage.getItem("lang") || "ko";
@@ -348,17 +335,15 @@
     const settingsToSave = {
       ...settings,
       theme: selectedTheme,
-      language: selectedLocale,
-    };
+      language: selectedLocale };
 
     console.log("[DEBUG] Saving settings:", settingsToSave);
 
     try {
-      const response = await fetch("/api/settings", {
+      const response = await authenticatedFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settingsToSave),
-      });
+        body: JSON.stringify(settingsToSave) });
 
       console.log("[DEBUG] Save API response:", response.status);
 
@@ -374,8 +359,7 @@
       } else {
         console.error("[ERROR] Save failed:", response.status);
         let errorMessage = $t("settings_save_failed", {
-          details: response.status,
-        });
+          details: response.status });
 
         if (response.status === 500) {
           errorMessage += ` - ${$t("settings_save_error_server")}`;
@@ -398,7 +382,7 @@
   async function resetToDefault() {
     try {
       console.log("[DEBUG] Calling API to get default path");
-      const response = await fetch("/api/default_download_path");
+      const response = await authenticatedFetch("/api/default_download_path");
       console.log("[DEBUG] API response received:", response.status);
 
       if (response.ok) {
@@ -408,8 +392,7 @@
         // Save the environment information
         environmentInfo = {
           is_standalone: data.is_standalone || false,
-          is_docker: data.is_docker || false,
-        };
+          is_docker: data.is_docker || false };
 
         if (data.default_download_path) {
           settings = { ...settings, download_path: data.default_download_path };
@@ -441,10 +424,9 @@
     }
 
     try {
-      const response = await fetch("/api/select_folder", {
+      const response = await authenticatedFetch("/api/select_folder", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+        headers: { "Content-Type": "application/json" } });
 
       if (response.ok) {
         const data = await response.json();
@@ -491,11 +473,9 @@
 
     try {
       isLoadingVersion = true;
-      const response = await fetch("/api/version", {
+      const response = await authenticatedFetch("/api/version", {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
-        },
-      });
+          Authorization: `Bearer ${localStorage.getItem("access_token")}` } });
 
       if (response.ok) {
         versionInfo = await response.json();
@@ -524,13 +504,12 @@
 
   onMount(async () => {
     try {
-      const response = await fetch("/api/default_download_path");
+      const response = await authenticatedFetch("/api/default_download_path");
       if (response.ok) {
         const data = await response.json();
         environmentInfo = {
           is_standalone: data.is_standalone || false,
-          is_docker: data.is_docker || false,
-        };
+          is_docker: data.is_docker || false };
       }
     } catch (error) {
       console.warn("[WARN] Failed to load environment info:", error);
@@ -996,8 +975,7 @@
                     <div class="proxy-page-info">
                       {$t("proxy_page_range", {
                         start: (currentPage - 1) * itemsPerPage + 1,
-                        end: Math.min(currentPage * itemsPerPage, userProxies.length),
-                      })}
+                        end: Math.min(currentPage * itemsPerPage, userProxies.length) })}
                     </div>
                   {/if}
                 </div>
@@ -1417,8 +1395,7 @@
                           on:change={(e) => {
                             settings = {
                               ...settings,
-                              telegram_notify_success: e.currentTarget.checked,
-                            };
+                              telegram_notify_success: e.currentTarget.checked };
                           }}
                         />
                         <span class="telegram-checkbox-text"
@@ -1433,8 +1410,7 @@
                           on:change={(e) => {
                             settings = {
                               ...settings,
-                              telegram_notify_failure: e.currentTarget.checked,
-                            };
+                              telegram_notify_failure: e.currentTarget.checked };
                           }}
                         />
                         <span class="telegram-checkbox-text"
@@ -1449,8 +1425,7 @@
                           on:change={(e) => {
                             settings = {
                               ...settings,
-                              telegram_notify_wait: e.currentTarget.checked,
-                            };
+                              telegram_notify_wait: e.currentTarget.checked };
                           }}
                         />
                         <span class="telegram-checkbox-text"
@@ -1468,8 +1443,7 @@
                           on:change={(e) => {
                             settings = {
                               ...settings,
-                              telegram_notify_start: e.currentTarget.checked,
-                            };
+                              telegram_notify_start: e.currentTarget.checked };
                           }}
                         />
                         <span class="telegram-checkbox-text"

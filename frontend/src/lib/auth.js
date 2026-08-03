@@ -165,15 +165,29 @@ export const needsLogin = derived(
     }
 );
 
-// A fetch wrapper that adds authentication headers to API requests
+// A fetch wrapper that adds authentication headers to API requests.
+//
+// It also owns the one reaction to a rejected token. The token is only verified
+// when the page loads, so one that expires while the page is open (24h by
+// default) leaves every poll answering 401. Callers check `response.ok` and
+// simply skip the update, so nothing changed on screen and nothing said why —
+// the UI sat on loading skeletons indefinitely, and restarting the server could
+// not help because the stale token lives in the browser. Dropping the session
+// here sends the user to the login screen, which is recoverable.
 export async function authenticatedFetch(url, options = {}) {
     const headers = {
         ...options.headers,
         ...authManager.getAuthHeaders()
     };
 
-    return fetch(url, {
+    const response = await fetch(url, {
         ...options,
         headers
     });
+
+    if (response.status === 401) {
+        authManager.logout();
+    }
+
+    return response;
 }

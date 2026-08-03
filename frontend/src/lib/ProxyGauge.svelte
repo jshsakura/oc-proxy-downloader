@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher } from "svelte";
+  import { authenticatedFetch } from "./auth.js";
   import { t } from "./i18n.js";
   import NetworkIcon from "../icons/NetworkIcon.svelte";
   import StopIcon from "../icons/StopIcon.svelte";
@@ -52,13 +53,11 @@
 
     try {
       isStoppingAll = true;
-      const response = await fetch("/api/downloads/stop-all-proxy", {
+      const response = await authenticatedFetch("/api/downloads/stop-all-proxy", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-        },
-      });
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         const result = await response.json();
         console.log("프록시 다운로드 정지 완료:", result.message);
@@ -80,13 +79,11 @@
 
     try {
       isRestartingAll = true;
-      const response = await fetch("/api/downloads/restart-failed-proxy", {
+      const response = await authenticatedFetch("/api/downloads/restart-failed-proxy", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-        },
-      });
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         const result = await response.json();
         console.log("프록시 다운로드 재시작 완료:", result.message);
@@ -105,13 +102,11 @@
 
     try {
       isRefreshing = true;
-      const response = await fetch("/api/proxy-status/reset", {
+      const response = await authenticatedFetch("/api/proxy-status/reset", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-        },
-      });
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         // Notify that the reset succeeded
         console.log($t("proxy_reset_success"));
