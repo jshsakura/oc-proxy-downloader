@@ -664,7 +664,7 @@ async def toggle_proxy_mode(download_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/downloads/health-check")
-async def download_health_check():
+def download_health_check():
     """Download system health check"""
     try:
         active_tasks = len(download_core.download_tasks)

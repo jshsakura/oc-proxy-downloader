@@ -66,7 +66,7 @@ router = APIRouter(prefix="/api", tags=["proxy"])
 
 
 @router.get("/proxies/")
-async def get_proxies(request: Request, db: Session = Depends(get_db)):
+def get_proxies(request: Request, db: Session = Depends(get_db)):
     """Get the proxy list (returns only user-added proxy settings)"""
     try:
         user_proxies = db.query(UserProxy).all()
@@ -90,7 +90,7 @@ async def get_proxies(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/proxies")
-async def add_proxy(request: Request, db: Session = Depends(get_db), data: dict = Body(...)):
+def add_proxy(request: Request, db: Session = Depends(get_db), data: dict = Body(...)):
     """Add a proxy"""
     try:
         address = data.get("address", "").strip()
@@ -129,7 +129,7 @@ async def add_proxy(request: Request, db: Session = Depends(get_db), data: dict 
 
 
 @router.delete("/proxies/{proxy_id}")
-async def delete_proxy(proxy_id: int, request: Request, db: Session = Depends(get_db)):
+def delete_proxy(proxy_id: int, request: Request, db: Session = Depends(get_db)):
     """Delete a proxy"""
     try:
         proxy = db.query(UserProxy).filter(UserProxy.id == proxy_id).first()
@@ -148,7 +148,7 @@ async def delete_proxy(proxy_id: int, request: Request, db: Session = Depends(ge
 
 
 @router.put("/proxies/{proxy_id}/toggle")
-async def toggle_proxy(proxy_id: int, request: Request, db: Session = Depends(get_db)):
+def toggle_proxy(proxy_id: int, request: Request, db: Session = Depends(get_db)):
     """Toggle a proxy active/inactive"""
     try:
         proxy = db.query(UserProxy).filter(UserProxy.id == proxy_id).first()
@@ -256,7 +256,7 @@ async def get_proxy_status(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/proxies/available")
-async def check_proxy_availability(request: Request, db: Session = Depends(get_db)):
+def check_proxy_availability(request: Request, db: Session = Depends(get_db)):
     """Check whether proxies are available"""
     try:
         proxies = get_user_proxy_list(db)
@@ -270,7 +270,7 @@ async def check_proxy_availability(request: Request, db: Session = Depends(get_d
 
 
 @router.post("/proxy-status/reset")
-async def reset_proxy_status(request: Request, db: Session = Depends(get_db)):
+def reset_proxy_status(request: Request, db: Session = Depends(get_db)):
     """Reset proxy status"""
     try:
         # Reset proxy usage

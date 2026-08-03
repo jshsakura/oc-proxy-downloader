@@ -13,13 +13,13 @@ router = APIRouter(prefix="/api", tags=["locales"])
 
 
 @router.get("/locales")
-async def list_locales():
+def list_locales():
     """Return available languages as [{code, name, rtl}], sorted by display name."""
     return {"languages": get_available_languages()}
 
 
 @router.get("/locales/{lang}.json")
-async def get_locale(lang: str, request: Request):
+def get_locale(lang: str, request: Request):
     """Get a language file"""
     try:
         translations = get_translations(lang)
@@ -38,7 +38,7 @@ async def get_locale(lang: str, request: Request):
 
 
 @router.post("/locales/reload")
-async def reload_locale(request: Request):
+def reload_locale(request: Request):
     """Reload the translation cache"""
     try:
         success = reload_translations()

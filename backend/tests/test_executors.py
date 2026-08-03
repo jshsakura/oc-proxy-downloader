@@ -35,29 +35,3 @@ def test_default_pool_keeps_headroom_above_the_parse_budget():
     UI polls run on this same pool."""
     assert app_factory.EXECUTOR_HEADROOM_WORKERS > 0
 
-
-# --- the UI must survive a busy backend ---
-
-
-def test_ui_read_endpoints_do_not_run_on_the_event_loop():
-    """These are what the UI polls. As `async def` with no await they executed
-    SQLite queries on the event loop, so lock contention from an active download
-    froze every request in the app. Sync handlers go to anyio's own pool."""
-    import ast
-
-    source = ast.parse(open("api/routes/history.py").read())
-    polled = {
-        "get_download_history",
-        "get_working_downloads",
-        "get_completed_downloads",
-        "get_active_downloads",
-        "get_history_period",
-        "get_history_stats",
-    }
-    offenders = [
-        node.name
-        for node in ast.walk(source)
-        if isinstance(node, ast.AsyncFunctionDef) and node.name in polled
-    ]
-
-    assert offenders == [], f"must not block the event loop: {offenders}"

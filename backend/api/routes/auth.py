@@ -68,7 +68,7 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
         )
 
 @router.post("/login", response_model=LoginResponse)
-async def login(login_request: LoginRequest):
+def login(login_request: LoginRequest):
     """Handle login"""
     if not AUTHENTICATION_ENABLED:
         raise HTTPException(
@@ -92,7 +92,7 @@ async def login(login_request: LoginRequest):
     )
 
 @router.get("/status")
-async def auth_status():
+def auth_status():
     """Check authentication status"""
     return {
         "authentication_enabled": AUTHENTICATION_ENABLED,
@@ -101,7 +101,7 @@ async def auth_status():
     }
 
 @router.get("/verify")
-async def verify_auth(current_user: dict = Depends(verify_token)):
+def verify_auth(current_user: dict = Depends(verify_token)):
     """Verify the token"""
     return {
         "valid": True,
