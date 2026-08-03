@@ -180,9 +180,9 @@ def test_datanodes_turnstile_page_goes_straight_to_the_browser(monkeypatch):
 # --- serialisation ---
 
 
-def test_solves_are_serialised_process_wide(monkeypatch):
-    """parse_concurrency (default 3) would otherwise start three headful Chromium
-    instances at once and hit the host in a burst."""
+def test_solves_for_one_site_never_overlap(monkeypatch):
+    """A site must never be hit concurrently: parse_concurrency (default 3) would
+    otherwise start three browsers against the same host at once."""
     import threading
 
     monkeypatch.setenv("DISPLAY", ":99")
@@ -247,8 +247,9 @@ def test_deadline_clips_a_step_timeout_to_what_is_left():
     assert bs.Deadline(600).budget_ms(20_000) == 20_000
 
 
-def test_lock_is_released_when_a_solve_fails(monkeypatch):
-    """A raise inside the browser must not strand the lock and wedge the queue."""
+def test_queue_slots_are_released_when_a_solve_fails(monkeypatch):
+    """A raise inside the browser must strand neither the site queue nor a browser
+    slot, or that site wedges permanently."""
     monkeypatch.setenv("DISPLAY", ":99")
 
     def boom():
@@ -259,8 +260,11 @@ def test_lock_is_released_when_a_solve_fails(monkeypatch):
     with pytest.raises(RuntimeError):
         bs.solve_download_page("https://datanodes.to/abc", bs.DATANODES_FLOW)
 
-    assert bs._SOLVE_LOCK.acquire(timeout=1), "lock must be free after a failure"
-    bs._SOLVE_LOCK.release()
+    site_queue = bs._host_lock("datanodes.to")
+    assert site_queue.acquire(timeout=1), "site queue must be free after a failure"
+    site_queue.release()
+    assert bs._BROWSER_SLOTS.acquire(timeout=1), "browser slot must be returned"
+    bs._BROWSER_SLOTS.release()
 
 
 def test_queued_solve_gives_up_when_no_useful_time_remains(monkeypatch):
@@ -272,3 +276,55 @@ def test_queued_solve_gives_up_when_no_useful_time_remains(monkeypatch):
 
     with pytest.raises(HosterParseError, match="대기열에서 시간이 초과"):
         bs.solve_download_page("https://datanodes.to/abc", bs.DATANODES_FLOW)
+
+
+def test_different_sites_do_not_queue_behind_each_other(monkeypatch):
+    """Per-site queues are the point: a slow DataNodes solve must not hold up a
+    Send.now link, as a single global lock used to."""
+    import threading
+    import time
+
+    monkeypatch.setenv("DISPLAY", ":99")
+    started = []
+    release = threading.Event()
+
+    class _Blocking:
+        def __enter__(self):
+            started.append(time.monotonic())
+            release.wait(timeout=5)
+            raise RuntimeError("stop")
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(bs, "sync_playwright", lambda: _Blocking())
+
+    def run(url):
+        try:
+            bs.solve_download_page(url, bs.DEFAULT_FLOW)
+        except RuntimeError:
+            pass
+
+    threads = [
+        threading.Thread(target=run, args=("https://datanodes.to/a",)),
+        threading.Thread(target=run, args=("https://send.now/b",)),
+    ]
+    for t in threads:
+        t.start()
+    # Both hold their own site queue, and two browser slots exist, so both should
+    # have entered before either is released.
+    time.sleep(1.0)
+    entered_together = len(started) == 2
+    release.set()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert entered_together, "two different sites must be able to run at once"
+
+
+def test_queue_timeout_is_reported_as_queued_not_as_a_failure():
+    """The queue message has to classify as KIND_QUEUED; as a plain failure it
+    would eat the retry budget and eventually drop the link."""
+    from core.error_messages import KIND_QUEUED, classify_error
+
+    assert classify_error("파싱", bs.QUEUE_WAIT_MESSAGE).kind == KIND_QUEUED
