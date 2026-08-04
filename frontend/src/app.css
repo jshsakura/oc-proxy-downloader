@@ -2927,8 +2927,16 @@ table th:first-child {
 }
 
 .tabs {
-  display: flex;
+  display: inline-flex;
   gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 10px;
+  /* A track derived from each theme's own surface, so the segmented control
+     reads correctly in light and dark alike. The previous design filled the
+     inactive tab with a hardcoded light grey (--tab-inactive-bg: #e2e8f0),
+     which was only ever a light-theme value — on the dark themes it rendered a
+     bright chip that looked disabled. */
+  background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
 }
 
 /* 조회 조건(기간) 별도 줄 — PC 는 좌측 정렬, 모바일은 컨테이너 가득차게 풀폭 segmented. */
@@ -2976,12 +2984,14 @@ table th:first-child {
 }
 
 .tab {
-  background: var(--tab-inactive-bg, var(--bg-secondary));
-  padding: 0.6rem 1rem;
+  /* Inactive segments are transparent over the track — no hardcoded colour, so
+     they stay legible in every theme. Only the active segment gets a fill. */
+  background: transparent;
+  padding: 0.55rem 1.1rem;
   cursor: pointer;
   font-weight: 500;
   font-size: 0.875rem;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   color: var(--text-secondary);
   border-radius: 8px;
   position: relative;
@@ -2990,7 +3000,7 @@ table th:first-child {
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  min-height: 40px;
+  min-height: 38px;
 }
 
 .tab-icon {
@@ -3024,20 +3034,26 @@ table th:first-child {
 
 .tab:hover {
   color: var(--text-primary);
-  background-color: rgba(var(--primary-color-rgb), 0.08);
+  background-color: color-mix(in srgb, var(--text-primary) 8%, transparent);
   opacity: 1;
 }
 
-.tab.active {
-  color: var(--primary-color);
-  font-weight: 600;
-  background-color: rgba(var(--primary-color-rgb), 0.12);
-  opacity: 1;
-}
-
+/* Active segment: a solid raised pill so the selected tab is unmistakable
+   against the transparent inactive ones, in any theme. */
+.tab.active,
 .tab.active:hover {
+  color: #fff;
+  font-weight: 600;
+  background-color: var(--primary-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  opacity: 1;
+}
+
+/* On the primary fill the badge needs its own contrast rather than blending in. */
+.tab.active .tab-count {
+  background: #fff;
   color: var(--primary-color);
-  background-color: rgba(var(--primary-color-rgb), 0.15);
+  box-shadow: none;
 }
 
 /* 검색 컨테이너 스타일 */
