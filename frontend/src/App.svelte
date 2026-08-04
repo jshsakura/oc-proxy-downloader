@@ -565,7 +565,7 @@
       if (end) params.set("end_date", end);
       if (params.toString()) url += "?" + params.toString();
 
-      const response = await fetch(url);
+      const response = await authenticatedFetch(url);
       if (response.ok) {
         dashboardStats = await response.json();
       }
@@ -596,7 +596,7 @@
       params.set("page_size", "50");
       url += "?" + params.toString();
 
-      const response = await fetch(url);
+      const response = await authenticatedFetch(url);
       if (response.ok) {
         const data = await response.json();
         dashboardHistory = data.history || [];
@@ -1317,7 +1317,7 @@
     const url = qs ? `/api/history/stats?${qs}` : "/api/history/stats";
 
     try {
-      const response = await fetch(url);
+      const response = await authenticatedFetch(url);
       if (response.ok) {
         const data = await response.json();
         const statusCounts = data.by_status || {};
@@ -1588,7 +1588,7 @@
 
   async function callApi(endpoint, downloadId = null) {
     try {
-      const response = await fetch(endpoint, { method: "POST" });
+      const response = await authenticatedFetch(endpoint, { method: "POST" });
       
       if (response.ok) {
         const responseData = await response.json();
@@ -2627,7 +2627,7 @@
                         : $t("local_mode")}
                       on:click={async () => {
                         try {
-                          const response = await fetch(
+                          const response = await authenticatedFetch(
                             `/api/downloads/${download.id}/proxy-toggle`,
                             {
                               method: "PUT",
