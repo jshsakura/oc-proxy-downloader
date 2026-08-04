@@ -118,27 +118,36 @@ def test_other_routes_ignore_a_query_token():
 # --- server-to-server API token (oc-scraper 전송) ---
 
 
-def test_api_token_in_header_is_accepted(monkeypatch):
-    """oc-scraper authenticates its /api/download/ POST with a dedicated token in
-    X-API-Key — not the login id/password. A matching token must pass, or the
-    integration 401s (the "전송 실패" regression)."""
-    monkeypatch.setenv("API_TOKEN", "s3cr3t-token")
-    req = _FakeRequest("/api/download/", headers={"X-API-Key": "s3cr3t-token"})
+def test_stored_api_token_in_header_is_accepted(monkeypatch):
+    """The token is generated/stored in config and shown in the UI (not an env
+    var). oc-scraper sends it as X-API-Key; a match must pass, or the integration
+    401s (the "전송 실패" regression)."""
+    monkeypatch.delenv("API_TOKEN", raising=False)
+    monkeypatch.setattr(middleware, "get_or_create_api_token", lambda: "stored-tok-abc")
+    req = _FakeRequest("/api/download/", headers={"X-API-Key": "stored-tok-abc"})
 
     assert middleware._valid_api_token(req) is True
 
 
+def test_env_api_token_overrides(monkeypatch):
+    """An env API_TOKEN is honoured as an injection override alongside the stored one."""
+    monkeypatch.setenv("API_TOKEN", "env-tok")
+    monkeypatch.setattr(middleware, "get_or_create_api_token", lambda: "stored-tok")
+    assert middleware._valid_api_token(_FakeRequest("/api/download/", headers={"X-API-Key": "env-tok"})) is True
+    assert middleware._valid_api_token(_FakeRequest("/api/download/", headers={"X-API-Key": "stored-tok"})) is True
+
+
 def test_wrong_api_token_is_rejected(monkeypatch):
-    monkeypatch.setenv("API_TOKEN", "s3cr3t-token")
+    monkeypatch.delenv("API_TOKEN", raising=False)
+    monkeypatch.setattr(middleware, "get_or_create_api_token", lambda: "stored-tok-abc")
     req = _FakeRequest("/api/download/", headers={"X-API-Key": "nope"})
 
     assert middleware._valid_api_token(req) is False
 
 
-def test_api_token_off_when_unset(monkeypatch):
-    """With no API_TOKEN configured, the header grants nothing — the feature is
-    opt-in and can't be bypassed with an empty token."""
+def test_empty_api_key_header_grants_nothing(monkeypatch):
     monkeypatch.delenv("API_TOKEN", raising=False)
+    monkeypatch.setattr(middleware, "get_or_create_api_token", lambda: "stored-tok-abc")
     req = _FakeRequest("/api/download/", headers={"X-API-Key": ""})
 
     assert middleware._valid_api_token(req) is False

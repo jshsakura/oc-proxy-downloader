@@ -6,6 +6,7 @@ from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 
 from core.auth import AuthManager
+from core.config import get_or_create_api_token
 
 
 API_PREFIX = "/api/"
@@ -50,19 +51,21 @@ def _presented_token(request: Request) -> str:
 
 
 def _valid_api_token(request: Request) -> bool:
-    """Accept a static API token in the X-API-Key header (server-to-server).
+    """Accept the API token in the X-API-Key header (server-to-server).
 
-    Compared in constant time so a wrong token can't be recovered by timing. The
-    token is a dedicated secret, not the login id/password — the caller holds only
-    this, and it rotates independently.
+    The token is generated and stored in the app config (get_or_create_api_token),
+    shown and rotated from the Settings UI — not an env var. An env API_TOKEN is
+    still honoured as an override for deployments that prefer to inject it.
+    Compared in constant time so a wrong token can't be recovered by timing.
     """
-    configured = (os.environ.get(API_TOKEN_ENV) or "").strip()
-    if not configured:
-        return False
     presented = (request.headers.get(API_KEY_HEADER) or "").strip()
     if not presented:
         return False
-    return hmac.compare_digest(presented, configured)
+    env_token = (os.environ.get(API_TOKEN_ENV) or "").strip()
+    if env_token and hmac.compare_digest(presented, env_token):
+        return True
+    stored = (get_or_create_api_token() or "").strip()
+    return bool(stored) and hmac.compare_digest(presented, stored)
 
 
 async def require_api_auth(request: Request, call_next):

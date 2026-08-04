@@ -444,5 +444,13 @@
   "max_concurrent_hint": "모든 호스트를 합친 전체 상한입니다. 높일수록 한 번에 더 많은 대역폭을 사용합니다.",
   "max_per_host_label": "호스트당 최대 다운로드",
   "max_per_host_hint": "한 호스트의 큰 파일이 다른 호스트의 작은 파일을 굶기지 않도록 호스트마다 별도 큐를 둡니다.",
-  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191",
+  "api_token_legend": "연계 API 토큰",
+  "api_token_label": "토큰",
+  "api_token_hint": "oc-scraper 등 외부 앱이 /api 를 호출할 때 X-API-Key 헤더로 사용합니다. 이 값을 연계 앱에 붙여넣으세요.",
+  "api_token_copy": "복사",
+  "api_token_copied": "복사됨",
+  "api_token_regenerate": "재발급",
+  "api_token_regenerate_confirm": "토큰을 재발급하면 기존 토큰은 즉시 무효화됩니다. 계속할까요?",
+  "api_token_regenerated": "새 토큰이 발급되었습니다."
 }

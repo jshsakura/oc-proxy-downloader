@@ -444,5 +444,13 @@
   "max_concurrent_hint": "Global ceiling across all hosts. Higher uses more bandwidth at once.",
   "max_per_host_label": "Max downloads per host",
   "max_per_host_hint": "Keeps big files on one host from starving small files on another. Each host gets its own queue.",
-  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191",
+  "api_token_legend": "Integration API Token",
+  "api_token_label": "Token",
+  "api_token_hint": "Used by external apps (e.g. oc-scraper) as the X-API-Key header when calling /api. Paste this value into the integration.",
+  "api_token_copy": "Copy",
+  "api_token_copied": "Copied",
+  "api_token_regenerate": "Regenerate",
+  "api_token_regenerate_confirm": "Regenerating revokes the current token immediately. Continue?",
+  "api_token_regenerated": "A new token has been issued."
 }
