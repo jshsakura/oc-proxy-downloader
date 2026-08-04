@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Plik źródłowy już nie istnieje (nie można ponowić)",
   "retry_blocked_auth_required": "Wymagane logowanie do konta 1fichier — dodaj dane logowania w Ustawieniach, a następnie ponów",
   "retry_cooldown": "Zaplanowano automatyczne ponowienie ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Źródło usunięte",
   "kind_auth_required": "Wymagane logowanie",
   "kind_rate_limited": "Limit 1fichier",

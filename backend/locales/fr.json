@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Le fichier source n'existe plus (impossible de réessayer)",
   "retry_blocked_auth_required": "Connexion au compte 1fichier requise — ajoutez les identifiants dans les Paramètres, puis réessayez",
   "retry_cooldown": "Nouvelle tentative automatique programmée ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Source indisponible",
   "kind_auth_required": "Connexion requise",
   "kind_rate_limited": "Limite 1fichier",

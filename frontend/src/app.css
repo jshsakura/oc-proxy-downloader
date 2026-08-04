@@ -2867,6 +2867,15 @@ table th:first-child {
   animation: waitPulse 1.5s ease-in-out infinite;
 }
 
+/* Auto-retry budget spent — muted, no pulse, so it reads as "stopped, needs you"
+   rather than "still working". */
+.retry-exhausted {
+  margin-left: 4px;
+  font-size: 0.72em;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
 .wait-indicator {
   display: inline-block;
   margin-left: 6px;

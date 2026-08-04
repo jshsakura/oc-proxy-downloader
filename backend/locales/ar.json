@@ -30,6 +30,7 @@
   "retry_blocked_dead": "الملف المصدر لم يعد موجودًا (لا يمكن إعادة المحاولة)",
   "retry_blocked_auth_required": "يلزم تسجيل الدخول إلى حساب 1fichier — أضف بيانات الاعتماد في الإعدادات ثم أعد المحاولة",
   "retry_cooldown": "تمت جدولة إعادة محاولة تلقائية ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "المصدر غير موجود",
   "kind_auth_required": "يلزم تسجيل الدخول",
   "kind_rate_limited": "حد 1fichier",

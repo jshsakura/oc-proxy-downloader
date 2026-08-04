@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Исходный файл удалён (повтор невозможен)",
   "retry_blocked_auth_required": "Требуется вход в учётную запись 1fichier — добавьте учётные данные в Настройках, затем повторите",
   "retry_cooldown": "Автоповтор запланирован ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Источник недоступен",
   "kind_auth_required": "Требуется вход",
   "kind_rate_limited": "Лимит 1fichier",

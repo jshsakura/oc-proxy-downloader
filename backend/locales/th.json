@@ -30,6 +30,7 @@
   "retry_blocked_dead": "ไฟล์ต้นทางหายไปแล้ว (ไม่สามารถลองใหม่ได้)",
   "retry_blocked_auth_required": "ต้องเข้าสู่ระบบบัญชี 1fichier — เพิ่มข้อมูลรับรองในการตั้งค่า แล้วลองใหม่",
   "retry_cooldown": "กำหนดการลองใหม่อัตโนมัติแล้ว ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "ต้นทางหายไป",
   "kind_auth_required": "ต้องเข้าสู่ระบบ",
   "kind_rate_limited": "ขีดจำกัด 1fichier",

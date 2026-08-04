@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Tệp nguồn đã biến mất (không thể thử lại)",
   "retry_blocked_auth_required": "Cần đăng nhập tài khoản 1fichier — thêm thông tin đăng nhập trong Cài đặt rồi thử lại",
   "retry_cooldown": "Đã lên lịch tự động thử lại ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Nguồn đã mất",
   "kind_auth_required": "Cần đăng nhập",
   "kind_rate_limited": "Giới hạn 1fichier",

@@ -30,6 +30,7 @@
   "retry_blocked_dead": "來源檔案已失效（無法重試）",
   "retry_blocked_auth_required": "需要登入 1fichier 帳戶 — 請在設定中新增憑證後再重試",
   "retry_cooldown": "已排程自動重試（{when}）",
+  "retry_exhausted": "自動重試已用盡 · 需手動重試",
   "kind_dead": "來源已失效",
   "kind_auth_required": "需要登入",
   "kind_rate_limited": "1fichier 限制",

@@ -30,6 +30,7 @@
   "retry_blocked_dead": "El archivo de origen ya no existe (no se puede reintentar)",
   "retry_blocked_auth_required": "Se requiere iniciar sesión en la cuenta de 1fichier — añade las credenciales en Ajustes y luego reintenta",
   "retry_cooldown": "Reintento automático programado ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Origen no disponible",
   "kind_auth_required": "Inicio de sesión requerido",
   "kind_rate_limited": "Límite de 1fichier",
