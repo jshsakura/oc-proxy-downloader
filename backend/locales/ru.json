@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "Прокси заблокирован",
   "kind_blocked": "Временно заблокировано",
   "kind_transient": "Временная ошибка",
+  "kind_queued": "В очереди",
   "kind_unknown": "Не классифицировано",
   "kind_unknown_terminal": "Повторные сбои",
   "kind_alive": "Активно",

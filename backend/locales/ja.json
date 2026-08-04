@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "プロキシブロック",
   "kind_blocked": "一時的にブロック",
   "kind_transient": "一時的なエラー",
+  "kind_queued": "順番待ち",
   "kind_unknown": "未分類",
   "kind_unknown_terminal": "繰り返し失敗",
   "kind_alive": "有効",

@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "Proxy blockiert",
   "kind_blocked": "Vorübergehend blockiert",
   "kind_transient": "Vorübergehender Fehler",
+  "kind_queued": "In Warteschlange",
   "kind_unknown": "Nicht klassifiziert",
   "kind_unknown_terminal": "Wiederholte Fehler",
   "kind_alive": "Aktiv",

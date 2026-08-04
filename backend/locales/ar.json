@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "تم حظر الوكيل",
   "kind_blocked": "محظور مؤقتًا",
   "kind_transient": "خطأ عابر",
+  "kind_queued": "في قائمة الانتظار",
   "kind_unknown": "غير مصنف",
   "kind_unknown_terminal": "إخفاقات متكررة",
   "kind_alive": "نشط",

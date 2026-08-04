@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "Proxy geblokkeerd",
   "kind_blocked": "Tijdelijk geblokkeerd",
   "kind_transient": "Tijdelijke fout",
+  "kind_queued": "In wachtrij",
   "kind_unknown": "Niet geclassificeerd",
   "kind_unknown_terminal": "Herhaalde mislukkingen",
   "kind_alive": "Actief",

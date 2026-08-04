@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "代理被拦截",
   "kind_blocked": "暂时被拦截",
   "kind_transient": "临时错误",
+  "kind_queued": "排队中",
   "kind_unknown": "未分类",
   "kind_unknown_terminal": "多次失败",
   "kind_alive": "有效",
