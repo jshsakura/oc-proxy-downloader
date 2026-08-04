@@ -113,3 +113,32 @@ def test_other_routes_ignore_a_query_token():
     req = _FakeRequest("/api/settings", query={"token": "abc123"})
 
     assert middleware._presented_token(req) == ""
+
+
+# --- server-to-server API token (oc-scraper 전송) ---
+
+
+def test_api_token_in_header_is_accepted(monkeypatch):
+    """oc-scraper authenticates its /api/download/ POST with a dedicated token in
+    X-API-Key — not the login id/password. A matching token must pass, or the
+    integration 401s (the "전송 실패" regression)."""
+    monkeypatch.setenv("API_TOKEN", "s3cr3t-token")
+    req = _FakeRequest("/api/download/", headers={"X-API-Key": "s3cr3t-token"})
+
+    assert middleware._valid_api_token(req) is True
+
+
+def test_wrong_api_token_is_rejected(monkeypatch):
+    monkeypatch.setenv("API_TOKEN", "s3cr3t-token")
+    req = _FakeRequest("/api/download/", headers={"X-API-Key": "nope"})
+
+    assert middleware._valid_api_token(req) is False
+
+
+def test_api_token_off_when_unset(monkeypatch):
+    """With no API_TOKEN configured, the header grants nothing — the feature is
+    opt-in and can't be bypassed with an empty token."""
+    monkeypatch.delenv("API_TOKEN", raising=False)
+    req = _FakeRequest("/api/download/", headers={"X-API-Key": ""})
+
+    assert middleware._valid_api_token(req) is False

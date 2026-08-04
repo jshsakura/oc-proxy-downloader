@@ -18,6 +18,10 @@ services:
       # - AUTH_USERNAME=admin
       # - AUTH_PASSWORD=secure123
 
+      # 서버-서버 연계용 API 토큰 (선택). 설정 시 /api/* 를 X-API-Key 헤더로 호출 가능.
+      # 사람 로그인과 별개. oc-scraper 의 OC_PROXY_DOWNLOADER_TOKEN 에 같은 값 사용.
+      # - API_TOKEN=change-me-long-random-token
+
       # 성능 최적화 (선택사항)
       # - MAX_TOTAL_DOWNLOADS=5
     volumes:
