@@ -1240,7 +1240,10 @@
     if (end) params.set("end_date", end);
 
     try {
-      const response = await fetch(`${endpoint}?${params.toString()}`);
+      // Must be authenticatedFetch: with auth enabled the API returns 401 to a
+      // tokenless request, which lands in the else branch and empties the grid —
+      // the "list disappeared after the update" bug.
+      const response = await authenticatedFetch(`${endpoint}?${params.toString()}`);
       if (response.ok) {
         const data = await response.json();
         gridDownloads = Array.isArray(data.downloads) ? data.downloads : [];
