@@ -1766,13 +1766,22 @@
     }
 
     if (download.status.toLowerCase() === "failed" && download.error_message) {
+      // The status cell is kept short (label + countdown, or a greyed kind), so
+      // the retry detail that used to sit inline now lives here in the tooltip.
+      let retryNote = "";
+      if (download.next_retry_at && new Date(download.next_retry_at).getTime() > Date.now()) {
+        retryNote = "\n" + $t("retry_cooldown", { when: new Date(download.next_retry_at).toLocaleTimeString() });
+        if (download.attempt_count) retryNote += ` (↻${download.attempt_count})`;
+      } else if (download.attempt_count) {
+        retryNote = "\n" + $t("retry_exhausted");
+      }
       if (proxyInfo && proxyInfo.error) {
         return $t("status_tooltip_failed_with_proxy", {
           error: download.error_message,
           proxy: proxyInfo.proxy,
-          proxy_error: proxyInfo.error });
+          proxy_error: proxyInfo.error }) + retryNote;
       }
-      return download.error_message;
+      return download.error_message + retryNote;
     }
 
     if (proxyInfo) {
@@ -2551,20 +2560,17 @@
                              so they don't look terminal. The specific kind stays
                              visible in the detail modal / tooltip. -->
                         {#if download.next_retry_at && new Date(download.next_retry_at).getTime() > currentTime}
-                          <!-- Actively waiting to auto-retry: show the attempt count
-                               and a live countdown so it never reads as a dead stop.
-                               Count/time are language-neutral, reusing the translated
-                               "재시도 대기" label. -->
+                          <!-- Waiting to auto-retry: keep the cell compact — just the
+                               label and a countdown. The attempt count and next-retry
+                               time live in the tooltip (getStatusTooltip). -->
                           {$t("download_retry_pending")}
-                          <span class="wait-countdown">
-                            ({#if download.attempt_count}↻{download.attempt_count} · {/if}{formatWaitTime((new Date(download.next_retry_at).getTime() - currentTime) / 1000)})
-                          </span>
+                          <span class="wait-countdown">({formatWaitTime((new Date(download.next_retry_at).getTime() - currentTime) / 1000)})</span>
                         {:else if download.attempt_count}
-                          <!-- Auto-retry budget spent (no next_retry_at): make it explicit
-                               that the loop stopped and a manual retry is needed, instead
-                               of a bare kind label that looks identical to mid-cooldown. -->
-                          {$t("kind_" + download.failure_kind)}
-                          <span class="retry-exhausted">({$t("retry_exhausted")})</span>
+                          <!-- Auto-retry spent: grey the kind label so a stopped item
+                               is visually distinct from one still cycling, without a
+                               long inline note. The "소진 · 수동 재시도" detail is in the
+                               tooltip. -->
+                          <span class="status-exhausted">{$t("kind_" + download.failure_kind)}</span>
                         {:else}
                           {$t("kind_" + download.failure_kind)}
                         {/if}
