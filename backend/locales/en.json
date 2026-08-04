@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "IP blocked (change network)",
   "kind_blocked": "Temporarily blocked",
   "kind_transient": "Transient error",
+  "kind_queued": "Queued",
   "kind_unknown": "Unclassified",
   "kind_unknown_terminal": "Repeated failures",
   "kind_alive": "Alive",

@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "Proxy engellendi",
   "kind_blocked": "Geçici olarak engellendi",
   "kind_transient": "Geçici hata",
+  "kind_queued": "Sırada",
   "kind_unknown": "Sınıflandırılmamış",
   "kind_unknown_terminal": "Tekrarlanan hatalar",
   "kind_alive": "Aktif",

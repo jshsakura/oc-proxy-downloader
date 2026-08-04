@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "Proxy bị chặn",
   "kind_blocked": "Tạm thời bị chặn",
   "kind_transient": "Lỗi tạm thời",
+  "kind_queued": "Đang chờ",
   "kind_unknown": "Chưa phân loại",
   "kind_unknown_terminal": "Thất bại nhiều lần",
   "kind_alive": "Còn hoạt động",

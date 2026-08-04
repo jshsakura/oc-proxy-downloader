@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "Proxy diblokir",
   "kind_blocked": "Diblokir sementara",
   "kind_transient": "Galat sementara",
+  "kind_queued": "Dalam antrean",
   "kind_unknown": "Belum diklasifikasikan",
   "kind_unknown_terminal": "Kegagalan berulang",
   "kind_alive": "Aktif",

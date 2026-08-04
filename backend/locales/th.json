@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "พร็อกซีถูกบล็อก",
   "kind_blocked": "ถูกบล็อกชั่วคราว",
   "kind_transient": "ข้อผิดพลาดชั่วคราว",
+  "kind_queued": "อยู่ในคิว",
   "kind_unknown": "ยังไม่จัดประเภท",
   "kind_unknown_terminal": "ล้มเหลวซ้ำ ๆ",
   "kind_alive": "ใช้งานได้",

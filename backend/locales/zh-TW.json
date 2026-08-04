@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "代理被封鎖",
   "kind_blocked": "暫時被封鎖",
   "kind_transient": "暫時性錯誤",
+  "kind_queued": "排隊中",
   "kind_unknown": "未分類",
   "kind_unknown_terminal": "多次失敗",
   "kind_alive": "有效",

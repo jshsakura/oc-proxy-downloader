@@ -38,6 +38,7 @@
   "kind_proxy_blocked": "Proxy bloccato",
   "kind_blocked": "Temporaneamente bloccato",
   "kind_transient": "Errore transitorio",
+  "kind_queued": "In coda",
   "kind_unknown": "Non classificato",
   "kind_unknown_terminal": "Errori ripetuti",
   "kind_alive": "Attivo",
