@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 import json
+import secrets
 
 # Environment-specific config directory setup
 # 1. OC_CONFIG_DIR environment variable (set when running standalone)
@@ -94,6 +95,9 @@ DEFAULT_CONFIG = {
 SECRET_CONFIG_KEYS = frozenset({
     "telegram_bot_token",
     "fichier_password",
+    # The API token is revealed only through its own dedicated endpoint, never in
+    # the general settings payload.
+    "api_token",
 })
 SECRET_PLACEHOLDER = "********"
 
@@ -144,6 +148,38 @@ def save_config(config):
     except PermissionError:
         print(f"[WARN] Cannot write to config file: {CONFIG_FILE}")
         print("[WARN] Config changes will not be persisted")
+
+API_TOKEN_KEY = "api_token"
+_API_TOKEN_BYTES = 32  # 256-bit, urlsafe → ~43 chars
+
+
+def _generate_api_token() -> str:
+    return secrets.token_urlsafe(_API_TOKEN_BYTES)
+
+
+def get_or_create_api_token() -> str:
+    """The stored server-to-server API token, generated and persisted on first use.
+
+    Lives in config.json (not an env var), so it can be shown and rotated from the
+    app itself. Returns the same value until regenerated.
+    """
+    config = get_config()
+    token = (config.get(API_TOKEN_KEY) or "").strip()
+    if not token:
+        token = _generate_api_token()
+        config[API_TOKEN_KEY] = token
+        save_config(config)
+    return token
+
+
+def regenerate_api_token() -> str:
+    """Mint a fresh token and persist it, revoking the previous one."""
+    config = get_config()
+    token = _generate_api_token()
+    config[API_TOKEN_KEY] = token
+    save_config(config)
+    return token
+
 
 def get_download_path():
     env_path = os.environ.get("DOWNLOAD_PATH")

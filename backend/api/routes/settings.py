@@ -9,7 +9,8 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 
 from core.config import (get_config, save_config, get_download_path, get_default_download_path,
-                         IS_STANDALONE, mask_secrets, restore_masked_secrets)
+                         IS_STANDALONE, mask_secrets, restore_masked_secrets,
+                         get_or_create_api_token, regenerate_api_token)
 from core.db import get_db
 from core.version import CURRENT_VERSION
 from core.download_core import download_core
@@ -55,6 +56,31 @@ def get_settings_endpoint(request: Request):
         return mask_secrets(get_config())
     except Exception as e:
         print(f"[ERROR] Get settings failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/settings/api-token")
+def get_api_token_endpoint(request: Request):
+    """Return the server-to-server API token (generating one on first read).
+
+    Auth-gated like the rest of /api/*, so only a logged-in user sees it. This is
+    where the token is exposed for copying into an integration (oc-scraper) —
+    never an env var the user has to hand-edit.
+    """
+    try:
+        return {"api_token": get_or_create_api_token()}
+    except Exception as e:
+        print(f"[ERROR] Get API token failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/settings/api-token/regenerate")
+def regenerate_api_token_endpoint(request: Request):
+    """Rotate the API token, revoking the previous one immediately."""
+    try:
+        return {"api_token": regenerate_api_token()}
+    except Exception as e:
+        print(f"[ERROR] Regenerate API token failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

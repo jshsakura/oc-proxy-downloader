@@ -64,6 +64,8 @@
   $: statsHasData = dashboardStats && dashboardStats.total > 0;
 
   let settings = {};
+  let apiToken = "";
+  let apiTokenCopied = false;
   let selectedTheme = "system";
   let originalTheme = "system";
   let savedOnClose = false;
@@ -287,6 +289,12 @@
   let isInitialized = false;
 
   // Initialize settings only once when the modal is opened with valid data
+  // Load the token when the modal opens — onMount ran once at page load, before
+  // login, so its fetch 401'd and left the field blank.
+  $: if (showModal && !apiToken) {
+    loadApiToken();
+  }
+
   $: if (showModal && currentSettings && !isInitialized) {
     settings = {
       ...currentSettings,
@@ -516,7 +524,45 @@
     }
 
     loadVersionInfo();
+    loadApiToken();
   });
+
+  // The server-to-server API token — generated and stored server-side, shown here
+  // for copying into an integration (oc-scraper), never hand-set via an env var.
+  async function loadApiToken() {
+    try {
+      const res = await authenticatedFetch("/api/settings/api-token");
+      if (res.ok) apiToken = (await res.json()).api_token || "";
+    } catch (error) {
+      console.warn("[WARN] Failed to load API token:", error);
+    }
+  }
+
+  async function copyApiToken() {
+    if (!apiToken) return;
+    try {
+      await navigator.clipboard.writeText(apiToken);
+    } catch (_) {
+      // Clipboard API can be blocked (non-HTTPS/permissions) — fall back to select.
+      const el = document.getElementById("api-token");
+      if (el) { el.focus(); el.select(); document.execCommand("copy"); }
+    }
+    apiTokenCopied = true;
+    setTimeout(() => (apiTokenCopied = false), 1500);
+  }
+
+  async function regenerateApiToken() {
+    if (!confirm($t("api_token_regenerate_confirm"))) return;
+    try {
+      const res = await authenticatedFetch("/api/settings/api-token/regenerate", { method: "POST" });
+      if (res.ok) {
+        apiToken = (await res.json()).api_token || "";
+        toast.success($t("api_token_regenerated"));
+      }
+    } catch (error) {
+      console.warn("[WARN] Failed to regenerate API token:", error);
+    }
+  }
 </script>
 
 {#if showModal}
@@ -1155,6 +1201,29 @@
           </fieldset>
 
           <fieldset class="form-group">
+            <legend>{$t("api_token_legend")}</legend>
+            <label for="api-token">{$t("api_token_label")}</label>
+            <div class="api-token-row">
+              <input
+                id="api-token"
+                type="text"
+                class="input"
+                readonly
+                autocomplete="off"
+                value={apiToken}
+                on:focus={(e) => e.target.select()}
+              />
+              <button type="button" class="button button-secondary" on:click={copyApiToken}>
+                {apiTokenCopied ? $t("api_token_copied") : $t("api_token_copy")}
+              </button>
+              <button type="button" class="button button-secondary" on:click={regenerateApiToken}>
+                {$t("api_token_regenerate")}
+              </button>
+            </div>
+            <small class="input-hint">{$t("api_token_hint")}</small>
+          </fieldset>
+
+          <fieldset class="form-group">
             <legend>{$t("concurrency_legend")}</legend>
             <label for="max-concurrent">{$t("max_concurrent_label")}</label>
             <input
@@ -1658,6 +1727,21 @@
 {/if}
 
 <style>
+  .api-token-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .api-token-row .input {
+    flex: 1;
+    min-width: 0;
+    font-family: monospace;
+    font-size: 0.8rem;
+  }
+  .api-token-row .button {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
   .modern-backdrop {
     position: fixed;
     top: 0;

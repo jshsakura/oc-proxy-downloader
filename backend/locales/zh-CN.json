@@ -444,5 +444,13 @@
   "max_concurrent_hint": "所有主机的全局上限。数值越大，同时占用的带宽越多。",
   "max_per_host_label": "每个主机的最大下载数",
   "max_per_host_hint": "为每个主机设置独立队列，避免某主机的大文件拖慢另一主机的小文件。",
-  "flaresolverr_url_placeholder": "http://flaresolverr:8191"
+  "flaresolverr_url_placeholder": "http://flaresolverr:8191",
+  "api_token_legend": "Integration API Token",
+  "api_token_label": "Token",
+  "api_token_hint": "Used by external apps (e.g. oc-scraper) as the X-API-Key header when calling /api. Paste this value into the integration.",
+  "api_token_copy": "Copy",
+  "api_token_copied": "Copied",
+  "api_token_regenerate": "Regenerate",
+  "api_token_regenerate_confirm": "Regenerating revokes the current token immediately. Continue?",
+  "api_token_regenerated": "A new token has been issued."
 }
