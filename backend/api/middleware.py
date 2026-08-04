@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import hmac
+import os
 import time
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -7,6 +9,13 @@ from core.auth import AuthManager
 
 
 API_PREFIX = "/api/"
+
+# A long-lived token for server-to-server callers (oc-scraper's "전송"), separate
+# from the human login: set API_TOKEN and the same value goes in the caller's
+# X-API-Key header. Rotating it never touches the login, and a leaked token can be
+# revoked on its own. Empty/unset → integration token auth is simply off.
+API_TOKEN_ENV = "API_TOKEN"
+API_KEY_HEADER = "X-API-Key"
 
 # Reachable before a token exists: the login call itself, the probe the UI uses to
 # find out whether a login is even required, and the UI strings shown on that
@@ -40,6 +49,22 @@ def _presented_token(request: Request) -> str:
     return ""
 
 
+def _valid_api_token(request: Request) -> bool:
+    """Accept a static API token in the X-API-Key header (server-to-server).
+
+    Compared in constant time so a wrong token can't be recovered by timing. The
+    token is a dedicated secret, not the login id/password — the caller holds only
+    this, and it rotates independently.
+    """
+    configured = (os.environ.get(API_TOKEN_ENV) or "").strip()
+    if not configured:
+        return False
+    presented = (request.headers.get(API_KEY_HEADER) or "").strip()
+    if not presented:
+        return False
+    return hmac.compare_digest(presented, configured)
+
+
 async def require_api_auth(request: Request, call_next):
     """Reject unauthenticated API calls whenever authentication is configured.
 
@@ -48,18 +73,22 @@ async def require_api_auth(request: Request, call_next):
     itself — settings, stored secrets, download control — stayed wide open to
     anyone who could reach the port. When AUTH_USERNAME/AUTH_PASSWORD are unset
     authentication is disabled by design and this middleware stands aside.
+
+    Two credential forms are accepted: the browser's Bearer JWT, and a static
+    X-API-Key token for server-to-server callers (see ``_valid_api_token``).
     """
     if not AuthManager.is_authentication_enabled() or _is_exempt(request.url.path):
         return await call_next(request)
 
     token = _presented_token(request)
-    if not token or AuthManager.verify_token(token) is None:
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "Authentication required"},
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return await call_next(request)
+    if (token and AuthManager.verify_token(token) is not None) or _valid_api_token(request):
+        return await call_next(request)
+
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Authentication required"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 async def log_requests(request: Request, call_next):
