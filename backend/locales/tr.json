@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Kaynak dosya artık yok (yeniden denenemez)",
   "retry_blocked_auth_required": "1fichier hesabı girişi gerekli — Ayarlar'da kimlik bilgilerini ekleyin, ardından yeniden deneyin",
   "retry_cooldown": "Otomatik yeniden deneme planlandı ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Kaynak yok",
   "kind_auth_required": "Giriş gerekli",
   "kind_rate_limited": "1fichier sınırı",

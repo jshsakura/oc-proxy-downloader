@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Quelldatei ist nicht mehr vorhanden (Wiederholung nicht möglich)",
   "retry_blocked_auth_required": "Anmeldung beim 1fichier-Konto erforderlich — Zugangsdaten in den Einstellungen hinzufügen, dann erneut versuchen",
   "retry_cooldown": "Automatische Wiederholung geplant ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Quelle nicht verfügbar",
   "kind_auth_required": "Anmeldung erforderlich",
   "kind_rate_limited": "1fichier-Limit",

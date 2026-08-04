@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Source file is gone (cannot retry)",
   "retry_blocked_auth_required": "1fichier account login required — add credentials in Settings, then retry",
   "retry_cooldown": "Auto-retry scheduled ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Source gone",
   "kind_auth_required": "Login required",
   "kind_rate_limited": "1fichier limit",

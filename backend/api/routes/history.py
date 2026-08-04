@@ -144,7 +144,11 @@ def get_working_downloads(
                 "file_size": download.file_size,
                 "requested_at": download.requested_at.isoformat() if download.requested_at else None,
                 # Alias for the frontend grid — kept alongside requested_at for legacy callers
-                "created_at": download.requested_at.isoformat() if download.requested_at else None
+                "created_at": download.requested_at.isoformat() if download.requested_at else None,
+                # Retry state so the grid can show "재시도 대기 (N회, 다음 HH:MM)" on load,
+                # not only when an SSE event happens to arrive.
+                "next_retry_at": download.next_retry_at.isoformat() if getattr(download, "next_retry_at", None) else None,
+                "attempt_count": getattr(download, "attempt_count", 0) or 0,
             })
 
         total_pages = (total_count + page_size - 1) // page_size
@@ -227,6 +231,8 @@ def get_completed_downloads(
                 "requested_at": download.requested_at.isoformat() if download.requested_at else None,
                 # Alias for the frontend grid — kept alongside requested_at for legacy callers
                 "created_at": download.requested_at.isoformat() if download.requested_at else None,
+                "next_retry_at": download.next_retry_at.isoformat() if getattr(download, "next_retry_at", None) else None,
+                "attempt_count": getattr(download, "attempt_count", 0) or 0,
                 "finished_at": download.finished_at.isoformat() if download.finished_at else None
             })
 

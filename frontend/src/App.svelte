@@ -2551,8 +2551,20 @@
                              so they don't look terminal. The specific kind stays
                              visible in the detail modal / tooltip. -->
                         {#if download.next_retry_at && new Date(download.next_retry_at).getTime() > currentTime}
+                          <!-- Actively waiting to auto-retry: show the attempt count
+                               and a live countdown so it never reads as a dead stop.
+                               Count/time are language-neutral, reusing the translated
+                               "재시도 대기" label. -->
                           {$t("download_retry_pending")}
-                          <span class="wait-countdown">({formatWaitTime((new Date(download.next_retry_at).getTime() - currentTime) / 1000)})</span>
+                          <span class="wait-countdown">
+                            ({#if download.attempt_count}↻{download.attempt_count} · {/if}{formatWaitTime((new Date(download.next_retry_at).getTime() - currentTime) / 1000)})
+                          </span>
+                        {:else if download.attempt_count}
+                          <!-- Auto-retry budget spent (no next_retry_at): make it explicit
+                               that the loop stopped and a manual retry is needed, instead
+                               of a bare kind label that looks identical to mid-cooldown. -->
+                          {$t("kind_" + download.failure_kind)}
+                          <span class="retry-exhausted">({$t("retry_exhausted")})</span>
                         {:else}
                           {$t("kind_" + download.failure_kind)}
                         {/if}

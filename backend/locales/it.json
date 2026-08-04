@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Il file di origine non esiste più (impossibile riprovare)",
   "retry_blocked_auth_required": "Accesso all'account 1fichier richiesto — aggiungi le credenziali nelle Impostazioni, poi riprova",
   "retry_cooldown": "Nuovo tentativo automatico pianificato ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Origine non disponibile",
   "kind_auth_required": "Accesso richiesto",
   "kind_rate_limited": "Limite 1fichier",

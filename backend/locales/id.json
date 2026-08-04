@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Berkas sumber sudah hilang (tidak dapat dicoba lagi)",
   "retry_blocked_auth_required": "Perlu login akun 1fichier — tambahkan kredensial di Pengaturan, lalu coba lagi",
   "retry_cooldown": "Coba ulang otomatis dijadwalkan ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Sumber hilang",
   "kind_auth_required": "Perlu login",
   "kind_rate_limited": "Batas 1fichier",

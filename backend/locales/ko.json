@@ -30,6 +30,7 @@
   "retry_blocked_dead": "원본 파일이 사라졌습니다 (재시도 불가)",
   "retry_blocked_auth_required": "1fichier 계정 로그인이 필요합니다 — 설정에서 등록 후 재시도하세요",
   "retry_cooldown": "잠시 후 자동 재시도 예정 ({when})",
+  "retry_exhausted": "자동 재시도 소진 · 수동 재시도 필요",
   "kind_dead": "원본 사라짐",
   "kind_auth_required": "로그인 필요",
   "kind_rate_limited": "1fichier 한도",

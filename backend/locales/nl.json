@@ -30,6 +30,7 @@
   "retry_blocked_dead": "Bronbestand is verdwenen (opnieuw proberen niet mogelijk)",
   "retry_blocked_auth_required": "Aanmelden bij 1fichier-account vereist — voeg inloggegevens toe in Instellingen en probeer opnieuw",
   "retry_cooldown": "Automatisch opnieuw proberen gepland ({when})",
+  "retry_exhausted": "auto-retry exhausted · manual retry needed",
   "kind_dead": "Bron verdwenen",
   "kind_auth_required": "Aanmelden vereist",
   "kind_rate_limited": "1fichier-limiet",
