@@ -418,6 +418,7 @@
   "dashboard_status_done": "مكتمل",
   "dashboard_status_failed": "فشل",
   "dashboard_status_stopped": "متوقف",
+  "status_pending": "قيد الانتظار",
   "dashboard_status_downloading": "جارٍ التنزيل",
   "dashboard_trend_title": "اتجاه التنزيل",
   "dashboard_status_distribution": "توزيع الحالة",

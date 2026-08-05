@@ -418,6 +418,7 @@
   "dashboard_status_done": "Voltooid",
   "dashboard_status_failed": "Mislukt",
   "dashboard_status_stopped": "Gestopt",
+  "status_pending": "In afwachting",
   "dashboard_status_downloading": "Bezig met downloaden",
   "dashboard_trend_title": "Downloadtrend",
   "dashboard_status_distribution": "Statusverdeling",

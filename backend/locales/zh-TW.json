@@ -418,6 +418,7 @@
   "dashboard_status_done": "已完成",
   "dashboard_status_failed": "失敗",
   "dashboard_status_stopped": "已停止",
+  "status_pending": "等待",
   "dashboard_status_downloading": "下載中",
   "dashboard_trend_title": "下載趨勢",
   "dashboard_status_distribution": "狀態分布",

@@ -418,6 +418,7 @@
   "dashboard_status_done": "Completado",
   "dashboard_status_failed": "Fallido",
   "dashboard_status_stopped": "Detenido",
+  "status_pending": "Pendiente",
   "dashboard_status_downloading": "Descargando",
   "dashboard_trend_title": "Tendencia de descargas",
   "dashboard_status_distribution": "Distribución por estado",

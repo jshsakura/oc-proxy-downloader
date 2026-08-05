@@ -418,6 +418,7 @@
   "dashboard_status_done": "完了",
   "dashboard_status_failed": "失敗",
   "dashboard_status_stopped": "停止",
+  "status_pending": "待機",
   "dashboard_status_downloading": "ダウンロード中",
   "dashboard_trend_title": "ダウンロード傾向",
   "dashboard_status_distribution": "状態の分布",

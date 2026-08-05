@@ -418,6 +418,7 @@
   "dashboard_status_done": "Selesai",
   "dashboard_status_failed": "Gagal",
   "dashboard_status_stopped": "Dihentikan",
+  "status_pending": "Menunggu",
   "dashboard_status_downloading": "Mengunduh",
   "dashboard_trend_title": "Tren Unduhan",
   "dashboard_status_distribution": "Distribusi Status",
