@@ -418,6 +418,7 @@
   "dashboard_status_done": "เสร็จสิ้น",
   "dashboard_status_failed": "ล้มเหลว",
   "dashboard_status_stopped": "หยุดแล้ว",
+  "status_pending": "รอดำเนินการ",
   "dashboard_status_downloading": "กำลังดาวน์โหลด",
   "dashboard_trend_title": "แนวโน้มการดาวน์โหลด",
   "dashboard_status_distribution": "การกระจายสถานะ",

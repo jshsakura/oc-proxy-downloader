@@ -418,6 +418,7 @@
   "dashboard_status_done": "Đã hoàn tất",
   "dashboard_status_failed": "Thất bại",
   "dashboard_status_stopped": "Đã dừng",
+  "status_pending": "Đang chờ",
   "dashboard_status_downloading": "Đang tải xuống",
   "dashboard_trend_title": "Xu hướng tải xuống",
   "dashboard_status_distribution": "Phân bố trạng thái",

@@ -418,6 +418,7 @@
   "dashboard_status_done": "Завершено",
   "dashboard_status_failed": "Не удалось",
   "dashboard_status_stopped": "Остановлено",
+  "status_pending": "Ожидание",
   "dashboard_status_downloading": "Загрузка",
   "dashboard_trend_title": "Тренд загрузок",
   "dashboard_status_distribution": "Распределение по статусам",
