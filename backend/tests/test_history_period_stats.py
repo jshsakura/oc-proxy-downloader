@@ -7,6 +7,7 @@ import pytest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from core.db import engine, SessionLocal
 from core.models import Base, DownloadRequest, StatusEnum
@@ -170,11 +171,10 @@ class TestHistoryStats:
         assert data["by_status"]["done"] == 0
         assert data["daily_trend"] == []
 
-    @pytest.mark.xfail(
-        reason="Production bug: cast(Date) on SQLite triggers "
-               "TypeError in SQLAlchemy row processor (fromisoformat). "
-               "Route uses cast() instead of func.date()."
-    )
+    # The xfail this carried described a cast(Date) bug that no longer exists —
+    # the route uses func.date(). It had been passing (reported as xpassed) for
+    # long enough that its assertions on totals, byte sums and the proxy split
+    # were guarding nothing.
     def test_stats_mixed_statuses_proxy_local_bytes(self, client):
         now = datetime.datetime(2026, 2, 10, 14, 0, 0)
         _insert_rows(
@@ -217,6 +217,52 @@ class TestHistoryStats:
         assert trend["count"] == 4
         assert trend["bytes"] == 3800
 
+    def test_stats_does_not_scan_once_per_status(self, client):
+        """The tab badges refresh off every SSE status update, so this endpoint
+        runs while downloads are committing progress. It used to issue a COUNT
+        per StatusEnum member plus two for the proxy split — a dozen full scans
+        competing with the writer, per refresh. One grouped pass replaces them."""
+        now = datetime.datetime(2026, 3, 3, 9, 0, 0)
+        _insert_rows(
+            DownloadRequest(url="q1", status=StatusEnum.done, use_proxy=True,
+                            requested_at=now, total_size=10),
+            DownloadRequest(url="q2", status=StatusEnum.failed, use_proxy=False,
+                            requested_at=now, total_size=20),
+        )
+
+        statements = []
+        listener = lambda conn, cursor, stmt, *a: statements.append(stmt)
+        event.listen(engine, "before_cursor_execute", listener)
+        try:
+            resp = client.get("/api/history/stats")
+        finally:
+            event.remove(engine, "before_cursor_execute", listener)
+
+        assert resp.status_code == 200
+        selects = [s for s in statements if s.lstrip().upper().startswith("SELECT")]
+        assert len(selects) <= 3, (
+            f"{len(selects)} queries for one stats call — a per-status COUNT is back:\n"
+            + "\n".join(selects)
+        )
+
+    def test_stats_counts_a_row_whose_status_was_never_migrated(self, client):
+        """A NULL status belongs in the total, but must not become a badge key
+        the UI would then render as an unknown tab count."""
+        now = datetime.datetime(2026, 3, 4, 9, 0, 0)
+        _insert_rows(
+            DownloadRequest(url="n1", status=None, use_proxy=False,
+                            requested_at=now, total_size=100),
+            DownloadRequest(url="n2", status=StatusEnum.done, use_proxy=False,
+                            requested_at=now, total_size=200),
+        )
+
+        data = client.get("/api/history/stats").json()
+
+        assert data["total"] == 2
+        assert data["total_bytes"] == 300
+        assert data["by_status"]["done"] == 1
+        assert set(data["by_status"]) == {s.value for s in StatusEnum}
+
     def test_stats_invalid_date(self, client):
         resp = client.get("/api/history/stats", params={
             "start_date": "bad",
@@ -258,3 +304,34 @@ class TestCleanupNoOp:
             assert count == 1
         finally:
             session.close()
+
+
+class TestFailureKindSource:
+    """The stored verdict wins over re-reading the error text."""
+
+    def test_a_pinned_kind_is_not_re_derived_from_the_text(self, client):
+        """A probe pins `dead` in the column. Re-classifying the text on every
+        response would let a reworded regex silently overturn that verdict, and
+        the retry guard reads this field."""
+        now = datetime.datetime(2026, 4, 1, 10, 0, 0)
+        _insert_rows(DownloadRequest(
+            url="https://1fichier.com/?pinned", status=StatusEnum.failed,
+            requested_at=now, error="일시적인 네트워크 오류로 보이는 문구",
+            failure_kind="dead",
+        ))
+
+        rows = client.get("/api/downloads/working").json()["downloads"]
+
+        assert [r["failure_kind"] for r in rows] == ["dead"]
+
+    def test_a_row_without_a_stored_kind_still_falls_back_to_the_text(self, client):
+        """Pre-migration rows have a NULL column and must keep classifying."""
+        now = datetime.datetime(2026, 4, 2, 10, 0, 0)
+        _insert_rows(DownloadRequest(
+            url="https://1fichier.com/?legacy", status=StatusEnum.failed,
+            requested_at=now, error="페이지 로드 실패: HTTP 404", failure_kind=None,
+        ))
+
+        rows = client.get("/api/downloads/working").json()["downloads"]
+
+        assert rows[0]["failure_kind"] not in (None, "")
