@@ -7,6 +7,7 @@ Async download API router
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import asyncio
@@ -15,7 +16,7 @@ import os
 import re
 from urllib.parse import urlparse, unquote, urlunparse
 
-from core.db import get_db
+from core.db import get_db, SessionLocal
 from core.models import DownloadRequest, StatusEnum
 from core.download_core import download_core
 from core.parser import fichier_parser
@@ -29,7 +30,9 @@ from core.error_messages import (
     is_retry_blocked_now,
     KIND_DEAD,
     KIND_AUTH_REQUIRED,
+    KIND_TRANSIENT,
 )
+from core.executors import parse_executor_for
 from services.sse_manager import sse_manager
 from services.ouo_unwrap_service import is_ouo_url, unwrap_if_ouo
 
@@ -68,7 +71,7 @@ def _find_completed_duplicate(db: Session, url: str) -> Optional[DownloadRequest
     ``done`` while the file was deleted/moved (then a real re-download is wanted).
     """
     candidates = db.query(DownloadRequest).filter(
-        DownloadRequest.url == url,
+        or_(DownloadRequest.url == url, DownloadRequest.original_url == url),
         DownloadRequest.status == StatusEnum.done,
     ).order_by(DownloadRequest.id.desc()).all()
     for req in candidates:
@@ -78,6 +81,115 @@ def _find_completed_duplicate(db: Session, url: str) -> Optional[DownloadRequest
 
 
 router = APIRouter(prefix="/api", tags=["downloads"])
+
+# create_task only keeps a weak reference, so a start task that is not held
+# anywhere can be garbage-collected mid-flight. Hold it until it finishes.
+_start_tasks: set = set()
+
+
+def _persist_new_request(db: Session, new_request: DownloadRequest) -> int:
+    """Insert the row and return its id. Runs in a worker thread.
+
+    The INSERT waits on SQLite's write lock, which a running download holds for
+    a good part of its life. On the event loop that wait stalls every other
+    request; in a thread it only stalls this one.
+    """
+    db.add(new_request)
+    db.commit()
+    db.refresh(new_request)
+    return new_request.id
+
+
+async def _resolve_ouo_url(req: DownloadRequest, db: Session) -> bool:
+    """Replace an ouo shortlink with the real download URL it hides.
+
+    ``unwrap_if_ouo`` is synchronous and can take minutes (FlareSolverr,
+    curl_cffi, headless browser), so it runs on the pool that host belongs to —
+    never on the event loop, and never on the shared pool for a browser flow.
+    Returns False when the shortlink could not be resolved; the row is left
+    failed so the normal retry path can pick it up.
+    """
+    if not is_ouo_url(req.url):
+        return True
+
+    loop = asyncio.get_running_loop()
+    unwrapped = await loop.run_in_executor(
+        parse_executor_for(req.url), unwrap_if_ouo, req.url
+    )
+
+    if not unwrapped:
+        print(f"[WARNING] ouo unwrap 실패: {req.url}")
+        req.status = StatusEnum.failed
+        req.error = f"ouo 단축링크 우회 실패: {req.url} — 잠시 후 다시 시도해주세요"
+        req.failure_kind = KIND_TRANSIENT
+        db.commit()
+        await sse_manager.broadcast_message("download_added", {
+            "id": req.id,
+            "url": req.url,
+            "status": "failed",
+            "message": req.error,
+        })
+        return False
+
+    print(f"[LOG] ouo unwrap: {req.url} -> {unwrapped}")
+    req.url = clean_1fichier_url(unwrapped)
+    req.file_name = derive_display_name(req.url)
+    db.commit()
+    return True
+
+
+async def _start_download_in_background(download_id: int, url: str) -> None:
+    """Resolve, parse and start the download after the response was sent.
+
+    Adding a URL is a handoff: the caller only needs to know the row exists.
+    Starting it involves more commits and, for shortlinks and hoster pages, a
+    resolve that can take minutes — none of which the HTTP client should wait
+    for. Uses its own session because the request-scoped one is closed once the
+    response returns.
+    """
+    db = SessionLocal()
+    try:
+        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        if req is None:
+            print(f"[WARNING] 백그라운드 시작 대상 없음: {download_id}")
+            return
+
+        if not await _resolve_ouo_url(req, db):
+            return
+
+        # The duplicate check at add time could only see the shortlink; now that
+        # the real URL is known, honor an existing completed download of it
+        # instead of fetching the same file twice.
+        if req.url != url:
+            existing_done = await asyncio.to_thread(_find_completed_duplicate, db, req.url)
+            if existing_done is not None and existing_done.id != req.id:
+                print(f"[LOG] ouo 우회 후 중복 확인 - 이미 완료됨: id={existing_done.id}")
+                db.delete(req)
+                db.commit()
+                await sse_manager.broadcast_message("downloads_bulk_deleted", {
+                    "ids": [download_id],
+                    "count": 1,
+                })
+                return
+
+        success = await download_core.start_download_async(req, db)
+
+        if success:
+            await sse_manager.broadcast_message("download_started", {
+                "id": download_id,
+                "url": req.url,
+                "status": "parsing",
+                "message": "다운로드가 시작되었습니다"
+            })
+        else:
+            await sse_manager.broadcast_message("download_added", {
+                "id": download_id,
+                "url": req.url,
+                "status": "failed",
+                "message": "다운로드 시작 실패"
+            })
+    finally:
+        db.close()
 
 
 
@@ -95,33 +207,22 @@ async def add_download(
         if not url:
             raise HTTPException(status_code=400, detail="URL이 필요합니다")
 
-        # Automatically unwrap ouo.io / ouo.press shortlinks. The unwrapped
-        # result is the real download URL. On failure, keep the original and
-        # let the user retry.
-        original_ouo_url: Optional[str] = None
-        if is_ouo_url(url):
-            original_ouo_url = url
-            # unwrap_if_ouo is fully synchronous and can take minutes (FlareSolverr,
-            # curl_cffi, headless browser). Never run it on the event loop or it
-            # freezes every SSE stream and API request — offload to a worker thread.
-            loop = asyncio.get_event_loop()
-            unwrapped = await loop.run_in_executor(None, unwrap_if_ouo, url)
-            if unwrapped:
-                print(f"[LOG] ouo unwrap: {url} -> {unwrapped}")
-                url = unwrapped
-            else:
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"ouo 단축링크 우회 실패: {url} — 잠시 후 다시 시도해주세요",
-                )
+        # ouo.io / ouo.press shortlinks are stored as-is and unwrapped by the
+        # background start (FlareSolverr / headless browser, minutes at worst).
+        # Resolving one here would make adding a link take as long as solving it.
+        is_ouo = is_ouo_url(url)
 
         # Clean up the 1fichier URL (strip affiliate params etc. from file
-        # pages, but preserve the download host).
-        url = clean_1fichier_url(url)
+        # pages, but preserve the download host). A shortlink has nothing to
+        # clean yet — that happens once it resolves.
+        if not is_ouo:
+            url = clean_1fichier_url(url)
 
         # If this exact URL was already downloaded and the file is still on disk,
         # don't re-download — quietly tell the client it's already complete.
-        existing_done = _find_completed_duplicate(db, url)
+        # Off the loop: the query contends with the same write lock, and the
+        # on-disk check inside it hits the (possibly remote) download volume.
+        existing_done = await asyncio.to_thread(_find_completed_duplicate, db, url)
         if existing_done is not None:
             print(f"[LOG] 중복 다운로드 무시 - 이미 완료됨: id={existing_done.id} ({existing_done.file_name})")
             return {
@@ -135,56 +236,40 @@ async def add_download(
                 "status": "done",
             }
 
-        # Create the new download request. For URLs that came in via ouo
-        # unwrap, preserve the original ouo link in original_url so it can be
-        # used later for diagnostics / re-unwrapping.
+        # Create the new download request. The ouo link is kept in original_url
+        # so it survives the unwrap that follows, and so a re-add of the same
+        # shortlink still matches the completed row (see _find_completed_duplicate).
         # Stamp a provisional name derived from the URL so an identifier is
         # visible even before parsing — preparse overwrites it with the real
         # filename on success, so the placeholder only persists in dead cases,
         # and even then it's far more identifiable than "Unknown".
         preserved_original_url = url if (
-            "1fichier.com" in url or should_preserve_original_url(url)
+            is_ouo or "1fichier.com" in url or should_preserve_original_url(url)
         ) else None
 
         new_request = DownloadRequest(
             url=url,
-            original_url=original_ouo_url or preserved_original_url,
+            original_url=preserved_original_url,
             password=password if password else None,
             use_proxy=use_proxy,
             status=StatusEnum.pending,
-            file_name=derive_display_name(original_ouo_url or url),
+            file_name=derive_display_name(url),
         )
 
-        db.add(new_request)
-        db.commit()
-        db.refresh(new_request)
+        download_id = await asyncio.to_thread(_persist_new_request, db, new_request)
 
-        # Start the download immediately
-        print(f"[LOG] 다운로드 즉시 시작: {new_request.id}")
-        success = await download_core.start_download_async(new_request, db)
-
-        if success:
-            # Notify download start via SSE
-            await sse_manager.broadcast_message("download_started", {
-                "id": new_request.id,
-                "url": url,
-                "status": "parsing",
-                "message": "다운로드가 시작되었습니다"
-            })
-        else:
-            # Notify the user on failure as well
-            await sse_manager.broadcast_message("download_added", {
-                "id": new_request.id,
-                "url": url,
-                "status": "failed",
-                "message": "다운로드 시작 실패"
-            })
-
+        # Hand the start off and answer now. Waiting for it was what pushed this
+        # endpoint past server-to-server callers' timeouts, which then reported
+        # a perfectly good enqueue as a failure.
+        print(f"[LOG] 다운로드 등록 완료, 백그라운드 시작 예약: {download_id}")
+        task = asyncio.create_task(_start_download_in_background(download_id, url))
+        _start_tasks.add(task)
+        task.add_done_callback(_start_tasks.discard)
 
         return {
             "success": True,
             "message": "다운로드가 추가되었습니다",
-            "id": new_request.id,
+            "id": download_id,
             "url": url,
             "status": "pending"
         }
