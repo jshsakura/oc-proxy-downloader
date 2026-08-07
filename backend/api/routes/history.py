@@ -6,13 +6,27 @@ Download history API router
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import case, desc, func
 from typing import List, Optional
 
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
 from core.error_messages import classify_failure_text
 from core.simple_parser import derive_display_name
+
+
+def _failure_kind_of(download: DownloadRequest) -> str:
+    """The stored classification, falling back to the error text.
+
+    ``failure_kind`` exists so a verdict survives changes to the matching rules —
+    a link pinned ``dead`` by a probe must not turn ``transient`` because a regex
+    was reworded. Re-deriving it from the text on every row of every list
+    response threw that away, and cost a classification pass per row per poll.
+    """
+    stored = getattr(download, "failure_kind", None)
+    if stored:
+        return stored
+    return classify_failure_text(download.error)
 
 
 def _display_filename(download: DownloadRequest) -> str:
@@ -70,7 +84,7 @@ def get_download_history(
                 "created_at": download.requested_at.isoformat() if download.requested_at else None,
                 "finished_at": download.finished_at.isoformat() if download.finished_at else None,
                 "error_message": download.error,
-                "failure_kind": classify_failure_text(download.error),
+                "failure_kind": _failure_kind_of(download),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size
             })
@@ -138,7 +152,7 @@ def get_working_downloads(
                 "progress": round((download.downloaded_size / download.total_size * 100), 1) if download.total_size and download.total_size > 0 else 0,
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
-                "failure_kind": classify_failure_text(download.error),
+                "failure_kind": _failure_kind_of(download),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
@@ -224,7 +238,7 @@ def get_completed_downloads(
                 "progress": 100,  # completed items are always 100%
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
-                "failure_kind": classify_failure_text(download.error),
+                "failure_kind": _failure_kind_of(download),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
@@ -278,7 +292,7 @@ def get_active_downloads(db: Session = Depends(get_db)):
                 "progress": round((download.downloaded_size / download.total_size * 100), 1) if download.total_size and download.total_size > 0 else 0,
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
-                "failure_kind": classify_failure_text(download.error),
+                "failure_kind": _failure_kind_of(download),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size  # file size info obtained from preparse
@@ -374,20 +388,31 @@ def get_history_stats(
                 raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
             query = query.filter(DownloadRequest.requested_at < end_dt)
 
-        total = query.count()
+        # One grouped pass instead of a COUNT per status plus two more for the
+        # proxy split. The tab badges refresh off every SSE status update, so
+        # this endpoint runs while downloads are writing — each extra full scan
+        # here is time the writer spends waiting.
+        status_rows = query.with_entities(
+            DownloadRequest.status,
+            func.count(DownloadRequest.id),
+            func.coalesce(func.sum(DownloadRequest.total_size), 0),
+            func.sum(case((DownloadRequest.use_proxy == True, 1), else_=0)),
+        ).group_by(DownloadRequest.status).all()
 
-        status_counts = {}
-        for status_enum in StatusEnum:
-            count = query.filter(DownloadRequest.status == status_enum).count()
-            status_counts[status_enum.value] = count
-
-        total_bytes_result = query.with_entities(
-            func.coalesce(func.sum(DownloadRequest.total_size), 0)
-        ).scalar()
-        total_bytes = int(total_bytes_result) if total_bytes_result else 0
-
-        proxy_count = query.filter(DownloadRequest.use_proxy == True).count()
-        local_count = query.filter(DownloadRequest.use_proxy == False).count()
+        status_counts = {status_enum.value: 0 for status_enum in StatusEnum}
+        total = 0
+        total_bytes = 0
+        proxy_count = 0
+        for status, count, size_sum, proxy_sum in status_rows:
+            # A pre-migration row can carry a NULL status. It belongs in the
+            # totals but must not invent a status key the UI would then render
+            # as a badge.
+            if status is not None:
+                status_counts[status.value if hasattr(status, "value") else str(status)] = count
+            total += count
+            total_bytes += int(size_sum or 0)
+            proxy_count += int(proxy_sum or 0)
+        local_count = total - proxy_count
 
         done_count = status_counts.get("done", 0)
         success_rate = round(done_count / total * 100, 1) if total > 0 else 0.0
