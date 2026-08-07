@@ -133,13 +133,15 @@
   }
   let showLogoutConfirm = false;
 
-  // Version information
+  // Version information. No placeholder version here: an unanswered check must
+  // read as "unknown", never as a real build number the server never reported.
   let versionInfo = {
-    current_version: "v1.0.0",
+    current_version: null,
     latest_version: null,
     update_available: false,
     error: null };
   let isLoadingVersion = false;
+  let hasRequestedVersion = false;
 
   $: isSettingsLoading = !settings || Object.keys(settings).length === 0;
 
@@ -293,6 +295,18 @@
   // login, so its fetch 401'd and left the field blank.
   $: if (showModal && !apiToken) {
     loadApiToken();
+  }
+
+  // Same reason as the token above: onMount fired at page load, before login,
+  // so the version check 401'd and the modal kept showing its placeholder.
+  // Re-checked on every open, since the answer changes when a release ships.
+  $: if (showModal && !hasRequestedVersion) {
+    hasRequestedVersion = true;
+    loadVersionInfo();
+  }
+
+  $: if (!showModal && hasRequestedVersion) {
+    hasRequestedVersion = false;
   }
 
   $: if (showModal && currentSettings && !isInitialized) {
@@ -481,16 +495,19 @@
 
     try {
       isLoadingVersion = true;
-      const response = await authenticatedFetch("/api/version", {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("access_token")}` } });
+      const response = await authenticatedFetch("/api/version");
 
       if (response.ok) {
         versionInfo = await response.json();
+      } else {
+        // Swallowing this left the placeholder version on screen next to a
+        // "you are up to date" badge — a wrong answer looks exactly like a
+        // right one. Say the check failed instead.
+        versionInfo = { ...versionInfo, error: `HTTP ${response.status}` };
       }
     } catch (error) {
       console.warn("[WARN] Failed to load version info:", error);
-      versionInfo.error = "Failed to check version";
+      versionInfo = { ...versionInfo, error: "Failed to check version" };
     } finally {
       isLoadingVersion = false;
     }
@@ -523,7 +540,6 @@
       console.warn("[WARN] Failed to load environment info:", error);
     }
 
-    loadVersionInfo();
     loadApiToken();
   });
 
@@ -1549,10 +1565,10 @@
                       <span class="loading-spinner"></span>
                       <span>{$t("checking_version")}</span>
                     </div>
-                  {:else if versionInfo.error}
+                  {:else if versionInfo.error || !versionInfo.current_version}
                     <div class="version-simple">
                       <span class="version-text"
-                        >{versionInfo.current_version}</span
+                        >{versionInfo.current_version || "—"}</span
                       >
                       <span class="version-status error"
                         >({$t("version_check_failed")})</span
