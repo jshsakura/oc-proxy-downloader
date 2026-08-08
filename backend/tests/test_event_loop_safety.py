@@ -58,62 +58,66 @@ def test_no_route_blocks_the_event_loop(route_file):
     )
 
 
-# Session calls that go to SQLite and therefore wait on its lock.
-_BLOCKING_SESSION_CALLS = {"commit", "refresh", "query", "add", "delete", "flush", "execute"}
-
-# async handlers that still touch the session directly on the event loop. This
-# list may shrink, never grow: each entry is a handler that stalls every other
-# request for as long as SQLite makes it wait. The guard above could not see
-# them — it only catches handlers that never await at all, which is why
-# add_download passed it while taking 20s per call in production.
-_KNOWN_LOOP_DB_HANDLERS = {
-    "audit.py": {"probe_single"},
-    "downloads.py": {
-        "start_download", "resume_download", "retry_download", "stop_download",
-        "start_batch_downloads", "delete_download", "bulk_delete_downloads",
-        "toggle_proxy_mode", "stop_all_downloads", "restart_failed_downloads",
-        "stop_all_local_downloads", "restart_failed_local_downloads",
-        "stop_all_proxy_downloads", "restart_failed_proxy_downloads",
-    },
-    "proxy.py": {"get_proxy_status"},
-}
+# Session methods that reach SQLite and therefore wait on its lock. Note what is
+# absent: db.query()/filter() build a query lazily and touch nothing, and add()/
+# delete() only stage a change with autoflush off. Flagging those would just
+# train people to ignore this test.
+_SESSION_BLOCKING = {"commit", "refresh", "flush", "execute"}
+_QUERY_TERMINAL = {"first", "all", "one", "one_or_none", "scalar", "count"}
 
 
-def _handlers_touching_the_session(node: ast.AST) -> bool:
-    """True if the handler calls db.<blocking>() outside a thread hop."""
-    return any(
-        isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr in _BLOCKING_SESSION_CALLS
-        and ast.unparse(n).startswith("db.")
-        for n in ast.walk(node)
-    )
+def _chain_root(node: ast.AST):
+    """The name a call chain starts from — ``db`` for db.query(...).first()."""
+    while isinstance(node, ast.Call):
+        node = node.func
+    while isinstance(node, ast.Attribute):
+        node = node.value
+        while isinstance(node, ast.Call):
+            node = node.func
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _blocking_db_calls(node: ast.AST) -> list:
+    """Session calls that actually hit the database, un-hopped, in this handler."""
+    hits = []
+    for n in ast.walk(node):
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)):
+            continue
+        if n.func.attr in _SESSION_BLOCKING and ast.unparse(n).startswith("db."):
+            hits.append(n.lineno)
+        elif n.func.attr in _QUERY_TERMINAL and _chain_root(n) == "db":
+            hits.append(n.lineno)
+    return hits
 
 
 @pytest.mark.parametrize(
     "route_file", sorted(ROUTES_DIR.glob("*.py")), ids=lambda p: p.name
 )
-def test_no_new_async_handler_queries_on_the_event_loop(route_file):
+def test_no_async_handler_queries_on_the_event_loop(route_file):
     """A running download commits progress constantly, so the SQLite write lock
     is usually held. An `async def` handler that queries or commits directly
     waits for that lock *on the loop*, freezing every other request — the
-    failure that made every board send time out. Hop to a thread
-    (asyncio.to_thread) or declare the handler `def`.
-    """
-    offenders = {
-        node.name
-        for node in _route_handlers(route_file)
-        if isinstance(node, ast.AsyncFunctionDef) and _handlers_touching_the_session(node)
-    }
-    known = _KNOWN_LOOP_DB_HANDLERS.get(route_file.name, set())
+    failure that made every board send time out while the downloader was
+    healthy. The guard above cannot catch this: add_download awaited an SSE
+    broadcast, so it counted as "awaits something" the whole time it was taking
+    20s per call.
 
-    assert offenders - known == set(), (
-        f"{route_file.name}: new async handler(s) doing DB work on the event loop — "
-        f"{sorted(offenders - known)}"
-    )
-    assert known - offenders == set(), (
-        f"{route_file.name}: {sorted(known - offenders)} no longer blocks — "
-        f"remove it from _KNOWN_LOOP_DB_HANDLERS so it cannot regress"
+    Use ``core.db_async`` (first/all_rows/count/commit), wrap the work in
+    ``asyncio.to_thread``, or declare the handler ``def``.
+    """
+    # Every async function in the route layer, not only the decorated handlers:
+    # the background audit task and the pre-parse helper are not handlers and
+    # were blocking just as hard.
+    tree = ast.parse(route_file.read_text(encoding="utf-8"))
+    offenders = {
+        node.name: _blocking_db_calls(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and _blocking_db_calls(node)
+    }
+
+    assert offenders == {}, (
+        f"{route_file.name}: async handler(s) hitting the database on the event "
+        f"loop — {offenders} (name → line numbers)"
     )
 
 
