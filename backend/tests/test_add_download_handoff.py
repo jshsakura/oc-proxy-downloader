@@ -82,7 +82,7 @@ async def test_response_precedes_the_download_start(db, started):
     assert result["status"] == "pending"
     assert started == [], "the response waited for the download to start"
 
-    await asyncio.sleep(0)  # let the scheduled background task run
+    await drain_background_starts()
 
     assert started == [result["id"]]
 

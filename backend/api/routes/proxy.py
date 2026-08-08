@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import datetime
 from fastapi import APIRouter, Request, HTTPException, Depends, Body
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core import db_async
 from core.i18n import get_message
 from core.config import get_config
 from core.models import DownloadRequest, StatusEnum, ProxyStatus, UserProxy
@@ -15,13 +18,15 @@ async def get_unused_proxies(db):
     try:
         # Get the list of active user proxies (same approach as proxy_manager)
         cached_proxy_list = await proxy_manager.get_user_proxy_list(db)
-        active_proxies = db.query(UserProxy).filter(UserProxy.is_active == True).all()
+        active_proxies = await db_async.all_rows(
+            db.query(UserProxy).filter(UserProxy.is_active == True)
+        )
 
         # Proxy addresses actually used (checked from ProxyStatus)
-        used_proxy_statuses = db.query(ProxyStatus).filter(
+        used_proxy_statuses = await db_async.all_rows(db.query(ProxyStatus).filter(
             ProxyStatus.ip.isnot(None),
             ProxyStatus.port.isnot(None)
-        ).all()
+        ))
         used_proxy_addresses = {f"{status.ip}:{status.port}" for status in used_proxy_statuses}
 
         # Filter unused proxies — use cached_proxy_list for consistency
@@ -166,6 +171,49 @@ def toggle_proxy(proxy_id: int, request: Request, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _collect_proxy_counts(db: Session) -> dict:
+    """Every counter this endpoint reports, in three grouped queries.
+
+    It used to run seven separate COUNTs straight on the event loop while proxy
+    downloads were committing progress to the same database. Grouping collapses
+    the four per-status scans into one, and the whole thing runs in a single
+    thread hop.
+    """
+    by_status = {
+        status: n
+        for status, n in db.query(DownloadRequest.status, func.count(DownloadRequest.id))
+        .filter(DownloadRequest.use_proxy == True)
+        .group_by(DownloadRequest.status)
+        .all()
+        if status is not None
+    }
+
+    # ``success`` is nullable, and the previous ``== True`` / ``== False``
+    # filters both skipped NULL — grouping keeps that by only reading the two
+    # boolean keys.
+    by_success = dict(
+        db.query(ProxyStatus.success, func.count(ProxyStatus.id))
+        .group_by(ProxyStatus.success)
+        .all()
+    )
+
+    used_proxies = db.query(func.count(ProxyStatus.id)).filter(
+        ProxyStatus.ip.isnot(None),
+        ProxyStatus.port.isnot(None),
+    ).scalar() or 0
+
+    return {
+        "used_proxies": used_proxies,
+        "success_count": by_success.get(True, 0),
+        "fail_count": by_success.get(False, 0),
+        "active_downloads": by_status.get(StatusEnum.downloading, 0)
+        + by_status.get(StatusEnum.proxying, 0),
+        "pending_downloads": by_status.get(StatusEnum.pending, 0),
+        "parsing_downloads": by_status.get(StatusEnum.parsing, 0),
+        "waiting_downloads": by_status.get(StatusEnum.waiting, 0),
+    }
+
+
 @router.get("/proxy-status")
 async def get_proxy_status(request: Request, db: Session = Depends(get_db)):
     """Get proxy status"""
@@ -181,41 +229,14 @@ async def get_proxy_status(request: Request, db: Session = Depends(get_db)):
         print(f"[DEBUG] proxy_status: total={total_proxies}, available={available_proxies}, unused_list={len(unused_proxies_list)}")
         print(f"[DEBUG] cached_proxy_list: {cached_proxy_list[:3] if cached_proxy_list else 'None'}...")  # show only the first 3
 
-        # Number of proxies actually used (checked from the ProxyStatus table)
-        used_proxy_count = db.query(ProxyStatus).filter(
-            ProxyStatus.ip.isnot(None),
-            ProxyStatus.port.isnot(None)
-        ).count()
-        used_proxies = used_proxy_count
-
-        # Total success/failure counts (actual DB query)
-        success_count = db.query(ProxyStatus).filter(ProxyStatus.success == True).count()
-        fail_count = db.query(ProxyStatus).filter(ProxyStatus.success == False).count()
-
-        # Current proxy download count (active states only)
-        active_proxy_downloads = db.query(DownloadRequest).filter(
-            DownloadRequest.use_proxy == True,
-            DownloadRequest.status.in_(
-                [StatusEnum.downloading, StatusEnum.proxying])
-        ).count()
-
-        # Number of pending proxy downloads
-        pending_proxy_downloads = db.query(DownloadRequest).filter(
-            DownloadRequest.use_proxy == True,
-            DownloadRequest.status == StatusEnum.pending
-        ).count()
-
-        # Number of proxy downloads currently parsing
-        parsing_proxy_downloads = db.query(DownloadRequest).filter(
-            DownloadRequest.use_proxy == True,
-            DownloadRequest.status == StatusEnum.parsing
-        ).count()
-
-        # Number of proxy downloads waiting (waiting status)
-        waiting_proxy_downloads = db.query(DownloadRequest).filter(
-            DownloadRequest.use_proxy == True,
-            DownloadRequest.status == StatusEnum.waiting
-        ).count()
+        counts = await asyncio.to_thread(_collect_proxy_counts, db)
+        used_proxies = counts["used_proxies"]
+        success_count = counts["success_count"]
+        fail_count = counts["fail_count"]
+        active_proxy_downloads = counts["active_downloads"]
+        pending_proxy_downloads = counts["pending_downloads"]
+        parsing_proxy_downloads = counts["parsing_downloads"]
+        waiting_proxy_downloads = counts["waiting_downloads"]
 
         # Determine the proxy status message (i18n support)
         config = get_config()

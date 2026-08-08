@@ -17,12 +17,14 @@ import re
 from urllib.parse import urlparse, unquote, urlunparse
 
 from core.db import get_db, SessionLocal
+from core import db_async
 from core.models import DownloadRequest, StatusEnum
 from core.download_core import download_core
 from core.parser import fichier_parser
 from core.simple_parser import parse_1fichier_simple_sync, clean_1fichier_url, derive_display_name
 from core.hoster_parsers import should_preserve_original_url
 from core.config import get_config
+from core.i18n import get_translations
 from core.error_messages import (
     classify_failure_text,
     is_terminal_failure,
@@ -119,22 +121,26 @@ async def _resolve_ouo_url(req: DownloadRequest, db: Session) -> bool:
 
     if not unwrapped:
         print(f"[WARNING] ouo unwrap 실패: {req.url}")
+        failed_id, failed_url = req.id, req.url
+        message = f"ouo 단축링크 우회 실패: {failed_url} — 잠시 후 다시 시도해주세요"
         req.status = StatusEnum.failed
-        req.error = f"ouo 단축링크 우회 실패: {req.url} — 잠시 후 다시 시도해주세요"
+        req.error = message
         req.failure_kind = KIND_TRANSIENT
-        db.commit()
+        await db_async.commit(db)
         await sse_manager.broadcast_message("download_added", {
-            "id": req.id,
-            "url": req.url,
+            "id": failed_id,
+            "url": failed_url,
             "status": "failed",
-            "message": req.error,
+            "message": message,
         })
         return False
 
     print(f"[LOG] ouo unwrap: {req.url} -> {unwrapped}")
+    resolved_id = req.id
     req.url = clean_1fichier_url(unwrapped)
     req.file_name = derive_display_name(req.url)
-    db.commit()
+    await db_async.commit(db)
+    await db_async.reload(db, DownloadRequest, [resolved_id])
     return True
 
 
@@ -149,7 +155,9 @@ async def _start_download_in_background(download_id: int, url: str) -> None:
     """
     db = SessionLocal()
     try:
-        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        req = await db_async.first(
+            db.query(DownloadRequest).filter(DownloadRequest.id == download_id)
+        )
         if req is None:
             print(f"[WARNING] 백그라운드 시작 대상 없음: {download_id}")
             return
@@ -165,7 +173,7 @@ async def _start_download_in_background(download_id: int, url: str) -> None:
             if existing_done is not None and existing_done.id != req.id:
                 print(f"[LOG] ouo 우회 후 중복 확인 - 이미 완료됨: id={existing_done.id}")
                 db.delete(req)
-                db.commit()
+                await db_async.commit(db)
                 await sse_manager.broadcast_message("downloads_bulk_deleted", {
                     "ids": [download_id],
                     "count": 1,
@@ -286,7 +294,7 @@ async def start_download(download_id: int, db: Session = Depends(get_db)):
     """Start an async download"""
     try:
         # Look up the download request
-        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
@@ -325,7 +333,7 @@ async def resume_download(download_id: int, use_proxy: Optional[bool] = None, db
     """Restart / resume an async download"""
     try:
         # Look up the download request
-        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
@@ -374,7 +382,7 @@ async def retry_download(
 ):
     """Retry a failed download"""
     try:
-        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
         if not req:
             raise HTTPException(status_code=404, detail="Download request not found")
 
@@ -425,7 +433,7 @@ async def retry_download(
         req.attempts_json = None
         req.downloaded_size = 0  # start over from the beginning
         req.finished_at = None
-        db.commit()
+        await db_async.commit(db)
 
         # Start the async download
         success = await download_core.start_download_async(req, db)
@@ -458,7 +466,7 @@ async def stop_download(download_id: int, db: Session = Depends(get_db)):
     """Stop an async download"""
     try:
         # Look up the download request
-        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
@@ -467,7 +475,7 @@ async def stop_download(download_id: int, db: Session = Depends(get_db)):
 
         if success:
             # Look up the latest download status
-            updated_req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+            updated_req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
 
             # Immediately notify status via SSE
             await sse_manager.broadcast_message("download_stopped", {
@@ -520,7 +528,7 @@ async def start_batch_downloads(download_ids: List[int], db: Session = Depends(g
         results = []
 
         for download_id in download_ids:
-            req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+            req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
             if not req:
                 results.append({"id": download_id, "success": False, "message": "요청을 찾을 수 없음"})
                 continue
@@ -606,7 +614,7 @@ async def delete_download(download_id: int, db: Session = Depends(get_db)):
     """Delete a download"""
     try:
         # Look up the download request
-        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
@@ -616,7 +624,7 @@ async def delete_download(download_id: int, db: Session = Depends(get_db)):
 
         # Delete from the database
         db.delete(req)
-        db.commit()
+        await db_async.commit(db)
 
         # Notify deletion via SSE
         await sse_manager.broadcast_message("download_deleted", {
@@ -656,7 +664,7 @@ async def bulk_delete_downloads(
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="ids 는 정수 리스트여야 합니다")
 
-    rows = db.query(DownloadRequest).filter(DownloadRequest.id.in_(ids)).all()
+    rows = await db_async.all_rows(db.query(DownloadRequest).filter(DownloadRequest.id.in_(ids)))
     if not rows:
         return {"success": True, "deleted_count": 0, "ids": []}
 
@@ -673,7 +681,7 @@ async def bulk_delete_downloads(
                 print(f"[WARNING] bulk-delete: 중지 중 오류 (id={r.id}): {e}")
         db.delete(r)
         deleted_ids.append(r.id)
-    db.commit()
+    await db_async.commit(db)
 
     # Batch SSE notification — a single force_refresh to avoid the expensive
     # case of per-row updates.
@@ -716,7 +724,7 @@ async def toggle_proxy_mode(download_id: int, db: Session = Depends(get_db)):
     """Toggle the download's proxy mode"""
     try:
         # Look up the download request
-        req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+        req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
@@ -724,21 +732,24 @@ async def toggle_proxy_mode(download_id: int, db: Session = Depends(get_db)):
         if req.status in [StatusEnum.parsing, StatusEnum.downloading, StatusEnum.waiting]:
             raise HTTPException(status_code=400, detail="실행 중인 다운로드는 프록시 모드를 변경할 수 없습니다")
 
-        # Toggle proxy mode
-        req.use_proxy = not req.use_proxy
-        db.commit()
+        # Toggle proxy mode. Keep the new value in a local before committing:
+        # the commit expires the instance, so every req.use_proxy below would
+        # otherwise re-SELECT the row on the event loop.
+        use_proxy = not req.use_proxy
+        req.use_proxy = use_proxy
+        await db_async.commit(db)
 
         # Notify the status change via SSE
         await sse_manager.broadcast_message("proxy_toggled", {
             "id": download_id,
-            "use_proxy": req.use_proxy,
-            "message": f"프록시 모드가 {'활성화' if req.use_proxy else '비활성화'}되었습니다"
+            "use_proxy": use_proxy,
+            "message": f"프록시 모드가 {'활성화' if use_proxy else '비활성화'}되었습니다"
         })
 
         return {
             "success": True,
-            "use_proxy": req.use_proxy,
-            "message": f"프록시 모드가 {'활성화' if req.use_proxy else '비활성화'}되었습니다"
+            "use_proxy": use_proxy,
+            "message": f"프록시 모드가 {'활성화' if use_proxy else '비활성화'}되었습니다"
         }
 
     except HTTPException:
@@ -829,7 +840,7 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
                             print(f"[WARN] 크기 변환 실패: {e}")
 
                     # Update the DB
-                    db.commit()
+                    await db_async.commit(db)
 
                     # Notify file info update via SSE
                     await sse_manager.broadcast_message("file_info_updated", {
@@ -854,7 +865,7 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
             if filename and '.' in filename:
                 old_name = req.file_name
                 req.file_name = filename
-                db.commit()
+                await db_async.commit(db)
                 print(f"[LOG] 파일명 업데이트: {old_name} → {filename}")
 
                 # Notify file info update via SSE
@@ -878,9 +889,9 @@ async def stop_all_downloads(db: Session = Depends(get_db)):
     """Stop all downloads"""
     try:
         # Find all in-progress downloads (pending, downloading, parsing)
-        active_downloads = db.query(DownloadRequest).filter(
+        active_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing])
-        ).all()
+        ))
 
         stopped_count = 0
         for download in active_downloads:
@@ -896,13 +907,11 @@ async def stop_all_downloads(db: Session = Depends(get_db)):
             })
 
         if stopped_count > 0:
-            db.commit()
+            await db_async.commit(db)
             print(f"[LOG] {stopped_count}개 다운로드 일괄 정지 완료")
 
         # Notify that the bulk status update is complete (triggers a frontend refresh)
         # i18n support
-        from core.config import get_config
-        from core.i18n import get_translations
         config = get_config()
         user_language = config.get("language", "ko")
         translations = get_translations(user_language)
@@ -930,9 +939,9 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
     """Restart failed/stopped downloads"""
     try:
         # Find downloads in failed or stopped status
-        all_failed = db.query(DownloadRequest).filter(
+        all_failed = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped])
-        ).all()
+        ))
 
         # Exclude permanent-failure / login-required / cooldown items from
         # the batch restart. Cooldowns get picked up naturally on a later call
@@ -973,8 +982,13 @@ async def restart_failed_downloads(db: Session = Depends(get_db)):
                 download.attempts_json = None
                 download.downloaded_size = 0  # reset downloaded size
 
+            # Ids while the instances are still loaded — after the commit,
+            # reading any attribute costs a SELECT.
+            batch_ids = [download.id for download in batch]
+
             # Commit per batch
-            db.commit()
+            await db_async.commit(db)
+            await db_async.reload(db, DownloadRequest, batch_ids)
             print(f"[LOG] {len(batch)}개 다운로드 상태 업데이트 완료")
 
             # Start the downloads in this batch
@@ -1012,10 +1026,10 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
     """Stop all local downloads"""
     try:
         # Find in-progress local downloads (use_proxy=False)
-        active_local_downloads = db.query(DownloadRequest).filter(
+        active_local_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
             DownloadRequest.use_proxy == False
-        ).all()
+        ))
 
         print(f"[DEBUG] stop-all-local: 진행 중인 로컬 다운로드 {len(active_local_downloads)}개 발견")
         for download in active_local_downloads:
@@ -1045,13 +1059,11 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
             })
 
         if stopped_count > 0:
-            db.commit()
+            await db_async.commit(db)
             print(f"[LOG] {stopped_count}개 로컬 다운로드 일괄 정지 완료")
 
         # Notify that the bulk status update is complete (triggers a frontend refresh)
         # i18n support
-        from core.config import get_config
-        from core.i18n import get_translations
         config = get_config()
         user_language = config.get("language", "ko")
         translations = get_translations(user_language)
@@ -1079,10 +1091,10 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
     """Restart failed/stopped local downloads"""
     try:
         # Find local downloads in failed or stopped status (use_proxy=False)
-        all_failed = db.query(DownloadRequest).filter(
+        all_failed = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
             DownloadRequest.use_proxy == False
-        ).all()
+        ))
 
         # Exclude permanent-failure / login-required / cooldown items
         has_creds = _has_fichier_credentials()
@@ -1120,14 +1132,23 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
             download.attempts_json = None
             download.downloaded_size = 0  # reset downloaded size
 
+        # Pick the oldest while the instances are still loaded — after the
+        # commit every requested_at read is a fresh SELECT on the event loop.
+        oldest_download = (
+            min(failed_local_downloads, key=lambda d: d.requested_at)
+            if failed_local_downloads else None
+        )
+
         # Commit all at once
-        db.commit()
+        await db_async.commit(db)
+        await db_async.reload(
+            db, DownloadRequest, [oldest_download.id] if oldest_download else []
+        )
         print(f"[LOG] {len(failed_local_downloads)}개 로컬 다운로드 상태 업데이트 완료")
 
         # Start only the single oldest download among them
         restarted_count = 0
-        if failed_local_downloads:
-            oldest_download = min(failed_local_downloads, key=lambda d: d.requested_at)
+        if oldest_download is not None:
             success = await download_core.start_download_async(oldest_download, db)
             if success:
                 restarted_count = 1
@@ -1145,8 +1166,6 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
 
         # Notify that the bulk status update is complete (triggers a frontend refresh)
         # i18n support
-        from core.config import get_config
-        from core.i18n import get_translations
         config = get_config()
         user_language = config.get("language", "ko")
         translations = get_translations(user_language)
@@ -1182,10 +1201,10 @@ async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
     """Stop all proxy downloads"""
     try:
         # Find in-progress proxy downloads (use_proxy=True)
-        active_proxy_downloads = db.query(DownloadRequest).filter(
+        active_proxy_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
             DownloadRequest.use_proxy == True
-        ).all()
+        ))
 
         stopped_count = 0
         for download in active_proxy_downloads:
@@ -1201,13 +1220,11 @@ async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
             })
 
         if stopped_count > 0:
-            db.commit()
+            await db_async.commit(db)
             print(f"[LOG] {stopped_count}개 프록시 다운로드 일괄 정지 완료")
 
         # Notify that the bulk status update is complete (triggers a frontend refresh)
         # i18n support
-        from core.config import get_config
-        from core.i18n import get_translations
         config = get_config()
         user_language = config.get("language", "ko")
         translations = get_translations(user_language)
@@ -1235,10 +1252,10 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
     """Restart failed/stopped proxy downloads"""
     try:
         # Find proxy downloads in failed or stopped status (use_proxy=True)
-        all_failed = db.query(DownloadRequest).filter(
+        all_failed = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
             DownloadRequest.use_proxy == True
-        ).all()
+        ))
 
         # Exclude permanent-failure / login-required items
         has_creds = _has_fichier_credentials()
@@ -1277,8 +1294,13 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
                 download.attempts_json = None
                 download.downloaded_size = 0  # reset downloaded size
 
+            # Ids while the instances are still loaded — after the commit,
+            # reading any attribute costs a SELECT.
+            batch_ids = [download.id for download in batch]
+
             # Commit per batch
-            db.commit()
+            await db_async.commit(db)
+            await db_async.reload(db, DownloadRequest, batch_ids)
             print(f"[LOG] {len(batch)}개 프록시 다운로드 상태 업데이트 완료")
 
             # Start the downloads in this batch

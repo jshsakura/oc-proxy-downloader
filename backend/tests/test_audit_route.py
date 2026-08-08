@@ -13,6 +13,7 @@ import datetime
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
 from core.models import Base, DownloadRequest, StatusEnum
@@ -27,7 +28,11 @@ from api.routes.audit import (
 @pytest.fixture()
 def memory_db():
     """An isolated in-memory SQLite session + sample data for unit tests."""
-    engine = create_engine("sqlite:///:memory:")
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine)
     db = Session()
@@ -153,7 +158,11 @@ class TestAuditLockRace:
     @pytest.mark.asyncio
     async def test_no_targets_releases_lock(self):
         """Right after a zero-target response, the lock must be released so the next request can be accepted."""
-        engine = create_engine("sqlite:///:memory:")
+        engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
         Base.metadata.create_all(bind=engine)
         Session = sessionmaker(bind=engine)
         db = Session()

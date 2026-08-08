@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.db import get_db, SessionLocal
+from core import db_async
 from core.models import DownloadRequest, StatusEnum
 from services.link_probe import (
     probe_1fichier_url,
@@ -98,7 +99,7 @@ def _select_targets(req: "AuditRequest", db: Session) -> List[int]:
 @router.post("/downloads/{download_id}/probe")
 async def probe_single(download_id: int, db: Session = Depends(get_db)):
     """Immediate single-item audit."""
-    req = db.query(DownloadRequest).filter(DownloadRequest.id == download_id).first()
+    req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
     if not req:
         raise HTTPException(status_code=404, detail="Download request not found")
 
@@ -108,7 +109,12 @@ async def probe_single(download_id: int, db: Session = Depends(get_db)):
 
     probe = await probe_1fichier_url(probe_url)
     apply_probe_to_request(req, probe)
-    db.commit()
+
+    # Read the verdict out before committing — the commit expires the instance,
+    # so each field below would otherwise re-SELECT the row on the event loop.
+    failure_kind = req.failure_kind
+    next_retry_at = req.next_retry_at.isoformat() if req.next_retry_at else None
+    await db_async.commit(db)
 
     # Single-item SSE notification — so the frontend can refresh the row immediately.
     await sse_manager.broadcast_message("probe_result", {
@@ -118,8 +124,8 @@ async def probe_single(download_id: int, db: Session = Depends(get_db)):
         "body_marker": probe.body_marker,
         "raw_status": probe.raw_status,
         "definitive": probe.definitive,
-        "failure_kind": req.failure_kind,
-        "next_retry_at": req.next_retry_at.isoformat() if req.next_retry_at else None,
+        "failure_kind": failure_kind,
+        "next_retry_at": next_retry_at,
     })
 
     return {
@@ -128,8 +134,8 @@ async def probe_single(download_id: int, db: Session = Depends(get_db)):
         "summary": probe.summary,
         "alive": probe.kind == KIND_ALIVE,
         "definitive": probe.definitive,
-        "failure_kind": req.failure_kind,
-        "next_retry_at": req.next_retry_at.isoformat() if req.next_retry_at else None,
+        "failure_kind": failure_kind,
+        "next_retry_at": next_retry_at,
     }
 
 
@@ -148,7 +154,9 @@ async def start_audit(request: AuditRequest, db: Session = Depends(get_db)):
     # targets or an exception occurs, no background task runs, so it must be
     # released here.)
     try:
-        target_ids = _select_targets(request, db)
+        # _select_targets runs its query synchronously; called straight from
+        # here it would execute on the event loop.
+        target_ids = await asyncio.to_thread(_select_targets, request, db)
         total = len(target_ids)
 
         if total == 0:
@@ -185,9 +193,9 @@ async def _run_audit(target_ids: List[int]) -> None:
         for idx, req_id in enumerate(target_ids, start=1):
             db = SessionLocal()
             try:
-                req = db.query(DownloadRequest).filter(
+                req = await db_async.first(db.query(DownloadRequest).filter(
                     DownloadRequest.id == req_id
-                ).first()
+                ))
                 if not req:
                     continue
                 probe_url = req.original_url or req.url
@@ -195,7 +203,7 @@ async def _run_audit(target_ids: List[int]) -> None:
                     continue
                 probe = await probe_1fichier_url(probe_url)
                 apply_probe_to_request(req, probe)
-                db.commit()
+                await db_async.commit(db)
                 counts[probe.kind] = counts.get(probe.kind, 0) + 1
                 await _broadcast_progress(
                     idx, total, status="step",
