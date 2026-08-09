@@ -31,6 +31,15 @@ RETRY_SWEEP_INTERVAL_SEC = 20
 MAX_RETRIES_PER_SWEEP = 1
 
 
+def _auto_retry_enabled() -> bool:
+    """False when the user has switched the background retry sweeper off.
+
+    Read per tick rather than cached at startup so toggling it in Settings takes
+    effect on the next cycle instead of requiring a restart.
+    """
+    return bool(get_config().get("auto_retry_enabled", True))
+
+
 def _has_fichier_credentials() -> bool:
     """True if a 1fichier account is configured — the criterion for whether an
     auth_required failure is worth auto-retrying."""
@@ -94,6 +103,10 @@ class DownloadService:
             await asyncio.sleep(RETRY_SWEEP_INTERVAL_SEC)
             if not self.is_running:
                 break
+            # Honour the master switch. Checked here (not before the loop) so the
+            # sweeper resumes on its own once the user turns it back on.
+            if not _auto_retry_enabled():
+                continue
             # Resilience: one bad sweep must not kill the loop, or every later
             # auto-retry silently stops. Log and continue on the next tick.
             try:

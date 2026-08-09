@@ -86,7 +86,14 @@ DEFAULT_CONFIG = {
     # Max hoster pages parsed at once (cloudscraper/FlareSolverr are CPU-heavy).
     # Bulk-adding many links queues their parses instead of thrashing the CPU and
     # stalling the API. Applied as the asyncio default thread-pool size at startup.
-    "parse_concurrency": 3
+    "parse_concurrency": 3,
+    # Master switch for the background retry sweeper.
+    # The sweeper is right for a download that died on a brief blip, but after a
+    # long outage (host migration, days powered off) EVERY failed item is past its
+    # next_retry_at at once, so the sweeper walks the whole backlog one item per
+    # 20s and saturates the link for hours with downloads nobody asked for.
+    # Turn this off to keep failures parked until retried by hand.
+    "auto_retry_enabled": True
 }
 
 # Credentials that must never leave the server in readable form. They grant
