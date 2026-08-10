@@ -1657,6 +1657,23 @@ html[data-theme="light"] {
 tr.is-selected {
   background: rgba(99, 102, 241, 0.08);
 }
+/* Source is gone. The row stays — deleting hundreds of them would leave holes in
+   the history and lose the record that the link was ever tried — but it must not
+   read as an item still waiting its turn. Dimmed, struck through, and out of the
+   tab order for the actions that no longer apply. */
+tr.is-dead {
+  opacity: 0.45;
+}
+tr.is-dead .filename-text {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+tr.is-dead:hover {
+  opacity: 0.75;   /* readable when the user actually goes looking at it */
+}
+tr.is-dead.is-selected {
+  opacity: 0.75;   /* a selected row must stay legible */
+}
 .bulk-action-bar {
   position: fixed;
   bottom: 1rem;

@@ -2512,7 +2512,10 @@
               </tr>
             {:else}
               {#each gridDownloads as download (download.id)}
-                <tr class:is-selected={selectedIds.has(download.id)}>
+                <tr
+                  class:is-selected={selectedIds.has(download.id)}
+                  class:is-dead={download.failure_kind === "dead"}
+                >
                   <td class="select-col">
                     <Checkbox
                       checked={selectedIds.has(download.id)}
