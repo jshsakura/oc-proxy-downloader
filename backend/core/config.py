@@ -139,7 +139,11 @@ def get_config():
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                stored = json.load(f)
+            # Defaults first, stored on top: a config.json written by an older
+            # version is missing keys added since, and reading those as None makes
+            # new settings look unset in the UI and unusable in code.
+            return {**DEFAULT_CONFIG, **stored}
         except json.JSONDecodeError:
             print(f"[ERROR] config.json is corrupted or empty. Using default config.")
             # If the file is corrupted or empty, overwrite it with the defaults
@@ -151,10 +155,29 @@ def get_config():
         json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
     return DEFAULT_CONFIG.copy()
 
-def save_config(config):
+def save_config(config, *, merge: bool = True):
+    """Persist settings, merging into what is already stored by default.
+
+    A partial payload used to replace the whole file: POSTing one key wiped the
+    Telegram token, the 1fichier credentials and the paths along with it. The web
+    form always sends every field so it never showed there, but any other caller
+    (the API token exists precisely so there are others) could destroy the config
+    with a single well-formed request. Merging makes a partial write mean
+    "change these keys", which is what every caller already assumed.
+
+    Pass merge=False to replace wholesale — only for callers that genuinely hold
+    the complete config.
+    """
     try:
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config, f, indent=4)
+        payload = config
+        if merge:
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    payload = {**json.load(f), **config}
+            except (FileNotFoundError, json.JSONDecodeError):
+                payload = config
+        with open(CONFIG_FILE, 'w', encoding="utf-8") as f:
+            json.dump(payload, f, indent=4, ensure_ascii=False)
     except PermissionError:
         print(f"[WARN] Cannot write to config file: {CONFIG_FILE}")
         print("[WARN] Config changes will not be persisted")

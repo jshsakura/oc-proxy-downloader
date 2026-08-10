@@ -41,7 +41,12 @@ from core.hoster_parsers import (
     is_special_hoster_url,
     parse_special_hoster_sync,
 )
-from core.error_messages import apply_failure_to_request, KIND_BLOCKED, KIND_RATE_LIMITED
+from core.error_messages import (
+    apply_failure_to_request,
+    KIND_BLOCKED,
+    KIND_PROXY_BLOCKED,
+    KIND_RATE_LIMITED,
+)
 from core.executors import parse_executor_for
 from core.mega_hoster import (
     MegaApiError,
@@ -113,6 +118,9 @@ EGRESS_DIRECT = "direct"
 EGRESS_VPN = "vpn"
 DOWNLOAD_ROUTES = ("direct", "vpn", "auto", "balance")
 DEFAULT_DOWNLOAD_ROUTE = "direct"
+# How long a host is assumed to keep refusing an egress. Long enough not to waste
+# the queue re-learning it, short enough that a new exit IP gets a chance.
+EGRESS_BLOCK_TTL = datetime.timedelta(hours=6)
 
 
 def _read_download_route() -> str:
@@ -329,6 +337,13 @@ class DownloadCore:
         self.SSE_THROTTLE_COUNT = 50  # Send SSE only every 50 failures
         # 1fichier-local host backoff state (see FICHIER_HOST_BACKOFF_SECONDS).
         # A consecutive block streak lengthens the cooldown; a success resets it.
+        # Some hosts refuse an egress outright — 1fichier answers a datacentre IP
+        # with "Accès restreint / professional infrastructure detected". Retrying
+        # that egress can only fail, so the verdict is remembered per (host,
+        # egress) and routing stops choosing it. Time-boxed because the reason is
+        # the IP, and the proxy's exit address can change.
+        self._egress_blocked: Dict[str, datetime.datetime] = {}
+
         # Backoff state is per egress too — a flagged IP must not pause the other
         # egress, which is the whole point of having a second one.
         self._fichier_cooldown_until: Dict[str, Optional[datetime.datetime]] = {}
@@ -383,6 +398,43 @@ class DownloadCore:
         except Exception:
             return False
 
+    @staticmethod
+    def _last_attempt_kind(req: DownloadRequest) -> Optional[str]:
+        """The classification of the most recent attempt, or None.
+
+        Survives the retry sweep's `failure_kind = None`, so routing can still see
+        why the previous try failed.
+        """
+        raw = getattr(req, "attempts_json", None)
+        if not raw:
+            return None
+        try:
+            attempts = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(attempts, list) or not attempts:
+            return None
+        last = attempts[-1]
+        return last.get("kind") if isinstance(last, dict) else None
+
+    def _register_egress_block(self, host_key: str, egress: str) -> None:
+        """Remember that `host_key` refuses `egress`, so routing stops picking it."""
+        key = f"{host_key}@{egress}"
+        if key not in self._egress_blocked:
+            print(f"[LOG] 출구 차단 확인: {host_key} 는 {egress} 를 거부 → "
+                  f"{int(EGRESS_BLOCK_TTL.total_seconds() // 3600)}시간 동안 사용 안 함")
+        self._egress_blocked[key] = datetime.datetime.now() + EGRESS_BLOCK_TTL
+
+    def _egress_blocked_for(self, host_key: str, egress: str) -> bool:
+        until = self._egress_blocked.get(f"{host_key}@{egress}")
+        if until is None:
+            return False
+        if until <= datetime.datetime.now():
+            # Expired — let it be tried again; the exit IP may have changed.
+            self._egress_blocked.pop(f"{host_key}@{egress}", None)
+            return False
+        return True
+
     def _apply_download_route(self, req: DownloadRequest, db: Session) -> None:
         """Set req.use_proxy from the configured route, before any slot is taken.
 
@@ -406,6 +458,26 @@ class DownloadCore:
                 db.commit()
             return
 
+        host_key, _ = self._resolve_host_limit(req.original_url or req.url)
+
+        # Learn from the attempt that just failed: a proxy_blocked verdict means
+        # the host rejected the IP itself, not the request. Record it before
+        # choosing, so this download is already routed around it.
+        #
+        # Read the verdict from attempts_json, not failure_kind: the auto-retry
+        # sweep clears failure_kind before it calls this, so the live field is
+        # always None by the time routing runs. The attempt log survives, which is
+        # the whole reason it is kept.
+        if self._last_attempt_kind(req) == KIND_PROXY_BLOCKED:
+            self._register_egress_block(host_key, egress_of(req.use_proxy))
+
+        if self._egress_blocked_for(host_key, EGRESS_VPN):
+            # Nothing to decide: the only alternative egress is refused here.
+            if req.use_proxy:
+                req.use_proxy = False
+                db.commit()
+            return
+
         if route == "vpn":
             want = True
         elif route == "auto":
@@ -420,7 +492,16 @@ class DownloadCore:
                 sem = self._site_semaphores.get(f"{host_key}@{egress}")
                 return sem is None or sem._value > 0
 
-            want = False if free(EGRESS_DIRECT) else free(EGRESS_VPN)
+            direct_free, vpn_free = free(EGRESS_DIRECT), free(EGRESS_VPN)
+            if direct_free == vpn_free:
+                # Both idle (or both saturated) — the common case, because a bulk
+                # add starts every task at once and they all read "direct is free"
+                # before any of them has taken it. Splitting on the id keeps that
+                # burst off a single egress; a live check cannot, since none of
+                # the slots are held yet at admission time.
+                want = bool(req.id % 2)
+            else:
+                want = vpn_free
 
         if bool(req.use_proxy) != want:
             req.use_proxy = want
@@ -1068,6 +1149,7 @@ class DownloadCore:
             if "1fichier.com" in parse_url:
                 parse_result = None
                 retry_count = 0
+                last_proxy_error = None  # 마지막 실제 실패 원인(분류에 쓴다)
 
                 # If not in proxy mode, try only once over the regular network
                 if not req.use_proxy:
@@ -1187,6 +1269,12 @@ class DownloadCore:
 
                         except Exception as proxy_parse_error:
                             print(f"[ERROR] 프록시 파싱 실패 ({retry_count + 1}): {proxy_parse_error}")
+                            # Keep the last real reason. The loop below raises a
+                            # generic "retries exceeded", and the classifier reads
+                            # that text — so a precise verdict like 1fichier's
+                            # VPS/VPN block was being thrown away, and routing
+                            # never learned the host refuses that egress.
+                            last_proxy_error = proxy_parse_error
 
                             if req.use_proxy and proxy_addr:
                                 # Record the failed proxy and increment the failure count
@@ -1252,6 +1340,12 @@ class DownloadCore:
                             print(f"[WARNING] 프록시 실패 SSE 전송 실패: {sse_error}")
 
                         if retry_count >= MAX_PROXY_PARSE_RETRIES:
+                            # Re-raise the last real error rather than a bare
+                            # retry count: the classifier works off this text, and
+                            # "1fichier 차단: VPS/VPN IP 차단" is what tells routing
+                            # to stop sending this host through the proxy.
+                            if last_proxy_error is not None:
+                                raise last_proxy_error
                             raise Exception(f"프록시 파싱 실패 - 최대 재시도 횟수({MAX_PROXY_PARSE_RETRIES}) 초과")
                         else:
                             raise Exception("프록시 파싱 실패 - 사용 가능한 프록시가 없음")
