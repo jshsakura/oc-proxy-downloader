@@ -24,6 +24,7 @@
   import StopIcon from "./icons/StopIcon.svelte";
   import ResumeIcon from "./icons/ResumeIcon.svelte";
   import RetryIcon from "./icons/RetryIcon.svelte";
+  import SkullIcon from "./icons/SkullIcon.svelte";
   import DeleteIcon from "./icons/DeleteIcon.svelte";
   import ClipboardIcon from "./icons/ClipboardIcon.svelte";
   import LockIcon from "./icons/LockIcon.svelte";
@@ -2754,7 +2755,8 @@
                       {/if}
                       {#if download.status?.toLowerCase() === "failed"}
                         {#if download.failure_kind === "dead" || download.failure_kind === "unknown_terminal"}
-                          <!-- File whose source is gone / repeated failures — block the click itself to prevent pointless re-requests -->
+                          <!-- File whose source is gone / repeated failures — block the click itself to prevent pointless re-requests.
+                               A skull rather than a greyed retry arrow: at a glance the row is not "waiting", it is over. -->
                           <button
                             class="button-icon is-disabled"
                             title={$t("retry_blocked_dead")}
@@ -2762,7 +2764,11 @@
                             aria-label={$t("retry_blocked_dead")}
                             aria-disabled="true"
                           >
-                            <RetryIcon />
+                            {#if download.failure_kind === "dead"}
+                              <SkullIcon />
+                            {:else}
+                              <RetryIcon />
+                            {/if}
                           </button>
                         {:else if download.failure_kind === "auth_required"}
                           <button
