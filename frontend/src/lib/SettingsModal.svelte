@@ -323,7 +323,8 @@
       fichier_password: currentSettings.fichier_password || "",
       flaresolverr_url: currentSettings.flaresolverr_url || "",
       max_concurrent_downloads: currentSettings.max_concurrent_downloads ?? 8,
-      max_per_host_downloads: currentSettings.max_per_host_downloads ?? 3 };
+      max_per_host_downloads: currentSettings.max_per_host_downloads ?? 3,
+      download_route: currentSettings.download_route || "direct" };
     selectedTheme = settings.theme || $theme;
     originalTheme = $theme;
     selectedLocale = localStorage.getItem("lang") || "ko";
@@ -1262,6 +1263,19 @@
               bind:value={settings.max_per_host_downloads}
             />
             <small class="input-hint">{$t("max_per_host_hint")}</small>
+
+            <label for="download-route">{$t("download_route_label")}</label>
+            <select
+              id="download-route"
+              class="input"
+              bind:value={settings.download_route}
+            >
+              <option value="direct">{$t("download_route_direct")}</option>
+              <option value="vpn">{$t("download_route_vpn")}</option>
+              <option value="auto">{$t("download_route_auto")}</option>
+              <option value="balance">{$t("download_route_balance")}</option>
+            </select>
+            <small class="input-hint">{$t("download_route_hint")}</small>
           </fieldset>
 
           <fieldset class="form-group telegram-notifications">

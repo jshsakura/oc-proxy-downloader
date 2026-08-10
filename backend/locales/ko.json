@@ -454,5 +454,11 @@
   "api_token_copied": "복사됨",
   "api_token_regenerate": "재발급",
   "api_token_regenerate_confirm": "토큰을 재발급하면 기존 토큰은 즉시 무효화됩니다. 계속할까요?",
-  "api_token_regenerated": "새 토큰이 발급되었습니다."
+  "api_token_regenerated": "새 토큰이 발급되었습니다.",
+  "download_route_label": "다운로드 경로",
+  "download_route_hint": "호스트의 동시 접속 제한은 IP 단위로 적용됩니다. 프록시를 등록해두면 출구가 하나 더 생겨 슬롯도 그만큼 늘어납니다. 등록된 프록시가 없으면 항상 직접 연결로 동작합니다.",
+  "download_route_direct": "직접 연결만",
+  "download_route_vpn": "프록시로만",
+  "download_route_auto": "자동 — 직접 연결로 시도하고 실패하면 프록시로 재시도",
+  "download_route_balance": "분산 — 빈 슬롯이 있는 쪽으로"
 }

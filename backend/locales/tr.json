@@ -454,5 +454,11 @@
   "api_token_copied": "Copied",
   "api_token_regenerate": "Regenerate",
   "api_token_regenerate_confirm": "Regenerating revokes the current token immediately. Continue?",
-  "api_token_regenerated": "A new token has been issued."
+  "api_token_regenerated": "A new token has been issued.",
+  "download_route_label": "Download route",
+  "download_route_hint": "Hosts count their concurrent-download limit per IP, so a configured proxy adds a second set of slots rather than sharing the first. Falls back to direct when no proxy is active.",
+  "download_route_direct": "Direct only",
+  "download_route_vpn": "Proxy only",
+  "download_route_auto": "Auto — try direct, retry through the proxy on failure",
+  "download_route_balance": "Balance — whichever egress has a free slot"
 }

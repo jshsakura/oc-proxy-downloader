@@ -28,7 +28,7 @@ from services.notification_service import send_telegram_start_notification, send
 from utils.file_helpers import download_file_content, generate_file_path, get_final_file_path
 from core.proxy_manager import proxy_manager
 from urllib.parse import urlparse, unquote, urlunparse
-from core.models import ProxyStatus
+from core.models import ProxyStatus, UserProxy
 from core.simple_parser import (
     parse_1fichier_simple_sync,
     preparse_1fichier_standalone,
@@ -101,6 +101,28 @@ DEFAULT_MAX_PER_HOST_DOWNLOADS = 3
 # Sane bounds so a bad config value can't open unlimited sockets or stall everything.
 CONCURRENCY_MIN = 1
 CONCURRENCY_MAX = 32
+
+# --- Egress -----------------------------------------------------------------
+# Every limit above is enforced by the hoster PER IP: 1fichier's free tier allows
+# one download at a time from an address, datanodes.to tolerates three. So the
+# slots are a property of (host, egress), not of the host alone. Adding a proxy
+# egress therefore adds a second set of slots instead of splitting the first.
+# `use_proxy` on the request is what selects the egress; these names key the
+# semaphores and the 1fichier backoff state.
+EGRESS_DIRECT = "direct"
+EGRESS_VPN = "vpn"
+DOWNLOAD_ROUTES = ("direct", "vpn", "auto", "balance")
+DEFAULT_DOWNLOAD_ROUTE = "direct"
+
+
+def _read_download_route() -> str:
+    """Read the configured route, falling back to direct on anything unknown."""
+    route = str(get_config().get("download_route", DEFAULT_DOWNLOAD_ROUTE) or "").strip().lower()
+    return route if route in DOWNLOAD_ROUTES else DEFAULT_DOWNLOAD_ROUTE
+
+
+def egress_of(use_proxy) -> str:
+    return EGRESS_VPN if use_proxy else EGRESS_DIRECT
 
 
 def _read_concurrency_limits() -> tuple:
@@ -282,9 +304,11 @@ class DownloadCore:
 
     def __init__(self):
         self.download_tasks: Dict[int, asyncio.Task] = {}
-        # Concurrency limit for 1fichier local downloads (to work around the free-tier limit)
+        # Concurrency limit for 1fichier local downloads (to work around the free-tier limit).
+        # One slot PER EGRESS: the free-tier cap is per IP, so a proxy egress gets
+        # its own slot rather than queueing behind the direct one.
         self.MAX_FICHIER_LOCAL_DOWNLOADS = 1
-        self.fichier_local_semaphore = asyncio.Semaphore(self.MAX_FICHIER_LOCAL_DOWNLOADS)
+        self._fichier_semaphores: Dict[str, asyncio.Semaphore] = {}
         # Smart-download admission control. Every non-1fichier-local download
         # acquires its per-host semaphore first (host isolation), then the global
         # ceiling (total cap). Limits come from config so the user can tune them.
@@ -305,8 +329,10 @@ class DownloadCore:
         self.SSE_THROTTLE_COUNT = 50  # Send SSE only every 50 failures
         # 1fichier-local host backoff state (see FICHIER_HOST_BACKOFF_SECONDS).
         # A consecutive block streak lengthens the cooldown; a success resets it.
-        self._fichier_cooldown_until: Optional[datetime.datetime] = None
-        self._fichier_block_streak = 0
+        # Backoff state is per egress too — a flagged IP must not pause the other
+        # egress, which is the whole point of having a second one.
+        self._fichier_cooldown_until: Dict[str, Optional[datetime.datetime]] = {}
+        self._fichier_block_streak: Dict[str, int] = {}
 
     def refresh_concurrency_settings(self) -> None:
         """Re-read concurrency limits from config and apply them to NEW downloads.
@@ -338,6 +364,69 @@ class DownloadCore:
             return site_key, SITE_DOWNLOAD_LIMITS[site_key]
         return (host or "_default"), self.MAX_PER_HOST_DOWNLOADS
 
+    def _fichier_sem(self, egress: str) -> asyncio.Semaphore:
+        """The 1fichier-local slot for one egress (created on first use)."""
+        sem = self._fichier_semaphores.get(egress)
+        if sem is None:
+            sem = asyncio.Semaphore(self.MAX_FICHIER_LOCAL_DOWNLOADS)
+            self._fichier_semaphores[egress] = sem
+        return sem
+
+    def _proxy_egress_available(self, db: Session) -> bool:
+        """Is there at least one active proxy to send the VPN egress through?
+
+        Without one, every route degrades to direct — better a slower download
+        than a request that leaves through nothing.
+        """
+        try:
+            return db.query(UserProxy).filter(UserProxy.is_active == True).count() > 0
+        except Exception:
+            return False
+
+    def _apply_download_route(self, req: DownloadRequest, db: Session) -> None:
+        """Set req.use_proxy from the configured route, before any slot is taken.
+
+        Doing it here (once, at admission) rather than at each failure site keeps
+        one place deciding which egress a download leaves through.
+
+        - direct  : never proxy
+        - vpn     : always proxy
+        - auto    : alternate on every retry, so a path that failed is not the one
+                    retried. attempt_count is the retry counter the failure
+                    handler already maintains, so no extra state is needed.
+        - balance : take the egress with a free slot, preferring direct.
+        """
+        route = _read_download_route()
+        if route == DEFAULT_DOWNLOAD_ROUTE:
+            return
+
+        if not self._proxy_egress_available(db):
+            if req.use_proxy:
+                req.use_proxy = False
+                db.commit()
+            return
+
+        if route == "vpn":
+            want = True
+        elif route == "auto":
+            want = bool((req.attempt_count or 0) % 2)
+        else:  # balance
+            host_key, _ = self._resolve_host_limit(req.original_url or req.url)
+            is_fichier = "1fichier.com" in (req.url or "")
+
+            def free(egress: str) -> bool:
+                if is_fichier:
+                    return self._fichier_sem(egress)._value > 0
+                sem = self._site_semaphores.get(f"{host_key}@{egress}")
+                return sem is None or sem._value > 0
+
+            want = False if free(EGRESS_DIRECT) else free(EGRESS_VPN)
+
+        if bool(req.use_proxy) != want:
+            req.use_proxy = want
+            db.commit()
+            print(f"[LOG] 경로 '{route}' 적용: id={req.id} → {egress_of(want)}")
+
     def should_send_sse(self, req_id: int, retry_count: int) -> bool:
         """Decide whether to send SSE (time + count based throttling)"""
         current_time = time.time()
@@ -351,31 +440,36 @@ class DownloadCore:
             return True
         return False
 
-    def _register_fichier_block(self):
-        """A 1fichier-local attempt hit a host block/quota — extend the cooldown."""
-        self._fichier_block_streak += 1
-        idx = min(self._fichier_block_streak - 1, len(FICHIER_HOST_BACKOFF_SECONDS) - 1)
+    def _register_fichier_block(self, egress: str = EGRESS_DIRECT):
+        """A 1fichier-local attempt hit a host block/quota — extend the cooldown.
+
+        Scoped to the egress that was blocked; the other one keeps working.
+        """
+        streak = self._fichier_block_streak.get(egress, 0) + 1
+        self._fichier_block_streak[egress] = streak
+        idx = min(streak - 1, len(FICHIER_HOST_BACKOFF_SECONDS) - 1)
         secs = FICHIER_HOST_BACKOFF_SECONDS[idx]
-        self._fichier_cooldown_until = datetime.datetime.now() + datetime.timedelta(seconds=secs)
-        print(f"[LOG] 1fichier 호스트 차단 감지 → {secs}s 백오프 (연속 {self._fichier_block_streak}회)")
+        self._fichier_cooldown_until[egress] = datetime.datetime.now() + datetime.timedelta(seconds=secs)
+        print(f"[LOG] 1fichier 호스트 차단 감지 [{egress}] → {secs}s 백오프 (연속 {streak}회)")
 
-    def _register_fichier_success(self):
-        """A 1fichier-local download succeeded — clear the host backoff."""
-        if self._fichier_block_streak or self._fichier_cooldown_until:
-            print(f"[LOG] 1fichier 성공 → 호스트 백오프 해제")
-        self._fichier_block_streak = 0
-        self._fichier_cooldown_until = None
+    def _register_fichier_success(self, egress: str = EGRESS_DIRECT):
+        """A 1fichier-local download succeeded — clear that egress's backoff."""
+        if self._fichier_block_streak.get(egress) or self._fichier_cooldown_until.get(egress):
+            print(f"[LOG] 1fichier 성공 [{egress}] → 호스트 백오프 해제")
+        self._fichier_block_streak[egress] = 0
+        self._fichier_cooldown_until[egress] = None
 
-    async def _await_fichier_cooldown(self, req: DownloadRequest, db: Session):
+    async def _await_fichier_cooldown(self, req: DownloadRequest, db: Session,
+                                      egress: str = EGRESS_DIRECT):
         """If a 1fichier-local host backoff is active, wait it out before
         attempting, so a flagged IP isn't hammered by the queue. Cancellable via
         the stopped status. Holding the (max-1) semaphore here serializes the
         backoff across all queued 1fichier-local downloads."""
-        cooldown_until = self._fichier_cooldown_until
+        cooldown_until = self._fichier_cooldown_until.get(egress)
         if not cooldown_until or cooldown_until <= datetime.datetime.now():
             return
         remaining = int((cooldown_until - datetime.datetime.now()).total_seconds())
-        print(f"[LOG] 1fichier 호스트 백오프 대기 {remaining}s (id={req.id})")
+        print(f"[LOG] 1fichier 호스트 백오프 대기 [{egress}] {remaining}s (id={req.id})")
         req.status = StatusEnum.pending
         db.commit()
         await self.send_download_update(req.id, {
@@ -385,7 +479,7 @@ class DownloadCore:
         })
         while True:
             now = datetime.datetime.now()
-            target = self._fichier_cooldown_until
+            target = self._fichier_cooldown_until.get(egress)
             if not target or target <= now:
                 return
             db.refresh(req)
@@ -568,6 +662,9 @@ class DownloadCore:
             # it becomes a bug where the new download's countdown wakes up immediately.
             cancel_signal.clear(req.id)
 
+            # Pick the egress before anything queues on a slot.
+            self._apply_download_route(req, db)
+
             # If file info is already present, skip parsing and start downloading right away.
             # However, for 1fichier, preparsing is needed to check the wait time and obtain a new download link.
             is_1fichier = "1fichier.com" in req.url
@@ -586,7 +683,7 @@ class DownloadCore:
 
             # For a 1fichier local download with a file name present (restart), check the semaphore
             if is_1fichier and not req.use_proxy and has_file_info:
-                if self.fichier_local_semaphore._value == 0:
+                if self._fichier_sem(egress_of(req.use_proxy))._value == 0:
                     # If the semaphore is unavailable, wait in the pending state
                     req.status = StatusEnum.pending
                     await self.send_download_update(req.id, {
@@ -667,7 +764,9 @@ class DownloadCore:
 
                 # Apply the 1fichier local download concurrency limit
                 # Check whether to wait on the semaphore
-                if self.fichier_local_semaphore._value == 0:  # The semaphore is already in use
+                fichier_egress = egress_of(req.use_proxy)
+                fichier_semaphore = self._fichier_sem(fichier_egress)
+                if fichier_semaphore._value == 0:  # The semaphore is already in use
                     print(f"[DEBUG] 1fichier 로컬 다운로드 제한 도달, 순서 대기 중: {req_id}")
                     await self.send_download_update(req_id, {
                         "status": "pending",
@@ -677,12 +776,12 @@ class DownloadCore:
                     req.status = StatusEnum.pending
                     db.commit()
 
-                async with self.fichier_local_semaphore:
+                async with fichier_semaphore:
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 획득: {req_id}")
 
                     # Honor an active host backoff before touching 1fichier again
                     # (avoids cascading the same form-rejection across the queue).
-                    await self._await_fichier_cooldown(req, db)
+                    await self._await_fichier_cooldown(req, db, fichier_egress)
                     db.refresh(req)
                     if req.status == StatusEnum.stopped:
                         print(f"[LOG] 1fichier 백오프 후 정지 상태, 시작 안 함: {req_id}")
@@ -710,9 +809,9 @@ class DownloadCore:
                     # extends the cooldown for the whole queue; a success resets it.
                     db.refresh(req)
                     if req.status == StatusEnum.done:
-                        self._register_fichier_success()
+                        self._register_fichier_success(fichier_egress)
                     elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED):
-                        self._register_fichier_block()
+                        self._register_fichier_block(fichier_egress)
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
             else:
                 # General download (includes 1fichier proxy and plain URLs - max 5)
@@ -731,10 +830,13 @@ class DownloadCore:
                 # Smart admission: every host gets its OWN queue, so several big
                 # files on one host never starve a small file on another host.
                 host_key, per_host_max = self._resolve_host_limit(req.original_url or req.url)
-                host_semaphore = self._site_semaphores.get(host_key)
+                # Key by (host, egress): the hoster counts slots per IP, so the
+                # proxy egress gets its own queue instead of sharing this one.
+                slot_key = f"{host_key}@{egress_of(req.use_proxy)}"
+                host_semaphore = self._site_semaphores.get(slot_key)
                 if host_semaphore is None:
                     host_semaphore = asyncio.Semaphore(per_host_max)
-                    self._site_semaphores[host_key] = host_semaphore
+                    self._site_semaphores[slot_key] = host_semaphore
 
                 # If either the host queue or the global ceiling is full, mark the
                 # download pending so the UI shows it is waiting its turn.
@@ -2521,7 +2623,8 @@ class DownloadCore:
             print(f"[DEBUG] 세마포어 해제 대기 완료, 자동 시작 체크")
 
             # Log the current semaphore state
-            print(f"[DEBUG] 현재 세마포어 상태 - 1fichier: {self.fichier_local_semaphore._value}, 전체: {self.total_download_semaphore._value}")
+            fichier_state = {k: v._value for k, v in self._fichier_semaphores.items()} or "미사용"
+            print(f"[DEBUG] 현재 세마포어 상태 - 1fichier(출구별): {fichier_state}, 전체: {self.total_download_semaphore._value}")
 
             await self._start_next_pending_download()
         except Exception as e:

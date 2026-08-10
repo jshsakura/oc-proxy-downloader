@@ -86,7 +86,17 @@ DEFAULT_CONFIG = {
     # Max hoster pages parsed at once (cloudscraper/FlareSolverr are CPU-heavy).
     # Bulk-adding many links queues their parses instead of thrashing the CPU and
     # stalling the API. Applied as the asyncio default thread-pool size at startup.
-    "parse_concurrency": 3
+    "parse_concurrency": 3,
+    # Which egress a download leaves through. Host limits (1fichier's max-1, the
+    # per-site caps) are enforced per IP by the hoster, so a second egress is a
+    # second set of slots rather than a share of the same one.
+    #   "direct"  - always the host's own connection (previous behaviour)
+    #   "vpn"     - always through the configured single proxy
+    #   "auto"    - start direct; on a non-definitive failure retry via the proxy
+    #   "balance" - take whichever egress has a free slot, preferring direct
+    # "vpn"/"auto"/"balance" need at least one active proxy or they fall back to
+    # direct, so turning this on without a proxy configured changes nothing.
+    "download_route": "direct"
 }
 
 # Credentials that must never leave the server in readable form. They grant
