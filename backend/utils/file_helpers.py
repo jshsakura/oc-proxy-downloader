@@ -183,7 +183,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                     # Check whether a progress update is needed
                     if should_update_progress(downloaded, last_update_size, total_size, req):
                         try:
-                            last_update_size = send_progress_update(
+                            last_update_size = await send_progress_update(
                                 downloaded, total_size, last_update_size, req, db
                             )
                         except Exception as sse_error:
@@ -220,8 +220,13 @@ def should_update_progress(downloaded, last_update_size, total_size, req):
     return should_update
 
 
-def send_progress_update(downloaded, total_size, last_update_size, req, db):
-    """Send a progress update"""
+async def send_progress_update(downloaded, total_size, last_update_size, req, db):
+    """Send a progress update.
+
+    Async because of the commit below, not the SSE: the broadcast is scheduled
+    onto the running loop, so this has to stay on the loop's thread — it is only
+    the database write that gets moved off it.
+    """
     progress = (downloaded / total_size * 100) if total_size > 0 else 0.0
     current_time = time.time()
     last_update_time = getattr(req, '_last_sse_send_time', 0)
@@ -308,7 +313,7 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
     last_db_update_time = getattr(req, '_last_db_update_time', 0)
     if current_time - last_db_update_time >= 5.0 or downloaded >= total_size:
         req.downloaded_size = downloaded
-        db.commit()
+        await db_async.commit(db)
         req._last_db_update_time = current_time
     
     return downloaded

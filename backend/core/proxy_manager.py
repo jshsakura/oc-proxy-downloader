@@ -456,9 +456,11 @@ class ProxyManager:
             db, batch_proxies, req, lenient_mode
         )
 
-        # Record the failed proxies in the DB
+        # Record the failed proxies in the DB. One commit each, and a batch test
+        # can fail a dozen proxies at once — off the loop, or the whole app waits
+        # while the bookkeeping lands.
         for failed_proxy in failed_proxies:
-            self.mark_proxy_used(db, failed_proxy, success=False)
+            await asyncio.to_thread(self.mark_proxy_used, db, failed_proxy, False)
 
         return working_proxies[0] if working_proxies else None
 
