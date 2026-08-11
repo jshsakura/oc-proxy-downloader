@@ -1391,6 +1391,37 @@
     }, 5000);
   });
 
+  // A row's status comes from the stream, and a missed event leaves it frozen:
+  // one download sat on "파싱 중" long after the server had recorded it failed,
+  // while the tab badge — which reads the server — correctly said nothing was
+  // running. The stream cannot be trusted to deliver every transition (a
+  // reconnect, a backgrounded tab), so while the grid still believes something
+  // is in flight it re-reads the list and lets the server settle it.
+  //
+  // Self-limiting on purpose: once no row looks active the polling stops, so an
+  // idle queue costs nothing.
+  const GRID_RECONCILE_MS = 6000;
+  let gridReconcileInterval = null;
+
+  $: gridHasActiveRows = gridDownloads.some((d) =>
+    ACTIVE_STATUSES.includes((d.status || "").toLowerCase()),
+  );
+
+  onMount(() => {
+    gridReconcileInterval = setInterval(() => {
+      if (gridHasActiveRows) {
+        fetchGridPage({ silent: true });
+      }
+    }, GRID_RECONCILE_MS);
+  });
+
+  onDestroy(() => {
+    if (gridReconcileInterval) {
+      clearInterval(gridReconcileInterval);
+      gridReconcileInterval = null;
+    }
+  });
+
 
   // Unified stats-update function
   function updateStats(downloadsData) {
