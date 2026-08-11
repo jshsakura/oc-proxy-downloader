@@ -1075,14 +1075,20 @@ select.input option {
   }
 
   .table-container {
-    overflow-x: hidden; /* Secondary columns are hidden below; no side-scroll needed. */
+    /* The grid scrolls sideways on a phone, the same as on a desktop. Hiding
+       the overflow and forcing columns into 54px instead is what put the
+       status pill on top of the progress cell: fixed layout does not shrink
+       content to fit, it lets it spill into the neighbouring column. */
+    overflow-x: auto;
     overflow-y: auto;
     max-height: 60vh;
   }
 
   table {
-    width: 100%;
-    table-layout: fixed; /* Honor the tighter widths below without runaway columns. */
+    /* Columns size to what they hold; the container scrolls to reach them. */
+    table-layout: auto;
+    width: max-content;
+    min-width: 100%;
   }
 
   th, td {
@@ -1090,47 +1096,30 @@ select.input option {
     font-size: 0.8rem;
   }
 
-  /* Mobile: keep only the essentials in the row (name + status + progress +
-     actions). Size, speed, date, and the proxy toggle are still available in
-     the detail modal and on wider screens — they were squeezing the row
-     unreadably on phones. */
-  .col-size,
-  .col-speed,
-  .col-date,
-  .col-proxy {
-    display: none;
-  }
+  /* These were hidden because the row was being forced into the viewport, and
+     something had to give. The row scrolls sideways now, so the columns cost
+     nothing to keep — and a phone that can reach size and date is more useful
+     than one that cannot. */
 
-  /* Give the few visible columns compact FIXED widths so the filename column
-     takes ALL the remaining space (table-layout: fixed divides the rest to the
-     width-less column). Before, the name had max-width:0 (→ squeezed to nothing)
-     while .actions kept its 150px min-width and hogged the row — hence "title
-     too short, actions too big". Hidden columns (size/speed/date/proxy) still
-     count for nth-child, so these indexes are correct. */
-  table th:nth-child(1), table td:nth-child(1) { width: 26px; padding-left: 0.6rem; }
-  table th:nth-child(3), table td:nth-child(3) { width: 54px; }   /* status */
-  table th:nth-child(5), table td:nth-child(5) { width: 42px; }   /* progress */
-  table th:last-child,    table td:last-child   { width: 118px; } /* actions (≤4 icons) */
+  /* No forced widths here. Every one of them was an attempt to make a row fit a
+     phone without scrolling, and each one had to be smaller than the thing it
+     held — a "재시도 대기 (0:38)" pill does not go into 54px. Sideways scroll
+     is the answer the layout already had. */
+  table th:nth-child(1), table td:nth-child(1) { padding-left: 0.6rem; }
 
-  /* Filename column: no width → it absorbs the remaining space; truncate text. */
-  table td:nth-child(2),
-  table th:nth-child(2) {
+  /* The filename still truncates rather than stretching the row to a name's
+     full length; the cap is generous enough to read. */
+  table th:nth-child(2),
+  table td:nth-child(2) {
+    max-width: 46vw;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Beat the desktop nth-child(2) floor — same selector, so it has to be
-     matched, not merely restated on .filename (lower specificity). */
-  table th:nth-child(2),
-  table td:nth-child(2) {
-    min-width: 0;
-    width: auto;
-  }
-  .filename { max-width: none; min-width: 0; }
-  /* The filename column is ~98px on a phone. A "DataNodes" badge eats 55 of
-     them and leaves the name unreadable, which is the problem the badge was
-     never meant to cause. The host stays available in the detail modal. */
-  .hoster-badge { display: none; }
+  .filename { min-width: 0; }
+  /* Now that the row is not being crushed into the viewport, the badge fits
+     again — just smaller. */
+  .hoster-badge { font-size: 0.62rem; padding: 0.05rem 0.3rem; }
 
   /* Compact the action icons so up to 4 fit the 118px column on one line. */
   .actions {
