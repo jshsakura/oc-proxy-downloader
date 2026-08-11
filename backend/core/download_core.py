@@ -804,7 +804,10 @@ class DownloadCore:
             cancel_signal.clear(req.id)
 
             # Pick the egress before anything queues on a slot.
-            self._apply_download_route(req, db)
+            # Sync helper doing three commits and a query. Called straight from
+            # here it blocked the loop exactly like an inline commit would —
+            # being in a def rather than an async def changes nothing.
+            await asyncio.to_thread(self._apply_download_route, req, db)
 
             # If file info is already present, skip parsing and start downloading right away.
             # However, for 1fichier, preparsing is needed to check the wait time and obtain a new download link.

@@ -106,6 +106,57 @@ WRITER_FILES = (
 )
 
 
+def _sync_db_helpers(tree) -> dict:
+    """Plain `def` functions in this module that touch the database."""
+    return {
+        node.name: _blocking_db_calls(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and _blocking_db_calls(node)
+    }
+
+
+def _called_from_async(tree, names) -> set:
+    """Which of `names` an async function in this module calls directly."""
+    called = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Call):
+                continue
+            # A thread hop is the fix, so a call handed to to_thread is fine.
+            target = ast.unparse(inner.func)
+            if target.endswith("to_thread"):
+                continue
+            for name in names:
+                if target == name or target.endswith(f".{name}"):
+                    called.add(name)
+    return called
+
+
+@pytest.mark.parametrize("source", WRITER_FILES, ids=lambda p: p.name)
+def test_a_sync_helper_does_not_smuggle_a_query_onto_the_loop(source):
+    """`def` instead of `async def` changes nothing about who waits.
+
+    Three helpers were doing exactly this — the egress router with its three
+    commits, the proxy bookkeeper, and the progress writer that runs on every
+    tick of a transfer. The guard above only ever looked at async functions, so
+    all three were invisible to it while blocking just as hard.
+    """
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    helpers = _sync_db_helpers(tree)
+    smuggled = {
+        name: helpers[name]
+        for name in _called_from_async(tree, set(helpers) - _STARTUP_ONLY)
+    }
+
+    assert smuggled == {}, (
+        f"{source.name}: sync helper(s) doing database work, called straight "
+        f"from async code — {smuggled}. Hand them to asyncio.to_thread, or make "
+        f"them async and await core.db_async."
+    )
+
+
 @pytest.mark.parametrize("source", WRITER_FILES, ids=lambda p: p.name)
 def test_the_download_path_does_not_hold_the_loop_while_it_writes(source):
     """A download commits constantly — progress, status, retry bookkeeping. Every
