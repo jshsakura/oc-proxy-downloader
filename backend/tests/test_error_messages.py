@@ -218,14 +218,26 @@ class TestApplyFailure:
         req = _FakeReq()
         deltas = []
         # Vary raw slightly so each attempt is a distinct observation — avoids colliding with the dedup guard.
-        for i in range(4):
+        # The budget is three attempts, so two waits are scheduled: 2m then 8m.
+        for i in range(2):
             apply_failure_to_request(req, "다운로드", f"Read timeout (attempt {i})")
             deltas.append(
                 (req.next_retry_at - datetime.datetime.now()).total_seconds()
             )
-        # 30s → 120s → 480s → 1800s (noise tolerated)
-        assert deltas[0] < deltas[1] < deltas[2] <= deltas[3]
-        assert deltas[3] >= 1500
+        assert deltas[0] < deltas[1]
+        assert deltas[0] >= 120
+        assert deltas[1] >= 480
+
+    def test_the_retry_budget_runs_out_after_three_attempts(self):
+        """More knocking does not find a door that opens; it keeps a refusal
+        fresh. The row stays failed with its reason, and "다시 받기" grants a
+        fresh budget when a human decides something has changed."""
+        req = _FakeReq()
+        for i in range(3):
+            apply_failure_to_request(req, "다운로드", f"Read timeout (attempt {i})")
+
+        assert req.attempt_count == 3
+        assert req.next_retry_at is None
 
     def test_rate_limited_uses_extracted_wait_time(self):
         req = _FakeReq()

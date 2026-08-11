@@ -75,12 +75,17 @@ _ATTEMPTS_RING_SIZE = 5  # attempts_json ring-buffer length
 # Kinds NOT listed here (DEAD / AUTH_REQUIRED / unknown_terminal) are already
 # terminal and never auto-retry; UNKNOWN is bounded separately by
 # `_UNKNOWN_MAX_ATTEMPTS` (quarantine → unknown_terminal).
+# Three attempts for every recoverable kind. Past that, more knocking does not
+# find a door that opens — it just keeps a refusal fresh, and the ceilings were
+# set when the waits between them were seconds rather than minutes. A download
+# that exhausts its budget stays failed with its reason; "다시 받기" grants a
+# fresh one when a human decides the situation has changed.
 _MAX_AUTO_RETRY_ATTEMPTS = {
-    KIND_TRANSIENT: _TRANSIENT_MAX_ATTEMPTS,  # 6 (matches the backoff schedule)
-    KIND_RATE_LIMITED: 5,
-    KIND_CLOUDFLARE: 5,
-    KIND_PROXY_BLOCKED: 8,  # 30s apart — a few extra, a different proxy IP may pass
-    KIND_BLOCKED: 5,
+    KIND_TRANSIENT: 3,
+    KIND_RATE_LIMITED: 3,
+    KIND_CLOUDFLARE: 3,
+    KIND_PROXY_BLOCKED: 3,
+    KIND_BLOCKED: 3,
 }
 
 
