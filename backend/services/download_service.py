@@ -8,6 +8,7 @@ New async download service
 
 import asyncio
 import datetime
+import time
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
@@ -16,12 +17,19 @@ from core.db import SessionLocal
 from core.config import get_config
 from core.download_core import download_core
 from core.error_messages import is_retry_blocked_now
+from core.hoster_common import _host
 from core.proxy_manager import proxy_manager
 from services.sse_manager import sse_manager
 
 # How often the background sweeper scans for failed downloads whose retry
 # cooldown (next_retry_at) has arrived.
 RETRY_SWEEP_INTERVAL_SEC = 20
+
+# Backoff is per download, but a block is per host. Two hundred DataNodes links
+# each waiting their own polite two minutes still add up to a steady stream at
+# one host — from its side that is one client retrying without pause. No host is
+# approached again until this long after the last retry sent to it.
+HOST_RETRY_SPACING_SEC = 180
 
 # Max downloads the sweeper re-runs PER cycle. Re-running a special-hoster/1fichier
 # item triggers a heavy parse (cloudscraper + possibly FlareSolverr, multi-second,
@@ -47,6 +55,8 @@ class DownloadService:
         self.download_tasks: Dict[int, asyncio.Task] = {}
         self.is_running = False
         self._retry_sweeper_task: Optional[asyncio.Task] = None
+        # host -> monotonic time of the last retry sent there.
+        self._last_retry_per_host: Dict[str, float] = {}
 
     async def start(self):
         """Start the service"""
@@ -116,10 +126,20 @@ class DownloadService:
 
             has_creds = _has_fichier_credentials()
             started = 0
+            now_mono = time.monotonic()
             for req in due:
                 # Skip permanent failures (dead / auth_required w/o account).
                 if is_retry_blocked_now(req, has_creds) is not None:
                     continue
+
+                # Space retries per host. The item stays due and will be picked
+                # up by a later sweep — skipping here costs nothing but keeps a
+                # queue full of one host from becoming a drip-feed at that host.
+                host = _host(req.original_url or req.url or "")
+                last = self._last_retry_per_host.get(host, 0.0)
+                if host and now_mono - last < HOST_RETRY_SPACING_SEC:
+                    continue
+                self._last_retry_per_host[host] = now_mono
 
                 # Auto-retry — unlike a manual forced retry, KEEP attempt_count /
                 # attempts_json so the backoff keeps escalating; just clear the

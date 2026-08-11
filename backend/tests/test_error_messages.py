@@ -187,9 +187,11 @@ class TestApplyFailure:
         assert req.failure_kind == KIND_TRANSIENT
         assert req.attempt_count == 1
         assert req.next_retry_at is not None
-        # The first failure has a 30-second cooldown
+        # First failure waits 2 minutes, plus up to 25% jitter. It used to be
+        # 30s — asking a host that just refused us to try again almost
+        # immediately is what gets an IP blocked.
         delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
-        assert 25 <= delta <= 35
+        assert 120 <= delta <= 150
 
     def test_body_marker_dead_immediately_terminal(self):
         req = _FakeReq()
@@ -232,8 +234,8 @@ class TestApplyFailure:
         )
         assert req.failure_kind == KIND_RATE_LIMITED
         delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
-        # 420s + 60s margin
-        assert 460 <= delta <= 490
+        # 420s + 60s margin, plus up to 25% jitter
+        assert 470 <= delta <= 610
 
     def test_unknown_three_attempts_promotes_to_unknown_terminal(self):
         req = _FakeReq()
@@ -367,7 +369,8 @@ class TestRateLimitRealWait:
         # next_retry_at ~ now + 240min (+60s margin), well beyond the old 10-min default
         assert req.next_retry_at is not None
         delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
-        assert 240 * 60 <= delta <= 240 * 60 + 120
+        base = 240 * 60 + 60
+        assert base - 10 <= delta <= base * 1.25 + 10
 
 
 class TestBrowserFallbackCookieHandoff:
