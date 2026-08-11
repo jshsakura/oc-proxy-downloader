@@ -16,6 +16,44 @@ from core.hoster_common import _host
 from core.hoster_parsers import _HOST_TO_SPEC
 
 
+# A stable slug per host family, used to colour the badge. Kept separate from
+# the display label because the label is prose that may be reworded, while this
+# is a key a stylesheet keys off. The palette itself lives in the stylesheet —
+# colour is presentation, and it mirrors oc-scraper's host palette so the same
+# host looks the same in both apps.
+_SLUGS = {
+    "1fichier.com": "1fichier",
+    "mega.nz": "mega",
+    "mega.co.nz": "mega",
+    "ouo.io": "ouo",
+    "ouo.press": "ouo",
+    "megaup.net": "megaup",
+    "datanodes.to": "datanodes",
+    "rapidgator.net": "rapidgator",
+    "gofile.io": "gofile",
+    "send.now": "sendnow",
+    "mediafire.com": "mediafire",
+    "pixeldrain.com": "pixeldrain",
+    "multiup.io": "multiup",
+    "vikingfile.com": "vikingfile",
+}
+
+
+def hoster_slug(url: Optional[str]) -> str:
+    """Stable key for ``url``'s host family, or "" when unknown."""
+    host = _host(url or "")
+    if not host:
+        return ""
+    bare = host.removeprefix("www.")
+    for domain, slug in _SLUGS.items():
+        if bare == domain or bare.endswith(f".{domain}"):
+            return slug
+    # Bunkr rotates domains; they all share one badge.
+    if bare.startswith("bunkr") or ".bunkr" in bare:
+        return "bunkr"
+    return ""
+
+
 # Hosts handled outside HOSTER_REGISTRY (they have their own parse paths).
 _EXTRA_LABELS = {
     "1fichier.com": "1fichier",

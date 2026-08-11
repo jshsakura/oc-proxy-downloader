@@ -1421,10 +1421,34 @@ tbody tr:hover {
   font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
-  color: var(--text-secondary, #6b7280);
-  background: rgba(var(--primary-color-rgb), 0.1);
-  border: 1px solid rgba(var(--primary-color-rgb), 0.22);
+  /* Brand colour as ink and outline over a faint wash of itself, rather than a
+     solid fill: a saturated block per row would out-shout the filename, which
+     is the thing being read. --host-ink is set per host below. */
+  /* Default for hosts with no entry. Lightened from oc-scraper's #64748b,
+     which only reaches 3.3:1 on this dark background — under the 4.5:1 the
+     rest of the palette clears. */
+  --host-ink: #94a3b8;
+  color: var(--host-ink);
+  background: color-mix(in srgb, var(--host-ink) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--host-ink) 38%, transparent);
 }
+
+/* Palette mirrored from oc-scraper's web/lib/host.ts so the same host reads the
+   same in both apps. Keys come from the backend (hoster_slug) — a label is
+   prose and may be reworded; this is not. */
+.hoster-badge[data-hoster="1fichier"]    { --host-ink: #ff7043; }
+.hoster-badge[data-hoster="mega"]        { --host-ink: #ef5350; }
+.hoster-badge[data-hoster="mediafire"]   { --host-ink: #42a5f5; }
+.hoster-badge[data-hoster="rapidgator"]  { --host-ink: #66bb6a; }
+.hoster-badge[data-hoster="datanodes"]   { --host-ink: #38bdf8; }
+.hoster-badge[data-hoster="pixeldrain"]  { --host-ink: #ffb300; }
+.hoster-badge[data-hoster="gofile"]      { --host-ink: #26a69a; }
+.hoster-badge[data-hoster="megaup"]      { --host-ink: #ab7ce0; }
+.hoster-badge[data-hoster="sendnow"]     { --host-ink: #2dd4bf; }
+.hoster-badge[data-hoster="multiup"]     { --host-ink: #22d3ee; }
+.hoster-badge[data-hoster="vikingfile"]  { --host-ink: #f59e0b; }
+.hoster-badge[data-hoster="bunkr"]       { --host-ink: #f472b6; }
+.hoster-badge[data-hoster="ouo"]         { --host-ink: #94a3b8; }
 
 .filename-text {
   /* min-width:0 is what lets a flex item shrink below its content width — without

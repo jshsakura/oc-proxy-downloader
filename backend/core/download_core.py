@@ -26,6 +26,7 @@ from .db import SessionLocal
 from services.sse_manager import sse_manager
 from services.notification_service import send_telegram_start_notification, send_telegram_notification
 from utils.file_helpers import download_file_content, generate_file_path, get_final_file_path
+from core import live_progress
 from core.proxy_manager import proxy_manager
 from urllib.parse import urlparse, unquote, urlunparse
 from core.models import ProxyStatus, UserProxy
@@ -2711,6 +2712,9 @@ class DownloadCore:
         """Task cleanup"""
         # Clear the cancel signal too, to prevent in-memory leaks.
         cancel_signal.clear(req_id)
+        # Drop the live speed reading. A stale one is worse than none: the grid
+        # would keep advertising throughput for a download that has stopped.
+        live_progress.clear(req_id)
         # Idempotent: the stop handler may have already removed the task.
         self.download_tasks.pop(req_id, None)
         # Free this download's proxy-rotation index so the dict can't grow forever.
