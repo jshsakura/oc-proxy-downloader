@@ -26,6 +26,7 @@ from .db import SessionLocal
 from services.sse_manager import sse_manager
 from services.notification_service import send_telegram_start_notification, send_telegram_notification
 from utils.file_helpers import download_file_content, generate_file_path, get_final_file_path
+from core import db_async
 from core import live_progress
 from core.proxy_manager import proxy_manager
 from urllib.parse import urlparse, unquote, urlunparse
@@ -611,7 +612,7 @@ class DownloadCore:
         remaining = int((cooldown_until - datetime.datetime.now()).total_seconds())
         print(f"[LOG] 1fichier 호스트 백오프 대기 [{egress}] {remaining}s (id={req.id})")
         req.status = StatusEnum.pending
-        db.commit()
+        await db_async.commit(db)
         await self.send_download_update(req.id, {
             "status": "pending",
             "message": "1fichier 차단 회피 대기 중...",
@@ -622,7 +623,7 @@ class DownloadCore:
             target = self._fichier_cooldown_until.get(egress)
             if not target or target <= now:
                 return
-            db.refresh(req)
+            await db_async.refresh(db, req)
             if req.status == StatusEnum.stopped or cancel_signal.is_cancelled(req.id):
                 print(f"[LOG] 1fichier 백오프 대기 중 정지/취소: {req.id}")
                 return
@@ -707,7 +708,7 @@ class DownloadCore:
                         except Exception as size_convert_error:
                             print(f"[WARNING] 파일 크기 변환 실패: {size_convert_error}")
 
-                    db.commit()
+                    await db_async.commit(db)
 
                     # Check the state after the DB commit
                     print(f"[DEBUG] DB 커밋 후 상태: req.id={req.id}, file_name='{req.file_name}', file_size='{req.file_size}', total_size={req.total_size}")
@@ -739,7 +740,7 @@ class DownloadCore:
             return
 
         async with self.special_preparse_semaphore:
-            db.refresh(req)
+            await db_async.refresh(db, req)
             if req.status not in (StatusEnum.pending, StatusEnum.parsing):
                 return  # cancelled / already advanced while queued
 
@@ -763,7 +764,7 @@ class DownloadCore:
             if not changed:
                 return
 
-            db.commit()
+            await db_async.commit(db)
             print(f"[LOG] 특수 호스터 사전조회: id={req.id}, name='{req.file_name}', size='{req.file_size}'")
             await sse_manager.broadcast_message("filename_update", {
                 "id": req.id,
@@ -831,7 +832,7 @@ class DownloadCore:
                         "progress": 0,
                         "message": "대기중..."
                     })
-                    db.commit()
+                    await db_async.commit(db)
                     print(f"[LOG] 1fichier 로컬 세마포어 대기: {req.id}")
                     return True
 
@@ -859,7 +860,7 @@ class DownloadCore:
                 print(f"[LOG] 새 다운로드: downloaded_size를 0으로 초기화")
             else:
                 print(f"[LOG] 기존 다운로드 정보 보존: total_size={req.total_size}, downloaded_size={req.downloaded_size}")
-            db.commit()
+            await db_async.commit(db)
 
             # Create the async download task
             task = asyncio.create_task(self._download_task(req.id, skip_parsing))
@@ -882,7 +883,7 @@ class DownloadCore:
         """Task that performs the actual download"""
         db = SessionLocal()
         try:
-            req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
+            req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
             if not req:
                 await self.send_download_log(req_id, "다운로드 요청을 찾을 수 없음", "error")
                 return
@@ -914,7 +915,7 @@ class DownloadCore:
                     })
                     # Update the status in the DB
                     req.status = StatusEnum.pending
-                    db.commit()
+                    await db_async.commit(db)
 
                 async with fichier_semaphore:
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 획득: {req_id}")
@@ -922,7 +923,7 @@ class DownloadCore:
                     # Honor an active host backoff before touching 1fichier again
                     # (avoids cascading the same form-rejection across the queue).
                     await self._await_fichier_cooldown(req, db, fichier_egress)
-                    db.refresh(req)
+                    await db_async.refresh(db, req)
                     if req.status == StatusEnum.stopped:
                         print(f"[LOG] 1fichier 백오프 후 정지 상태, 시작 안 함: {req_id}")
                         return
@@ -941,13 +942,13 @@ class DownloadCore:
                             "message": "대기 완료, 1fichier 로컬 다운로드 시작 중..."
                         })
                         req.status = StatusEnum.parsing
-                    db.commit()
+                    await db_async.commit(db)
 
                     await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # Depends on whether parsing is skipped
 
                     # Feed the result into the host backoff: a block/quota signal
                     # extends the cooldown for the whole queue; a success resets it.
-                    db.refresh(req)
+                    await db_async.refresh(db, req)
                     if req.status == StatusEnum.done:
                         self._register_fichier_success(fichier_egress)
                     elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED):
@@ -991,7 +992,7 @@ class DownloadCore:
                     })
                     # Update the status in the DB
                     req.status = StatusEnum.pending
-                    db.commit()
+                    await db_async.commit(db)
 
                 # Acquire the host slot FIRST, then the global ceiling. A task
                 # waiting on the global cap holds only its own host slot, so it can
@@ -1014,7 +1015,7 @@ class DownloadCore:
                                 "message": f"대기 완료, {download_type} 다운로드 시작 중..."
                             })
                             req.status = StatusEnum.parsing
-                        db.commit()
+                        await db_async.commit(db)
 
                         if is_1fichier:
                             await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 1fichier proxy download
@@ -1024,21 +1025,21 @@ class DownloadCore:
 
         except asyncio.CancelledError:
             # Download cancelled
-            req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
+            req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
             if req:
                 req.status = StatusEnum.stopped
-                db.commit()
+                await db_async.commit(db)
                 await self.send_download_update(req_id, {
                     "status": "stopped",
                     "message": "다운로드가 중지되었습니다."
                 })
         except Exception as e:
             print(f"[ERROR] 다운로드 태스크 오류: {e}")
-            req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
+            req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
             if req:
                 verdict = apply_failure_to_request(req, "다운로드", str(e))
                 req.status = StatusEnum.failed
-                db.commit()
+                await db_async.commit(db)
                 await self.send_download_update(req_id, {
                     "status": "failed",
                     "message": verdict.user_message,
@@ -1116,7 +1117,7 @@ class DownloadCore:
                     "message": "downloading_in_progress"
                 })
                 req.status = StatusEnum.downloading
-                db.commit()
+                await db_async.commit(db)
 
                 # Use the existing download URL if present, otherwise the original URL
                 download_url = req.original_url if req.original_url else req.url
@@ -1161,7 +1162,7 @@ class DownloadCore:
                             except Exception as size_convert_error:
                                 print(f"[WARNING] 파일 크기 변환 실패: {size_convert_error}")
 
-                        db.commit()
+                        await db_async.commit(db)
 
                         # Check the state after the DB commit
                         print(f"[DEBUG] DB 커밋 후 상태: req.id={req.id}, file_name='{req.file_name}', file_size='{req.file_size}', total_size={req.total_size}")
@@ -1192,7 +1193,7 @@ class DownloadCore:
 
                     if filename and '.' in filename and not req.file_name:
                         req.file_name = filename
-                        db.commit()
+                        await db_async.commit(db)
                         print(f"[LOG] 일반 다운로드 파일명 추출: {filename}")
 
                         # Send the file info over SSE
@@ -1257,7 +1258,7 @@ class DownloadCore:
 
                     while parse_result is None and proxy_addr and retry_count < MAX_PROXY_PARSE_RETRIES:
                         # Check the download-stopped state
-                        db.refresh(req)
+                        await db_async.refresh(db, req)
                         if req.status == StatusEnum.stopped:
                             print(f"[LOG] 다운로드 정지됨, 프록시 파싱 중단: {req.id}")
                             return
@@ -1429,7 +1430,7 @@ class DownloadCore:
                     req.file_size = file_info['size']
                     print(f"[LOG] 파일크기 저장: {req.file_size}")
 
-                db.commit()
+                await db_async.commit(db)
 
                 # Send the file info over SSE immediately
                 print(f"[LOG] SSE로 파일 정보 전송 중: ID={req.id}, 파일명={req.file_name}, 크기={req.file_size}")
@@ -1469,7 +1470,7 @@ class DownloadCore:
                 # expires quickly, so saving it as original_url would cause a 404 on retry.
                 if "1fichier.com" in parse_url and req.original_url != parse_url:
                     req.original_url = parse_url
-                    db.commit()
+                    await db_async.commit(db)
 
                 # Don't change the URL; only the download proceeds with the new link
 
@@ -1489,7 +1490,7 @@ class DownloadCore:
 
             # Start the file download immediately
             req.status = StatusEnum.downloading
-            db.commit()
+            await db_async.commit(db)
             download_started = True  # Label subsequent failures as download-stage failures
 
             print(f"[DEBUG] 로컬 방식으로 직접 다운로드 시작: {req.id}")
@@ -1499,12 +1500,12 @@ class DownloadCore:
                 filename_to_use = req.file_name or f"download_{req.id}"
                 from utils.file_helpers import generate_file_path
                 req.save_path = generate_file_path(filename_to_use, is_temporary=True)
-                db.commit()
+                await db_async.commit(db)
 
             # Set the download start time
             if not req.started_at:
                 req.started_at = datetime.datetime.now()
-                db.commit()
+                await db_async.commit(db)
 
             # Download directly using the local method (passing the parser session's cookies/headers)
             await self._download_file_directly(
@@ -1522,7 +1523,7 @@ class DownloadCore:
             print(f"[ERROR] 오류 상세:\n{traceback.format_exc()}")
 
             # Check the current status - keep the status if it is stopped
-            db.refresh(req)
+            await db_async.refresh(db, req)
             if req.status == StatusEnum.stopped:
                 print(f"[LOG] 다운로드 {req.id}가 이미 정지됨, 상태 유지")
                 return False
@@ -1535,7 +1536,7 @@ class DownloadCore:
 
             req.status = StatusEnum.failed
             req.finished_at = datetime.datetime.now()
-            db.commit()
+            await db_async.commit(db)
 
             await self.send_download_update(req.id, {
                 "status": "failed",
@@ -1565,7 +1566,7 @@ class DownloadCore:
             if disp_name and _name_needs_resolution(req.file_name):
                 req.file_name = disp_name
                 req.save_path = generate_file_path(disp_name, is_temporary=True)
-                db.commit()
+                await db_async.commit(db)
                 print(f"[LOG] Content-Disposition 파일명 적용: {disp_name}")
                 await sse_manager.broadcast_message("filename_update", {
                     "id": req.id,
@@ -1582,7 +1583,7 @@ class DownloadCore:
         content_length = response.headers.get('Content-Length')
         if content_length and (not req.total_size or req.total_size == 0):
             req.total_size = int(content_length) + initial_size
-            db.commit()
+            await db_async.commit(db)
             print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
 
         # Telegram download-start notification
@@ -1614,7 +1615,7 @@ class DownloadCore:
                 shutil.move(req.save_path, final_path)
                 print(f"[DEBUG] 파일 리네임: {req.save_path} -> {final_path}")
                 req.save_path = final_path
-                db.commit()
+                await db_async.commit(db)
             except Exception as rename_error:
                 print(f"[WARNING] 파일 리네임 실패: {rename_error}")
 
@@ -1624,7 +1625,7 @@ class DownloadCore:
         req.downloaded_size = downloaded_size
         req.finished_at = datetime.datetime.now()
         _clear_failure_metadata(req)
-        db.commit()
+        await db_async.commit(db)
 
         await self.send_download_update(req.id, {
             "status": "done",
@@ -1751,7 +1752,7 @@ class DownloadCore:
             # Set the download start time (avoid duplicates)
             if not req.started_at:
                 req.started_at = datetime.datetime.now()
-                db.commit()
+                await db_async.commit(db)
 
             timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=300)
 
@@ -1921,7 +1922,7 @@ class DownloadCore:
             user_message = verdict.user_message
             req.status = StatusEnum.failed
             req.finished_at = datetime.datetime.now()
-            db.commit()
+            await db_async.commit(db)
 
             await self.send_download_update(req.id, {
                 "status": "failed",
@@ -1971,7 +1972,7 @@ class DownloadCore:
 
         # Local download logic
         req.status = StatusEnum.downloading
-        db.commit()
+        await db_async.commit(db)
 
         await self.send_download_update(req.id, {
             "status": "downloading",
@@ -2003,7 +2004,7 @@ class DownloadCore:
                 print(f"[LOG] 파일명 결정: '{filename_to_use}'")
                 req.save_path = generate_file_path(filename_to_use, is_temporary=True)
                 print(f"[LOG] 생성된 저장 경로: '{req.save_path}'")
-                db.commit()
+                await db_async.commit(db)
 
             # Proxy download retry logic - retry while available proxies remain
             timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=300)
@@ -2025,7 +2026,7 @@ class DownloadCore:
             )
             while not download_success and retry_count < MAX_DOWNLOAD_RETRIES:
                 # Check the download-stopped state
-                db.refresh(req)
+                await db_async.refresh(db, req)
                 if req.status == StatusEnum.stopped:
                     print(f"[LOG] 다운로드 정지됨, 다운로드 중단: {req.id}")
                     return
@@ -2090,7 +2091,7 @@ class DownloadCore:
                                 content_length = response.headers.get('Content-Length')
                                 if content_length and (not req.total_size or req.total_size == 0):
                                     req.total_size = int(content_length) + initial_size
-                                    db.commit()
+                                    await db_async.commit(db)
                                     print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
 
                                 # Telegram download-start notification (after the HTTP connection succeeds)
@@ -2123,7 +2124,7 @@ class DownloadCore:
                                         shutil.move(req.save_path, final_path)
                                         print(f"[DEBUG] 파일 리네임: {req.save_path} -> {final_path}")
                                         req.save_path = final_path
-                                        db.commit()  # Commit the file path change immediately
+                                        await db_async.commit(db)  # Commit the file path change immediately
                                     except Exception as rename_error:
                                         print(f"[WARNING] 파일 리네임 실패: {rename_error}")
 
@@ -2135,7 +2136,7 @@ class DownloadCore:
                                 _clear_failure_metadata(req)
                                 print(f"[LOG] 상태를 done으로 변경 완료")
 
-                                db.commit()
+                                await db_async.commit(db)
                                 download_success = True
                                 break  # Exit the retry loop on success
 
@@ -2269,7 +2270,7 @@ class DownloadCore:
             user_message = verdict.user_message
             req.status = StatusEnum.failed
             req.finished_at = datetime.datetime.now()
-            db.commit()
+            await db_async.commit(db)
 
             await self.send_download_update(req.id, {
                 "status": "failed",
@@ -2305,7 +2306,7 @@ class DownloadCore:
         finally:
             # Force a status check and log
             try:
-                db.refresh(req)
+                await db_async.refresh(db, req)
                 print(f"[LOG] 최종 상태 확인: ID={req.id}, 상태={req.status}, 완료시간={req.finished_at}")
             except Exception as final_error:
                 print(f"[ERROR] 최종 상태 확인 실패: {final_error}")
@@ -2327,7 +2328,7 @@ class DownloadCore:
             verdict = apply_failure_to_request(req, "다운로드", str(e))
             req.status = StatusEnum.failed
             req.finished_at = datetime.datetime.now()
-            db.commit()
+            await db_async.commit(db)
 
             await self.send_download_update(req.id, {
                 "status": "failed",
@@ -2349,7 +2350,7 @@ class DownloadCore:
             "message": "호스팅 페이지 파싱 중..."
         })
         req.status = StatusEnum.parsing
-        db.commit()
+        await db_async.commit(db)
 
         try:
             loop = asyncio.get_event_loop()
@@ -2382,7 +2383,7 @@ class DownloadCore:
                 parse_result = None
                 while parse_result is None and retry_count < MAX_RETRIES:
                     # Check the download-stopped state
-                    db.refresh(req)
+                    await db_async.refresh(db, req)
                     if req.status == StatusEnum.stopped:
                         print(f"[LOG] 다운로드 정지됨, 파싱 중단: {req.id}")
                         return
@@ -2447,7 +2448,7 @@ class DownloadCore:
 
             if req.original_url != req.url:
                 req.original_url = req.url
-            db.commit()
+            await db_async.commit(db)
 
             await sse_manager.broadcast_message("filename_update", {
                 "id": req.id,
@@ -2465,12 +2466,12 @@ class DownloadCore:
                 "progress": 0,
                 "message": "다운로드 중..."
             })
-            db.commit()
+            await db_async.commit(db)
 
             if not req.save_path:
                 filename_to_use = req.file_name or f"download_{req.id}"
                 req.save_path = generate_file_path(filename_to_use, is_temporary=True)
-                db.commit()
+                await db_async.commit(db)
 
             await self._download_file_directly(
                 req,
@@ -2491,7 +2492,7 @@ class DownloadCore:
             verdict = apply_failure_to_request(req, "파싱", str(e))
             req.status = StatusEnum.failed
             req.finished_at = datetime.datetime.now()
-            db.commit()
+            await db_async.commit(db)
             await self.send_download_update(req.id, {
                 "status": "failed",
                 "message": verdict.user_message,
@@ -2515,7 +2516,7 @@ class DownloadCore:
             "status": "parsing", "progress": 0, "message": "MEGA 링크 분석 중..."
         })
         req.status = StatusEnum.parsing
-        db.commit()
+        await db_async.commit(db)
 
         try:
             file_id, key = parse_mega_url(req.url)
@@ -2538,7 +2539,7 @@ class DownloadCore:
                 if not req.started_at:
                     req.started_at = datetime.datetime.now()
                 req.status = StatusEnum.downloading
-                db.commit()
+                await db_async.commit(db)
 
                 await sse_manager.broadcast_message("filename_update", {
                     "id": req.id, "filename": req.file_name, "file_size": req.file_size
@@ -2579,7 +2580,7 @@ class DownloadCore:
             req.downloaded_size = written
             req.finished_at = datetime.datetime.now()
             _clear_failure_metadata(req)
-            db.commit()
+            await db_async.commit(db)
             await self.send_download_update(req.id, {
                 "status": "done", "progress": 100, "message": "다운로드 완료"
             })
@@ -2601,7 +2602,7 @@ class DownloadCore:
             verdict = apply_failure_to_request(req, "MEGA", message)
             req.status = StatusEnum.failed
             req.finished_at = datetime.datetime.now()
-            db.commit()
+            await db_async.commit(db)
             await self.send_download_update(req.id, {
                 "status": "failed",
                 "message": verdict.user_message,
@@ -2644,12 +2645,12 @@ class DownloadCore:
 
             # 2. Update the status in the DB
             try:
-                req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
+                req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
                 if req:
                     req.status = StatusEnum.stopped
                     req.progress = 0
                     req.message = "다운로드가 중지되었습니다."
-                    db.commit()
+                    await db_async.commit(db)
                     print(f"[DEBUG] DB 상태 업데이트 완료: {req_id}")
                 else:
                     print(f"[WARNING] DB에서 다운로드 요청을 찾을 수 없음: {req_id}")
@@ -2695,12 +2696,12 @@ class DownloadCore:
                     if filename and '.' in filename:
                         req.file_name = filename
                         print(f"[LOG] Opendrive 파일명 추출: {filename}")
-                        db.commit()
+                        await db_async.commit(db)
 
                         # Reset the save path with the new file name
                         req.save_path = generate_file_path(req.file_name, is_temporary=True)
                         print(f"[LOG] Opendrive 저장경로 재설정: {req.save_path}")
-                        db.commit()
+                        await db_async.commit(db)
 
                         # Send the file name update over SSE
                         await sse_manager.broadcast_message("filename_update", {
@@ -2720,7 +2721,7 @@ class DownloadCore:
                     # Reset the save path with the new file name
                     req.save_path = generate_file_path(req.file_name, is_temporary=True)
                     print(f"[LOG] 일반 URL 저장경로 재설정: {req.save_path}")
-                    db.commit()
+                    await db_async.commit(db)
 
                     # Send the file name update over SSE
                     await sse_manager.broadcast_message("filename_update", {
@@ -2749,7 +2750,7 @@ class DownloadCore:
                                         # Reset the save path with the new file name
                                         req.save_path = generate_file_path(req.file_name, is_temporary=True)
                                         print(f"[LOG] Content-Disposition 저장경로 재설정: {req.save_path}")
-                                        db.commit()
+                                        await db_async.commit(db)
 
                                         # Send the file name update over SSE
                                         await sse_manager.broadcast_message("filename_update", {
@@ -2815,9 +2816,9 @@ class DownloadCore:
             db = SessionLocal()
 
             # Query all pending downloads (sorted by request time ascending)
-            pending_downloads = db.query(DownloadRequest).filter(
+            pending_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
                 DownloadRequest.status == StatusEnum.pending
-            ).order_by(DownloadRequest.requested_at.asc()).all()
+            ).order_by(DownloadRequest.requested_at.asc()))
 
             if not pending_downloads:
                 print("[LOG] 대기중인 다운로드 없음")
@@ -2850,7 +2851,7 @@ class DownloadCore:
         """Query download status"""
         try:
             db = SessionLocal()
-            req = db.query(DownloadRequest).filter(DownloadRequest.id == req_id).first()
+            req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
 
             if not req:
                 return {"error": "다운로드 요청을 찾을 수 없음"}

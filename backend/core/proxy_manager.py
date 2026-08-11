@@ -6,6 +6,7 @@ Asynchronous proxy management module
 - asyncio-based implementation
 """
 
+from core import db_async
 import asyncio
 import aiohttp
 import datetime
@@ -37,7 +38,7 @@ class ProxyManager:
 
     async def get_user_proxy_list(self, db: Session) -> List[str]:
         """Fetch the user's proxy list asynchronously"""
-        user_proxies = db.query(UserProxy).filter(UserProxy.is_active == True).all()
+        user_proxies = await db_async.all_rows(db.query(UserProxy).filter(UserProxy.is_active == True))
         proxy_list = []
 
         # Process URL-type proxies asynchronously
@@ -91,9 +92,9 @@ class ProxyManager:
             # the pool self-heals from transient failures instead of shrinking forever.
             now = datetime.datetime.now()
             cooldown = datetime.timedelta(seconds=PROXY_FAILURE_COOLDOWN_SEC)
-            failed_proxies = db.query(ProxyStatus).filter(
+            failed_proxies = await db_async.all_rows(db.query(ProxyStatus).filter(
                 ProxyStatus.success == False
-            ).all()
+            ))
             cooling_addresses = {
                 f"{p.ip}:{p.port}"
                 for p in failed_proxies
@@ -159,10 +160,10 @@ class ProxyManager:
             print(f"[DEBUG] 프록시 파싱: {proxy_addr} -> IP: {ip}, Port: {port}")
 
             # Check whether an existing record is present
-            existing = db.query(ProxyStatus).filter(
+            existing = await db_async.first(db.query(ProxyStatus).filter(
                 ProxyStatus.ip == ip,
                 ProxyStatus.port == port
-            ).first()
+            ))
 
             now = datetime.datetime.now()
             if existing:
@@ -183,7 +184,7 @@ class ProxyManager:
                 db.add(proxy_status)
                 print(f"[LOG] 프록시 실패 새로 기록: {proxy_addr}")
 
-            db.commit()
+            await db_async.commit(db)
 
             # Increment the failure count
             self.failed_count += 1
@@ -196,7 +197,7 @@ class ProxyManager:
     async def get_total_failed_count(self, db: Session) -> int:
         """Return the total number of failed proxies (queried from the DB)"""
         try:
-            return db.query(ProxyStatus).filter(ProxyStatus.success == False).count()
+            return await db_async.count(db.query(ProxyStatus).filter(ProxyStatus.success == False))
         except Exception as e:
             print(f"[ERROR] get_total_failed_count 실패: {e}")
             return 0
@@ -362,7 +363,7 @@ class ProxyManager:
 
         # Check the request status
         if req:
-            db.refresh(req)
+            await db_async.refresh(db, req)
             if req.status == StatusEnum.stopped:
                 print(f"[LOG] 프록시 테스트 중 정지됨: {req.id}")
                 return [], []
@@ -423,10 +424,10 @@ class ProxyManager:
         user_proxy_list = await self.get_user_proxy_list(db)
 
         # Proxy addresses already used
-        used_proxies = db.query(ProxyStatus).filter(
+        used_proxies = await db_async.all_rows(db.query(ProxyStatus).filter(
             ProxyStatus.ip.isnot(None),
             ProxyStatus.port.isnot(None)
-        ).all()
+        ))
         used_proxy_addresses = {f"{p.ip}:{p.port}" for p in used_proxies}
 
         # Filter to unused proxies
@@ -437,9 +438,9 @@ class ProxyManager:
             return None
 
         # Place successful proxies first by priority
-        successful_proxies = db.query(ProxyStatus).filter(
+        successful_proxies = await db_async.all_rows(db.query(ProxyStatus).filter(
             ProxyStatus.last_status == 'success'
-        ).all()
+        ))
         priority_proxies = [f"{p.ip}:{p.port}" for p in successful_proxies if f"{p.ip}:{p.port}" in unused_proxies]
         other_proxies = [p for p in unused_proxies if p not in priority_proxies]
 

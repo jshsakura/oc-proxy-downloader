@@ -90,6 +90,43 @@ def _blocking_db_calls(node: ast.AST) -> list:
     return hits
 
 
+# Startup-only work. _run_migrations runs once, before the server accepts a
+# request, so there is nothing for it to block — and it must finish before
+# anything reads the schema it is creating.
+_STARTUP_ONLY = {"_run_migrations"}
+
+# Where the writer lives. The route layer was cleared first, but these are the
+# functions that actually hold SQLite's write lock while a download runs, so a
+# commit here stalled every request in the app rather than just its own.
+WRITER_FILES = (
+    pathlib.Path("core/download_core.py"),
+    pathlib.Path("core/proxy_manager.py"),
+    pathlib.Path("services/download_service.py"),
+    pathlib.Path("utils/file_helpers.py"),
+)
+
+
+@pytest.mark.parametrize("source", WRITER_FILES, ids=lambda p: p.name)
+def test_the_download_path_does_not_hold_the_loop_while_it_writes(source):
+    """A download commits constantly — progress, status, retry bookkeeping. Every
+    one of those commits used to run on the event loop, so the app went quiet
+    for as long as SQLite made the writer wait. 67 calls across 20 async
+    functions; they go through ``core.db_async`` now."""
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    offenders = {
+        node.name: _blocking_db_calls(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name not in _STARTUP_ONLY
+        and _blocking_db_calls(node)
+    }
+
+    assert offenders == {}, (
+        f"{source.name}: database work on the event loop — {offenders} "
+        f"(name → line numbers)"
+    )
+
+
 @pytest.mark.parametrize(
     "route_file", sorted(ROUTES_DIR.glob("*.py")), ids=lambda p: p.name
 )

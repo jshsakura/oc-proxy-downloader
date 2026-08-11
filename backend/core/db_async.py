@@ -46,6 +46,15 @@ async def commit(db: Session) -> None:
     await asyncio.to_thread(db.commit)
 
 
+async def refresh(db: Session, instance) -> None:
+    """``db.refresh(instance)``, off the loop.
+
+    A refresh is a SELECT, and the download state machine does them mid-transfer
+    to re-read a row another session may have touched.
+    """
+    await asyncio.to_thread(db.refresh, instance)
+
+
 def _reload(db: Session, model, row_ids: List[int]) -> None:
     """Load the rows, which re-populates the identity map for those instances."""
     db.query(model).filter(model.id.in_(row_ids)).all()
