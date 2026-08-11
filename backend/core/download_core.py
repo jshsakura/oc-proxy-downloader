@@ -116,8 +116,14 @@ CONCURRENCY_MAX = 32
 # semaphores and the 1fichier backoff state.
 EGRESS_DIRECT = "direct"
 EGRESS_VPN = "vpn"
-DOWNLOAD_ROUTES = ("direct", "vpn", "auto", "balance")
-DEFAULT_DOWNLOAD_ROUTE = "direct"
+# "manual" is the default and means the app does not choose: whatever the item's
+# own proxy toggle says stands. It is separate from "direct" on purpose — a
+# setting labelled "direct only" has to actually force direct, and if that were
+# the default it would silently reset the per-item toggle every existing user
+# already relies on.
+ROUTE_MANUAL = "manual"
+DOWNLOAD_ROUTES = (ROUTE_MANUAL, "direct", "vpn", "auto", "balance")
+DEFAULT_DOWNLOAD_ROUTE = ROUTE_MANUAL
 # How long a host is assumed to keep refusing an egress. Long enough not to waste
 # the queue re-learning it, short enough that a new exit IP gets a chance.
 EGRESS_BLOCK_TTL = datetime.timedelta(hours=6)
@@ -449,7 +455,16 @@ class DownloadCore:
         - balance : take the egress with a free slot, preferring direct.
         """
         route = _read_download_route()
-        if route == DEFAULT_DOWNLOAD_ROUTE:
+        if route == ROUTE_MANUAL:
+            return
+
+        if route == "direct":
+            # "Direct only" means only. Anything left over from a previous route
+            # (or a per-item toggle) is cleared, or the label is a lie.
+            if req.use_proxy:
+                req.use_proxy = False
+                db.commit()
+                print(f"[LOG] 경로 'direct' 적용: id={req.id} → direct")
             return
 
         if not self._proxy_egress_available(db):

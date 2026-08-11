@@ -457,8 +457,10 @@
   "api_token_regenerated": "A new token has been issued.",
   "download_route_label": "Download route",
   "download_route_hint": "Hosts count their concurrent-download limit per IP, so a configured proxy adds a second set of slots rather than sharing the first. Falls back to direct when no proxy is active.",
-  "download_route_direct": "Direct only",
+  "download_route_direct": "Direct only — ignore the per-item setting and always go direct",
   "download_route_vpn": "Proxy only",
   "download_route_auto": "Auto — try direct, retry through the proxy on failure",
-  "download_route_balance": "Balance — whichever egress has a free slot"
+  "download_route_balance": "Balance — whichever egress has a free slot",
+  "download_route_manual": "Per item (default) — follow each download's own proxy setting",
+  "download_route_needs_proxy": "⚠ No active proxy. Until one is added below, downloads keep going out directly."
 }

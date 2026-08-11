@@ -332,6 +332,9 @@
     isInitialized = true;
   }
 
+  // Routes other than manual/direct need somewhere to send the traffic.
+  $: hasActiveProxy = (userProxies || []).some((p) => p.is_active);
+
   $: if (isInitialized && selectedTheme) {
     theme.set(selectedTheme);
   }
@@ -1270,12 +1273,20 @@
               class="input"
               bind:value={settings.download_route}
             >
+              <option value="manual">{$t("download_route_manual")}</option>
               <option value="direct">{$t("download_route_direct")}</option>
               <option value="vpn">{$t("download_route_vpn")}</option>
               <option value="auto">{$t("download_route_auto")}</option>
               <option value="balance">{$t("download_route_balance")}</option>
             </select>
             <small class="input-hint">{$t("download_route_hint")}</small>
+            {#if ["vpn", "auto", "balance"].includes(settings.download_route) && !hasActiveProxy}
+              <!-- Say it here rather than let the user find out from downloads
+                   silently going out the front door. -->
+              <small class="input-hint route-warn"
+                >{$t("download_route_needs_proxy")}</small
+              >
+            {/if}
           </fieldset>
 
           <fieldset class="form-group telegram-notifications">
@@ -3791,5 +3802,10 @@
     .proxy-table-container {
       font-size: 0.65rem;
     }
+  }
+  /* The chosen route needs a proxy that is not there — warn in place rather
+     than let downloads quietly leave by the front door. */
+  .route-warn {
+    color: var(--warning-color, #b45309);
   }
 </style>
