@@ -5,15 +5,23 @@ classified as proxy_blocked. Retrying that egress can only fail again, so the
 router has to stop choosing it instead of burning the queue on it.
 """
 import datetime
+import json
 
 import pytest
 
+from core import download_core as dc_module
+from core.config import DEFAULT_CONFIG
 from core.download_core import (
+    DEFAULT_DOWNLOAD_ROUTE,
+    DOWNLOAD_ROUTES,
     DownloadCore,
+    EGRESS_BLOCK_TTL,
     EGRESS_DIRECT,
     EGRESS_VPN,
-    EGRESS_BLOCK_TTL,
+    ROUTE_MANUAL,
+    _read_download_route,
 )
+from core.error_messages import KIND_PROXY_BLOCKED, classify_error
 
 
 class TestEgressBlockMemory:
@@ -55,14 +63,10 @@ class TestProxyFailureIsNotSwallowed:
     """
 
     def test_the_vpn_block_text_still_classifies_as_proxy_blocked(self):
-        from core.error_messages import classify_error, KIND_PROXY_BLOCKED
-
         verdict = classify_error("파싱", "1fichier 차단: VPS/VPN IP 차단")
         assert verdict.kind == KIND_PROXY_BLOCKED
 
     def test_a_bare_retry_count_does_not(self):
-        from core.error_messages import classify_error, KIND_PROXY_BLOCKED
-
         verdict = classify_error("파싱", "프록시 파싱 실패 - 최대 재시도 횟수(1) 초과")
         assert verdict.kind != KIND_PROXY_BLOCKED
 
@@ -72,13 +76,10 @@ class TestLearningSurvivesTheRetrySweep:
     routing cannot read it there. attempts_json is what survives."""
 
     def test_kind_is_read_from_the_attempt_log(self):
-        import json as _json
-        from core.download_core import DownloadCore
-        from core.error_messages import KIND_PROXY_BLOCKED
 
         class Req:
             failure_kind = None  # the sweep just cleared it
-            attempts_json = _json.dumps([
+            attempts_json = json.dumps([
                 {"kind": "transient"},
                 {"kind": KIND_PROXY_BLOCKED},
             ])
@@ -86,7 +87,6 @@ class TestLearningSurvivesTheRetrySweep:
         assert DownloadCore._last_attempt_kind(Req()) == KIND_PROXY_BLOCKED
 
     def test_missing_or_broken_log_is_not_an_error(self):
-        from core.download_core import DownloadCore
 
         class NoLog:
             attempts_json = None
@@ -102,8 +102,6 @@ class TestRouteSemantics:
     """"direct only" has to actually force direct, and the default must not."""
 
     def test_manual_is_the_default(self):
-        from core.download_core import DEFAULT_DOWNLOAD_ROUTE, ROUTE_MANUAL
-        from core.config import DEFAULT_CONFIG
 
         # The default must leave the per-item toggle alone — existing installs
         # rely on it, and silently resetting it would look like a bug.
@@ -111,19 +109,16 @@ class TestRouteSemantics:
         assert DEFAULT_CONFIG["download_route"] == ROUTE_MANUAL
 
     def test_direct_is_a_separate_choice_from_manual(self):
-        from core.download_core import DOWNLOAD_ROUTES, ROUTE_MANUAL
 
         assert ROUTE_MANUAL in DOWNLOAD_ROUTES
         assert "direct" in DOWNLOAD_ROUTES
         assert ROUTE_MANUAL != "direct"
 
     def test_an_unknown_route_falls_back_to_the_default(self):
-        from core.download_core import _read_download_route, DEFAULT_DOWNLOAD_ROUTE
-        import core.download_core as dc
 
-        original = dc.get_config
+        original = dc_module.get_config
         try:
-            dc.get_config = lambda: {"download_route": "sideways"}
+            dc_module.get_config = lambda: {"download_route": "sideways"}
             assert _read_download_route() == DEFAULT_DOWNLOAD_ROUTE
         finally:
-            dc.get_config = original
+            dc_module.get_config = original
