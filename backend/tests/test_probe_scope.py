@@ -22,12 +22,14 @@ from services.link_probe import (
     KIND_UNSUPPORTED,
     apply_probe_to_request,
     is_probe_supported,
-    probe_1fichier_url,
+    probe_url,
 )
 
 
 DATANODES = "https://datanodes.to/oi9iokrci5va"
 FICHIER = "https://1fichier.com/?abc123"
+# Not in HOSTER_REGISTRY: nothing here can read it.
+UNSUPPORTED = "https://multiup.io/download/abc/file.nsp"
 
 
 class TestProbeScope:
@@ -39,17 +41,23 @@ class TestProbeScope:
     @pytest.mark.parametrize("url", [
         DATANODES,
         "https://megaup.net/abc",
-        "https://mega.nz/file/abc",
-        "",
-        None,
+        "https://pixeldrain.com/u/abc",
+        "https://send.now/abc",
+        "https://bunkr.ru/f/abc",
     ])
-    def test_everything_else_is_out_of_scope(self, url):
+    def test_every_supported_hoster_is_in_scope(self, url):
+        """The registry decides what the downloader accepts; the auditor has to
+        cover the same ground or those rows never get a verdict at all."""
+        assert is_probe_supported(url) is True
+
+    @pytest.mark.parametrize("url", [UNSUPPORTED, "https://discord.gg/x", "", None])
+    def test_a_host_outside_the_registry_is_out_of_scope(self, url):
         assert is_probe_supported(url) is False
 
     def test_an_out_of_scope_url_is_reported_as_unsupported_not_unreachable(self):
         """`unreachable` means we looked and could not get there. Here we never
         looked, and the two must not share a kind."""
-        probe = asyncio.run(probe_1fichier_url(DATANODES))
+        probe = asyncio.run(probe_url(UNSUPPORTED))
 
         assert probe.kind == KIND_UNSUPPORTED
         assert probe.definitive is False
@@ -59,7 +67,7 @@ class TestUnsupportedLeavesTheRecordAlone:
 
     def _row(self):
         return DownloadRequest(
-            url=DATANODES,
+            url=UNSUPPORTED,
             status=StatusEnum.stopped,
             error="[다운로드 실패] 다운로드 노드에 연결할 수 없습니다",
             failure_kind="transient",
@@ -68,7 +76,7 @@ class TestUnsupportedLeavesTheRecordAlone:
 
     def test_the_real_failure_reason_survives(self):
         row = self._row()
-        probe = asyncio.run(probe_1fichier_url(DATANODES))
+        probe = asyncio.run(probe_url(UNSUPPORTED))
 
         apply_probe_to_request(row, probe)
 
@@ -76,7 +84,7 @@ class TestUnsupportedLeavesTheRecordAlone:
 
     def test_the_classification_and_cooldown_survive(self):
         row = self._row()
-        probe = asyncio.run(probe_1fichier_url(DATANODES))
+        probe = asyncio.run(probe_url(UNSUPPORTED))
 
         apply_probe_to_request(row, probe)
 
@@ -87,7 +95,7 @@ class TestUnsupportedLeavesTheRecordAlone:
         """Skipping the verdict is not the same as pretending nothing happened —
         the ring buffer should show the auditor passed over this row."""
         row = self._row()
-        probe = asyncio.run(probe_1fichier_url(DATANODES))
+        probe = asyncio.run(probe_url(UNSUPPORTED))
 
         apply_probe_to_request(row, probe)
 
@@ -103,13 +111,14 @@ class TestTargetSelection:
         from api.routes.audit import _probeable_ids
 
         rows = [
-            (1, DATANODES, None),
+            (1, UNSUPPORTED, None),
             (2, FICHIER, None),
-            (3, "https://megaup.net/x", None),
-            (4, None, FICHIER),   # resolved link gone, original still probeable
+            (3, DATANODES, None),          # now supported — must be a target
+            (4, None, FICHIER),            # resolved link gone, original still probeable
+            (5, "https://discord.gg/x", None),
         ]
 
-        assert _probeable_ids(rows) == [2, 4]
+        assert _probeable_ids(rows) == [2, 3, 4]
 
     def test_alive_is_still_applied_for_in_scope_rows(self):
         """The guard must not make the auditor useless where it does work."""
