@@ -116,19 +116,19 @@ async def probe_single(download_id: int, db: Session = Depends(get_db)):
     if not req:
         raise HTTPException(status_code=404, detail="Download request not found")
 
-    probe_url = req.original_url or req.url
-    if not probe_url:
+    target = req.original_url or req.url
+    if not target:
         raise HTTPException(status_code=400, detail="No URL to probe")
 
     # Say so instead of recording a verdict the prober cannot back up. The old
     # behaviour wrote "1fichier URL 이 아님" over the row's real failure reason.
-    if not is_probe_supported(probe_url):
+    if not is_probe_supported(target):
         raise HTTPException(
             status_code=400,
-            detail="이 호스트는 링크 검수를 지원하지 않습니다 (1fichier 전용)",
+            detail="이 호스트는 링크 검수를 지원하지 않습니다",
         )
 
-    probe = await probe_url(probe_url)
+    probe = await probe_url(target)
     apply_probe_to_request(req, probe)
 
     # Read the verdict out before committing — the commit expires the instance,
@@ -219,10 +219,10 @@ async def _run_audit(target_ids: List[int]) -> None:
                 ))
                 if not req:
                     continue
-                probe_url = req.original_url or req.url
-                if not probe_url:
+                target = req.original_url or req.url
+                if not target:
                     continue
-                probe = await probe_url(probe_url)
+                probe = await probe_url(target)
                 apply_probe_to_request(req, probe)
                 await db_async.commit(db)
                 counts[probe.kind] = counts.get(probe.kind, 0) + 1
