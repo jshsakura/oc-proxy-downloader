@@ -2552,12 +2552,14 @@
                     class="filename"
                     title={fileNameTitle(download)}
                   >
-                    <span class="filename-text"
-                      >{displayFileName(download)}</span
-                    >
-                    {#if download.hoster}
-                      <span class="hoster-badge">{download.hoster}</span>
-                    {/if}
+                    <div class="filename-cell">
+                      <span class="filename-text"
+                        >{displayFileName(download)}</span
+                      >
+                      {#if download.hoster}
+                        <span class="hoster-badge">{download.hoster}</span>
+                      {/if}
+                    </div>
                   </td>
                   <td class="center-align">
                     <span
