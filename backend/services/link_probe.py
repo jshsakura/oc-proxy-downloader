@@ -24,6 +24,15 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 import httpx
+from bs4 import BeautifulSoup
+
+from core.hoster_common import _host
+from core.hoster_parsers import HOSTER_REGISTRY
+from services.host_probe_rules import (
+    find_dead_marker,
+    is_undecidable,
+    looks_like_a_file_page,
+)
 
 from core.parser import fichier_parser
 from core.simple_parser import detect_block_reason
@@ -35,6 +44,7 @@ from core.error_messages import (
     KIND_PROXY_BLOCKED,
     KIND_BLOCKED,
     KIND_TRANSIENT,
+    KIND_UNKNOWN,
     _compute_next_retry_at,
 )
 
@@ -139,17 +149,131 @@ def _kind_from_marker(marker: str) -> str:
     return KIND_BLOCKED
 
 
-# The prober reads 1fichier's body markers. It has nothing to say about any
-# other host, so callers must filter first — a "verdict" on a DataNodes link is
-# a statement about this module's reach, not about the link.
-PROBE_SUPPORTED_HOSTS = ("1fichier.com",)
+# 1fichier has its own marker vocabulary (wait slots, guest limits) and keeps a
+# dedicated reader. Every other supported host is judged by host_probe_rules,
+# whose markers were read off live "file is gone" pages.
+PROBE_SUPPORTED_HOSTS = ("1fichier.com",) + tuple(
+    host for spec in HOSTER_REGISTRY for host in spec.hostnames
+)
 
 UNSUPPORTED_HOST_SUMMARY = "이 호스트는 링크 검수를 지원하지 않음"
 
 
 def is_probe_supported(url: Optional[str]) -> bool:
     """Whether ``url`` is a host this module can actually judge."""
-    return any(host in (url or "") for host in PROBE_SUPPORTED_HOSTS)
+    host = _host(url or "")
+    if not host:
+        return False
+    bare = host.removeprefix("www.")
+    return any(
+        bare == supported or bare.endswith(f".{supported}")
+        for supported in PROBE_SUPPORTED_HOSTS
+    )
+
+
+def _visible_page_text(body: str) -> str:
+    """The page as a reader sees it — markers must not match inside markup."""
+    soup = BeautifulSoup(body or "", "html.parser")
+    for node in soup(["script", "style"]):
+        node.decompose()
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    return f"{title} {soup.get_text(' ', strip=True)}"
+
+
+async def _probe_generic_host(url: str) -> ProbeResult:
+    """Judge a non-1fichier supported host from its page.
+
+    Biased on purpose: ``dead`` only on strong evidence (an explicit marker, or
+    a 404/410 from a host that answers honestly), everything else stays
+    non-definitive. Getting ``alive`` wrong costs one failed retry; getting
+    ``dead`` wrong pins a working link out of the queue for good.
+    """
+    host = _host(url).removeprefix("www.")
+
+    await _throttle.wait()
+
+    headers = {
+        "User-Agent": _PROBE_USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+    }
+    try:
+        async with httpx.AsyncClient(
+            timeout=_PROBE_TIMEOUT_SEC, headers=headers, follow_redirects=True,
+        ) as client:
+            response = await client.get(url)
+    except httpx.TimeoutException:
+        return ProbeResult(
+            kind=KIND_TRANSIENT, summary="probe 타임아웃", raw_status=None,
+            body_marker=None, retry_after_seconds=None, definitive=False,
+        )
+    except (httpx.ConnectError, httpx.ReadError, httpx.NetworkError) as e:
+        return ProbeResult(
+            kind=KIND_UNREACHABLE, summary=f"probe 네트워크 오류: {type(e).__name__}",
+            raw_status=None, body_marker=None, retry_after_seconds=None,
+            definitive=False,
+        )
+
+    status = response.status_code
+    text = _visible_page_text(response.text or "")
+
+    marker = find_dead_marker(host, text)
+    if marker:
+        return ProbeResult(
+            kind=KIND_DEAD, summary=f"파일 없음 ({host})", raw_status=status,
+            body_marker=marker, retry_after_seconds=None, definitive=True,
+        )
+
+    if status in (404, 410):
+        return ProbeResult(
+            kind=KIND_DEAD, summary=f"HTTP {status} — 파일 없음", raw_status=status,
+            body_marker=None, retry_after_seconds=None, definitive=True,
+        )
+
+    if status == 429:
+        return ProbeResult(
+            kind=KIND_RATE_LIMITED, summary="호스터 요청 한도", raw_status=status,
+            body_marker=None, retry_after_seconds=None, definitive=False,
+        )
+
+    if status >= 500:
+        return ProbeResult(
+            kind=KIND_TRANSIENT, summary=f"호스터 오류 HTTP {status}",
+            raw_status=status, body_marker=None, retry_after_seconds=None,
+            definitive=False,
+        )
+
+    if is_undecidable(host):
+        # GoFile's HTML is a JavaScript shell — there is nothing here to read.
+        return ProbeResult(
+            kind=KIND_UNKNOWN, summary=f"{host} 은 페이지로 판정 불가",
+            raw_status=status, body_marker=None, retry_after_seconds=None,
+            definitive=False,
+        )
+
+    if status == 200 and looks_like_a_file_page(text):
+        return ProbeResult(
+            kind=KIND_ALIVE, summary="링크 살아있음", raw_status=status,
+            body_marker=None, retry_after_seconds=None, definitive=True,
+        )
+
+    return ProbeResult(
+        kind=KIND_UNKNOWN, summary=f"판정 불가 (HTTP {status})", raw_status=status,
+        body_marker=None, retry_after_seconds=None, definitive=False,
+    )
+
+
+async def probe_url(url: str) -> ProbeResult:
+    """Probe any supported host, dispatching to the reader that fits it."""
+    if not is_probe_supported(url):
+        return ProbeResult(
+            kind=KIND_UNSUPPORTED, summary=UNSUPPORTED_HOST_SUMMARY,
+            raw_status=None, body_marker=None, retry_after_seconds=None,
+            definitive=False,
+        )
+    if "1fichier.com" in (url or ""):
+        return await probe_1fichier_url(url)
+    return await _probe_generic_host(url)
 
 
 async def probe_1fichier_url(url: str) -> ProbeResult:
@@ -157,7 +281,7 @@ async def probe_1fichier_url(url: str) -> ProbeResult:
 
     No captcha/wait/POST — only looks at body markers and the HTTP code.
     """
-    if not is_probe_supported(url):
+    if "1fichier.com" not in (url or ""):
         return ProbeResult(
             kind=KIND_UNSUPPORTED, summary=UNSUPPORTED_HOST_SUMMARY,
             raw_status=None, body_marker=None,

@@ -23,7 +23,7 @@ from core.db import get_db, SessionLocal
 from core import db_async
 from core.models import DownloadRequest, StatusEnum
 from services.link_probe import (
-    probe_1fichier_url,
+    probe_url,
     apply_probe_to_request,
     is_probe_supported,
     KIND_ALIVE,
@@ -128,7 +128,7 @@ async def probe_single(download_id: int, db: Session = Depends(get_db)):
             detail="이 호스트는 링크 검수를 지원하지 않습니다 (1fichier 전용)",
         )
 
-    probe = await probe_1fichier_url(probe_url)
+    probe = await probe_url(probe_url)
     apply_probe_to_request(req, probe)
 
     # Read the verdict out before committing — the commit expires the instance,
@@ -222,7 +222,7 @@ async def _run_audit(target_ids: List[int]) -> None:
                 probe_url = req.original_url or req.url
                 if not probe_url:
                     continue
-                probe = await probe_1fichier_url(probe_url)
+                probe = await probe_url(probe_url)
                 apply_probe_to_request(req, probe)
                 await db_async.commit(db)
                 counts[probe.kind] = counts.get(probe.kind, 0) + 1
