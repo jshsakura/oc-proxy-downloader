@@ -187,6 +187,49 @@ SPECIAL_HOSTER_PARSE_TIMEOUT_SEC = 300  # 5 minutes
 SPECIAL_NODE_RETRY_BACKOFF_SEC = (5, 15, 30)
 
 
+# 파일 대신 페이지를 받아놓고 완료 처리하면 안 된다.
+#
+# 호스터는 실패를 200 으로 돌려준다 — 캡차, Cloudflare 챌린지, 미러 선택
+# 페이지, "링크 만료" 안내가 전부 정상 응답으로 온다. 그걸 그대로 저장하고
+# done 으로 찍으면 사용자는 받은 줄 알고, 그 쓰레기가 압축 해제·라이브러리
+# 등록까지 그대로 흘러간다. 실측: multiup 미러 목록 HTML 57KB 가
+# "R-Type Tactics I-II Cosmos ....part2.rar" 이라는 이름으로 done 이 됐다.
+#
+# 예전에는 Content-Type 검사가 is_special_hoster_url() 로 게이팅돼 있어서
+# 등록되지 않은 호스터는 통째로 빠져나갔다. HTML 은 어느 호스터에서 오든
+# 파일이 아니므로 게이트 없이 본다.
+_HTML_SNIFF_MARKERS = (b"<!doctype", b"<html", b"<?xml", b"<head", b"<script")
+_HTML_SNIFF_BYTES = 1024
+
+
+def _looks_like_html(path: str) -> bool:
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(_HTML_SNIFF_BYTES)
+    except OSError:
+        return False
+    stripped = head.lstrip()[:256].lower()
+    return any(stripped.startswith(m) for m in _HTML_SNIFF_MARKERS)
+
+
+def assert_downloaded_a_real_file(req, downloaded_size: int, content_type: str = "") -> None:
+    """완료 처리 직전에 실제 파일을 받았는지 확인한다. 아니면 예외를 던져
+    실패 경로로 보낸다 — 실패는 실패로 남아야 재시도·미러 교체가 가능하다."""
+    if "text/html" in (content_type or "").lower():
+        raise Exception("호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함")
+
+    path = getattr(req, "save_path", None)
+    if path and os.path.exists(path) and _looks_like_html(path):
+        raise Exception("받은 내용이 파일이 아니라 HTML 페이지입니다 (캡차/미러 목록/차단 페이지)")
+
+    # Content-Length 를 받았는데 그보다 적게 받았으면 끊긴 것이다.
+    total = getattr(req, "total_size", 0) or 0
+    if total > 0 and downloaded_size < total:
+        raise Exception(
+            f"전송이 중간에 끊겼습니다 ({downloaded_size}/{total} bytes)"
+        )
+
+
 def _clear_failure_metadata(req) -> None:
     """On a successful completion, wipe leftover failure flags so the row no
     longer carries a stale ``error`` / ``failure_kind`` / ``next_retry_at`` /
@@ -1558,6 +1601,12 @@ class DownloadCore:
         )
         print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
 
+        # 완료로 찍기 전에 실제 파일인지 확인한다. .part 를 최종 이름으로
+        # 바꾸기 전에 봐야 쓰레기가 최종 이름을 차지하지 않는다.
+        assert_downloaded_a_real_file(
+            req, downloaded_size, response.headers.get("Content-Type") or ""
+        )
+
         # Rename .part → final file name
         final_path = get_final_file_path(req.save_path)
         if req.save_path != final_path:
@@ -1751,7 +1800,10 @@ class DownloadCore:
                             if response.status not in [200, 206]:
                                 raise Exception(f"HTTP {response.status}: {response.reason}")
                             content_type = (response.headers.get("Content-Type") or "").lower()
-                            if is_special_hoster_url(req.original_url or req.url) and "text/html" in content_type:
+                            # 호스터 등록 여부와 무관하게 본다. 예전에는
+                            # is_special_hoster_url() 로 게이팅돼 있어서 등록되지
+                            # 않은 호스터(multiup 등)의 HTML 이 파일로 저장됐다.
+                            if "text/html" in content_type:
                                 raise Exception(
                                     "호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함"
                                 )
@@ -2057,6 +2109,12 @@ class DownloadCore:
                                     response, req.save_path, initial_size, req.total_size, req, db
                                 )
                                 print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
+
+                                # 완료로 찍기 전에 실제 파일인지 확인한다.
+                                assert_downloaded_a_real_file(
+                                    req, downloaded_size,
+                                    response.headers.get("Content-Type") or "",
+                                )
 
                                 # Rename the .part file to the final file name
                                 final_path = get_final_file_path(req.save_path)
