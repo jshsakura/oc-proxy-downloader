@@ -25,6 +25,7 @@ from core.models import DownloadRequest, StatusEnum
 from services.link_probe import (
     probe_1fichier_url,
     apply_probe_to_request,
+    is_probe_supported,
     KIND_ALIVE,
     KIND_UNREACHABLE,
 )
@@ -71,15 +72,15 @@ def _select_targets(req: "AuditRequest", db: Session) -> List[int]:
       defaults to ``[failed, stopped]``.
     """
     if req.ids:
-        rows = db.query(DownloadRequest.id).filter(
+        rows = db.query(DownloadRequest.id, DownloadRequest.url, DownloadRequest.original_url).filter(
             DownloadRequest.id.in_(req.ids)
         ).all()
-        return [r[0] for r in rows]
+        return _probeable_ids(rows)
 
     statuses = req.status_filter or [
         StatusEnum.failed.value, StatusEnum.stopped.value
     ]
-    query = db.query(DownloadRequest.id).filter(
+    query = db.query(DownloadRequest.id, DownloadRequest.url, DownloadRequest.original_url).filter(
         DownloadRequest.status.in_(statuses)
     )
     if req.failure_kinds:
@@ -93,7 +94,19 @@ def _select_targets(req: "AuditRequest", db: Session) -> List[int]:
     query = query.order_by(DownloadRequest.last_probed_at.asc().nullsfirst())
     if req.limit:
         query = query.limit(req.limit)
-    return [r[0] for r in query.all()]
+    return _probeable_ids(query.all())
+
+
+def _probeable_ids(rows) -> List[int]:
+    """Ids the prober can actually judge.
+
+    The prober reads 1fichier's body markers and nothing else. Feeding it a
+    DataNodes link produced a "result" that was really a statement about the
+    prober, and applying it overwrote the row's real failure reason — 248 rows
+    ended up pinned dead with "1fichier URL 이 아님" as their only explanation.
+    Filtering here means such a row is never touched.
+    """
+    return [row[0] for row in rows if is_probe_supported(row[1] or row[2] or "")]
 
 
 @router.post("/downloads/{download_id}/probe")
@@ -106,6 +119,14 @@ async def probe_single(download_id: int, db: Session = Depends(get_db)):
     probe_url = req.original_url or req.url
     if not probe_url:
         raise HTTPException(status_code=400, detail="No URL to probe")
+
+    # Say so instead of recording a verdict the prober cannot back up. The old
+    # behaviour wrote "1fichier URL 이 아님" over the row's real failure reason.
+    if not is_probe_supported(probe_url):
+        raise HTTPException(
+            status_code=400,
+            detail="이 호스트는 링크 검수를 지원하지 않습니다 (1fichier 전용)",
+        )
 
     probe = await probe_1fichier_url(probe_url)
     apply_probe_to_request(req, probe)

@@ -12,6 +12,7 @@ from typing import List, Optional
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
 from core.error_messages import classify_failure_text
+from core.hoster_labels import hoster_label
 from core.simple_parser import derive_display_name
 
 
@@ -85,6 +86,10 @@ def get_download_history(
                 "finished_at": download.finished_at.isoformat() if download.finished_at else None,
                 "error_message": download.error,
                 "failure_kind": _failure_kind_of(download),
+                # The URL actually being fetched — after an ouo unwrap the
+                # original is a shortlink, which says nothing about where
+                # the bytes come from.
+                "hoster": hoster_label(download.url or download.original_url),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size
             })
@@ -153,6 +158,10 @@ def get_working_downloads(
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
                 "failure_kind": _failure_kind_of(download),
+                # The URL actually being fetched — after an ouo unwrap the
+                # original is a shortlink, which says nothing about where
+                # the bytes come from.
+                "hoster": hoster_label(download.url or download.original_url),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
@@ -239,6 +248,10 @@ def get_completed_downloads(
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
                 "failure_kind": _failure_kind_of(download),
+                # The URL actually being fetched — after an ouo unwrap the
+                # original is a shortlink, which says nothing about where
+                # the bytes come from.
+                "hoster": hoster_label(download.url or download.original_url),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
@@ -293,6 +306,10 @@ def get_active_downloads(db: Session = Depends(get_db)):
                 "use_proxy": download.use_proxy or False,
                 "error_message": download.error,
                 "failure_kind": _failure_kind_of(download),
+                # The URL actually being fetched — after an ouo unwrap the
+                # original is a shortlink, which says nothing about where
+                # the bytes come from.
+                "hoster": hoster_label(download.url or download.original_url),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size  # file size info obtained from preparse
