@@ -1120,6 +1120,8 @@ select.input option {
     white-space: nowrap;
   }
   .filename { max-width: none; min-width: 0; }   /* drop the desktop 250/150 caps */
+  /* Narrower badge on phones — it still has to leave the name readable. */
+  .hoster-badge { font-size: 0.62rem; padding: 0.05rem 0.3rem; }
 
   /* Compact the action icons so up to 4 fit the 118px column on one line. */
   .actions {
@@ -1362,10 +1364,34 @@ tbody tr:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   padding-left: 8px !important; /* 좌측 여백 줄이기 */
+
+  /* Flex so the host badge can be pinned while the name absorbs the squeeze.
+     Inside the text flow the badge would be the first thing ellipsis ate, which
+     is backwards — the badge is one short word and the name has room to lose. */
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.hoster-badge {
+  flex: 0 0 auto;          /* never shrink; the filename gives up space instead */
+  margin-left: auto;       /* sit at the right edge of the cell */
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--text-secondary, #6b7280);
+  background: rgba(var(--primary-color-rgb), 0.1);
+  border: 1px solid rgba(var(--primary-color-rgb), 0.22);
 }
 
 .filename-text {
-  width: 100%;
+  /* min-width:0 is what lets a flex item shrink below its content width — without
+     it the name would push the badge out of the cell instead of truncating. */
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

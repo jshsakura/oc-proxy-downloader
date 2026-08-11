@@ -80,6 +80,9 @@
   let currentPage = 1;
   let totalPages = 1;
   let itemsPerPage = 10; // Default; changes dynamically with screen size
+  // Bound to the window so the filename cap follows a rotation or resize,
+  // not just the width at load.
+  let viewportWidth = 0;
   let isDownloadsLoading = false;
   let isAddingDownload = false;
   // Server-reported total count for the currently active tab — used by
@@ -1732,9 +1735,28 @@
   // yet (placeholder like `1fichier:<id>`), reflect *why* via the download
   // status so "queued / fetching / failed / done-but-unresolved" are
   // distinguishable instead of a single ambiguous "없음".
+  // A release name carries its meaning at both ends: the title at the front,
+  // the [titleId][version][Base|UPD][region] and extension at the back. CSS
+  // ellipsis only cuts the back, so on a phone a 136-character name showed a
+  // long prefix and nothing that told Base from Update. Drop the middle
+  // instead — the full name is still in the cell's tooltip.
+  const NAME_CAP_MOBILE = 42;
+  const NAME_CAP_WIDE = 88;
+
+  $: nameCap = viewportWidth && viewportWidth < 768 ? NAME_CAP_MOBILE : NAME_CAP_WIDE;
+
+  function truncateMiddle(name, cap) {
+    if (!name || name.length <= cap) return name;
+    // Bias the split toward the tail: the metadata there is what disambiguates
+    // two builds of the same game.
+    const tail = Math.max(12, Math.floor(cap * 0.45));
+    const head = cap - tail - 1;
+    return `${name.slice(0, head)}…${name.slice(-tail)}`;
+  }
+
   function displayFileName(download) {
     const name = download?.filename;
-    if (name && !isPlaceholderName(name)) return name;
+    if (name && !isPlaceholderName(name)) return truncateMiddle(name, nameCap);
     const st = (download?.status || "").toLowerCase();
     if (st === "pending") return $t("file_name_queued");
     if (["parsing", "proxying", "downloading", "waiting"].includes(st))
@@ -2150,6 +2172,8 @@
   $: dashboardSummaryBytes = dashboardStats?.total_bytes ?? 0;
 </script>
 
+<svelte:window bind:innerWidth={viewportWidth} />
+
 <main>
   {#if $authLoading || $isLoading}
     <div class="skeleton-page">
@@ -2531,6 +2555,9 @@
                     <span class="filename-text"
                       >{displayFileName(download)}</span
                     >
+                    {#if download.hoster}
+                      <span class="hoster-badge">{download.hoster}</span>
+                    {/if}
                   </td>
                   <td class="center-align">
                     <span

@@ -44,6 +44,8 @@ from core.error_messages import (
 # the network itself is down.
 KIND_ALIVE = "alive"
 KIND_UNREACHABLE = "unreachable"
+# Distinct from unreachable: we never looked. Not a verdict on the link.
+KIND_UNSUPPORTED = "unsupported"
 
 
 _THROTTLE_MIN_INTERVAL_SEC = 3.0  # global minimum interval
@@ -137,16 +139,29 @@ def _kind_from_marker(marker: str) -> str:
     return KIND_BLOCKED
 
 
+# The prober reads 1fichier's body markers. It has nothing to say about any
+# other host, so callers must filter first — a "verdict" on a DataNodes link is
+# a statement about this module's reach, not about the link.
+PROBE_SUPPORTED_HOSTS = ("1fichier.com",)
+
+UNSUPPORTED_HOST_SUMMARY = "이 호스트는 링크 검수를 지원하지 않음"
+
+
+def is_probe_supported(url: Optional[str]) -> bool:
+    """Whether ``url`` is a host this module can actually judge."""
+    return any(host in (url or "") for host in PROBE_SUPPORTED_HOSTS)
+
+
 async def probe_1fichier_url(url: str) -> ProbeResult:
     """Lightly GET a 1fichier URL and classify its status.
 
     No captcha/wait/POST — only looks at body markers and the HTTP code.
     """
-    if "1fichier.com" not in (url or ""):
+    if not is_probe_supported(url):
         return ProbeResult(
-            kind=KIND_UNREACHABLE, summary="1fichier URL 이 아님",
+            kind=KIND_UNSUPPORTED, summary=UNSUPPORTED_HOST_SUMMARY,
             raw_status=None, body_marker=None,
-            retry_after_seconds=None, definitive=True,
+            retry_after_seconds=None, definitive=False,
         )
 
     await _throttle.wait()
@@ -302,8 +317,15 @@ def apply_probe_to_request(req, probe: ProbeResult) -> None:
         req.error = "[검수] 링크 살아있음 — 재시도 가능"
         return
 
+    if probe.kind == KIND_UNSUPPORTED:
+        # We never looked at the link. Overwriting req.error here replaced the
+        # real failure reason on 248 DataNodes rows with a note about this
+        # prober's reach — leaving them pinned dead with no explanation. Record
+        # the attempt (above) and leave the diagnosis alone.
+        return
+
     if probe.kind == KIND_UNREACHABLE:
-        # Not 1fichier or the network itself is down — don't change the classification, just update the message
+        # The network itself is down — don't change the classification, just update the message
         req.error = probe.to_user_message()
         return
 

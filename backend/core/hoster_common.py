@@ -105,7 +105,15 @@ class HosterParseResult:
         }
 
 
-_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)", re.IGNORECASE)
+# The lookbehind keeps the number from being torn out of a longer token. A
+# datanodes page carries markup like ``plan2tb`` / ``/img/2tb.png``, and without
+# it the scan matched "2tb" there and recorded a 2 TiB file.
+_SIZE_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)\b", re.IGNORECASE)
+
+# No file these hosters serve is this large; a match above it is page furniture
+# — a storage-plan badge ("2TB", "6TB unlimited") in the surrounding markup.
+# Believing one poisons the disk-space check and shows an absurd size in the UI.
+MAX_PLAUSIBLE_FILE_BYTES = 512 * 1024 ** 3  # 512 GiB
 
 
 def _host(url: str) -> str:
@@ -358,17 +366,46 @@ def _extract_title_filename(soup: BeautifulSoup, fallback_url: str) -> str:
     return filename if filename else ""
 
 
+def _visible_text(text: str) -> str:
+    """The page as a reader sees it — no tags, attributes or scripts.
+
+    Scanning raw markup let class names, image paths and inline JSON pass for
+    file sizes. Plain text (a size string that never went through a parser)
+    comes back unchanged.
+    """
+    raw = text or ""
+    if "<" not in raw:
+        return raw
+    soup = BeautifulSoup(raw, "html.parser")
+    for node in soup(["script", "style"]):
+        node.decompose()
+    return soup.get_text(" ")
+
+
 def _extract_size_from_text(text: str) -> str:
-    match = _SIZE_RE.search(text or "")
-    return match.group(0) if match else ""
+    match = _SIZE_RE.search(_visible_text(text))
+    if not match:
+        return ""
+    if size_to_bytes(match.group(0)) > MAX_PLAUSIBLE_FILE_BYTES:
+        return ""
+    return match.group(0)
 
 
 def _extract_largest_size_from_text(text: str) -> str:
+    """Largest plausible size in ``text``, ignoring page furniture.
+
+    "Largest wins" is right for a file page — the real size is the biggest
+    number on it — but only among sizes that could be a file. Storage-plan
+    badges beat every real file by construction, which is how a download ended
+    up recorded as exactly 2.00 TiB with ``file_size='2tb'``.
+    """
     best_text = ""
     best_bytes = 0
-    for match in _SIZE_RE.finditer(text or ""):
+    for match in _SIZE_RE.finditer(_visible_text(text)):
         size_text = match.group(0)
         size_bytes = size_to_bytes(size_text)
+        if size_bytes > MAX_PLAUSIBLE_FILE_BYTES:
+            continue
         if size_bytes > best_bytes:
             best_text = size_text
             best_bytes = size_bytes
