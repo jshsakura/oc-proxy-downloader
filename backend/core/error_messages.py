@@ -54,7 +54,16 @@ KIND_UNKNOWN = "unknown"
 
 # Retry policy — referenced by `_compute_next_retry_at`.
 # (Simple constants for dict comparison: KIND → backoff seconds)
-_TRANSIENT_BACKOFF = (30, 120, 480, 1800, 1800, 1800)  # 30s→2m→8m→30m capped
+# 2m→8m→30m→1h, capped. The first step used to be 30s: a host that had just
+# refused us was asked again almost immediately, which is the behaviour that
+# gets an IP blocked rather than the failure that caused it.
+_TRANSIENT_BACKOFF = (120, 480, 1800, 3600, 3600, 3600)
+
+# Every wait is spread by up to this fraction of itself. Without it a batch of
+# downloads that failed together — a host hiccup, a bulk restart — wakes at the
+# same instant and arrives as one synchronised burst, which reads exactly like
+# an attack from the host's side.
+_JITTER_RATIO = 0.25
 _UNKNOWN_MAX_ATTEMPTS = 3  # beyond this many accumulated attempts, quarantine as 'unknown_terminal'
 _TRANSIENT_MAX_ATTEMPTS = len(_TRANSIENT_BACKOFF)
 _ATTEMPTS_RING_SIZE = 5  # attempts_json ring-buffer length
@@ -440,6 +449,12 @@ def is_auth_required_failure(error_text: Optional[str]) -> bool:
 TERMINAL_KINDS = frozenset({KIND_DEAD, KIND_AUTH_REQUIRED, "unknown_terminal"})
 
 
+def _with_jitter(seconds: float) -> timedelta:
+    """Spread a wait so simultaneous failures do not retry in lockstep."""
+    spread = seconds * _JITTER_RATIO
+    return timedelta(seconds=seconds + random.uniform(0, spread))
+
+
 def _compute_next_retry_at(kind: str, attempt_count: int,
                            retry_after_seconds: Optional[int]) -> Optional[datetime]:
     """Compute the next retry-allowed time from ``kind`` + past attempt count.
@@ -465,27 +480,31 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
         # If 1fichier specified a wait time, use it + a 60s margin.
         # Otherwise 600s (10 minutes).
         wait = (retry_after_seconds or 600) + 60
-        return now + timedelta(seconds=wait)
+        return now + _with_jitter(wait)
 
     if kind == KIND_CLOUDFLARE:
-        # 5 minutes + 0-60s jitter
-        return now + timedelta(seconds=300 + random.randint(0, 60))
+        return now + _with_jitter(300)
 
     if kind == KIND_PROXY_BLOCKED:
-        # Keep it short since the same proxy pool may hand out the same IP again.
-        return now + timedelta(seconds=30)
+        # A different proxy IP may pass, so this stays the shortest wait — but it
+        # still grows. A flat 30s repeated eight times is a hammer on whichever
+        # host refused us, whatever IP it arrives from.
+        return now + _with_jitter(60 * max(1, attempt_count))
 
     if kind == KIND_BLOCKED:
-        return now + timedelta(seconds=120)
+        # This kind *means* the host is refusing us. Backing off by a flat two
+        # minutes and trying again five times is how a temporary refusal becomes
+        # a permanent one.
+        return now + _with_jitter(600 * max(1, attempt_count))
 
     if kind == KIND_TRANSIENT:
         idx = min(max(attempt_count - 1, 0), _TRANSIENT_MAX_ATTEMPTS - 1)
-        return now + timedelta(seconds=_TRANSIENT_BACKOFF[idx])
+        return now + _with_jitter(_TRANSIENT_BACKOFF[idx])
 
     if kind == KIND_UNKNOWN:
         if attempt_count >= _UNKNOWN_MAX_ATTEMPTS:
             return None  # quarantine (caller promotes kind to 'unknown_terminal')
-        return now + timedelta(seconds=60 * attempt_count)
+        return now + _with_jitter(180 * attempt_count)
 
     return None
 
