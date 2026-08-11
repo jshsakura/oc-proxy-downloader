@@ -1119,9 +1119,18 @@ select.input option {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .filename { max-width: none; min-width: 0; }   /* drop the desktop 250/150 caps */
-  /* Narrower badge on phones — it still has to leave the name readable. */
-  .hoster-badge { font-size: 0.62rem; padding: 0.05rem 0.3rem; }
+  /* Beat the desktop nth-child(2) floor — same selector, so it has to be
+     matched, not merely restated on .filename (lower specificity). */
+  table th:nth-child(2),
+  table td:nth-child(2) {
+    min-width: 0;
+    width: auto;
+  }
+  .filename { max-width: none; min-width: 0; }
+  /* The filename column is ~98px on a phone. A "DataNodes" badge eats 55 of
+     them and leaves the name unreadable, which is the problem the badge was
+     never meant to cause. The host stays available in the detail modal. */
+  .hoster-badge { display: none; }
 
   /* Compact the action icons so up to 4 fit the 118px column on one line. */
   .actions {
@@ -1283,6 +1292,19 @@ select.input option {
   border: 1px solid var(--card-border);
 }
 
+/* The container scrolls, so the header has to be pinned to it — otherwise the
+   column labels leave the viewport on the first drag and the rest of the list
+   is read without them. `border-collapse: separate` on the table means the
+   header's bottom border does not travel with a sticky cell, so the divider is
+   drawn as a box-shadow instead. */
+.table-container thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--card-background);
+  box-shadow: inset 0 -1px 0 var(--card-border);
+}
+
 /* 테이블 컨테이너 스크롤바 - CSS 변수 기반 */
 .table-container::-webkit-scrollbar {
   width: 16px;
@@ -1306,7 +1328,11 @@ select.input option {
 }
 table {
   width: 100%;
-  min-width: 700px;
+  /* The floor belongs to wide screens only. On a phone the secondary columns are
+     hidden and the container has overflow-x: hidden, so a floor here does not
+     produce a scrollbar — it pushes the remaining columns out of reach. Media
+     queries add no specificity, so a later unscoped rule would win over the
+     mobile block above; scoping it here is what actually settles the argument. */
   border-collapse: separate;
   border-spacing: 0;
   white-space: nowrap;
@@ -1364,13 +1390,18 @@ tbody tr:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   padding-left: 8px !important; /* 좌측 여백 줄이기 */
+}
 
-  /* Flex so the host badge can be pinned while the name absorbs the squeeze.
-     Inside the text flow the badge would be the first thing ellipsis ate, which
-     is backwards — the badge is one short word and the name has room to lose. */
+/* The flex row lives INSIDE the cell, never on it. `display: flex` on a <td>
+   takes it out of the table layout algorithm, so `width: 40%` above stops
+   applying and the column collapses to its minimum — which is what happened:
+   the name showed as "Dyn···" while the badge kept its full size. */
+.filename-cell {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .hoster-badge {
@@ -1441,38 +1472,56 @@ tbody tr:hover {
   color: var(--text-secondary);
 }
 
-/* 컬럼 기본 너비 설정 (조정 가능) */
-table th:nth-child(1), table td:nth-child(1) { /* 파일명 */
-  min-width: 150px;
-  max-width: 300px;
-}
-table th:nth-child(2), table td:nth-child(2) { /* 상태 */
-  min-width: 100px;
-  width: 120px;
-}
-table th:nth-child(3), table td:nth-child(3) { /* 크기 */
-  min-width: 80px;
-  width: 90px;
-}
-table th:nth-child(4), table td:nth-child(4) { /* 진행률 */
-  min-width: 120px;
-  width: 140px;
-}
-table th:nth-child(5), table td:nth-child(5) { /* 속도 */
-  min-width: 80px;
-  width: 90px;
-}
-table th:nth-child(6), table td:nth-child(6) { /* 요청일자 */
-  min-width: 70px;
-  width: 80px;
-}
-table th:nth-child(7), table td:nth-child(7) { /* 프록시 */
-  min-width: 60px;
-  width: 70px;
-}
-table th:nth-child(8), table td:nth-child(8) { /* 작업 */
-  min-width: 100px;
-  width: 120px;
+/* Wide screens only. The mobile block sits earlier in this file, and media
+   queries add no specificity, so anything left unscoped here would win over
+   it purely by source order — which is how the phone layout kept the desktop
+   column floors and overflowed its own container. */
+@media (min-width: 769px) {
+  /* Column widths. These indexes were written before the select checkbox became
+     the first column and were never shifted, so every column was being given the
+     width meant for its neighbour — the filename column inherited the status
+     column's 120px, which is why a name rendered as "Dyn···" on a wide screen.
+     The order is: select, filename, status, size, progress, speed, date, proxy,
+     actions — nine columns, not eight.
+
+     The widths are set on th and td together. Under the table layout the header
+     row decides the column box, so a rule that reaches only the td leaves the
+     two disagreeing and the columns stop lining up. */
+  table th:nth-child(1), table td:nth-child(1) { /* 선택 */
+    width: 40px;
+    min-width: 40px;
+  }
+  table th:nth-child(2), table td:nth-child(2) { /* 파일명 — 남는 폭을 가져간다 */
+    min-width: 220px;
+  }
+  table th:nth-child(3), table td:nth-child(3) { /* 상태 */
+    min-width: 100px;
+    width: 120px;
+  }
+  table th:nth-child(4), table td:nth-child(4) { /* 크기 */
+    min-width: 80px;
+    width: 90px;
+  }
+  table th:nth-child(5), table td:nth-child(5) { /* 진행률 */
+    min-width: 120px;
+    width: 140px;
+  }
+  table th:nth-child(6), table td:nth-child(6) { /* 속도 */
+    min-width: 80px;
+    width: 90px;
+  }
+  table th:nth-child(7), table td:nth-child(7) { /* 요청일자 */
+    min-width: 70px;
+    width: 80px;
+  }
+  table th:nth-child(8), table td:nth-child(8) { /* 프록시 */
+    min-width: 60px;
+    width: 70px;
+  }
+  table th:nth-child(9), table td:nth-child(9) { /* 작업 */
+    min-width: 100px;
+    width: 120px;
+  }
 }
 
 /* 컬럼 리사이징을 위한 헤더 스타일 */
@@ -1670,8 +1719,8 @@ html[data-theme="light"] {
 
 /* 다중선택 — 행 체크박스 컬럼 + 액션바 */
 .select-col {
-  /* Override the `table th:nth-child(1) { min-width:150px }` rule (intended for
-     the old first column) now that the checkbox is the first column. */
+  /* Narrower than the nth-child(1) rule above, which has the higher
+     specificity — hence the !important. */
   width: 44px !important;
   min-width: 44px !important;
   max-width: 44px !important;
@@ -2605,25 +2654,34 @@ label {
   margin: 0 auto;
   display: block;
 }
-table {
-  table-layout: auto;
-  width: 100%;
-  min-width: 800px; /* 최소 너비 보장으로 모바일에서 스크롤 가능 */
+@media (min-width: 769px) {
+  table {
+    table-layout: auto;
+    width: 100%;
+  }
+}
+
+@media (min-width: 768px) {
+  table {
+    min-width: 800px; /* wide screens scroll sideways rather than crush columns */
+  }
 }
 
 table th {
   text-align: center;
 }
 
-/* 파일명 컬럼 오버플로우 처리 */
-table th:nth-child(1),
-table td:nth-child(1) {
-  max-width: 300px;
-  min-width: 150px;
-  width: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* 파일명 컬럼 오버플로우 처리 — the same off-by-one as above lived here too,
+   and being later in the file it won: the select column got the filename's
+   300px cap and the filename got nothing. */
+@media (min-width: 769px) {
+  table th:nth-child(2),
+  table td:nth-child(2) {
+    width: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 table td {
