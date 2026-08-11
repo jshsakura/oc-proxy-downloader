@@ -54,19 +54,19 @@ class TestBeingRefusedBacksOffHarder:
 
     def test_blocked_grows_with_each_attempt(self):
         """`blocked` means the host is refusing us. Repeating a flat two-minute
-        wait five times is how a temporary refusal becomes a permanent one."""
-        first, third = _wait(KIND_BLOCKED, 1), _wait(KIND_BLOCKED, 3)
+        wait is how a temporary refusal becomes a permanent one."""
+        first, second = _wait(KIND_BLOCKED, 1), _wait(KIND_BLOCKED, 2)
 
-        assert third > first * 2
+        assert second > first * 1.5
 
     def test_proxy_blocked_grows_too(self):
-        assert _wait(KIND_PROXY_BLOCKED, 4) > _wait(KIND_PROXY_BLOCKED, 1)
+        assert _wait(KIND_PROXY_BLOCKED, 2) > _wait(KIND_PROXY_BLOCKED, 1)
 
     def test_transient_backoff_escalates(self):
-        waits = [_wait(KIND_TRANSIENT, n) for n in (1, 2, 3, 4)]
+        waits = [_wait(KIND_TRANSIENT, n) for n in (1, 2)]
 
         assert waits == sorted(waits)
-        assert waits[-1] >= 3600
+        assert waits[-1] >= 480
 
 
 class TestJitter:
@@ -85,6 +85,26 @@ class TestJitter:
         """Spreading must not pull a retry earlier than its floor."""
         for _ in range(50):
             assert _wait(KIND_TRANSIENT, 1) >= 120
+
+
+class TestTheBudgetIsSmall:
+
+    @pytest.mark.parametrize("kind", [
+        KIND_TRANSIENT, KIND_BLOCKED, KIND_PROXY_BLOCKED,
+        KIND_CLOUDFLARE, KIND_RATE_LIMITED,
+    ])
+    def test_every_kind_gives_up_after_three_attempts(self, kind):
+        """The ceilings were set when the waits between attempts were seconds.
+        With waits in minutes, five or eight attempts is just sustained knocking
+        on a door that already said no."""
+        assert _compute_next_retry_at(kind, 3, None) is None
+
+    @pytest.mark.parametrize("kind", [KIND_TRANSIENT, KIND_BLOCKED, KIND_CLOUDFLARE])
+    def test_the_first_two_attempts_are_still_scheduled(self, kind):
+        """Giving up must not become giving up immediately — a blip deserves a
+        second look."""
+        assert _compute_next_retry_at(kind, 1, None) is not None
+        assert _compute_next_retry_at(kind, 2, None) is not None
 
 
 class TestPerHostSpacing:
