@@ -1,5 +1,11 @@
 ﻿<script>
   import logo from "./assets/images/logo256.png";
+  import {
+    ACTIVE_STATUSES,
+    countActiveByStatus,
+    isLiveStatus,
+    truncateMiddle,
+  } from "./lib/grid.js";
   import SettingsModal from "./lib/SettingsModal.svelte";
   import PasswordModal from "./lib/PasswordModal.svelte";
   import { onMount, onDestroy } from "svelte";
@@ -147,16 +153,7 @@
   let workingActiveCount = 0;
   let completedCount = 0;
 
-  // Statuses that mean the item is live in the queue: either transferring or
-  // waiting its turn. `stopped` and `failed` are inert — they sit in the list
-  // but nothing is happening to them.
-  const ACTIVE_STATUSES = [
-    "downloading",
-    "parsing",
-    "proxying",
-    "waiting",
-    "pending",
-  ];
+
   // Debounce timer for the grid fetch (currentTab/page/search/period change).
   let _gridFetchTimer = null;
   // First-pending timestamp for the grid fetch, so a continuous event storm
@@ -1346,10 +1343,7 @@
           if (key !== "done") working += value || 0;
         }
         workingCount = working;
-        workingActiveCount = ACTIVE_STATUSES.reduce(
-          (sum, key) => sum + (statusCounts[key] || 0),
-          0,
-        );
+        workingActiveCount = countActiveByStatus(statusCounts);
         completedCount = done;
       }
     } catch (error) {
@@ -1403,9 +1397,7 @@
   const GRID_RECONCILE_MS = 6000;
   let gridReconcileInterval = null;
 
-  $: gridHasActiveRows = gridDownloads.some((d) =>
-    ACTIVE_STATUSES.includes((d.status || "").toLowerCase()),
-  );
+  $: gridHasActiveRows = gridDownloads.some((d) => isLiveStatus(d.status));
 
   onMount(() => {
     gridReconcileInterval = setInterval(() => {
@@ -1795,14 +1787,7 @@
 
   $: nameCap = viewportWidth && viewportWidth < 768 ? NAME_CAP_MOBILE : NAME_CAP_WIDE;
 
-  function truncateMiddle(name, cap) {
-    if (!name || name.length <= cap) return name;
-    // Bias the split toward the tail: the metadata there is what disambiguates
-    // two builds of the same game.
-    const tail = Math.max(12, Math.floor(cap * 0.45));
-    const head = cap - tail - 1;
-    return `${name.slice(0, head)}…${name.slice(-tail)}`;
-  }
+
 
   function displayFileName(download) {
     const name = download?.filename;
