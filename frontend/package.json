@@ -9,13 +9,17 @@
     "preview": "vite preview",
     "start-backend": "python ../backend/main.py",
     "start-frontend": "vite",
-    "start-all": "concurrently \"npm run start-backend\" \"npm run start-frontend\""
+    "start-all": "concurrently \"npm run start-backend\" \"npm run start-frontend\"",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.1.0",
     "concurrently": "^8.2.2",
+    "jsdom": "^29.1.1",
     "svelte": "^5.34.7",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "svelte-sonner": "^1.0.5"

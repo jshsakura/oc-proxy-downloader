@@ -10,7 +10,10 @@ RUN npm ci --ignore-scripts
 
 # 소스 코드는 나중에 복사하여 의존성 변경이 없으면 재사용 가능
 COPY frontend/ ./
-RUN npm run build
+# The grid layout is guarded by tests that read the stylesheet, not a browser —
+# cheap enough to run in the image build, and the alternative was finding the
+# breakage in a screenshot after deploy.
+RUN npm test && npm run build
 
 # 2단계: Python FastAPI 백엔드 + 정적 파일
 # AWS Public ECR 의 Docker 라이브러리 미러 사용 (Docker Hub 429 회피).
