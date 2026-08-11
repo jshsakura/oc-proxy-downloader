@@ -141,7 +141,22 @@
   let activeDownloadsTimer = null;
   // Tab badge counts come from the server (/api/history/stats), not from a local sweep.
   let workingCount = 0;
+  // Of those, the ones actually moving. The badge showed only the total, so a
+  // queue of 262 rows that were all stopped read as "262 in progress" with no
+  // speed anywhere — indistinguishable from a hung downloader.
+  let workingActiveCount = 0;
   let completedCount = 0;
+
+  // Statuses that mean the item is live in the queue: either transferring or
+  // waiting its turn. `stopped` and `failed` are inert — they sit in the list
+  // but nothing is happening to them.
+  const ACTIVE_STATUSES = [
+    "downloading",
+    "parsing",
+    "proxying",
+    "waiting",
+    "pending",
+  ];
   // Debounce timer for the grid fetch (currentTab/page/search/period change).
   let _gridFetchTimer = null;
   // First-pending timestamp for the grid fetch, so a continuous event storm
@@ -1331,6 +1346,10 @@
           if (key !== "done") working += value || 0;
         }
         workingCount = working;
+        workingActiveCount = ACTIVE_STATUSES.reduce(
+          (sum, key) => sum + (statusCounts[key] || 0),
+          0,
+        );
         completedCount = done;
       }
     } catch (error) {
@@ -2411,7 +2430,10 @@
             <span class="tab-icon"><DownloadIcon /></span>
             <span class="tab-label">{$t("tab_working")}</span>
             {#if workingCount > 0}
-              <span class="tab-count">{workingCount}</span>
+              <span class="tab-count" title={$t("tab_working_count_hint")}
+                >{workingActiveCount}<span class="tab-count-sep">/</span
+                >{workingCount}</span
+              >
             {/if}
           </button>
           <button
