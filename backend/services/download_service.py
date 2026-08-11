@@ -12,6 +12,7 @@ import time
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
+from core import db_async
 from core.models import DownloadRequest, StatusEnum
 from core.db import SessionLocal
 from core.config import get_config
@@ -115,11 +116,11 @@ class DownloadService:
         """Restart every failed download whose ``next_retry_at`` has passed."""
         with SessionLocal() as db:
             now = datetime.datetime.now()
-            due = db.query(DownloadRequest).filter(
+            due = await db_async.all_rows(db.query(DownloadRequest).filter(
                 DownloadRequest.status == StatusEnum.failed,
                 DownloadRequest.next_retry_at.isnot(None),
                 DownloadRequest.next_retry_at <= now,
-            ).order_by(DownloadRequest.next_retry_at.asc()).all()
+            ).order_by(DownloadRequest.next_retry_at.asc()))
 
             if not due:
                 return
@@ -151,7 +152,7 @@ class DownloadService:
                 req.failure_kind = None
                 req.next_retry_at = None
                 req.finished_at = None
-                db.commit()
+                await db_async.commit(db)
 
                 await download_core.start_download_async(req, db)
 
@@ -167,13 +168,13 @@ class DownloadService:
         try:
             with SessionLocal() as db:
                 # Change all running downloads to stopped
-                active_downloads = db.query(DownloadRequest).filter(
+                active_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
                     DownloadRequest.status.in_([
                         StatusEnum.parsing,
                         StatusEnum.downloading,
                         StatusEnum.waiting,
                     ])
-                ).all()
+                ))
 
                 reset_count = 0
                 for req in active_downloads:
@@ -184,7 +185,7 @@ class DownloadService:
                     req.error = "서버 재시작으로 인한 초기화"
                     reset_count += 1
 
-                db.commit()
+                await db_async.commit(db)
 
                 if reset_count > 0:
                     print(f"[LOG] {reset_count}개 다운로드 상태 초기화 완료")
@@ -203,9 +204,9 @@ class DownloadService:
         """Automatically start pending downloads after a server restart"""
         try:
             # Query all pending downloads (sorted ascending by request time)
-            pending_downloads = db.query(DownloadRequest).filter(
+            pending_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
                 DownloadRequest.status == StatusEnum.pending
-            ).order_by(DownloadRequest.requested_at.asc()).all()
+            ).order_by(DownloadRequest.requested_at.asc()))
 
             if not pending_downloads:
                 print("[LOG] 서버 재시작 후 대기중인 다운로드 없음")

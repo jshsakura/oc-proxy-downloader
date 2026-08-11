@@ -3,6 +3,7 @@ Common download utility functions
 - Functions shared by local/proxy downloads to remove duplication
 """
 
+from core import db_async
 from core import live_progress
 import asyncio
 import time
@@ -104,12 +105,12 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                             try:
 
                                 # Change all pending and downloading requests to stopped
-                                pending_downloads = db.query(DownloadRequest).filter(
+                                pending_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
                                     and_(
                                         DownloadRequest.id != req.id,  # exclude the currently failed download
                                         DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing])
                                     )
-                                ).all()
+                                ))
 
                                 stopped_count = 0
                                 for download in pending_downloads:
@@ -118,7 +119,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                                     stopped_count += 1
 
                                 if stopped_count > 0:
-                                    db.commit()
+                                    await db_async.commit(db)
                                     print(f"[LOG] 디스크 용량 부족으로 {stopped_count}개 다운로드 자동 정지")
 
                                     # Send updates over SSE for the stopped downloads
@@ -158,7 +159,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                 # Performance improvement: widen the check interval (every 128 chunks = every 1MB)
                 if chunk_count % 128 == 0:
                     # Check for a download stop
-                    db.refresh(req)
+                    await db_async.refresh(db, req)
                     if req.status == StatusEnum.stopped:
                         print(f"[LOG] 다운로드 중 정지됨: {req.id}")
 
@@ -197,7 +198,7 @@ async def download_file_content(response, file_path, initial_size, total_size, r
         raise
 
     req.downloaded_size = downloaded
-    db.commit()
+    await db_async.commit(db)
     return downloaded
 
 
