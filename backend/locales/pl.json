@@ -462,5 +462,6 @@
   "download_route_auto": "Auto — try direct, retry through the proxy on failure",
   "download_route_balance": "Balance — whichever egress has a free slot",
   "download_route_manual": "Per item (default) — follow each download's own proxy setting",
-  "download_route_needs_proxy": "⚠ No active proxy. Until one is added below, downloads keep going out directly."
+  "download_route_needs_proxy": "⚠ No active proxy. Until one is added below, downloads keep going out directly.",
+  "tab_working_count_hint": "W toku / wszystkie nieukończone"
 }

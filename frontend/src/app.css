@@ -1404,6 +1404,14 @@ tbody tr:hover {
   overflow: hidden;
 }
 
+/* "3/262" — running over unfinished. The slash is dimmed so the pair reads as
+   one figure at a glance instead of two competing numbers. */
+.tab-count-sep {
+  opacity: 0.5;
+  margin: 0 0.05em;
+  font-weight: 400;
+}
+
 .hoster-badge {
   flex: 0 0 auto;          /* never shrink; the filename gives up space instead */
   margin-left: auto;       /* sit at the right edge of the cell */
