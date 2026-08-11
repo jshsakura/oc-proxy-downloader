@@ -12,7 +12,8 @@ from typing import List, Optional
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
 from core.error_messages import classify_failure_text
-from core.hoster_labels import hoster_label
+from core.hoster_labels import hoster_label, hoster_slug
+from core import live_progress
 from core.simple_parser import derive_display_name
 
 
@@ -90,6 +91,7 @@ def get_download_history(
                 # original is a shortlink, which says nothing about where
                 # the bytes come from.
                 "hoster": hoster_label(download.url or download.original_url),
+                "hoster_key": hoster_slug(download.url or download.original_url),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size
             })
@@ -147,6 +149,7 @@ def get_working_downloads(
         offset = (page - 1) * page_size
         downloads = query.order_by(desc(DownloadRequest.id)).offset(offset).limit(page_size).all()
 
+        live_speeds = live_progress.snapshot()
         download_list = []
         for download in downloads:
             download_list.append({
@@ -162,6 +165,7 @@ def get_working_downloads(
                 # original is a shortlink, which says nothing about where
                 # the bytes come from.
                 "hoster": hoster_label(download.url or download.original_url),
+                "hoster_key": hoster_slug(download.url or download.original_url),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
@@ -172,6 +176,8 @@ def get_working_downloads(
                 # not only when an SSE event happens to arrive.
                 "next_retry_at": download.next_retry_at.isoformat() if getattr(download, "next_retry_at", None) else None,
                 "attempt_count": getattr(download, "attempt_count", 0) or 0,
+                # Live reading, so a refetch does not blank the column mid-transfer.
+                "download_speed": live_speeds.get(download.id, 0),
             })
 
         total_pages = (total_count + page_size - 1) // page_size
@@ -237,6 +243,7 @@ def get_completed_downloads(
         offset = (page - 1) * page_size
         downloads = query.order_by(desc(DownloadRequest.id)).offset(offset).limit(page_size).all()
 
+        live_speeds = live_progress.snapshot()
         download_list = []
         for download in downloads:
             download_list.append({
@@ -252,6 +259,7 @@ def get_completed_downloads(
                 # original is a shortlink, which says nothing about where
                 # the bytes come from.
                 "hoster": hoster_label(download.url or download.original_url),
+                "hoster_key": hoster_slug(download.url or download.original_url),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size,
@@ -260,6 +268,8 @@ def get_completed_downloads(
                 "created_at": download.requested_at.isoformat() if download.requested_at else None,
                 "next_retry_at": download.next_retry_at.isoformat() if getattr(download, "next_retry_at", None) else None,
                 "attempt_count": getattr(download, "attempt_count", 0) or 0,
+                # Live reading, so a refetch does not blank the column mid-transfer.
+                "download_speed": live_speeds.get(download.id, 0),
                 "finished_at": download.finished_at.isoformat() if download.finished_at else None
             })
 
@@ -310,6 +320,7 @@ def get_active_downloads(db: Session = Depends(get_db)):
                 # original is a shortlink, which says nothing about where
                 # the bytes come from.
                 "hoster": hoster_label(download.url or download.original_url),
+                "hoster_key": hoster_slug(download.url or download.original_url),
                 "total_size": download.total_size,
                 "downloaded_size": download.downloaded_size,
                 "file_size": download.file_size  # file size info obtained from preparse

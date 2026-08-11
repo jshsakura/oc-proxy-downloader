@@ -3,6 +3,7 @@ Common download utility functions
 - Functions shared by local/proxy downloads to remove duplication
 """
 
+from core import live_progress
 import asyncio
 import time
 import re
@@ -280,12 +281,17 @@ def send_progress_update(downloaded, total_size, last_update_size, req, db):
     try:
 
         # Asynchronous SSE send
+        speed_bps = int(download_speed) if download_speed > 0 else 0
+        # Also park it where a list refetch can find it — the stream alone
+        # cannot keep the column filled, since every refetch replaces the row.
+        live_progress.record_speed(req.id, speed_bps)
+
         sse_data = {
             "id": req.id,
             "downloaded_size": downloaded,
             "total_size": total_size,
             "progress": round(min(100.0, progress), 1),
-            "download_speed": int(download_speed) if download_speed > 0 else 0,
+            "download_speed": speed_bps,
             "status": "downloading"
         }
 

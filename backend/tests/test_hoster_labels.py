@@ -54,3 +54,42 @@ class TestUnknownAndEmpty:
     @pytest.mark.parametrize("url", ["", None, "not a url", "/relative/path"])
     def test_nothing_to_label_yields_an_empty_string(self, url):
         assert hoster_label(url) == ""
+
+
+class TestSlugs:
+    """The badge colour keys off a slug, not the label.
+
+    A label is prose — "Send.now" could be reworded tomorrow — while the
+    stylesheet needs something stable to hang a colour on. Splitting them keeps
+    a copy-edit from silently turning a badge grey.
+    """
+
+    @pytest.mark.parametrize("url,slug", [
+        ("https://1fichier.com/?abc", "1fichier"),
+        ("https://a-7.1fichier.com/p123", "1fichier"),
+        ("https://datanodes.to/x", "datanodes"),
+        ("https://megaup.net/x", "megaup"),
+        ("https://mega.nz/file/x", "mega"),
+        ("https://gofile.io/d/x", "gofile"),
+        ("https://send.now/x", "sendnow"),
+        ("https://pixeldrain.com/u/x", "pixeldrain"),
+        ("https://www.mediafire.com/file/x", "mediafire"),
+    ])
+    def test_known_hosts_get_a_stable_slug(self, url, slug):
+        from core.hoster_labels import hoster_slug
+
+        assert hoster_slug(url) == slug
+
+    @pytest.mark.parametrize("domain", ["bunkr.si", "bunkr.ru", "bunkrr.su", "bunkr.media"])
+    def test_every_bunkr_domain_shares_one_slug(self, domain):
+        """Bunkr rotates domains; one badge colour has to cover all of them."""
+        from core.hoster_labels import hoster_slug
+
+        assert hoster_slug(f"https://{domain}/f/x") == "bunkr"
+
+    @pytest.mark.parametrize("url", ["https://example.com/x", "", None, "nonsense"])
+    def test_an_unknown_host_has_no_slug(self, url):
+        """Empty means "use the default colour" — not a guessed one."""
+        from core.hoster_labels import hoster_slug
+
+        assert hoster_slug(url) == ""
