@@ -62,6 +62,23 @@ class ProxyManager:
 
         return proxy_list
 
+    def cooling_addresses(self, db: Session) -> set:
+        """Proxies currently sitting out a failure cooldown.
+
+        This is the only thing that makes a proxy unusable right now. Having
+        been *tried* does not — a proxy that failed once and served fine after
+        is as good as a fresh one, and the pool self-heals when the cooldown
+        elapses.
+        """
+        now = datetime.datetime.now()
+        cooldown = datetime.timedelta(seconds=PROXY_FAILURE_COOLDOWN_SEC)
+        failed = db.query(ProxyStatus).filter(ProxyStatus.success == False).all()
+        return {
+            f"{p.ip}:{p.port}"
+            for p in failed
+            if p.last_failed_at is not None and (now - p.last_failed_at) < cooldown
+        }
+
     async def get_next_available_proxy(self, db: Session, download_id: int = None) -> str:
         """Get the next available proxy"""
         try:

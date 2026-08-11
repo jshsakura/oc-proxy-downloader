@@ -12,33 +12,24 @@ from core.config import get_config
 from core.models import DownloadRequest, StatusEnum, ProxyStatus, UserProxy
 from core.proxy_manager import proxy_manager, detect_proxy_type
 
-# Compatibility functions
-async def get_unused_proxies(db):
-    """Return the list of unused proxies"""
+async def get_available_proxies(db):
+    """Proxies that can be handed out right now.
+
+    "Available" has to mean what the downloader means by it. This used to
+    return proxies with no ProxyStatus row at all — i.e. never tried — so a
+    single VPN that had recorded one failure counted as consumed forever and
+    the UI announced "모든 프록시 소진" while that VPN sat idle and usable.
+
+    The picker excludes a proxy only while its failure cooldown is running, so
+    that is the question asked here, through the picker's own helper rather
+    than a second copy of the rule.
+    """
     try:
-        # Get the list of active user proxies (same approach as proxy_manager)
-        cached_proxy_list = await proxy_manager.get_user_proxy_list(db)
-        active_proxies = await db_async.all_rows(
-            db.query(UserProxy).filter(UserProxy.is_active == True)
-        )
-
-        # Proxy addresses actually used (checked from ProxyStatus)
-        used_proxy_statuses = await db_async.all_rows(db.query(ProxyStatus).filter(
-            ProxyStatus.ip.isnot(None),
-            ProxyStatus.port.isnot(None)
-        ))
-        used_proxy_addresses = {f"{status.ip}:{status.port}" for status in used_proxy_statuses}
-
-        # Filter unused proxies — use cached_proxy_list for consistency
-        unused_proxies = []
-        for individual_proxy in cached_proxy_list:
-            if individual_proxy not in used_proxy_addresses:
-                unused_proxies.append(individual_proxy)
-
-        print(f"[DEBUG] get_unused_proxies: cached_total={len(cached_proxy_list)}, used={len(used_proxy_addresses)}, unused={len(unused_proxies)}")
-        return unused_proxies
+        proxy_list = await proxy_manager.get_user_proxy_list(db)
+        cooling = await asyncio.to_thread(proxy_manager.cooling_addresses, db)
+        return [addr for addr in proxy_list if addr not in cooling]
     except Exception as e:
-        print(f"[ERROR] get_unused_proxies failed: {e}")
+        print(f"[ERROR] get_available_proxies failed: {e}")
         return []
 
 def get_user_proxy_list(db):
@@ -223,10 +214,10 @@ async def get_proxy_status(request: Request, db: Session = Depends(get_db)):
 
         # Get overall proxy stats (no limit)
         total_proxies = len(cached_proxy_list)
-        unused_proxies_list = await get_unused_proxies(db)
-        available_proxies = len(unused_proxies_list)
+        available_list = await get_available_proxies(db)
+        available_proxies = len(available_list)
 
-        print(f"[DEBUG] proxy_status: total={total_proxies}, available={available_proxies}, unused_list={len(unused_proxies_list)}")
+        print(f"[DEBUG] proxy_status: total={total_proxies}, available={available_proxies}")
         print(f"[DEBUG] cached_proxy_list: {cached_proxy_list[:3] if cached_proxy_list else 'None'}...")  # show only the first 3
 
         counts = await asyncio.to_thread(_collect_proxy_counts, db)
