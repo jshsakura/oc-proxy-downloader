@@ -45,6 +45,16 @@ sudo -n chmod -R a+r $T && sqlite3 $T/downloads.db "..."
 **The permanently-failed rows were deleted.** 194 `dead`/`auth_required` rows
 are gone; one `dead` row remains.
 
+## Where the queue ended up (end of the v2.16.9 session)
+
+```
+done 1956   failed 8   stopped 0
+```
+
+The 8 remaining failures are not retryable — they are dead links or per-host
+problems, listed at the end of this section. Everything below describes how the
+queue got here.
+
 ## What is left in the queue
 
 1930 `done`, 35 `failed`, 5 `stopped`, 1 in flight. The 51 failures the last
@@ -69,8 +79,21 @@ just need restarting.
 By the time v2.16.8 shipped this had shifted: the SSL rows had been retried
 away and the dominant failure was **24 rows of `캡차는 통과했으나 링크가
 발급되지 않았습니다`, every one of them `use_proxy=1`**. See the egress section
-— they were routed to an egress datanodes never serves. Retry them only on
-v2.16.9 or later, or they will burn 24 more captchas for nothing.
+— they were routed to an egress datanodes never serves. On v2.16.9 all 24 came
+back `done`.
+
+### The 8 that are left — none are retryable
+
+| id | why |
+|---|---|
+| 1888, 1898, 1904 | 1fichier page returns 404 — link expired or file deleted |
+| 1895, 1905 | 1fichier `검수 probe 404 (단발)` |
+| 2032 | DataNodes confirms the file is gone |
+| 2290 | parse timed out at 5 min (FlareSolverr) |
+| 2401 | Send.now link could not be extracted |
+
+Five are 1fichier 404s. Run `전체 링크 검수` on those before deciding they are
+dead — a single 404 is not a verdict, which is what the `단발` marker records.
 
 ## The 416 bug (fixed in v2.16.5, completed in v2.16.6)
 
@@ -179,11 +202,10 @@ Measured: one extra query per object. Fixed in the route layer and the bulk
 handlers; the rest are unaudited. The AST guard cannot see them — they do not
 start with `db.`.
 
-### 3. The 12 leftover `.part` files
+### 3. ~~The 12 leftover `.part` files~~ — resolved
 
-`ls /mnt/HDD-8TB-STRIPE/media3/game/switch/download/*.part` shows 12. Four are
-the 416 rows above (real, complete, keep them until the retry finalizes them).
-The rest are unaudited — check each against its row before deleting.
+All 12 were consumed by the 416 recovery and the egress retries. The download
+directory now holds none. Disk: 1.4 T free of 7.2 T (82% used).
 
 ## Traps found the hard way
 
