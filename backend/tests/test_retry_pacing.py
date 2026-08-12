@@ -166,3 +166,46 @@ class TestQueueWaitsAreNotRefusals:
         from core.error_messages import KIND_QUEUED, _compute_next_retry_at
 
         assert _compute_next_retry_at(KIND_QUEUED, 50, None) is not None
+
+
+class TestAQueueWaitDoesNotLookLikeAFailure:
+    """45 links waiting their turn were counted as 45 failures.
+
+    That is the difference between "the queue is working through a backlog" and
+    "everything is broken", and it sent a person looking for a fault that was not
+    there.
+    """
+
+    def test_a_queue_wait_lands_in_pending_not_failed(self):
+        from core.download_core import _status_after_failure
+        from core.error_messages import ClassifiedError, KIND_QUEUED
+        from core.models import StatusEnum
+
+        verdict = ClassifiedError(stage="파싱", summary="순서 대기", action="",
+                                  raw="대기열에서 시간이 초과", kind=KIND_QUEUED)
+
+        assert _status_after_failure(verdict) == StatusEnum.pending
+
+    @pytest.mark.parametrize("kind", [KIND_TRANSIENT, KIND_BLOCKED, KIND_RATE_LIMITED])
+    def test_a_real_failure_still_lands_in_failed(self, kind):
+        from core.download_core import _status_after_failure
+        from core.error_messages import ClassifiedError
+        from core.models import StatusEnum
+
+        verdict = ClassifiedError(stage="다운로드", summary="", action="", raw="", kind=kind)
+
+        assert _status_after_failure(verdict) == StatusEnum.failed
+
+    def test_the_sweeper_still_reaches_a_pending_wait(self):
+        """Moving it out of `failed` must not strand it: nothing else wakes a
+        scheduled wait."""
+        import inspect
+
+        from services import download_service
+
+        body = inspect.getsource(download_service.DownloadService._sweep_due_retries)
+
+        assert "StatusEnum.pending" in body
+        # And it still keys on a retry time, so a download parked behind a
+        # semaphore by a live task is left to the task that owns it.
+        assert "next_retry_at.isnot(None)" in body
