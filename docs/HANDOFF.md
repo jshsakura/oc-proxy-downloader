@@ -83,7 +83,7 @@ The chain:
 The arithmetic confirms it on all four rows: `total_size − .part size` is
 exactly the resume offset, and the `.part` is exactly the resource length.
 
-The fix lives in `backend/core/resume.py` (pure, 17 unit tests in
+The fix lives in `backend/core/resume.py` (pure, 27 tests in
 `backend/tests/test_resume.py`) and is wired into both download paths:
 
 - **`effective_initial_size`** — only a `206` continues where we asked. A `200`
@@ -94,12 +94,20 @@ The fix lives in `backend/core/resume.py` (pure, 17 unit tests in
 - **`is_part_already_complete`** — a `416` carries the real length in
   `Content-Range: bytes */N` (RFC 7233). When that equals the `.part` size the
   download is finished: `_resolve_range_overrun` finalizes it without fetching
-  a byte. Otherwise the `.part` is dropped and the file is re-requested.
+  a byte.
+- **`probed_complete_length`** (v2.16.6) — RFC 7233 only *recommends*
+  `Content-Range` on a 416. A server that omits it used to send us down the
+  "discard the `.part`" branch, throwing away gigabytes on a guess. Now a
+  one-byte `Range: bytes=0-0` probe settles it: a `206` states the length in
+  `Content-Range`, a `200` means its `Content-Length` is the whole file. **The
+  `.part` is deleted only once the length is known and disagrees**; when it
+  stays unknown the row fails with the file left on disk.
 - `HTTP 416` / `Range Not Satisfiable` now classify as `transient`, not
   `unknown`.
 
-**After deploying v2.16.5, retrying those four rows finalizes them with no
-re-download.**
+**Retrying those four rows finalizes them with no re-download** — but only
+after the datanodes page re-parses (browser Turnstile, serialized one-at-a-time
+per host), because the 416 only arrives once a fresh download link exists.
 
 ## Open items
 
@@ -126,7 +134,7 @@ start with `db.`.
 ### 3. The 12 leftover `.part` files
 
 `ls /mnt/HDD-8TB-STRIPE/media3/game/switch/download/*.part` shows 12. Four are
-the 416 rows above (real, complete, keep them until v2.16.5 finalizes them).
+the 416 rows above (real, complete, keep them until the retry finalizes them).
 The rest are unaudited — check each against its row before deleting.
 
 ## Traps found the hard way
@@ -185,5 +193,5 @@ Verified: direct `58.236.176.166` (KR) vs VPN `193.148.16.118` (JP).
 - `frontend/tests/layout.test.js` — column indexes, no flex on a `<td>`, phone
   scrolls sideways, sticky header.
 
-Backend 878 tests, frontend 36. `npm test` runs in the Dockerfile and in all
+Backend 886 tests, frontend 36. `npm test` runs in the Dockerfile and in all
 three release jobs.

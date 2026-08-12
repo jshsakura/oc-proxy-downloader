@@ -29,9 +29,11 @@ from utils.file_helpers import download_file_content, generate_file_path, get_fi
 from core import db_async
 from core import live_progress
 from core.resume import (
+    PROBE_RANGE,
     RANGE_NOT_SATISFIABLE,
+    complete_length,
     effective_initial_size,
-    is_part_already_complete,
+    probed_complete_length,
     total_size_from_content_length,
 )
 from core.proxy_manager import proxy_manager
@@ -1639,6 +1641,18 @@ class DownloadCore:
 
         await self._finalize_completed_file(req, db, downloaded_size, download_mode)
 
+    async def _probe_complete_length(self, session, url, headers, proxy=None):
+        """Ask for one byte to learn the resource's length, or ``None`` if unknown."""
+        probe_headers = {**headers, "Range": PROBE_RANGE}
+        async with session.get(url, headers=probe_headers, proxy=proxy) as probe:
+            length = probed_complete_length(
+                probe.status,
+                probe.headers.get("Content-Range"),
+                probe.headers.get("Content-Length"),
+            )
+            print(f"[LOG] 길이 확인 프로브: HTTP {probe.status} → {length}")
+            return length
+
     async def _resolve_range_overrun(
         self,
         req: DownloadRequest,
@@ -1646,6 +1660,10 @@ class DownloadCore:
         response,
         part_size: int,
         download_mode: str,
+        session,
+        url: str,
+        headers: dict,
+        proxy=None,
     ) -> bool:
         """Recover from a ``416``: the ``.part`` sits at or past the end.
 
@@ -1657,17 +1675,34 @@ class DownloadCore:
         finished file byte-for-byte, but ``total_size`` had been inflated by an
         earlier resume, so the completeness check refused to finalize and every
         retry asked for a range past the end.
+
+        The ``.part`` is only discarded once we *know* the length disagrees.
+        RFC 7233 merely recommends ``Content-Range`` on a 416, so when the
+        server omits it we spend one byte to find out rather than guess — the
+        guess would throw away gigabytes we already hold.
         """
-        content_range = response.headers.get("Content-Range")
-        if is_part_already_complete(content_range, part_size):
+        total = complete_length(response.headers.get("Content-Range"))
+        if total is None:
+            total = await self._probe_complete_length(session, url, headers, proxy)
+
+        if total is not None and total == part_size:
             print(f"[LOG] 416: .part 이 이미 완본 — 마무리만 수행 ({part_size} bytes)")
             req.total_size = part_size
             await self._finalize_completed_file(req, db, part_size, download_mode)
             return True
 
+        if total is None:
+            print(
+                f"[WARNING] 416: 리소스 길이를 확인하지 못해 .part({part_size} bytes)을 "
+                f"보존한 채 실패로 남긴다"
+            )
+            raise Exception(
+                "HTTP 416: 이어받기 지점이 파일 끝을 넘었으나 실제 길이를 확인할 수 없습니다"
+            )
+
         print(
-            f"[LOG] 416: .part({part_size} bytes)이 리소스와 어긋남 "
-            f"(Content-Range={content_range}) — 처음부터 다시 받는다"
+            f"[LOG] 416: .part({part_size} bytes)이 실제 길이({total} bytes)와 "
+            f"어긋남 — 처음부터 다시 받는다"
         )
         os.remove(req.save_path)
         return False
@@ -1879,6 +1914,7 @@ class DownloadCore:
                                 if await self._resolve_range_overrun(
                                     req, db, response, initial_size,
                                     download_mode="proxy" if req.use_proxy else "local",
+                                    session=session, url=current_url, headers=headers,
                                 ):
                                     return
                                 continue
@@ -2176,6 +2212,8 @@ class DownloadCore:
                                     if await self._resolve_range_overrun(
                                         req, db, response, initial_size,
                                         download_mode="proxy" if proxy_url else "local",
+                                        session=session, url=actual_url,
+                                        headers=headers, proxy=proxy_url,
                                     ):
                                         download_success = True
                                         break

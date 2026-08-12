@@ -18,8 +18,12 @@ the reasoning for both lives here rather than inline at the two call sites:
 
 import re
 
+OK = 200
 PARTIAL_CONTENT = 206
 RANGE_NOT_SATISFIABLE = 416
+
+# One byte is enough to make a server state the resource's full length.
+PROBE_RANGE = "bytes=0-0"
 
 # Matches the complete-length after the slash in either Content-Range form:
 # "bytes */1234" (unsatisfied) and "bytes 0-99/1234" (satisfied). A "*" total
@@ -58,6 +62,24 @@ def complete_length(content_range):
         return None
     match = _COMPLETE_LENGTH.search(str(content_range))
     return int(match.group(1)) if match else None
+
+
+def probed_complete_length(status: int, content_range, content_length):
+    """The resource length learned from a one-byte (``bytes=0-0``) probe.
+
+    A ``206`` states the length in ``Content-Range``. A ``200`` ignored the range
+    and sent the whole file, so its ``Content-Length`` *is* the length. Anything
+    else teaches us nothing.
+
+    Needed because a ``416`` is only *recommended* to carry ``Content-Range`` —
+    a server that omits it would otherwise leave us guessing, and the guess
+    costs a re-download of a file we already hold.
+    """
+    if status == PARTIAL_CONTENT:
+        return complete_length(content_range)
+    if status == OK:
+        return total_size_from_content_length(content_length, 0)
+    return None
 
 
 def is_part_already_complete(content_range, part_size: int) -> bool:
