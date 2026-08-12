@@ -53,8 +53,8 @@ are unstarted:
 
 | count | what | verdict |
 |---|---|---|
-| 31 | `SSL/TLS 핸드셰이크 실패` on datanodes.to | transient episode, not a bug — TLSv1.3 from the container is fine now. Retry them. |
-| 6 | other transient parse/download blips | retry |
+| 31 | `SSL/TLS 핸드셰이크 실패` on datanodes.to | **probably the fd exhaustion #44 fixed**, not a network episode — a process out of file descriptors cannot open a socket, and these all landed during the 65-item backlog run. TLSv1.3 from the container is fine now. Retry on v2.16.8 and see whether they still fail. |
+| 6 | other transient parse/download blips | retry — the `캡차는 통과했으나 링크가 발급되지 않았습니다` ones are a known fd-exhaustion disguise (#44) |
 | ~~4~~ | ~~`HTTP 416`~~ | **fixed and resolved — see below** |
 | 2 | 1fichier `검수 probe 404 (단발)` | needs a re-probe |
 | 1 | `sqlite3.OperationalError: unable to open database file` | see open item 2 |
@@ -158,9 +158,13 @@ download, including while parked on a semaphore. Live sessions therefore track
 fixing it properly means restructuring the state machine.
 
 One row (id 2369) died on `sqlite3.OperationalError: unable to open database
-file` during the backlog run — the first observed consequence of holding that
-many connections open at once under `NullPool`. One occurrence in ~2000 rows,
-so it is a real but rare edge, and it is the same root cause as this item.
+file` during the backlog run. This was first read here as a `NullPool`
+connection-count consequence — **that reading was wrong**. #44 found the real
+cause: the process ran with the default `RLIMIT_NOFILE` soft limit of 1024
+(Docker's `ulimits` did not survive the entrypoint's `su`, so the shell showed
+65536 while Python had 1024). SQLite reports fd exhaustion as `CANTOPEN`. Fixed
+in v2.16.7 by raising soft to hard at startup. `NullPool` makes the app spend
+more fds, so this item still matters — it is just not what killed row 2369.
 
 ### 2. `commit()` then reading an ORM attribute — 233 sites
 
