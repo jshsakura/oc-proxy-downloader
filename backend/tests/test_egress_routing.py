@@ -20,6 +20,7 @@ from core.download_core import (
     EGRESS_VPN,
     ROUTE_MANUAL,
     _read_download_route,
+    egress_denied_for_host,
 )
 from core.error_messages import KIND_PROXY_BLOCKED, classify_error
 
@@ -33,9 +34,10 @@ class TestEgressBlockMemory:
 
         assert dc._egress_blocked_for("1fichier.com", EGRESS_VPN)
         # Only that pairing — the same host over the direct line is untouched,
-        # and other hosts may well accept the proxy.
+        # and other hosts may well accept the proxy. (Not datanodes.to: it
+        # carries a standing denial, see TestStandingHostEgressDenial.)
         assert not dc._egress_blocked_for("1fichier.com", EGRESS_DIRECT)
-        assert not dc._egress_blocked_for("datanodes.to", EGRESS_VPN)
+        assert not dc._egress_blocked_for("gofile.io", EGRESS_VPN)
 
     def test_the_block_expires_so_a_new_exit_ip_gets_a_chance(self):
         dc = DownloadCore()
@@ -96,6 +98,86 @@ class TestLearningSurvivesTheRetrySweep:
 
         assert DownloadCore._last_attempt_kind(NoLog()) is None
         assert DownloadCore._last_attempt_kind(Broken()) is None
+
+
+class FakeDb:
+    def __init__(self):
+        self.commits = 0
+
+    def commit(self):
+        self.commits += 1
+
+
+class FakeReq:
+    def __init__(self, url, use_proxy=True, attempt_count=0):
+        self.id = 1
+        self.url = url
+        self.original_url = url
+        self.use_proxy = use_proxy
+        self.attempt_count = attempt_count
+        self.attempts_json = None
+
+
+def _route(dc, req, route="balance"):
+    """Run _apply_download_route with a given route and a live proxy available."""
+    original = dc_module.get_config
+    try:
+        dc_module.get_config = lambda: {"download_route": route}
+        dc._proxy_egress_available = lambda db: True
+        dc._apply_download_route(req, FakeDb())
+    finally:
+        dc_module.get_config = original
+    return req.use_proxy
+
+
+class TestStandingHostEgressDenial:
+    """datanodes.to solves the captcha over the VPN and then withholds the link.
+
+    Measured over the whole table: direct 1168 done / 2 failed, VPN 0 done / 24
+    failed. Every VPN attempt burns a browser captcha — the most expensive and
+    most serialized resource the app has — to reach a guaranteed failure.
+    """
+
+    def test_datanodes_is_denied_the_vpn(self):
+        assert egress_denied_for_host("datanodes.to", EGRESS_VPN) is True
+
+    def test_datanodes_keeps_the_direct_line(self):
+        assert egress_denied_for_host("datanodes.to", EGRESS_DIRECT) is False
+
+    def test_other_hosts_are_untouched(self):
+        # 1fichier over the VPN works (7 done / 2 failed) and is worth keeping:
+        # its free tier throttles per IP, so a second egress genuinely adds
+        # throughput there.
+        assert egress_denied_for_host("1fichier.com", EGRESS_VPN) is False
+        assert egress_denied_for_host("_default", EGRESS_VPN) is False
+
+    def test_the_standing_denial_reads_as_a_block(self):
+        dc = DownloadCore()
+        assert dc._egress_blocked_for("datanodes.to", EGRESS_VPN)
+        assert not dc._egress_blocked_for("1fichier.com", EGRESS_VPN)
+
+    def test_it_never_expires_unlike_a_learned_block(self):
+        # A learned block is about an exit IP going stale. This is hoster policy,
+        # so clearing the learned table must not revive it.
+        dc = DownloadCore()
+        dc._egress_blocked.clear()
+        assert dc._egress_blocked_for("datanodes.to", EGRESS_VPN)
+
+    def test_balance_never_routes_datanodes_through_the_vpn(self):
+        dc = DownloadCore()
+        req = FakeReq("https://datanodes.to/abc123", use_proxy=True)
+        assert _route(dc, req) is False
+
+    def test_even_an_explicit_vpn_route_falls_back_to_direct(self):
+        # Better a download that works than one that cannot.
+        dc = DownloadCore()
+        req = FakeReq("https://datanodes.to/abc123", use_proxy=True)
+        assert _route(dc, req, route="vpn") is False
+
+    def test_a_denied_host_does_not_disturb_other_hosts(self):
+        dc = DownloadCore()
+        req = FakeReq("https://1fichier.com/?abc", use_proxy=True)
+        assert _route(dc, req, route="vpn") is True
 
 
 class TestRouteSemantics:

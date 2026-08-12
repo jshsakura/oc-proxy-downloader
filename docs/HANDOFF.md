@@ -53,8 +53,8 @@ are unstarted:
 
 | count | what | verdict |
 |---|---|---|
-| 31 | `SSL/TLS 핸드셰이크 실패` on datanodes.to | **probably the fd exhaustion #44 fixed**, not a network episode — a process out of file descriptors cannot open a socket, and these all landed during the 65-item backlog run. TLSv1.3 from the container is fine now. Retry on v2.16.8 and see whether they still fail. |
-| 6 | other transient parse/download blips | retry — the `캡차는 통과했으나 링크가 발급되지 않았습니다` ones are a known fd-exhaustion disguise (#44) |
+| 31 | `SSL/TLS 핸드셰이크 실패` on datanodes.to | fd exhaustion (#44). Sampled id 2218 on v2.16.8 with the limit raised: **done, 6.4 GB**. The rest should follow. |
+| 6 | other transient parse/download blips | retry |
 | ~~4~~ | ~~`HTTP 416`~~ | **fixed and resolved — see below** |
 | 2 | 1fichier `검수 probe 404 (단발)` | needs a re-probe |
 | 1 | `sqlite3.OperationalError: unable to open database file` | see open item 2 |
@@ -62,9 +62,15 @@ are unstarted:
 | 1 | `dead` | leave it |
 
 Retry via `POST /api/downloads/restart-failed-local` — but **read the list
-first** (see the trap below). The 5 `stopped` rows (2033, 2336, 2337, 2339,
-2346) carry `서버 재시작으로 인한 초기화` — they were in flight when a deploy
-recreated the container, not stopped by anyone. They just need restarting.
+first** (see the trap below). Rows carrying `서버 재시작으로 인한 초기화` were
+in flight when a deploy recreated the container, not stopped by anyone; they
+just need restarting.
+
+By the time v2.16.8 shipped this had shifted: the SSL rows had been retried
+away and the dominant failure was **24 rows of `캡차는 통과했으나 링크가
+발급되지 않았습니다`, every one of them `use_proxy=1`**. See the egress section
+— they were routed to an egress datanodes never serves. Retry them only on
+v2.16.9 or later, or they will burn 24 more captchas for nothing.
 
 ## The 416 bug (fixed in v2.16.5, completed in v2.16.6)
 
@@ -219,7 +225,32 @@ sees at most the site's own limit (DataNodes 3), the global ceiling of 8 still
 applies, and retry spacing stays keyed by **host** (180s) so a second egress
 does not shorten it.
 
-Verified: direct `58.236.176.166` (KR) vs VPN `193.148.16.118` (JP).
+Exit IPs: direct `58.236.176.166` (KR) vs VPN `193.148.16.118` (JP).
+
+### That verification was not enough (v2.16.9)
+
+Confirming the two egresses have different exit IPs says nothing about whether
+a hoster will *serve* the second one. Measured per host, per egress:
+
+| host | direct | VPN |
+|---|---|---|
+| datanodes.to | 1168 done / 2 failed | **0 done / 24 failed** |
+| 1fichier.com | 743 done / 3 failed | 7 done / 2 failed |
+
+**datanodes has never once succeeded over the VPN.** It solves the captcha and
+then withholds the download link, so every attempt burned a browser captcha —
+the most expensive, most serialized resource here — and held a host slot, to
+reach a guaranteed failure. That is what the 24 `캡차는 통과했으나 링크가
+발급되지 않았습니다` rows are; they are **not** the fd exhaustion #44 fixed
+(retried on v2.16.8 with the limit raised, still failed).
+
+`HOST_EGRESS_DENY` in `download_core.py` now records the standing denial, and
+`_egress_blocked_for` honors it ahead of the learned table. It does not expire —
+a learned block is about an exit IP going stale, this is hoster policy.
+
+The VPN stays on for everything else. 1fichier works over it, and its per-IP
+free-tier throttle is exactly what a second egress is good for. **When adding an
+egress, measure the success rate per host, not the exit IP.**
 
 ## Guards worth knowing about
 

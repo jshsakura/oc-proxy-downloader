@@ -139,6 +139,28 @@ DEFAULT_DOWNLOAD_ROUTE = ROUTE_MANUAL
 # the queue re-learning it, short enough that a new exit IP gets a chance.
 EGRESS_BLOCK_TTL = datetime.timedelta(hours=6)
 
+# Hosts that will not serve a given egress at all, keyed the same way as
+# SITE_DOWNLOAD_LIMITS. Unlike the learned table above this does not expire: it
+# is not an exit IP going stale, it is standing hoster policy. Measured across
+# the whole download table:
+#
+#   datanodes.to   direct: 1168 done /  2 failed
+#                  vpn:       0 done / 24 failed
+#
+# The captcha SOLVES over the VPN and only the download link is withheld, so a
+# VPN attempt burns a browser captcha — the most expensive and most serialized
+# resource the app has — and holds a host slot, to reach a guaranteed failure.
+# 1fichier is deliberately absent: it works over the VPN (7 done / 2 failed) and
+# its per-IP free-tier throttle is exactly what a second egress is good for.
+HOST_EGRESS_DENY = {
+    "datanodes.to": frozenset({EGRESS_VPN}),
+}
+
+
+def egress_denied_for_host(host_key: str, egress: str) -> bool:
+    """Whether `host_key` is known never to serve `egress`."""
+    return egress in HOST_EGRESS_DENY.get(host_key, frozenset())
+
 
 def _read_download_route() -> str:
     """Read the configured route, falling back to direct on anything unknown."""
@@ -500,6 +522,10 @@ class DownloadCore:
         self._egress_blocked[key] = datetime.datetime.now() + EGRESS_BLOCK_TTL
 
     def _egress_blocked_for(self, host_key: str, egress: str) -> bool:
+        # A standing denial outranks the learned table and never expires — the
+        # reason is hoster policy, not an exit IP that might rotate.
+        if egress_denied_for_host(host_key, egress):
+            return True
         until = self._egress_blocked.get(f"{host_key}@{egress}")
         if until is None:
             return False
