@@ -7,7 +7,7 @@ Async download API router
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_
+from sqlalchemy import or_, true as sqlalchemy_true
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import asyncio
@@ -19,7 +19,7 @@ from urllib.parse import urlparse, unquote, urlunparse
 from core.db import get_db, SessionLocal
 from core import db_async
 from core.models import DownloadRequest, StatusEnum
-from core.download_core import download_core
+from core.download_core import download_core, ROUTE_MANUAL, _read_download_route
 from core.parser import fichier_parser
 from core.simple_parser import parse_1fichier_simple_sync, clean_1fichier_url, derive_display_name
 from core.hoster_parsers import should_preserve_original_url
@@ -80,6 +80,22 @@ def _find_completed_duplicate(db: Session, url: str) -> Optional[DownloadRequest
         if req.save_path and os.path.exists(req.save_path):
             return req
     return None
+
+
+def _egress_filter(want_proxy: bool):
+    """Restrict a batch action to one egress — but only when the user chose it.
+
+    The local and proxy gauges each carry their own stop/restart buttons, which
+    made sense while ``use_proxy`` was a per-item choice. Under automatic
+    routing the egress is picked by the router, so the user has no idea which
+    gauge a given download landed under: pressing "restart" on the local gauge
+    silently skipped 20 rows the router had put on the VPN. When routing is
+    automatic the split is an implementation detail, and a batch action means
+    all of them.
+    """
+    if _read_download_route() != ROUTE_MANUAL:
+        return sqlalchemy_true()
+    return DownloadRequest.use_proxy == want_proxy
 
 
 router = APIRouter(prefix="/api", tags=["downloads"])
@@ -1028,7 +1044,7 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
         # Find in-progress local downloads (use_proxy=False)
         active_local_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
-            DownloadRequest.use_proxy == False
+            _egress_filter(False)
         ))
 
         print(f"[DEBUG] stop-all-local: 진행 중인 로컬 다운로드 {len(active_local_downloads)}개 발견")
@@ -1093,7 +1109,7 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
         # Find local downloads in failed or stopped status (use_proxy=False)
         all_failed = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
-            DownloadRequest.use_proxy == False
+            _egress_filter(False)
         ))
 
         # Exclude permanent-failure / login-required / cooldown items
@@ -1203,7 +1219,7 @@ async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
         # Find in-progress proxy downloads (use_proxy=True)
         active_proxy_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
-            DownloadRequest.use_proxy == True
+            _egress_filter(True)
         ))
 
         stopped_count = 0
@@ -1254,7 +1270,7 @@ async def restart_failed_proxy_downloads(db: Session = Depends(get_db)):
         # Find proxy downloads in failed or stopped status (use_proxy=True)
         all_failed = await db_async.all_rows(db.query(DownloadRequest).filter(
             DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
-            DownloadRequest.use_proxy == True
+            _egress_filter(True)
         ))
 
         # Exclude permanent-failure / login-required items
