@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import os
-import resource
 import signal
 import sys
 import atexit
+
+# resource 는 유닉스 전용이다. standalone(윈도우 EXE) 빌드에서도 이 모듈이
+# 로드되므로 없으면 None 으로 두고 한도 조정을 건너뛴다. 규칙대로 임포트는
+# 최상단에 두되, 플랫폼 차이만 여기서 흡수한다.
+try:
+    import resource
+except ImportError:
+    resource = None
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, Request
@@ -79,6 +86,8 @@ def raise_open_file_limit() -> None:
     바꾸는데, PAM 이 그 시점에 soft 한도를 기본값으로 되돌린다. 그래서 앱이
     직접 올린다. soft 를 hard 까지 올리는 건 권한 없이도 항상 허용된다.
     """
+    if resource is None:          # 윈도우 — 이런 한도가 없다
+        return
     try:
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     except (OSError, ValueError, AttributeError):
