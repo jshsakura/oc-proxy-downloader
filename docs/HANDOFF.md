@@ -47,22 +47,26 @@ are gone; one `dead` row remains.
 
 ## What is left in the queue
 
-51 rows are `failed`. They are not one problem:
+1930 `done`, 35 `failed`, 5 `stopped`, 1 in flight. The 51 failures the last
+pass found broke down like this — the 4 416 rows are now `done` and the rest
+are unstarted:
 
 | count | what | verdict |
 |---|---|---|
 | 31 | `SSL/TLS 핸드셰이크 실패` on datanodes.to | transient episode, not a bug — TLSv1.3 from the container is fine now. Retry them. |
 | 6 | other transient parse/download blips | retry |
-| 4 | `HTTP 416` | **was a real bug — fixed in v2.16.5, see below** |
+| ~~4~~ | ~~`HTTP 416`~~ | **fixed and resolved — see below** |
 | 2 | 1fichier `검수 probe 404 (단발)` | needs a re-probe |
 | 1 | `sqlite3.OperationalError: unable to open database file` | see open item 2 |
 | 1 | Send.now `blocked` | one link |
 | 1 | `dead` | leave it |
 
 Retry via `POST /api/downloads/restart-failed-local` — but **read the list
-first** (see the trap below).
+first** (see the trap below). The 5 `stopped` rows (2033, 2336, 2337, 2339,
+2346) carry `서버 재시작으로 인한 초기화` — they were in flight when a deploy
+recreated the container, not stopped by anyone. They just need restarting.
 
-## The 416 bug (fixed in v2.16.5)
+## The 416 bug (fixed in v2.16.5, completed in v2.16.6)
 
 Four downloads — ids 2050, 2206, 2236, 2250 — sat permanently failed while
 their finished file was already on disk. ~3.6 GB, complete, byte-for-byte.
@@ -82,6 +86,8 @@ The chain:
 
 The arithmetic confirms it on all four rows: `total_size − .part size` is
 exactly the resume offset, and the `.part` is exactly the resource length.
+Row 2050 then proved it empirically — the re-downloaded file came out at
+**484,635,681 bytes, byte-for-byte the size of the `.part` that was discarded**.
 
 The fix lives in `backend/core/resume.py` (pure, 27 tests in
 `backend/tests/test_resume.py`) and is wired into both download paths:
@@ -95,9 +101,11 @@ The fix lives in `backend/core/resume.py` (pure, 27 tests in
   `Content-Range: bytes */N` (RFC 7233). When that equals the `.part` size the
   download is finished: `_resolve_range_overrun` finalizes it without fetching
   a byte.
-- **`probed_complete_length`** (v2.16.6) — RFC 7233 only *recommends*
-  `Content-Range` on a 416. A server that omits it used to send us down the
-  "discard the `.part`" branch, throwing away gigabytes on a guess. Now a
+- **`probed_complete_length`** (v2.16.6) — **datanodes returns a bare 416 with
+  no `Content-Range`.** Measured, not assumed: under v2.16.5 row 2050 took the
+  "discard the `.part`" branch and re-downloaded 484 MB. RFC 7233 only
+  *recommends* the header, so this is not an edge case for this hoster — it is
+  the normal path. Now a
   one-byte `Range: bytes=0-0` probe settles it: a `206` states the length in
   `Content-Range`, a `200` means its `Content-Length` is the whole file. **The
   `.part` is deleted only once the length is known and disagrees**; when it
@@ -108,6 +116,36 @@ The fix lives in `backend/core/resume.py` (pure, 27 tests in
 **Retrying those four rows finalizes them with no re-download** — but only
 after the datanodes page re-parses (browser Turnstile, serialized one-at-a-time
 per host), because the 416 only arrives once a fresh download link exists.
+
+### Measured after v2.16.6 went live
+
+The four `failed` rows were not the whole population — they were only the ones
+that had come to rest. Rows still cycling were hitting the same 416 and silently
+re-downloading. On v2.16.6:
+
+```
+416 완본 마무리: 9건        재다운로드 회피: 13.95 GiB        .part 삭제: 0건
+```
+
+Every probe came back `206` with the length. Grep the container log for
+`완본 — 마무리만 수행` to re-count, and for `어긋남` to see whether a `.part`
+was ever legitimately discarded (still zero).
+
+All four original rows are `done`, each finalized at exactly its `.part` size,
+with `total_size` self-corrected from the inflated value:
+
+| id | total_size (was → now) | outcome |
+|---|---|---|
+| 2050 | 484,651,827 → 484,635,681 | re-downloaded 484 MB on v2.16.5 |
+| 2206 | 2,362,232,012 → 2,349,835,240 | finalized, 0 bytes fetched |
+| 2236 | 437,990,195 → 437,954,879 | finalized, 0 bytes fetched |
+| 2250 | 619,393,843 → 619,347,432 | finalized, 0 bytes fetched |
+
+**v2.16.5 shipped incomplete and cost the 484 MB in row 2050.** The
+"`Content-Range` is only recommended" caveat was known when the code was
+written, and the branch that deletes a good file on a missing header went out
+anyway; it was caught from the production log, not before the deploy. When a
+recovery path can delete data, the uncertain branch has to be closed *first*.
 
 ## Open items
 
