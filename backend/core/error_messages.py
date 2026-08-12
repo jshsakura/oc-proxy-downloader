@@ -327,6 +327,15 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("gone", "응답이 410 (Gone) 이었습니다",
      "다시 시도해주세요. 반복되면 '전체 링크 검수' 로 확인.",
      KIND_TRANSIENT, False),
+    # 416 = the .part is at or past the end of the resource. The download path
+    # now reads the real length out of the response and either finalizes the
+    # file or re-downloads it, so this only surfaces when that retry also fails.
+    ("http 416", "이어받기 지점이 파일 끝을 넘어섰습니다",
+     "받아둔 조각을 버리고 처음부터 다시 받습니다. 반복되면 로그를 확인해 주세요.",
+     KIND_TRANSIENT, False),
+    ("range not satisfiable", "이어받기 지점이 파일 끝을 넘어섰습니다",
+     "받아둔 조각을 버리고 처음부터 다시 받습니다. 반복되면 로그를 확인해 주세요.",
+     KIND_TRANSIENT, False),
     ("http 502", "호스터 서버가 일시적으로 응답하지 않습니다",
      "잠시 후 다시 시도하세요.",
      KIND_TRANSIENT, False),

@@ -28,6 +28,12 @@ from services.notification_service import send_telegram_start_notification, send
 from utils.file_helpers import download_file_content, generate_file_path, get_final_file_path
 from core import db_async
 from core import live_progress
+from core.resume import (
+    RANGE_NOT_SATISFIABLE,
+    effective_initial_size,
+    is_part_already_complete,
+    total_size_from_content_length,
+)
 from core.proxy_manager import proxy_manager
 from urllib.parse import urlparse, unquote, urlunparse
 from core.models import ProxyStatus, UserProxy
@@ -1597,10 +1603,15 @@ class DownloadCore:
         if initial_size == 0 and _name_needs_resolution(req.file_name):
             raise Exception("파일명(확장자)을 확인할 수 없어 다운로드를 중단했습니다")
 
-        # Update Content-Length
+        # Update Content-Length. A body that starts at byte zero states the
+        # resource's true length, so it *supersedes* whatever we recorded — a
+        # resume the server answered with 200 leaves total_size inflated by the
+        # bytes already on disk, and a stale inflated total makes the
+        # completeness check below reject a finished file forever.
         content_length = response.headers.get('Content-Length')
-        if content_length and (not req.total_size or req.total_size == 0):
-            req.total_size = int(content_length) + initial_size
+        total_size = total_size_from_content_length(content_length, initial_size)
+        if total_size is not None and (initial_size == 0 or not req.total_size):
+            req.total_size = total_size
             await db_async.commit(db)
             print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
 
@@ -1626,6 +1637,54 @@ class DownloadCore:
             req, downloaded_size, response.headers.get("Content-Type") or ""
         )
 
+        await self._finalize_completed_file(req, db, downloaded_size, download_mode)
+
+    async def _resolve_range_overrun(
+        self,
+        req: DownloadRequest,
+        db: Session,
+        response,
+        part_size: int,
+        download_mode: str,
+    ) -> bool:
+        """Recover from a ``416``: the ``.part`` sits at or past the end.
+
+        Returns ``True`` when the file turned out to be complete and has been
+        finalized, ``False`` when the caller should drop the ``.part`` and
+        re-request the whole file.
+
+        Four rows sat permanently failed on this: their ``.part`` was the
+        finished file byte-for-byte, but ``total_size`` had been inflated by an
+        earlier resume, so the completeness check refused to finalize and every
+        retry asked for a range past the end.
+        """
+        content_range = response.headers.get("Content-Range")
+        if is_part_already_complete(content_range, part_size):
+            print(f"[LOG] 416: .part 이 이미 완본 — 마무리만 수행 ({part_size} bytes)")
+            req.total_size = part_size
+            await self._finalize_completed_file(req, db, part_size, download_mode)
+            return True
+
+        print(
+            f"[LOG] 416: .part({part_size} bytes)이 리소스와 어긋남 "
+            f"(Content-Range={content_range}) — 처음부터 다시 받는다"
+        )
+        os.remove(req.save_path)
+        return False
+
+    async def _finalize_completed_file(
+        self,
+        req: DownloadRequest,
+        db: Session,
+        downloaded_size: int,
+        download_mode: str,
+    ):
+        """Turn a fully-written ``.part`` into a completed download.
+
+        Split out of ``_consume_response_and_finish`` because the 416 path
+        reaches the same end state without a response body to read: the file was
+        already on disk in full, only the bookkeeping was missing.
+        """
         # Rename .part → final file name
         final_path = get_final_file_path(req.save_path)
         if req.save_path != final_path:
@@ -1816,8 +1875,19 @@ class DownloadCore:
                                     current_ua = cf_context.get("user_agent") or current_ua
                                     print(f"[LOG] FlareSolverr 쿠키 확보, 호스팅 최종 링크 재시도: {list(cf_cookies.keys())}")
                                     continue
+                            if response.status == RANGE_NOT_SATISFIABLE and initial_size > 0:
+                                if await self._resolve_range_overrun(
+                                    req, db, response, initial_size,
+                                    download_mode="proxy" if req.use_proxy else "local",
+                                ):
+                                    return
+                                continue
                             if response.status not in [200, 206]:
                                 raise Exception(f"HTTP {response.status}: {response.reason}")
+                            # A 200 answering our Range means the range was
+                            # ignored and the body restarts at byte zero, so the
+                            # bytes on disk must be overwritten, not appended to.
+                            initial_size = effective_initial_size(response.status, initial_size)
                             content_type = (response.headers.get("Content-Type") or "").lower()
                             # 호스터 등록 여부와 무관하게 본다. 예전에는
                             # is_special_hoster_url() 로 게이팅돼 있어서 등록되지
@@ -2102,13 +2172,31 @@ class DownloadCore:
 
                             actual_url = download_url if download_url else req.url
                             async with session.get(actual_url, headers=headers, proxy=proxy_url) as response:
+                                if response.status == RANGE_NOT_SATISFIABLE and initial_size > 0:
+                                    if await self._resolve_range_overrun(
+                                        req, db, response, initial_size,
+                                        download_mode="proxy" if proxy_url else "local",
+                                    ):
+                                        download_success = True
+                                        break
+                                    # The .part is gone; let the bounded retry
+                                    # loop re-request the whole file from zero.
+                                    raise Exception("HTTP 416: 이어받기 지점이 파일 끝을 넘어 처음부터 다시 받습니다")
                                 if response.status not in [200, 206]:
                                     raise Exception(f"HTTP {response.status}: {response.reason}")
 
-                                # Get Content-Length (don't overwrite a total_size obtained during preparsing)
+                                # A 200 answering our Range means the range was
+                                # ignored and the body restarts at byte zero, so
+                                # what is on disk must be overwritten.
+                                initial_size = effective_initial_size(response.status, initial_size)
+
+                                # Content-Length. A body starting at byte zero states
+                                # the true length and supersedes an inflated total left
+                                # behind by a resume the server answered with 200.
                                 content_length = response.headers.get('Content-Length')
-                                if content_length and (not req.total_size or req.total_size == 0):
-                                    req.total_size = int(content_length) + initial_size
+                                total_size = total_size_from_content_length(content_length, initial_size)
+                                if total_size is not None and (initial_size == 0 or not req.total_size):
+                                    req.total_size = total_size
                                     await db_async.commit(db)
                                     print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
 
