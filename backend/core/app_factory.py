@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import os
+import resource
 import signal
 import sys
 import atexit
@@ -66,10 +67,37 @@ async def _shutdown_step(label: str, coro_fn, timeout: float = SHUTDOWN_TIMEOUT_
         print(f"[WARNING] {label} stop error: {e}")
 
 
+def raise_open_file_limit() -> None:
+    """열 수 있는 파일 수의 soft 한도를 hard 까지 올린다.
+
+    동시 다운로드마다 소켓·SSL·임시파일이 붙고 FlareSolverr/Playwright 가
+    거기에 더 얹는다. 기본 soft 1024 로는 큐가 조금만 커져도 바닥나서
+    ``[Errno 24] Too many open files`` 로 파싱이 실패한다 — 다운로드 자체가
+    아니라 파싱 단계에서 죽으므로 원인이 잘 안 보인다.
+
+    도커의 ``ulimits`` 만으로는 부족하다. 컨테이너 진입점이 ``su`` 로 사용자를
+    바꾸는데, PAM 이 그 시점에 soft 한도를 기본값으로 되돌린다. 그래서 앱이
+    직접 올린다. soft 를 hard 까지 올리는 건 권한 없이도 항상 허용된다.
+    """
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except (OSError, ValueError, AttributeError):
+        return
+    if soft >= hard:
+        return
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+    except (OSError, ValueError):
+        print(f"[WARNING] 파일 핸들 한도를 올리지 못했습니다 (soft={soft}, hard={hard})")
+        return
+    print(f"[LOG] 파일 핸들 한도 {soft} → {hard}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage the application lifecycle"""
     print("[LOG] *** 애플리케이션 시작 ***")
+    raise_open_file_limit()
 
     # Bound the asyncio default thread pool so concurrent hoster parses queue
     # instead of stampeding the CPU (see DEFAULT_PARSE_CONCURRENCY note above).
