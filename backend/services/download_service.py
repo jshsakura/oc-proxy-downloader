@@ -116,8 +116,13 @@ class DownloadService:
         """Restart every failed download whose ``next_retry_at`` has passed."""
         with SessionLocal() as db:
             now = datetime.datetime.now()
+            # `pending` is here because a queue wait is not a failure and no
+            # longer pretends to be one. next_retry_at is what separates a
+            # scheduled wait from a download parked behind a semaphore by a live
+            # task: the parked one has no retry time, so the sweep leaves it to
+            # the task that owns it.
             due = await db_async.all_rows(db.query(DownloadRequest).filter(
-                DownloadRequest.status == StatusEnum.failed,
+                DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.pending]),
                 DownloadRequest.next_retry_at.isnot(None),
                 DownloadRequest.next_retry_at <= now,
             ).order_by(DownloadRequest.next_retry_at.asc()))

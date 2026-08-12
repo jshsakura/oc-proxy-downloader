@@ -47,6 +47,7 @@ from core.error_messages import (
     apply_failure_to_request,
     KIND_BLOCKED,
     KIND_PROXY_BLOCKED,
+    KIND_QUEUED,
     KIND_RATE_LIMITED,
 )
 from core.executors import parse_executor_for
@@ -356,6 +357,20 @@ def _format_bytes(num: int) -> str:
             return f"{int(size)} B" if unit == "B" else f"{size:.2f} {unit}"
         size /= 1024
     return f"{size:.2f} TB"
+
+
+def _status_after_failure(verdict) -> StatusEnum:
+    """The status a classified failure leaves behind.
+
+    A KIND_QUEUED verdict is not a failure — the link is waiting its turn on our
+    own per-site slot and was never sent. Marking it `failed` made the grid count
+    45 waiting items as failures in one run, which is the difference between "the
+    queue is working through a backlog" and "everything is broken".
+
+    It still carries next_retry_at, which is what the sweeper keys on to tell a
+    scheduled wait from a download parked behind a semaphore by a live task.
+    """
+    return StatusEnum.pending if verdict.kind == KIND_QUEUED else StatusEnum.failed
 
 
 class DownloadCore:
@@ -1041,7 +1056,7 @@ class DownloadCore:
             req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
             if req:
                 verdict = apply_failure_to_request(req, "다운로드", str(e))
-                req.status = StatusEnum.failed
+                req.status = _status_after_failure(verdict)
                 await db_async.commit(db)
                 await self.send_download_update(req_id, {
                     "status": "failed",
@@ -1537,7 +1552,7 @@ class DownloadCore:
             stage = "다운로드" if download_started else "파싱"
             verdict = apply_failure_to_request(req, stage, str(e))
 
-            req.status = StatusEnum.failed
+            req.status = _status_after_failure(verdict)
             req.finished_at = datetime.datetime.now()
             await db_async.commit(db)
 
@@ -1923,7 +1938,7 @@ class DownloadCore:
             print(f"[ERROR] 직접 다운로드 실패: {e}")
             verdict = apply_failure_to_request(req, "다운로드", str(e))
             user_message = verdict.user_message
-            req.status = StatusEnum.failed
+            req.status = _status_after_failure(verdict)
             req.finished_at = datetime.datetime.now()
             await db_async.commit(db)
 
@@ -2271,7 +2286,7 @@ class DownloadCore:
             print(f"[ERROR] 파일 다운로드 실패: {e}")
             verdict = apply_failure_to_request(req, "다운로드", str(e))
             user_message = verdict.user_message
-            req.status = StatusEnum.failed
+            req.status = _status_after_failure(verdict)
             req.finished_at = datetime.datetime.now()
             await db_async.commit(db)
 
@@ -2329,7 +2344,7 @@ class DownloadCore:
         except Exception as e:
             print(f"[ERROR] 로컬 다운로드 실패: {e}")
             verdict = apply_failure_to_request(req, "다운로드", str(e))
-            req.status = StatusEnum.failed
+            req.status = _status_after_failure(verdict)
             req.finished_at = datetime.datetime.now()
             await db_async.commit(db)
 
@@ -2493,7 +2508,7 @@ class DownloadCore:
         except Exception as e:
             print(f"[ERROR] 특수 호스팅 처리 실패: {e}")
             verdict = apply_failure_to_request(req, "파싱", str(e))
-            req.status = StatusEnum.failed
+            req.status = _status_after_failure(verdict)
             req.finished_at = datetime.datetime.now()
             await db_async.commit(db)
             await self.send_download_update(req.id, {
@@ -2603,7 +2618,7 @@ class DownloadCore:
             print(f"[ERROR] MEGA 처리 실패: {e}")
             message = mega_error_message(e) if isinstance(e, MegaApiError) else str(e)
             verdict = apply_failure_to_request(req, "MEGA", message)
-            req.status = StatusEnum.failed
+            req.status = _status_after_failure(verdict)
             req.finished_at = datetime.datetime.now()
             await db_async.commit(db)
             await self.send_download_update(req.id, {
