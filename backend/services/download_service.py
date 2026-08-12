@@ -17,7 +17,7 @@ from core.models import DownloadRequest, StatusEnum
 from core.db import SessionLocal
 from core.config import get_config
 from core.download_core import download_core
-from core.error_messages import is_retry_blocked_now
+from core.error_messages import is_retry_blocked_now, KIND_QUEUED
 from core.hoster_common import _host
 from core.proxy_manager import proxy_manager
 from services.sse_manager import sse_manager
@@ -133,14 +133,17 @@ class DownloadService:
                 if is_retry_blocked_now(req, has_creds) is not None:
                     continue
 
-                # Space retries per host. The item stays due and will be picked
-                # up by a later sweep — skipping here costs nothing but keeps a
-                # queue full of one host from becoming a drip-feed at that host.
-                host = _host(req.original_url or req.url or "")
-                last = self._last_retry_per_host.get(host, 0.0)
-                if host and now_mono - last < HOST_RETRY_SPACING_SEC:
-                    continue
-                self._last_retry_per_host[host] = now_mono
+                # Space retries per host — but only real retries. A KIND_QUEUED
+                # row never reached the host: it is waiting its turn on our own
+                # per-site slot, so pacing it as if it had just been refused is
+                # backwards. Measured: 42 due items behind one host meant one
+                # release every three minutes, and the queue stopped moving.
+                if req.failure_kind != KIND_QUEUED:
+                    host = _host(req.original_url or req.url or "")
+                    last = self._last_retry_per_host.get(host, 0.0)
+                    if host and now_mono - last < HOST_RETRY_SPACING_SEC:
+                        continue
+                    self._last_retry_per_host[host] = now_mono
 
                 # Auto-retry — unlike a manual forced retry, KEEP attempt_count /
                 # attempts_json so the backoff keeps escalating; just clear the

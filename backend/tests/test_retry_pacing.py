@@ -128,3 +128,41 @@ class TestPerHostSpacing:
 
         too_soon = now - service._last_retry_per_host["datanodes.to"] < HOST_RETRY_SPACING_SEC
         assert too_soon, "a second retry to the same host would go out immediately"
+
+
+class TestQueueWaitsAreNotRefusals:
+    """A queue wait never touched the host.
+
+    KIND_QUEUED means the link is waiting on our own per-site slot — the request
+    was never sent. Pacing it with the anti-ban spacing meant for refusals stalls
+    the queue: 42 items due behind one host came out at one every three minutes,
+    and the grid showed 54 "failures" with nothing running.
+    """
+
+    def test_the_sweeper_exempts_queue_waits_from_host_spacing(self):
+        import inspect
+
+        from services import download_service
+        from core.error_messages import KIND_QUEUED
+
+        body = inspect.getsource(download_service.DownloadService._sweep_due_retries)
+
+        assert "KIND_QUEUED" in body, (
+            "the host-spacing gate must skip queue waits, or one busy host "
+            "throttles its own queue"
+        )
+        # The gate still exists for everything else.
+        assert "HOST_RETRY_SPACING_SEC" in body
+
+    def test_a_queue_wait_still_gets_a_short_reschedule(self):
+        """Exempting it from spacing must not mean retrying it instantly."""
+        from core.error_messages import KIND_QUEUED
+
+        assert _wait(KIND_QUEUED) >= 45
+
+    def test_a_queue_wait_never_runs_out_of_budget(self):
+        """It is not a failure, so it must not consume the retry allowance —
+        otherwise a long queue quietly drops links."""
+        from core.error_messages import KIND_QUEUED, _compute_next_retry_at
+
+        assert _compute_next_retry_at(KIND_QUEUED, 50, None) is not None
