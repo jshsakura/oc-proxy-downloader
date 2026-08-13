@@ -215,11 +215,18 @@ session already called `db_async.refresh` first — checked one by one before th
 change. Cancellation itself does not go through the database at all; it rides an
 in-memory `threading.Event` in `core/cancel_signal.py`.
 
+A second thing had to hold: **no column may be filled in by the database.** With
+expiry off, an instance keeps what this session put in it, so a `server_default`
+/ `onupdate` / trigger column would read as `None` forever instead of being
+fetched on first access. There are none — all nine defaults are Python-side.
+
 Without expiry, a forgotten refresh stops being a wasted query and becomes a
 download that ignores the stop button, so `tests/test_expire_on_commit.py`
-guards it: it measures that no SELECT follows a commit, that `refresh` still
-re-reads, and — by AST — that every stopped-check re-reads its row first. The
-guard was verified by deleting one refresh and confirming it named the line.
+guards all of it: it measures that no SELECT follows a commit, that `refresh`
+still re-reads, that no column is DB-populated, and — by AST — that every
+stopped-check re-reads its row first. Both guards were verified against a real
+violation: deleting one refresh made the AST guard name the line, and adding a
+`server_default` column made the schema guard name it.
 
 ### 3. ~~The 12 leftover `.part` files~~ — resolved
 
@@ -362,5 +369,5 @@ launch test would suit them.
 - `frontend/tests/layout.test.js` — column indexes, no flex on a `<td>`, phone
   scrolls sideways, sticky header.
 
-Backend 906 tests, frontend 36. `npm test` runs in the Dockerfile and in all
+Backend 907 tests, frontend 36. `npm test` runs in the Dockerfile and in all
 three release jobs.

@@ -40,6 +40,32 @@ class TestSessionConfiguration:
         assert SessionLocal.kw["autoflush"] is False
 
 
+class TestNothingDependsOnReadingBack:
+    """No column may be filled in by the database itself.
+
+    With ``expire_on_commit=False`` an instance keeps what this session put in
+    it. A column the *database* populates — ``server_default``, ``onupdate``,
+    a trigger — is never in memory, so the attribute would read as ``None``
+    forever instead of being fetched on first access. Every default here is
+    Python-side, and this keeps it that way.
+    """
+
+    def test_no_server_side_defaults(self):
+        offenders = []
+        for table in Base.metadata.tables.values():
+            for column in table.columns:
+                if (column.server_default is not None
+                        or column.server_onupdate is not None
+                        or column.onupdate is not None):
+                    offenders.append(f"{table.name}.{column.name}")
+
+        assert offenders == [], (
+            "these columns are filled in by the database, so with "
+            "expire_on_commit=False they will read as stale/None after a write "
+            f"— {offenders}. Populate them in Python, or refresh() explicitly."
+        )
+
+
 class TestNoReselectAfterCommit:
     """The measurement, not the setting: count the SELECTs a commit provokes."""
 
