@@ -299,6 +299,33 @@ is set only to suppress the browser auto-open — it is the app's existing switc
 for that and touches nothing else; the frontend path keys on `sys.frozen`
 first, so it cannot be misdirected by that variable.
 
+### What it found on its first run
+
+**Every Windows EXE released up to v2.16.10 was dead on arrival.**
+
+```
+ModuleNotFoundError: No module named 'passlib.handlers.bcrypt'
+[PYI-7492:ERROR] Failed to execute script 'main' due to unhandled exception!
+```
+
+`core/auth.py` builds a `CryptContext(schemes=["bcrypt"])` at module scope.
+passlib resolves a scheme name to a module at *runtime*
+(`registry.get_crypt_handler` → `import passlib.handlers.<name>`), so
+PyInstaller's static analysis never saw it and never bundled it. The build
+passed, the file existed, the checksum was published, and the binary crashed
+before serving a single request.
+
+Nothing could have caught this without launching the EXE: the build machine has
+passlib installed normally, so every test passes there.
+
+Fixed in v2.16.11 by collecting the whole `passlib.handlers` package
+(`collect_submodules`) rather than naming one module — the scheme is config, and
+a second missing handler would fail identically.
+
+**The lesson generalizes: any library that imports by name at runtime is
+invisible to PyInstaller.** The app's own code has no dynamic imports (checked),
+so the risk lives entirely in dependencies.
+
 Not yet done: the Linux and macOS jobs still only build their archives. The same
 launch test would suit them.
 

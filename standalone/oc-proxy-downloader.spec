@@ -7,6 +7,17 @@ OC Proxy Downloader - 단일 EXE 빌드
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
+# passlib resolves a scheme name to a module at runtime
+# (registry.get_crypt_handler -> import passlib.handlers.<name>), so PyInstaller's
+# static analysis never sees it. Until v2.16.11 every Windows EXE therefore died
+# on launch with `No module named 'passlib.handlers.bcrypt'` — the build passed,
+# the file existed, and the binary was dead on arrival.
+# Collect the whole handler package rather than naming one: the scheme is config,
+# and a second missing handler would fail exactly the same way.
+PASSLIB_HANDLERS = collect_submodules('passlib.handlers')
+
 # 경로 설정
 backend_dir = Path("../backend").resolve()
 frontend_dist_dir = Path("../frontend/dist").resolve()
@@ -88,6 +99,11 @@ a = Analysis(
         'patchright.sync_api',
         'greenlet',
         'pyee',
+        # core.auth builds a CryptContext(schemes=["bcrypt"]) at module scope, so
+        # a missing handler kills the app before it serves a single request.
+        # bcrypt itself is the backend the handler loads.
+        *PASSLIB_HANDLERS,
+        'bcrypt',
     ],
     hookspath=[],
     hooksconfig={},
