@@ -28,6 +28,7 @@ from services.notification_service import send_telegram_start_notification, send
 from utils.file_helpers import download_file_content, generate_file_path, get_final_file_path
 from core import db_async
 from core import live_progress
+from core.slots import slot_without_session
 from core.resume import (
     PROBE_RANGE,
     RANGE_NOT_SATISFIABLE,
@@ -969,8 +970,15 @@ class DownloadCore:
                     req.status = StatusEnum.pending
                     await db_async.commit(db)
 
-                async with fichier_semaphore:
+                async with slot_without_session(db, fichier_semaphore):
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 획득: {req_id}")
+
+                    # The wait detached everything the session held, so the row
+                    # has to be read again before it can be used or written.
+                    req = await db_async.first(
+                        db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
+                    if not req:
+                        return
 
                     # Honor an active host backoff before touching 1fichier again
                     # (avoids cascading the same form-rejection across the queue).
@@ -1049,31 +1057,45 @@ class DownloadCore:
                 # Acquire the host slot FIRST, then the global ceiling. A task
                 # waiting on the global cap holds only its own host slot, so it can
                 # never block a different host from starting.
-                async with host_semaphore:
-                    async with self.total_download_semaphore:
-                        print(f"[DEBUG] {download_type} 다운로드 세마포어 획득: {req_id}")
+                async with slot_without_session(
+                    db, host_semaphore, self.total_download_semaphore
+                ):
+                    print(f"[DEBUG] {download_type} 다운로드 세마포어 획득: {req_id}")
 
-                        if skip_parsing:
-                            # File info is present, so skip parsing and start downloading immediately
-                            await self.send_download_update(req_id, {
-                                "status": "downloading",
-                                "message": f"{download_type} 다운로드 시작 중..."
-                            })
-                            req.status = StatusEnum.downloading
-                        else:
-                            # When parsing is required
-                            await self.send_download_update(req_id, {
-                                "status": "parsing",
-                                "message": f"대기 완료, {download_type} 다운로드 시작 중..."
-                            })
-                            req.status = StatusEnum.parsing
-                        await db_async.commit(db)
+                    # The wait detached everything the session held, so the
+                    # row has to be read again before it can be used.
+                    req = await db_async.first(
+                        db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
+                    if not req:
+                        return
+                    if req.status == StatusEnum.stopped:
+                        # Stopped while it sat in the queue. The 1fichier
+                        # branch already refused to start in this case; this
+                        # one used to start anyway.
+                        print(f"[LOG] 대기 중 정지됨, 시작 안 함: {req_id}")
+                        return
 
-                        if is_1fichier:
-                            await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 1fichier proxy download
-                        else:
-                            await self._download_local_async(req, db)  # Plain URL download
-                        print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
+                    if skip_parsing:
+                        # File info is present, so skip parsing and start downloading immediately
+                        await self.send_download_update(req_id, {
+                            "status": "downloading",
+                            "message": f"{download_type} 다운로드 시작 중..."
+                        })
+                        req.status = StatusEnum.downloading
+                    else:
+                        # When parsing is required
+                        await self.send_download_update(req_id, {
+                            "status": "parsing",
+                            "message": f"대기 완료, {download_type} 다운로드 시작 중..."
+                        })
+                        req.status = StatusEnum.parsing
+                    await db_async.commit(db)
+
+                    if is_1fichier:
+                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 1fichier proxy download
+                    else:
+                        await self._download_local_async(req, db)  # Plain URL download
+                    print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
 
         except asyncio.CancelledError:
             # Download cancelled
