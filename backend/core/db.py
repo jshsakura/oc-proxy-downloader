@@ -67,7 +67,20 @@ def _apply_sqlite_pragmas(dbapi_connection, connection_record):
     cursor.close()
 
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# expire_on_commit=False: SQLAlchemy's default marks every instance stale at
+# commit, so the next attribute read issues a fresh SELECT. A download commits
+# constantly — progress, status, retry bookkeeping — and reads its own row right
+# after almost every one, which cost an extra query per commit per object across
+# ~233 sites.
+#
+# Safe here because nothing leans on that implicit refresh: every place that must
+# see another session's write (the stop button) calls db_async.refresh
+# explicitly. tests/test_expire_on_commit.py measures that the re-SELECT is gone
+# and guards that the stopped-checks keep refreshing — without expiry, a
+# forgotten refresh is no longer a wasted query but a download that ignores stop.
+SessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, expire_on_commit=False, bind=engine
+)
 
 def get_db():
     db = SessionLocal()

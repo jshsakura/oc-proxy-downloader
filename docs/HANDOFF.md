@@ -55,11 +55,12 @@ The 8 remaining failures are not retryable — they are dead links or per-host
 problems, listed at the end of this section. Everything below describes how the
 queue got here.
 
-## What is left in the queue
+## How the queue got there
 
-1930 `done`, 35 `failed`, 5 `stopped`, 1 in flight. The 51 failures the last
-pass found broke down like this — the 4 416 rows are now `done` and the rest
-are unstarted:
+Mid-session the count stood at 1930 `done` / 35 `failed` / 5 `stopped`. Those 51
+failures broke down as below — kept because the *shape* of the breakdown is what
+led to both bugs, not because the numbers are current (they are not; see the
+final state above).
 
 | count | what | verdict |
 |---|---|---|
@@ -67,7 +68,7 @@ are unstarted:
 | 6 | other transient parse/download blips | retry |
 | ~~4~~ | ~~`HTTP 416`~~ | **fixed and resolved — see below** |
 | 2 | 1fichier `검수 probe 404 (단발)` | needs a re-probe |
-| 1 | `sqlite3.OperationalError: unable to open database file` | see open item 2 |
+| 1 | `sqlite3.OperationalError: unable to open database file` | fd exhaustion (#44) — see open item 1 |
 | 1 | Send.now `blocked` | one link |
 | 1 | `dead` | leave it |
 
@@ -195,12 +196,30 @@ cause: the process ran with the default `RLIMIT_NOFILE` soft limit of 1024
 in v2.16.7 by raising soft to hard at startup. `NullPool` makes the app spend
 more fds, so this item still matters — it is just not what killed row 2369.
 
-### 2. `commit()` then reading an ORM attribute — 233 sites
+### 2. ~~`commit()` then reading an ORM attribute~~ — resolved in v2.16.12
 
-A commit expires the instance, so the next attribute read is a fresh SELECT.
-Measured: one extra query per object. Fixed in the route layer and the bulk
-handlers; the rest are unaudited. The AST guard cannot see them — they do not
-start with `db.`.
+Fixed at the source instead of site by site: `SessionLocal` now sets
+`expire_on_commit=False`, so a commit no longer marks every instance stale and
+the following attribute read stops issuing a fresh SELECT.
+
+Static count over the non-test tree: **85 `commit()` call sites, 42 of them
+followed within six lines by a read of the row just written.** (The earlier
+"233 sites" figure in this document counted something broader and was never
+reproduced; 42 is what an AST pass actually finds.) The runtime saving is per
+execution, not per site — a transfer that commits progress twenty times used to
+pay twenty extra SELECTs.
+
+**This is only safe because nothing leaned on the implicit refresh.** All seven
+places that read `status == stopped` to notice a stop issued from *another*
+session already called `db_async.refresh` first — checked one by one before the
+change. Cancellation itself does not go through the database at all; it rides an
+in-memory `threading.Event` in `core/cancel_signal.py`.
+
+Without expiry, a forgotten refresh stops being a wasted query and becomes a
+download that ignores the stop button, so `tests/test_expire_on_commit.py`
+guards it: it measures that no SELECT follows a commit, that `refresh` still
+re-reads, and — by AST — that every stopped-check re-reads its row first. The
+guard was verified by deleting one refresh and confirming it named the line.
 
 ### 3. ~~The 12 leftover `.part` files~~ — resolved
 
@@ -343,5 +362,5 @@ launch test would suit them.
 - `frontend/tests/layout.test.js` — column indexes, no flex on a `<td>`, phone
   scrolls sideways, sticky header.
 
-Backend 886 tests, frontend 36. `npm test` runs in the Dockerfile and in all
+Backend 906 tests, frontend 36. `npm test` runs in the Dockerfile and in all
 three release jobs.
