@@ -180,6 +180,45 @@ class TestStandingHostEgressDenial:
         assert _route(dc, req, route="vpn") is True
 
 
+class TestStandingDenialOutranksEveryRoute:
+    """The denial is not a preference between working paths — it is one path that
+    cannot work. `manual` is the shipped default and its whole job is to leave the
+    per-item toggle alone, so without this the rule did nothing on a stock install.
+    """
+
+    def test_manual_still_refuses_a_denied_egress(self):
+        dc = DownloadCore()
+        req = FakeReq("https://datanodes.to/abc123", use_proxy=True)
+        assert _route(dc, req, route=ROUTE_MANUAL) is False
+
+    def test_manual_leaves_other_hosts_toggled_as_the_user_set_them(self):
+        dc = DownloadCore()
+        req = FakeReq("https://1fichier.com/?abc", use_proxy=True)
+        assert _route(dc, req, route=ROUTE_MANUAL) is True
+
+    def test_manual_does_not_touch_an_already_direct_item(self):
+        dc = DownloadCore()
+        req = FakeReq("https://datanodes.to/abc123", use_proxy=False)
+        db = FakeDb()
+        original = dc_module.get_config
+        try:
+            dc_module.get_config = lambda: {"download_route": ROUTE_MANUAL}
+            dc._apply_download_route(req, db)
+        finally:
+            dc_module.get_config = original
+        assert req.use_proxy is False
+        assert db.commits == 0, "nothing changed, so nothing should be written"
+
+    def test_a_learned_block_does_not_override_manual(self):
+        # Deliberately narrower than the standing denial: a learned block is a
+        # heuristic read off live failures and it expires, so letting it silently
+        # override the user's own toggle would be guessing on their behalf.
+        dc = DownloadCore()
+        dc._register_egress_block("1fichier.com", EGRESS_VPN)
+        req = FakeReq("https://1fichier.com/?abc", use_proxy=True)
+        assert _route(dc, req, route=ROUTE_MANUAL) is True
+
+
 class TestRouteSemantics:
     """"direct only" has to actually force direct, and the default must not."""
 

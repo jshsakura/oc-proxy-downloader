@@ -19,6 +19,11 @@ from services.sse_manager import sse_manager
 # The legacy synchronous download manager has been removed
 
 
+# Marks a download still in flight. A file WITHOUT it is one the user already
+# has, which is why recovery paths must never delete a non-.part file.
+PART_SUFFIX = '.part'
+
+
 def generate_file_path(filename, is_temporary=True):
     """Generate a file save path"""
     download_dir = get_download_path()
@@ -30,7 +35,7 @@ def generate_file_path(filename, is_temporary=True):
     # Handle duplicate file names
     counter = 1
     original_path = file_path
-    while file_path.exists() or (file_path.with_suffix(file_path.suffix + '.part').exists() if not is_temporary else False):
+    while file_path.exists() or (file_path.with_suffix(file_path.suffix + PART_SUFFIX).exists() if not is_temporary else False):
         stem = original_path.stem
         suffix = original_path.suffix
         file_path = original_path.parent / f"{stem}({counter}){suffix}"
@@ -38,15 +43,15 @@ def generate_file_path(filename, is_temporary=True):
 
     # Add the .part extension while downloading
     if is_temporary:
-        file_path = file_path.with_suffix(file_path.suffix + '.part')
+        file_path = file_path.with_suffix(file_path.suffix + PART_SUFFIX)
 
     return str(file_path)
 
 
 def get_final_file_path(temp_file_path):
     """Generate the final file path from the temporary file (.part)"""
-    if temp_file_path.endswith('.part'):
-        return temp_file_path[:-5]  # remove .part
+    if temp_file_path.endswith(PART_SUFFIX):
+        return temp_file_path[:-len(PART_SUFFIX)]
     return temp_file_path
 
 

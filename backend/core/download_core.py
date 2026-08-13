@@ -25,7 +25,7 @@ from .config import get_download_path, get_config
 from .db import SessionLocal
 from services.sse_manager import sse_manager
 from services.notification_service import send_telegram_start_notification, send_telegram_notification
-from utils.file_helpers import download_file_content, generate_file_path, get_final_file_path
+from utils.file_helpers import PART_SUFFIX, download_file_content, generate_file_path, get_final_file_path
 from core import db_async
 from core import live_progress
 from core.slots import slot_without_session
@@ -549,6 +549,20 @@ class DownloadCore:
                     handler already maintains, so no extra state is needed.
         - balance : take the egress with a free slot, preferring direct.
         """
+        # A standing denial is not a preference between working paths — it is one
+        # path that cannot work for this host at all, so it outranks every route.
+        # `manual` is the shipped default and its whole job is to leave the
+        # per-item toggle alone, which without this check meant honouring a
+        # toggle straight into a guaranteed failure (and a burnt captcha).
+        # Deliberately narrower than the learned _egress_blocked table: that one
+        # is a heuristic read off live failures and it expires, so letting it
+        # override the user's own toggle would be guessing on their behalf.
+        host_key, _ = self._resolve_host_limit(req.original_url or req.url)
+        if req.use_proxy and egress_denied_for_host(host_key, EGRESS_VPN):
+            req.use_proxy = False
+            db.commit()
+            print(f"[LOG] {host_key} 는 {EGRESS_VPN} 을 거부: id={req.id} → {EGRESS_DIRECT}")
+
         route = _read_download_route()
         if route == ROUTE_MANUAL:
             return
@@ -567,8 +581,6 @@ class DownloadCore:
                 req.use_proxy = False
                 db.commit()
             return
-
-        host_key, _ = self._resolve_host_limit(req.original_url or req.url)
 
         # Learn from the attempt that just failed: a proxy_blocked verdict means
         # the host rejected the IP itself, not the request. Record it before
@@ -593,7 +605,6 @@ class DownloadCore:
         elif route == "auto":
             want = bool((req.attempt_count or 0) % 2)
         else:  # balance
-            host_key, _ = self._resolve_host_limit(req.original_url or req.url)
             is_fichier = "1fichier.com" in (req.url or "")
 
             def free(egress: str) -> bool:
@@ -1746,6 +1757,19 @@ class DownloadCore:
             )
             raise Exception(
                 "HTTP 416: 이어받기 지점이 파일 끝을 넘었으나 실제 길이를 확인할 수 없습니다"
+            )
+
+        if not req.save_path.endswith(PART_SUFFIX):
+            # Discarding only ever means "throw away a partial". Without the
+            # suffix this is a file the user already has, and no length
+            # mismatch justifies deleting it out from under them.
+            print(
+                f"[WARNING] 416: {req.save_path} 은 {PART_SUFFIX} 파일이 아니라 "
+                f"지우지 않는다"
+            )
+            raise Exception(
+                "HTTP 416: 이어받기 지점이 파일 끝을 넘었으나 대상이 완성 파일이라 "
+                "삭제하지 않았습니다"
             )
 
         print(

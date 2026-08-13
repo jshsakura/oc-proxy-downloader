@@ -208,6 +208,28 @@ class TestResolveRangeOverrun:
         assert not part.exists()
 
     @pytest.mark.asyncio
+    async def test_a_finished_file_is_never_deleted(self, tmp_path):
+        # The discard branch only ever means "throw away a partial". If save_path
+        # is not a .part it is a file the user already has, and no length
+        # mismatch justifies deleting it out from under them.
+        finished = tmp_path / "f.rar"
+        finished.write_bytes(b"x" * 150)
+        req = SimpleNamespace(id=1, save_path=str(finished), total_size=150)
+        core = self._core_with_stubbed_finalize()
+        session = FakeSession(
+            FakeResponse(206, {"Content-Range": "bytes 0-0/100", "Content-Length": "1"})
+        )
+
+        with pytest.raises(Exception, match="416"):
+            await core._resolve_range_overrun(
+                req, db=None, response=FakeResponse(416, {}),
+                part_size=150, download_mode="local",
+                session=session, url="https://host/f", headers={},
+            )
+
+        assert finished.exists()
+
+    @pytest.mark.asyncio
     async def test_an_unknown_length_keeps_the_part_and_raises(self, tmp_path):
         # This is the case that would otherwise throw away gigabytes on a guess.
         part = tmp_path / "f.rar.part"
