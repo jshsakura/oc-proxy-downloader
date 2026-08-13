@@ -274,6 +274,34 @@ The VPN stays on for everything else. 1fichier works over it, and its per-IP
 free-tier throttle is exactly what a second egress is good for. **When adding an
 egress, measure the success rate per host, not the exit IP.**
 
+## The Windows release (v2.16.10)
+
+The pipeline was green but barely verified. `Verify EXE` only checked that a
+file appeared on disk, which cannot see either way this build actually fails:
+
+- **The EXE dies on launch.** v2.16.7 shipped `import resource` (Unix-only) and
+  broke the Windows build. It was caught by luck — a test happened to import the
+  module during collection. Nothing else would have noticed, and v2.16.7 has no
+  release to this day.
+- **The EXE comes up without its frontend.** `app_factory` only *warns* when the
+  static bundle is missing and starts anyway, so an EXE with no UI inside passes
+  every existence check and every backend health probe.
+
+`standalone/smoke_test.ps1` now launches the real binary in the release job and
+demands three things: `/api/auth/status` answers, `/` returns the app's
+`index.html`, and the hashed `/assets/*.js` bundle that index references
+actually serves. The third is what separates "index.html got bundled" from "the
+whole dist directory got bundled".
+
+The script's assertions were validated against the live app before shipping
+(all three pass there), and its PowerShell parses clean. `DOCKER_CONTAINER=1`
+is set only to suppress the browser auto-open — it is the app's existing switch
+for that and touches nothing else; the frontend path keys on `sys.frozen`
+first, so it cannot be misdirected by that variable.
+
+Not yet done: the Linux and macOS jobs still only build their archives. The same
+launch test would suit them.
+
 ## Guards worth knowing about
 
 - `backend/tests/test_event_loop_safety.py` — no async route handler, no writer

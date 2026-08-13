@@ -123,6 +123,14 @@ jobs:
           }
           Get-Item oc-proxy-downloader.exe | Select-Object Name, Length, LastWriteTime
 
+      # A file on disk is not a working build. This launches the EXE and demands
+      # that it serve its API *and* its frontend — the two failures the previous
+      # check could not see. See standalone/smoke_test.ps1 for why each matters.
+      - name: Smoke-test the EXE
+        shell: pwsh
+        run: |
+          ./standalone/smoke_test.ps1 -ExePath "standalone/dist/oc-proxy-downloader.exe"
+
       - name: Rename EXE with version
         working-directory: standalone/dist
         shell: pwsh
