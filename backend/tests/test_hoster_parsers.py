@@ -110,6 +110,93 @@ def test_megaup_resolver_follows_download_token_page(monkeypatch):
     assert captured["stream"] is True
 
 
+def test_megaup_resolver_redeems_the_countdown_hop(monkeypatch):
+    """Since 2026-08 the intermediate page no longer carries the tokenized URL: it
+    links to a ``?pt=`` hop that 302s to the storage node once its countdown has
+    run. Reading only the old anchor handed the token page itself back as the
+    "file", and the download then failed on the HTML it served."""
+    hop = "https://megaup.net/9f50c9a?pt=cGFzcw%3D%3D"
+    html = f"""
+    <html><title>Download Page - MegaUp</title>
+      <button id="btndownload">Creating Download Link...</button>
+      <div id="afterdownload">please <a href="{hop}">click here</a> to access the URL</div>
+    </html>
+    """
+    node = ("https://e7.megaupdownup.org/9f50c9a/movie.rar"
+            "?download_token=b87b66a0")
+    seen = []
+
+    class _Resp:
+        def __init__(self, headers, text=""):
+            self.headers = headers
+            self.text = text
+            self.url = "https://download.megaup.net/?url=abc"
+
+        def close(self):
+            pass
+
+    def fake_get(url, headers, cookies, timeout, allow_redirects, stream, proxies=None):
+        seen.append((url, allow_redirects))
+        if url == hop:
+            # The hop answers 200 with the file page until its countdown is up.
+            if len(seen) < 3:
+                return _Resp({"Content-Type": "text/html"})
+            return _Resp({"Location": node})
+        return _Resp({"Content-Type": "text/html; charset=UTF-8"}, html)
+
+    monkeypatch.setattr(
+        hs,
+        "get_flaresolverr_context_for_url",
+        lambda url, referer="", proxies=None: {"cookies": {"cf_clearance": "ok"}, "user_agent": "Chrome/142"},
+    )
+    monkeypatch.setattr(hp.requests, "get", fake_get)
+    monkeypatch.setattr(hs.time, "sleep", lambda seconds: None)
+
+    final_link, cookies, _, referer = hs._resolve_megaup_final_link(
+        "https://download.megaup.net/?url=abc",
+        referer="https://megaup.net/id/movie.rar",
+        cookies={"sid": "cookie"},
+        user_agent="Chrome/125",
+    )
+
+    assert final_link == node
+    assert cookies == {"sid": "cookie", "cf_clearance": "ok"}
+    assert referer == "https://download.megaup.net/?url=abc"
+    assert [redirects for _, redirects in seen[1:]] == [False, False], \
+        "the hop must be read from its redirect, never followed into the file"
+
+
+def test_megaup_resolver_keeps_the_page_link_when_no_hop_is_offered(monkeypatch):
+    """A page shape we don't recognise must not turn into a bogus link."""
+    class _Resp:
+        text = "<html><body>nothing useful here</body></html>"
+        url = "https://download.megaup.net/?url=abc"
+        headers = {"Content-Type": "text/html"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        hs,
+        "get_flaresolverr_context_for_url",
+        lambda url, referer="", proxies=None: {"cookies": {}, "user_agent": None},
+    )
+    monkeypatch.setattr(
+        hp.requests, "get",
+        lambda url, headers, cookies, timeout, allow_redirects, stream, proxies=None: _Resp(),
+    )
+
+    final_link, _, _, referer = hs._resolve_megaup_final_link(
+        "https://download.megaup.net/?url=abc",
+        referer="https://megaup.net/id/movie.rar",
+        cookies={},
+        user_agent="Chrome/125",
+    )
+
+    assert final_link == "https://download.megaup.net/?url=abc"
+    assert referer == "https://megaup.net/id/movie.rar"
+
+
 def test_megaup_parser_reports_dead_page(monkeypatch):
     monkeypatch.setattr(
         hp.cloudscraper,

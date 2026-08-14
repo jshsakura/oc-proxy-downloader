@@ -14,6 +14,7 @@ the container provides through Xvfb.
 from __future__ import annotations
 
 import os
+import re
 import string
 import threading
 import time
@@ -49,6 +50,8 @@ READY_TEXT_TIMEOUT_S = 60
 # is repeated until the captcha step actually appears.
 SUBMIT_ATTEMPTS = 4
 SUBMIT_SETTLE_MS = 4_000
+# How long the step-1 button gets to show up before the flow gives up on it.
+SUBMIT_TIMEOUT_S = 20
 WIDGET_TIMEOUT_S = 15
 TOKEN_TIMEOUT_S = 60
 # The countdown button needs more than one press: the first arms the host's timer,
@@ -72,6 +75,18 @@ LOCK_WAIT_SEC = 3
 # Starting a browser with less than this remaining only burns the slot: the host's
 # own countdown alone is ~15s and the click rounds add ~50s more.
 MIN_SOLVE_BUDGET_SEC = 90
+
+# The host hands the file over by navigating the tab at its storage node. Chromium
+# turns that into a download event only when the node actually answers; when the
+# node is unreachable the navigation dies as a network error and the link — which
+# the host DID issue — is lost. So navigations are watched too, and a file-looking
+# one on the host's own domain counts as the answer. The app's downloader then
+# either fetches it or fails with the node's real reason ("node unreachable"),
+# which beats reporting "captcha passed but no link was issued".
+_PAGE_EXTENSIONS = frozenset({
+    "htm", "html", "php", "asp", "aspx", "jsp", "js", "css", "json", "xml",
+})
+_FILE_PATH_RE = re.compile(r"\.([A-Za-z0-9]{2,5})$")
 
 TURNSTILE_CONTAINER = ".cf-turnstile"
 # The checkbox sits this far in from the widget container's left edge, vertically centred.
@@ -150,8 +165,11 @@ class BrowserSolveResult:
     user_agent: str
 
 
+# The 2026-08 redesign dropped the "File Ready" pre-check banner: step 1 now
+# renders its button straight away and merely keeps it disabled until the page is
+# interactive. Waiting for text that never appears burnt a minute of the budget,
+# so readiness is left to the click's own actionability wait.
 DATANODES_FLOW = BrowserFlow(
-    ready_text="File Ready",
     submit_selector='button[name="method_free"]',
     action_selector='button:has-text("Free Download"), button:has-text("Start Download")',
 )
@@ -204,6 +222,38 @@ def _usable_cookies(raw_cookies, url: str) -> Dict[str, str]:
         if host == domain or host.endswith(f".{domain}"):
             usable[name] = cookie.get("value") or ""
     return usable
+
+
+def _same_site(candidate_host: str, page_host: str) -> bool:
+    """Whether both hosts sit under the same two-label domain.
+
+    Storage nodes are subdomains of the host's own domain (``stor03.datanodes.to``),
+    while the popunder ad networks are not — which is exactly the line that has to
+    be drawn when deciding whether a navigation is the file or an ad.
+    """
+    def tail(host: str) -> str:
+        return ".".join((host or "").lower().split(".")[-2:])
+
+    return bool(candidate_host) and tail(candidate_host) == tail(page_host)
+
+
+def _is_file_navigation(candidate: str, page_url: str) -> bool:
+    """Whether this navigation is the host handing over the file itself.
+
+    Narrow on purpose: a storage node on the host's own domain, under a hostname
+    that is not the page's own. The host's site also links file-named pages
+    (``datanodes.to/<code>/<name>.rar`` re-renders the download page), and taking
+    one of those for the file would hand the downloader an HTML page to save.
+    """
+    parsed = urlparse(candidate or "")
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    host = (parsed.hostname or "").lower()
+    page_host = (urlparse(page_url).hostname or "").lower()
+    if host == page_host or not _same_site(host, page_host):
+        return False
+    match = _FILE_PATH_RE.search((parsed.path or "").rstrip("/"))
+    return bool(match) and match.group(1).lower() not in _PAGE_EXTENSIONS
 
 
 def _proxy_settings(proxies: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
@@ -342,12 +392,25 @@ def _reach_captcha(page: Page, flow: BrowserFlow, deadline: Deadline) -> Optiona
     if not flow.submit_selector:
         return _poll(page, lambda: _turnstile_box(page), WIDGET_TIMEOUT_S, deadline)
 
+    submit = page.locator(flow.submit_selector).first
+    # The step-1 button is rendered by the page's own script, so it is not in the
+    # DOM the instant the navigation settles.
+    if not _poll(page, lambda: submit.count(), SUBMIT_TIMEOUT_S, deadline):
+        return None
+
     for _ in range(SUBMIT_ATTEMPTS):
         deadline.check("1단계 버튼")
-        submit = page.locator(flow.submit_selector).first
         if not submit.count():
             break
-        submit.click(timeout=deadline.budget_ms(CLICK_TIMEOUT_MS))
+        # The button is disabled until the page finishes arming itself, so this
+        # click waits for it. A wait that runs out is one lost attempt, not a
+        # failed solve — falling out of here with a raw Playwright timeout would
+        # reach the user as an unclassifiable error instead of a named one.
+        try:
+            submit.click(timeout=deadline.budget_ms(CLICK_TIMEOUT_MS))
+        except Exception as exc:
+            print(f"[DEBUG] 1단계 버튼 클릭 재시도: {type(exc).__name__}")
+            continue
         page.wait_for_timeout(SUBMIT_SETTLE_MS)
         box = _poll(page, lambda: _turnstile_box(page), WIDGET_TIMEOUT_S, deadline)
         if box:
@@ -378,7 +441,14 @@ def _drive_to_download(
         deadline.check("다운로드 시작 버튼")
         action = page.locator(flow.action_selector).first
         if action.count():
-            action.click(timeout=deadline.budget_ms(CLICK_TIMEOUT_MS))
+            # The button relabels itself through the countdown ("Free Download" →
+            # "Ready in 4s" → "Start Download"), and a click landing on the frame
+            # that re-renders it times out. That is one lost press, not a failed
+            # solve — the next round presses the settled button.
+            try:
+                action.click(timeout=deadline.budget_ms(CLICK_TIMEOUT_MS))
+            except Exception as exc:
+                print(f"[DEBUG] 다운로드 버튼 클릭 재시도: {type(exc).__name__}")
         page.wait_for_timeout(min(ACTION_ROUND_WAIT_MS, deadline.budget_ms(ACTION_ROUND_WAIT_MS)))
         if captured.get("url"):
             return captured["url"]
@@ -413,6 +483,10 @@ def solve_download_page(
         # Only the URL is wanted; the real transfer is done by the app's downloader.
         download.cancel()
 
+    def on_request(request) -> None:
+        if request.is_navigation_request() and _is_file_navigation(request.url, url):
+            captured.setdefault("url", request.url)
+
     host = (urlparse(url).hostname or "").lower()
     with _queued_browser_slot(host, deadline):
         with sync_playwright() as pw:
@@ -425,6 +499,7 @@ def solve_download_page(
                 )
                 page = context.new_page()
                 page.on("download", on_download)
+                page.on("request", on_request)
 
                 page.goto(
                     url,

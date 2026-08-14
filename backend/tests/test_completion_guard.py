@@ -66,6 +66,19 @@ def test_각종_페이지_응답을_잡아낸다(tmp_path, body):
         assert_downloaded_a_real_file(req, len(body), "")
 
 
+def test_공유기_차단_안내_페이지는_그렇게_말한다(tmp_path):
+    """호스터가 준 캡차와 내 공유기가 가로챈 차단 페이지는 조치가 다르다.
+    실측: megaup 최종 노드가 이 179 바이트 페이지로 돌아왔다."""
+    body = (
+        b'<html>\n<head>\n<meta HTTP-EQUIV="REFRESH" content="0; '
+        b'url=http://blocking.asus.hns.tm/?cat_id=75&domain=e7.megaupdownup.org">\n'
+        b"</head>\n<body></body>\n</html>\n"
+    )
+    req = _Req(save_path=_write(str(tmp_path), "x.rar", body))
+    with pytest.raises(Exception, match="네트워크차단페이지"):
+        assert_downloaded_a_real_file(req, len(body), "")
+
+
 def test_전송이_끊기면_실패(tmp_path):
     # Content-Length 를 받았는데 그보다 적게 받았으면 완료가 아니다.
     req = _Req(save_path=_write(str(tmp_path), "x.rar", b"Rar!\x1a\x07\x01\x00"), total_size=5_000_000_000)

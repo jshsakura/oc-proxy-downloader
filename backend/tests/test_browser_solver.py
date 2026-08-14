@@ -12,10 +12,11 @@ from core.hoster_common import HosterParseError
 # --- flow registry ---
 
 
-def test_datanodes_flow_waits_for_the_precheck_animation():
-    """Clicking before "File Ready" appears is silently dropped by the site."""
+def test_datanodes_flow_does_not_wait_for_a_banner_the_page_dropped():
+    """The redesigned page has no "File Ready" text; polling for it only burnt
+    a minute of the solve budget before the first click."""
     flow = bs.flow_for_host("datanodes.to")
-    assert flow.ready_text == "File Ready"
+    assert flow.ready_text is None
     assert flow.submit_selector == 'button[name="method_free"]'
 
 
@@ -175,6 +176,32 @@ def test_datanodes_turnstile_page_goes_straight_to_the_browser(monkeypatch):
     assert posts == [], "the captcha page must short-circuit before the download2 POST"
     assert calls[0][0] == "https://datanodes.to/abc"
     assert calls[0][1] is bs.DATANODES_FLOW
+
+
+# --- link capture ---
+
+
+def test_a_storage_node_navigation_counts_as_the_link():
+    """The host hands the file over by navigating the tab at its storage node. If
+    that node is unreachable no download event ever fires, and the link the host
+    DID issue used to be thrown away as "captcha passed but no link issued"."""
+    page = "https://datanodes.to/exren3rgg1m9"
+
+    assert bs._is_file_navigation(
+        "https://stor03.datanodes.to:8443/d/ykmm/Some%20Game.part2.rar", page
+    )
+
+
+def test_ad_and_page_navigations_are_not_mistaken_for_the_link():
+    page = "https://datanodes.to/exren3rgg1m9"
+
+    # popunder ad network — different site
+    assert not bs._is_file_navigation("https://andallthemise.org/x/y.rar", page)
+    # the host's own pages are not files, extension or not — including the
+    # file-named one that just re-renders the download page
+    assert not bs._is_file_navigation("https://datanodes.to/download", page)
+    assert not bs._is_file_navigation("https://datanodes.to/premium.php", page)
+    assert not bs._is_file_navigation("https://datanodes.to/exren3rgg1m9/Some%20Game.rar", page)
 
 
 # --- serialisation ---

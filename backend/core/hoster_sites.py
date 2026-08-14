@@ -12,6 +12,7 @@ import base64
 import html
 import json
 import re
+import time
 from typing import Dict, Optional
 from urllib.parse import unquote, urljoin, urlparse
 
@@ -55,6 +56,12 @@ __all__ = [
     'parse_bunkr_sync',
 ]
 
+
+# MegaUp arms its ``?pt=`` hop behind a countdown (6s in the page's own script,
+# but the server releases it sooner). Poll it instead of sleeping out the whole
+# countdown: the first attempt usually already gets the 302.
+MEGAUP_CONTINUE_DELAY_SEC = 2
+MEGAUP_CONTINUE_ATTEMPTS = 4
 
 GOFILE_API_BASE = "https://api.gofile.io"
 _GOFILE_ID_RE = re.compile(r"/(?:d/)?([A-Za-z0-9]+)/?$")
@@ -127,6 +134,72 @@ def _extract_megaup_token_link(html_text: str, base_url: str) -> str:
     return html.unescape(match.group(0)) if match else ""
 
 
+def _extract_megaup_continue_link(html_text: str, base_url: str) -> str:
+    """The ``?pt=`` hop MegaUp's download page hides behind its countdown.
+
+    Since 2026-08 the intermediate page no longer renders the tokenized file URL.
+    It runs a countdown and then sends the browser to ``megaup.net/<code>?pt=…``,
+    which 302s to the storage node. The page keeps the same link in its
+    "if the download doesn't start, click here" fallback anchor, so the hop is
+    readable without executing the page's (obfuscated) script.
+    """
+    soup = BeautifulSoup(html_text or "", "html.parser")
+    for anchor in soup.find_all("a", href=True):
+        href = html.unescape((anchor.get("href") or "").strip())
+        if "?pt=" in href or "&pt=" in href:
+            return urljoin(base_url, href)
+    match = re.search(
+        r"""https?://[^'"\s<>]+[?&]pt=[^'"\s<>]+""",
+        html_text or "",
+        re.IGNORECASE,
+    )
+    return html.unescape(match.group(0)) if match else ""
+
+
+def _follow_megaup_continue_link(
+    continue_link: str,
+    *,
+    referer: str,
+    cookies: Dict[str, str],
+    user_agent: str,
+    proxies: Optional[Dict[str, str]] = None,
+) -> str:
+    """Redeem the ``?pt=`` hop for the storage-node URL it redirects to.
+
+    The hop is armed by a server-side countdown: asked too early it answers 200
+    with the file page instead of a 302, so it is polled rather than waited out
+    in full. Only the redirect target is wanted — the body is never downloaded.
+    """
+    headers = {
+        "User-Agent": user_agent,
+        "Referer": referer,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "identity",
+    }
+    for _ in range(MEGAUP_CONTINUE_ATTEMPTS):
+        time.sleep(MEGAUP_CONTINUE_DELAY_SEC)
+        try:
+            response = requests.get(
+                continue_link,
+                headers=headers,
+                cookies=cookies,
+                timeout=30,
+                allow_redirects=False,
+                stream=True,
+                proxies=proxies,
+            )
+        except Exception as exc:
+            print(f"[WARNING] MegaUp 대기 링크 확인 실패: {exc}")
+            return ""
+        try:
+            location = response.headers.get("Location") or response.headers.get("location")
+        finally:
+            response.close()
+        if location:
+            return urljoin(continue_link, html.unescape(location.strip()))
+    return ""
+
+
 def _resolve_megaup_final_link(
     download_link: str,
     *,
@@ -167,10 +240,21 @@ def _resolve_megaup_final_link(
     finally:
         response.close()
 
-    final_link = _extract_megaup_token_link(text, response.url or download_link)
+    page_url = response.url or download_link
+    final_link = _extract_megaup_token_link(text, page_url)
+    if not final_link:
+        continue_link = _extract_megaup_continue_link(text, page_url)
+        if continue_link:
+            final_link = _follow_megaup_continue_link(
+                continue_link,
+                referer=page_url,
+                cookies=merged_cookies,
+                user_agent=browser_ua,
+                proxies=proxies,
+            )
     if not final_link:
         return download_link, merged_cookies, browser_ua, referer
-    return final_link, merged_cookies, browser_ua, response.url or download_link
+    return final_link, merged_cookies, browser_ua, page_url
 
 
 def parse_megaup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
@@ -242,11 +326,28 @@ def _parse_datanodes_url(url: str) -> tuple[str, str]:
     return file_code, filename
 
 
+def _extract_datanodes_filename(soup: BeautifulSoup) -> str:
+    """The real filename, from the step-1 form the page submits.
+
+    A bare ``datanodes.to/<code>`` link carries no name, and the page title is
+    just the code — which is what the download used to be saved as: a name with
+    no extension. The form that posts step 1 does know it, in a hidden ``fname``.
+    The page header carries a decoy input of the same name (value "Download"),
+    so the form is addressed directly and a value without a dot is never taken.
+    """
+    for selector in ('form#downloadForm input[name="fname"]', 'input[name="fname"]'):
+        for node in soup.select(selector):
+            value = html.unescape((node.get("value") or "").strip())
+            if "." in value:
+                return value
+    return ""
+
+
 def _extract_datanodes_file_info(url: str, html_text: str) -> Dict[str, str]:
     _, filename = _parse_datanodes_url(url)
     soup = BeautifulSoup(html_text or "", "html.parser")
     if not filename:
-        filename = _extract_title_filename(soup, url)
+        filename = _extract_datanodes_filename(soup) or _extract_title_filename(soup, url)
     size = _extract_largest_size_from_text(html_text or "")
     info: Dict[str, str] = {}
     if filename:

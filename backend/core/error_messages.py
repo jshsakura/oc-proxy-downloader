@@ -168,6 +168,17 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "계속 실패하면 해당 포트 아웃바운드를 허용하거나 VPN/프록시를 사용하세요.",
      KIND_TRANSIENT, False),
 
+    # --- this network intercepted the request ---
+    # A router web filter (ASUS AiProtection 등) or an ISP block answers with its
+    # own notice page, which looks exactly like a captcha page from here. Saying
+    # "Cloudflare" there sends the user to wait out something that will never
+    # clear: the block is on their own line, and only they can lift it.
+    ("네트워크차단페이지",
+     "공유기/ISP 의 차단 필터가 이 호스트를 가로챘습니다 (호스터가 준 응답이 아닙니다)",
+     "공유기 웹필터(AiProtection 등)나 DNS 차단에서 해당 도메인을 허용하거나, "
+     "설정에서 프록시/VPN 모드로 받으세요. 같은 회선에서 재시도하면 계속 같은 결과입니다.",
+     KIND_PROXY_BLOCKED, True),
+
     # --- auth_required: guest slots / registered-user only ---
     ("rapidgator 무료 모드는 500 mb 초과",
      "Rapidgator 무료 모드 제한으로 이 파일을 받을 수 없습니다",

@@ -50,11 +50,22 @@ class TestFileNameReplacement:
         assert dc._should_replace_file_name("movie.mkv", "other.mkv") is False
 
 
+class _FakeBody:
+    """Just enough of aiohttp's stream to let the guard peek at the body."""
+
+    def __init__(self, data: bytes):
+        self._data = data
+
+    async def read(self, size=-1):
+        return self._data if size < 0 else self._data[:size]
+
+
 class _FakeAioResponse:
-    def __init__(self, status, reason="OK", headers=None):
+    def __init__(self, status, reason="OK", headers=None, body=b""):
         self.status = status
         self.reason = reason
         self.headers = headers or {}
+        self.content = _FakeBody(body)
 
     async def __aenter__(self):
         return self
@@ -242,6 +253,51 @@ async def test_special_hoster_direct_download_rejects_html_response(monkeypatch)
         )
 
     assert "파일 대신 HTML" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_direct_download_names_a_router_block_page_for_what_it_is(monkeypatch):
+    """The same "HTML instead of a file" can be the user's own router filter. Told
+    it is Cloudflare, they wait for something that will never clear."""
+
+    core = dc.DownloadCore()
+    req = _FakeDownloadRequest()
+    req.url = "https://megaup.net/code/movie.rar"
+    req.original_url = req.url
+    db = _FakeDb()
+
+    monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
+    monkeypatch.setattr(dc, "send_telegram_start_notification", lambda *a, **kw: None)
+    core.send_download_update = AsyncMock()
+
+    def session_factory(*args, **kwargs):
+        s = _FakeAioSession(*args, **kwargs)
+        s.response = _FakeAioResponse(
+            200,
+            "OK",
+            headers={"Content-Type": "text/html; charset=UTF-8"},
+            body=(
+                b'<html><head><meta HTTP-EQUIV="REFRESH" content="0; '
+                b'url=http://blocking.asus.hns.tm/?cat_id=75&domain=e7.megaupdownup.org">'
+                b"</head><body></body></html>"
+            ),
+        )
+        return s
+
+    monkeypatch.setattr(dc.aiohttp, "ClientSession", session_factory)
+    monkeypatch.setattr(dc.aiohttp, "ClientTimeout", lambda **kwargs: kwargs)
+
+    with pytest.raises(Exception) as excinfo:
+        await core._download_file_directly(
+            req,
+            db,
+            "https://e7.megaupdownup.org/code/movie.rar?download_token=t",
+            cookies={},
+            user_agent="UA",
+            referer=req.url,
+        )
+
+    assert "네트워크차단페이지" in str(excinfo.value)
 
 
 @pytest.mark.asyncio

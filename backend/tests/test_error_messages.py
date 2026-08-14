@@ -150,6 +150,9 @@ class TestKindClassification:
         ("Send.now는 Cloudflare 챌린지로 인해 브라우저 세션 없이 자동 다운로드를 지원하지 않음", KIND_CLOUDFLARE),
         ("Send.now Turnstile 검증 필요", KIND_CLOUDFLARE),
         ("호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함", KIND_CLOUDFLARE),
+        # 같은 "HTML 이 왔다" 여도 내 회선이 가로챈 것이면 조치가 정반대다.
+        ("네트워크차단페이지: 공유기/ISP 필터가 이 주소를 가로채 차단 안내 페이지를 "
+         "돌려줬습니다 (blocking.asus.hns.tm)", KIND_PROXY_BLOCKED),
     ])
     def test_other_hoster_constraints_are_classified(self, raw, expected_kind):
         assert classify_failure_text(raw) == expected_kind

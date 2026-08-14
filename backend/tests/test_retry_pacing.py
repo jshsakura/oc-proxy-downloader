@@ -30,9 +30,13 @@ from core.error_messages import (
 
 
 def _wait(kind, attempt=1, retry_after=None):
+    # Measured from before the call, not after: the backoff is added to a clock
+    # read *inside* it, so reading the clock again here makes an exact-minimum
+    # wait (queued: 45s + 0 jitter) come out a hair short and fail at random.
+    before = datetime.datetime.now()
     at = _compute_next_retry_at(kind, attempt, retry_after)
     assert at is not None, f"{kind} unexpectedly refused to retry"
-    return (at - datetime.datetime.now()).total_seconds()
+    return (at - before).total_seconds()
 
 
 class TestNothingRetriesTooSoon:

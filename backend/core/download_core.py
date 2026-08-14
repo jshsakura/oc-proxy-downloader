@@ -232,15 +232,43 @@ SPECIAL_NODE_RETRY_BACKOFF_SEC = (5, 15, 30)
 # 등록되지 않은 호스터는 통째로 빠져나갔다. HTML 은 어느 호스터에서 오든
 # 파일이 아니므로 게이트 없이 본다.
 _HTML_SNIFF_MARKERS = (b"<!doctype", b"<html", b"<?xml", b"<head", b"<script")
-_HTML_SNIFF_BYTES = 1024
+
+# 그 HTML 이 호스터가 준 게 아닐 수도 있다.
+#
+# 공유기의 웹필터(ASUS AiProtection 등)나 ISP 차단은 요청을 가로채 차단 안내
+# 페이지를 200 으로 돌려준다. 겉모습은 캡차 페이지와 똑같지만 원인도 조치도
+# 완전히 다르다 — 아무리 재시도해도 내 공유기가 막고 있는 건 안 열린다.
+# 실측: megaup 의 최종 노드(e7.megaupdownup.org)가 blocking.asus.hns.tm 로
+# 리다이렉트하는 179 바이트짜리 페이지로 돌아왔고, 사용자에게는
+# "Cloudflare 챌린지가 걸렸다" 라고 표시됐다.
+_NETWORK_BLOCK_MARKERS = (
+    "blocking.asus.hns.tm",  # ASUS AiProtection / Trend Micro HNS
+    "warning.or.kr",         # 방송통신심의위원회 (국내 ISP) 차단 안내
+)
+_BLOCK_PAGE_SNIFF_BYTES = 2048
 
 
-def _looks_like_html(path: str) -> bool:
+def _network_block_notice(preview: bytes) -> str:
+    """차단 안내 페이지면 그렇게 말하는 메시지, 아니면 빈 문자열."""
+    text = preview.decode("utf-8", "ignore").lower()
+    for marker in _NETWORK_BLOCK_MARKERS:
+        if marker in text:
+            return (
+                f"네트워크차단페이지: 공유기/ISP 필터가 이 주소를 가로채 "
+                f"차단 안내 페이지를 돌려줬습니다 ({marker})"
+            )
+    return ""
+
+
+def _read_head(path: str, size: int = _BLOCK_PAGE_SNIFF_BYTES) -> bytes:
     try:
         with open(path, "rb") as fh:
-            head = fh.read(_HTML_SNIFF_BYTES)
+            return fh.read(size)
     except OSError:
-        return False
+        return b""
+
+
+def _looks_like_html(head: bytes) -> bool:
     stripped = head.lstrip()[:256].lower()
     return any(stripped.startswith(m) for m in _HTML_SNIFF_MARKERS)
 
@@ -252,8 +280,12 @@ def assert_downloaded_a_real_file(req, downloaded_size: int, content_type: str =
         raise Exception("호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함")
 
     path = getattr(req, "save_path", None)
-    if path and os.path.exists(path) and _looks_like_html(path):
-        raise Exception("받은 내용이 파일이 아니라 HTML 페이지입니다 (캡차/미러 목록/차단 페이지)")
+    head = _read_head(path) if path and os.path.exists(path) else b""
+    if _looks_like_html(head):
+        raise Exception(
+            _network_block_notice(head)
+            or "받은 내용이 파일이 아니라 HTML 페이지입니다 (캡차/미러 목록/차단 페이지)"
+        )
 
     # Content-Length 를 받았는데 그보다 적게 받았으면 끊긴 것이다.
     total = getattr(req, "total_size", 0) or 0
@@ -2001,8 +2033,12 @@ class DownloadCore:
                             # is_special_hoster_url() 로 게이팅돼 있어서 등록되지
                             # 않은 호스터(multiup 등)의 HTML 이 파일로 저장됐다.
                             if "text/html" in content_type:
+                                # 본문 앞부분을 봐야 이게 호스터의 캡차인지, 내
+                                # 회선의 차단 안내 페이지인지 구분할 수 있다.
+                                preview = await response.content.read(_BLOCK_PAGE_SNIFF_BYTES)
                                 raise Exception(
-                                    "호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함"
+                                    _network_block_notice(preview)
+                                    or "호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함"
                                 )
                             # Continue handling the response at the same indentation level so we
                             # can reuse the code that lives outside the with-block below.

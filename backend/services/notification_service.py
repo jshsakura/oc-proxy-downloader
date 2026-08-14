@@ -310,12 +310,14 @@ def send_telegram_notification(file_name: str, status: str, error: str = None, l
                     "parse_mode": "HTML"
                 }
 
-                print(f"[DEBUG] 텔레그램 요청 URL: {url}")
+                # 요청 URL 은 찍지 않는다 — 봇 토큰이 경로에 그대로 들어있어서
+                # 알림 한 번에 자격증명이 로그로 새어나간다. 성공 응답 본문도
+                # 보낸 메시지를 통째로 되돌려주는 수십 줄짜리 JSON 이라, 실제로
+                # 볼 게 있는 실패 때만 남긴다.
                 print(f"[DEBUG] 텔레그램 메시지 내용: {message[:100]}...")
 
                 response = requests.post(url, json=payload, timeout=10)
                 print(f"[DEBUG] 텔레그램 응답 코드: {response.status_code}")
-                print(f"[DEBUG] 텔레그램 응답 내용: {response.text}")
 
                 if response.status_code == 200:
                     print(f"[TELEGRAM] {status} 알림 전송 성공: {file_name}")
