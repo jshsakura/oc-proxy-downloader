@@ -251,6 +251,18 @@ _NETWORK_BLOCK_MARKERS = (
     "warning.or.kr",         # 방송통신심의위원회 (국내 ISP) 차단 안내
 )
 _BLOCK_PAGE_SNIFF_BYTES = 2048
+# A filter that intercepts :443 answers the TLS handshake in plaintext HTTP, and
+# that is precisely what OpenSSL reports as WRONG_VERSION_NUMBER: bytes arrived,
+# they just were not TLS. Measured on e7.megaupdownup.org — :443 gave this error
+# while :80 served the AiProtection block page. The block page never reaches the
+# failing request, so the failure has to go and fetch it.
+_PLAINTEXT_ON_TLS_PORT_MARKER = "wrong_version_number"
+_BLOCK_PROBE_TIMEOUT_SEC = 10
+
+
+def looks_like_plaintext_on_tls_port(error_text: str) -> bool:
+    """Whether a connection error means something answered :443 without TLS."""
+    return _PLAINTEXT_ON_TLS_PORT_MARKER in (error_text or "").lower()
 
 
 def _network_block_notice(preview: bytes) -> str:
@@ -1737,6 +1749,31 @@ class DownloadCore:
 
         await self._finalize_completed_file(req, db, downloaded_size, download_mode)
 
+    async def _probe_line_block(self, url: str) -> str:
+        """Ask :80 what intercepted :443, or return "" if nothing did.
+
+        Only called once the TLS error already said something answered without
+        TLS, so this costs one small request on a download that has already
+        failed — and it is the only way to see the page, which the filter serves
+        on :80 alone. Returning "" leaves the caller's original message intact.
+        """
+        parts = urlparse(url)
+        plain = urlunparse(("http", parts.hostname or "", parts.path, "", "", ""))
+        timeout = aiohttp.ClientTimeout(total=_BLOCK_PROBE_TIMEOUT_SEC)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(plain, allow_redirects=False) as response:
+                    preview = await response.content.read(_BLOCK_PAGE_SNIFF_BYTES)
+        except Exception as probe_error:
+            print(f"[LOG] 차단 페이지 확인 실패(무시): {probe_error}")
+            return ""
+
+        notice = _network_block_notice(preview)
+        if notice:
+            print(f"[LOG] 회선 차단 확인: {parts.hostname}")
+            return f"{notice} — 대상 도메인: {parts.hostname}"
+        return ""
+
     async def _probe_complete_length(self, session, url, headers, proxy=None):
         """Learn the resource's full length, or ``None`` if it cannot be had.
 
@@ -2138,6 +2175,11 @@ class DownloadCore:
                     # re-parses below; that's a genuinely fresh-link case.)
                     if conn_failed and not expired:
                         node = urlparse(current_url).netloc or current_url
+                        notice = ""
+                        if looks_like_plaintext_on_tls_port(err_text):
+                            notice = await self._probe_line_block(current_url)
+                        if notice:
+                            raise Exception(notice)
                         raise Exception(
                             f"다운로드노드연결실패: {node} 에 연결할 수 없습니다 "
                             f"(노드 일시 장애 또는 비표준 포트 차단 가능)"
