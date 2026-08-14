@@ -98,7 +98,26 @@ DEFAULT_CONFIG = {
     #   "balance" - take whichever egress has a free slot, preferring direct
     # "vpn"/"auto"/"balance" need at least one active proxy or they fall back to
     # direct, so turning this on without a proxy configured changes nothing.
-    "download_route": "manual"
+    "download_route": "manual",
+    # Hosts that will not serve a given egress at all — checked before any route
+    # (including "manual") so a per-item toggle cannot aim a download at an
+    # egress that cannot work. Measured across the whole download table:
+    #
+    #   datanodes.to   direct: 1168 done /  2 failed
+    #                  vpn:       0 done / 24 failed
+    #
+    # The captcha SOLVES over the VPN and only the download link is withheld, so
+    # each VPN attempt burned a browser captcha — the most expensive, most
+    # serialized resource here — and held a host slot, to reach a certain
+    # failure. 1fichier is deliberately absent: it works over the VPN (7 done /
+    # 2 failed) and its per-IP free-tier throttle is exactly what a second
+    # egress is good for.
+    #
+    # It lives here rather than in code because it was measured against exactly
+    # one VPN exit (Surfshark JP). A different exit may work fine, and a hoster
+    # can change its mind, so set a host to [] to lift its denial or add your own
+    # once you have measured it. {} disables the whole thing.
+    "host_egress_deny": {"datanodes.to": ["vpn"]}
 }
 
 # Credentials that must never leave the server in readable form. They grant

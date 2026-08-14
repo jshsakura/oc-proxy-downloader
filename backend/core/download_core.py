@@ -140,27 +140,32 @@ DEFAULT_DOWNLOAD_ROUTE = ROUTE_MANUAL
 # the queue re-learning it, short enough that a new exit IP gets a chance.
 EGRESS_BLOCK_TTL = datetime.timedelta(hours=6)
 
-# Hosts that will not serve a given egress at all, keyed the same way as
-# SITE_DOWNLOAD_LIMITS. Unlike the learned table above this does not expire: it
-# is not an exit IP going stale, it is standing hoster policy. Measured across
-# the whole download table:
-#
-#   datanodes.to   direct: 1168 done /  2 failed
-#                  vpn:       0 done / 24 failed
-#
-# The captcha SOLVES over the VPN and only the download link is withheld, so a
-# VPN attempt burns a browser captcha — the most expensive and most serialized
-# resource the app has — and holds a host slot, to reach a guaranteed failure.
-# 1fichier is deliberately absent: it works over the VPN (7 done / 2 failed) and
-# its per-IP free-tier throttle is exactly what a second egress is good for.
-HOST_EGRESS_DENY = {
-    "datanodes.to": frozenset({EGRESS_VPN}),
-}
+# See core.config DEFAULT_CONFIG["host_egress_deny"] for the shipped policy and
+# the measurements behind it. Kept out of this module on purpose: a denial the
+# user cannot lift without editing source and cutting a release is not a policy,
+# it is a wall.
 
 
 def egress_denied_for_host(host_key: str, egress: str) -> bool:
-    """Whether `host_key` is known never to serve `egress`."""
-    return egress in HOST_EGRESS_DENY.get(host_key, frozenset())
+    """Whether `host_key` is configured never to serve `egress`.
+
+    Read from config on every call so a user can lift or add a denial without a
+    redeploy. The shipped default was measured against exactly one VPN exit
+    (Surfshark JP); a different exit may well work, and a hoster can change its
+    mind — MegaUp just changed its whole link scheme — so this must not be
+    something only a source edit can undo.
+
+    A hand-edited config.json can hold anything, so an entry that is not a list
+    of egress names denies nothing rather than crashing the download path or
+    silently blocking an egress the user never named.
+    """
+    policy = get_config().get("host_egress_deny")
+    if not isinstance(policy, dict):
+        return False
+    denied = policy.get(host_key)
+    if not isinstance(denied, (list, tuple, set, frozenset)):
+        return False
+    return egress in denied
 
 
 def _read_download_route() -> str:
@@ -1733,7 +1738,17 @@ class DownloadCore:
         await self._finalize_completed_file(req, db, downloaded_size, download_mode)
 
     async def _probe_complete_length(self, session, url, headers, proxy=None):
-        """Ask for one byte to learn the resource's length, or ``None`` if unknown."""
+        """Learn the resource's full length, or ``None`` if it cannot be had.
+
+        Two asks, cheapest first. ``Range: bytes=0-0`` costs one byte and most
+        servers answer it with the total in ``Content-Range``. A server that
+        refuses ranges outright teaches nothing that way, so the fallback drops
+        the header entirely: a plain response states the whole length in
+        ``Content-Length``, and the body is never read.
+
+        Giving up after the first ask left a row with no way forward — same
+        ``.part``, same Range, same 416, on every retry, forever.
+        """
         probe_headers = {**headers, "Range": PROBE_RANGE}
         async with session.get(url, headers=probe_headers, proxy=proxy) as probe:
             length = probed_complete_length(
@@ -1742,6 +1757,17 @@ class DownloadCore:
                 probe.headers.get("Content-Length"),
             )
             print(f"[LOG] 길이 확인 프로브: HTTP {probe.status} → {length}")
+            if length is not None:
+                return length
+
+        plain_headers = {k: v for k, v in headers.items() if k.lower() != "range"}
+        async with session.get(url, headers=plain_headers, proxy=proxy) as plain:
+            length = probed_complete_length(
+                plain.status,
+                plain.headers.get("Content-Range"),
+                plain.headers.get("Content-Length"),
+            )
+            print(f"[LOG] 길이 확인 재시도(Range 없음): HTTP {plain.status} → {length}")
             return length
 
     async def _resolve_range_overrun(

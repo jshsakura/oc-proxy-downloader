@@ -119,10 +119,14 @@ class FakeReq:
 
 
 def _route(dc, req, route="balance"):
-    """Run _apply_download_route with a given route and a live proxy available."""
+    """Run _apply_download_route with a given route and a live proxy available.
+
+    Layered over DEFAULT_CONFIG the way the real get_config is, so the shipped
+    host_egress_deny policy is in play rather than silently absent.
+    """
     original = dc_module.get_config
     try:
-        dc_module.get_config = lambda: {"download_route": route}
+        dc_module.get_config = lambda: {**DEFAULT_CONFIG, "download_route": route}
         dc._proxy_egress_available = lambda db: True
         dc._apply_download_route(req, FakeDb())
     finally:
@@ -178,6 +182,59 @@ class TestStandingHostEgressDenial:
         dc = DownloadCore()
         req = FakeReq("https://1fichier.com/?abc", use_proxy=True)
         assert _route(dc, req, route="vpn") is True
+
+
+class TestDenialIsConfigurable:
+    """The denial must be overridable without a redeploy.
+
+    It was measured against exactly one VPN exit (Surfshark JP). Hardcoding it
+    permanently meant a user on a different exit — or datanodes changing policy,
+    which MegaUp just did to its own link scheme — stayed blocked until someone
+    edited the source and shipped a release.
+    """
+
+    @staticmethod
+    def _with_config(policy):
+        original = dc_module.get_config
+        dc_module.get_config = lambda: {"host_egress_deny": policy}
+        return original
+
+    def test_the_measured_default_still_applies(self):
+        assert DEFAULT_CONFIG["host_egress_deny"] == {"datanodes.to": ["vpn"]}
+
+    def test_a_user_can_switch_it_off(self):
+        original = self._with_config({})
+        try:
+            assert egress_denied_for_host("datanodes.to", EGRESS_VPN) is False
+        finally:
+            dc_module.get_config = original
+
+    def test_a_user_can_empty_one_host_without_touching_others(self):
+        original = self._with_config({"datanodes.to": [], "gofile.io": ["vpn"]})
+        try:
+            assert egress_denied_for_host("datanodes.to", EGRESS_VPN) is False
+            assert egress_denied_for_host("gofile.io", EGRESS_VPN) is True
+        finally:
+            dc_module.get_config = original
+
+    def test_a_user_can_add_a_host_they_measured_themselves(self):
+        original = self._with_config({"rapidgator.net": ["vpn"]})
+        try:
+            assert egress_denied_for_host("rapidgator.net", EGRESS_VPN) is True
+        finally:
+            dc_module.get_config = original
+
+    @pytest.mark.parametrize(
+        "policy", [None, "datanodes.to", {"datanodes.to": "vpn"}, {"datanodes.to": None}]
+    )
+    def test_a_malformed_policy_denies_nothing_rather_than_crashing(self, policy):
+        # config.json is hand-edited. A typo must not take the download path down,
+        # and must not silently deny an egress the user never named.
+        original = self._with_config(policy)
+        try:
+            assert egress_denied_for_host("datanodes.to", EGRESS_VPN) is False
+        finally:
+            dc_module.get_config = original
 
 
 class TestStandingDenialOutranksEveryRoute:

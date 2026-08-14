@@ -137,6 +137,18 @@ class FakeSession:
         return self._probe_response
 
 
+class SequencedSession:
+    """Answers successive requests from a list, recording the headers of each."""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.sent = []
+
+    def get(self, url, headers=None, proxy=None):
+        self.sent.append(dict(headers or {}))
+        return self._responses.pop(0)
+
+
 class TestResolveRangeOverrun:
     """The wiring, not the arithmetic: a good ``.part`` must never be deleted on
     a guess. These four files were 3.6 GB of already-downloaded data."""
@@ -228,6 +240,51 @@ class TestResolveRangeOverrun:
             )
 
         assert finished.exists()
+
+    @pytest.mark.asyncio
+    async def test_a_probe_that_teaches_nothing_falls_back_to_a_plain_get(self, tmp_path):
+        """Giving up left the row with no way forward — the same .part, the same
+        Range, the same 416, every retry, forever. A request with no Range at all
+        states the resource's full length in Content-Length, which is all that
+        was missing."""
+        part = tmp_path / "f.rar.part"
+        part.write_bytes(b"x" * 100)
+        req = SimpleNamespace(id=1, save_path=str(part), total_size=140)
+        core = self._core_with_stubbed_finalize()
+        session = SequencedSession([
+            FakeResponse(403, {}),                                  # bytes=0-0 refused
+            FakeResponse(200, {"Content-Length": "100"}),           # plain GET answers
+        ])
+
+        resolved = await core._resolve_range_overrun(
+            req, db=None, response=FakeResponse(416, {}),
+            part_size=100, download_mode="local",
+            session=session, url="https://host/f", headers={},
+        )
+
+        assert resolved is True, "the .part was the whole file after all"
+        assert [h.get("Range") for h in session.sent] == [PROBE_RANGE, None]
+        assert part.exists()
+
+    @pytest.mark.asyncio
+    async def test_the_fallback_can_also_prove_a_mismatch(self, tmp_path):
+        part = tmp_path / "f.rar.part"
+        part.write_bytes(b"x" * 150)
+        req = SimpleNamespace(id=1, save_path=str(part), total_size=150)
+        core = self._core_with_stubbed_finalize()
+        session = SequencedSession([
+            FakeResponse(403, {}),
+            FakeResponse(200, {"Content-Length": "100"}),
+        ])
+
+        resolved = await core._resolve_range_overrun(
+            req, db=None, response=FakeResponse(416, {}),
+            part_size=150, download_mode="local",
+            session=session, url="https://host/f", headers={},
+        )
+
+        assert resolved is False
+        assert not part.exists()
 
     @pytest.mark.asyncio
     async def test_an_unknown_length_keeps_the_part_and_raises(self, tmp_path):
