@@ -21,6 +21,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from core.config import get_config
+from core.site_tags import SITE_TAGS
 
 
 __all__ = [
@@ -334,10 +335,12 @@ _KNOWN_FILE_EXTENSIONS = (
 )
 # Strip a leading "Download:" label and a trailing site tag (" - MegaUp",
 # "| Rapidgator", "… by NxBrew", "- NxBrew", etc.) including any leading
-# separator/ellipsis run, so what remains is just the filename.
+# separator/ellipsis run, so what remains is just the filename. The tag list is
+# ``core.site_tags.SITE_TAGS`` — the same one that keeps the tag out of the
+# stored filename, so a site added there needs no second edit here.
 _TITLE_PREFIX_RE = re.compile(r"^\s*Download(?:ing)?(?: file)?\s*:?\s*", re.I)
 _TITLE_SITE_SUFFIX_RE = re.compile(
-    r"\s*[-|–·•…\s]*(?:by\s+)?(?:MegaUp|Rapidgator|NxBrew)\b.*$", re.I
+    r"\s*[-|–·•…\s]*(?:by\s+)?(?:" + "|".join(SITE_TAGS) + r")\b.*$", re.I
 )
 
 

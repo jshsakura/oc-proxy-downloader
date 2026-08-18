@@ -1,7 +1,10 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Enum
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import validates
 import datetime
 import enum
+
+from .site_tags import strip_site_tag
 
 
 class StatusEnum(str, enum.Enum):
@@ -87,6 +90,18 @@ class DownloadRequest(_AsDictMixin, Base):
     last_probed_at = Column(DateTime, nullable=True)
     # Ring buffer of the most recent N=5 attempts (JSON array, each element {ts, stage, kind, raw, proxy})
     attempts_json = Column(Text, nullable=True)
+
+    @validates("file_name")
+    def _drop_site_tag(self, _key, value):
+        """Take the release-site tag off every name, wherever it came from.
+
+        A filename is assigned from a dozen places — the preparse, the hoster
+        page, Content-Disposition, the resume path — and a check at each one is
+        a check that will be missed the next time a source is added. Normalising
+        on the column catches them all, and catches them *before* the name
+        reaches disk, so the saved file is clean too, not just the row.
+        """
+        return strip_site_tag(value) if isinstance(value, str) else value
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
