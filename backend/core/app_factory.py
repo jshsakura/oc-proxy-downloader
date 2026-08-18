@@ -369,6 +369,8 @@ async def _run_migrations():
         ("next_retry_at", "DATETIME"),
         ("last_probed_at", "DATETIME"),
         ("attempts_json", "TEXT"),
+        # 사용자가 직접 만진 프록시 스위치 (2026-08)
+        ("proxy_pinned", "BOOLEAN DEFAULT 0"),
     ]
 
     try:

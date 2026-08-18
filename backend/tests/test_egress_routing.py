@@ -109,13 +109,14 @@ class FakeDb:
 
 
 class FakeReq:
-    def __init__(self, url, use_proxy=True, attempt_count=0):
+    def __init__(self, url, use_proxy=True, attempt_count=0, proxy_pinned=False):
         self.id = 1
         self.url = url
         self.original_url = url
         self.use_proxy = use_proxy
         self.attempt_count = attempt_count
         self.attempts_json = None
+        self.proxy_pinned = proxy_pinned
 
 
 def _route(dc, req, route="balance"):
@@ -298,5 +299,80 @@ class TestRouteSemantics:
         try:
             dc_module.get_config = lambda: {"download_route": "sideways"}
             assert _read_download_route() == DEFAULT_DOWNLOAD_ROUTE
+        finally:
+            dc_module.get_config = original
+
+
+class TestAHumanToggleOutranksTheRoute:
+    """route 가 auto/vpn/balance 이면 시작할 때마다 앱이 출구를 다시 골랐다.
+
+    사람이 방금 끈 VPN 을 그 자리에서 되켜므로, 스위치를 눌러도 아무 일도 일어나지
+    않는 것처럼 보였다 — 실제로 그렇게 보고가 들어왔다. 직접 만진 행은 건너뛴다.
+    """
+
+    def test_balance_leaves_a_pinned_item_alone(self):
+        dc = DownloadCore()
+        req = FakeReq("https://1fichier.com/?abc", use_proxy=False, proxy_pinned=True)
+        assert _route(dc, req, route="balance") is False
+
+    def test_even_the_vpn_route_leaves_a_pinned_item_alone(self):
+        dc = DownloadCore()
+        req = FakeReq("https://1fichier.com/?abc", use_proxy=False, proxy_pinned=True)
+        assert _route(dc, req, route="vpn") is False
+
+    def test_a_pin_can_also_hold_the_vpn_on(self):
+        dc = DownloadCore()
+        req = FakeReq("https://1fichier.com/?abc", use_proxy=True, proxy_pinned=True)
+        assert _route(dc, req, route="direct") is True
+
+    def test_a_pin_does_not_survive_a_host_that_refuses_the_vpn(self):
+        # 이건 취향 다툼이 아니라 그 호스트에서 그 길이 안 되는 것이다.
+        dc = DownloadCore()
+        req = FakeReq("https://datanodes.to/abc123", use_proxy=True, proxy_pinned=True)
+        assert _route(dc, req, route=ROUTE_MANUAL) is False
+
+    def test_a_pinned_vpn_falls_back_when_no_proxy_is_active(self):
+        dc = DownloadCore()
+        req = FakeReq("https://1fichier.com/?abc", use_proxy=True, proxy_pinned=True)
+        original = dc_module.get_config
+        try:
+            dc_module.get_config = lambda: {**DEFAULT_CONFIG, "download_route": ROUTE_MANUAL}
+            dc._proxy_egress_available = lambda db: False
+            dc._apply_download_route(req, FakeDb())
+        finally:
+            dc_module.get_config = original
+        assert req.use_proxy is False
+
+
+class TestTheSwitchStopsLying:
+    """출구를 앱이 바꿨으면 화면에도 그렇게 보여야 한다.
+
+    예전에는 조용히 껐다. DB 는 direct 인데 화면 스위치는 VPN 으로 켜진 채라,
+    사용자는 VPN 으로 받는 중이라고 믿었다.
+    """
+
+    def test_forcing_direct_reports_what_it_did_and_why(self):
+        dc = DownloadCore()
+        req = FakeReq("https://datanodes.to/abc123", use_proxy=True)
+        original = dc_module.get_config
+        try:
+            dc_module.get_config = lambda: {**DEFAULT_CONFIG, "download_route": ROUTE_MANUAL}
+            dc._proxy_egress_available = lambda db: True
+            result = dc._apply_download_route(req, FakeDb())
+        finally:
+            dc_module.get_config = original
+        assert result is not None, "화면에 알릴 것이 없으면 스위치가 또 거짓말을 한다"
+        use_proxy, reason = result
+        assert use_proxy is False
+        assert "datanodes.to" in reason
+
+    def test_a_route_that_changes_nothing_reports_nothing(self):
+        dc = DownloadCore()
+        req = FakeReq("https://1fichier.com/?abc", use_proxy=True)
+        original = dc_module.get_config
+        try:
+            dc_module.get_config = lambda: {**DEFAULT_CONFIG, "download_route": ROUTE_MANUAL}
+            dc._proxy_egress_available = lambda db: True
+            assert dc._apply_download_route(req, FakeDb()) is None
         finally:
             dc_module.get_config = original

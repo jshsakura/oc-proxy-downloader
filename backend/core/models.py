@@ -79,6 +79,11 @@ class DownloadRequest(_AsDictMixin, Base):
     save_path = Column(String, nullable=True)
     password = Column(String, nullable=True)
     use_proxy = Column(Boolean, default=True)  # whether to use a proxy
+    # 사용자가 이 행의 프록시 스위치를 직접 만졌다는 표시. download_route 가
+    # auto/vpn/balance 이면 시작할 때마다 앱이 use_proxy 를 다시 정하는데, 그게
+    # 사람이 방금 끈 VPN 을 조용히 되켜서 스위치가 장식처럼 보였다. 이 값이
+    # True 면 경로 자동 선택은 이 행을 건너뛴다.
+    proxy_pinned = Column(Boolean, default=False)
 
     # Persist the failure classification / retry policy (same values as error_messages.KIND_*)
     # These columns prevent the problems of text re-classification (whose meaning

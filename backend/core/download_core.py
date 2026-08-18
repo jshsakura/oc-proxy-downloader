@@ -17,7 +17,7 @@ import re
 import traceback
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any, AsyncGenerator
+from typing import Optional, Dict, Any, AsyncGenerator, Tuple
 from sqlalchemy.orm import Session
 
 from .models import DownloadRequest, StatusEnum
@@ -586,8 +586,26 @@ class DownloadCore:
             return False
         return True
 
-    def _apply_download_route(self, req: DownloadRequest, db: Session) -> None:
+    @staticmethod
+    def _force_direct(req: DownloadRequest, db: Session, reason: str) -> Tuple[bool, str]:
+        """프록시를 끄고, 끈 이유를 호출자에게 돌려준다.
+
+        예전에는 조용히 껐다. DB 의 use_proxy 는 False 인데 화면의 스위치는 켜진
+        채로 남아서, 사용자가 보기에는 VPN 으로 받는 중인데 실제로는 직접
+        연결이었다 — 스위치가 거짓말을 하고 있었다. 알리는 일은 이 함수가 하지
+        않는다: 여기는 워커 스레드(``asyncio.to_thread``)라 SSE 를 직접 보낼 수
+        없다. 이유를 반환하면 루프 위에 있는 호출자가 보낸다.
+        """
+        req.use_proxy = False
+        db.commit()
+        print(f"[LOG] 직접 연결로 전환: id={req.id} — {reason}")
+        return (False, reason)
+
+    def _apply_download_route(self, req: DownloadRequest, db: Session) -> Optional[Tuple[bool, str]]:
         """Set req.use_proxy from the configured route, before any slot is taken.
+
+        경로가 이 행의 출구를 바꿨으면 (새 use_proxy, 이유) 를 돌려준다. 호출자가
+        그걸 SSE 로 내보내야 화면의 스위치가 실제 상태와 같아진다.
 
         Doing it here (once, at admission) rather than at each failure site keeps
         one place deciding which egress a download leaves through.
@@ -609,28 +627,31 @@ class DownloadCore:
         # override the user's own toggle would be guessing on their behalf.
         host_key, _ = self._resolve_host_limit(req.original_url or req.url)
         if req.use_proxy and egress_denied_for_host(host_key, EGRESS_VPN):
-            req.use_proxy = False
-            db.commit()
-            print(f"[LOG] {host_key} 는 {EGRESS_VPN} 을 거부: id={req.id} → {EGRESS_DIRECT}")
+            return self._force_direct(req, db, f"{host_key} 는 VPN 출구를 거부합니다 — 직접 연결로 받습니다")
+
+        # 사람이 직접 만진 스위치는 자동 선택보다 세다. 이게 없으면 route 가
+        # auto/balance 인 동안 방금 끈 VPN 이 시작할 때 되켜져서, 스위치를 눌러도
+        # 아무 일도 일어나지 않는 것처럼 보인다.
+        if req.proxy_pinned:
+            if req.use_proxy and not self._proxy_egress_available(db):
+                return self._force_direct(req, db, "활성화된 프록시가 없어 직접 연결로 받습니다")
+            return None
 
         route = _read_download_route()
         if route == ROUTE_MANUAL:
-            return
+            return None
 
         if route == "direct":
             # "Direct only" means only. Anything left over from a previous route
             # (or a per-item toggle) is cleared, or the label is a lie.
             if req.use_proxy:
-                req.use_proxy = False
-                db.commit()
-                print(f"[LOG] 경로 'direct' 적용: id={req.id} → direct")
-            return
+                return self._force_direct(req, db, "설정된 경로가 '직접 연결 전용' 입니다")
+            return None
 
         if not self._proxy_egress_available(db):
             if req.use_proxy:
-                req.use_proxy = False
-                db.commit()
-            return
+                return self._force_direct(req, db, "활성화된 프록시가 없어 직접 연결로 받습니다")
+            return None
 
         # Learn from the attempt that just failed: a proxy_blocked verdict means
         # the host rejected the IP itself, not the request. Record it before
@@ -646,9 +667,8 @@ class DownloadCore:
         if self._egress_blocked_for(host_key, EGRESS_VPN):
             # Nothing to decide: the only alternative egress is refused here.
             if req.use_proxy:
-                req.use_proxy = False
-                db.commit()
-            return
+                return self._force_direct(req, db, f"{host_key} 가 VPN 출구를 막고 있어 직접 연결로 받습니다")
+            return None
 
         if route == "vpn":
             want = True
@@ -678,6 +698,8 @@ class DownloadCore:
             req.use_proxy = want
             db.commit()
             print(f"[LOG] 경로 '{route}' 적용: id={req.id} → {egress_of(want)}")
+            return (want, f"경로 '{route}' 가 이 항목을 {egress_of(want)} 로 보냅니다")
+        return None
 
     def should_send_sse(self, req_id: int, retry_count: int) -> bool:
         """Decide whether to send SSE (time + count based throttling)"""
@@ -918,7 +940,14 @@ class DownloadCore:
             # Sync helper doing three commits and a query. Called straight from
             # here it blocked the loop exactly like an inline commit would —
             # being in a def rather than an async def changes nothing.
-            await asyncio.to_thread(self._apply_download_route, req, db)
+            routed = await asyncio.to_thread(self._apply_download_route, req, db)
+            if routed:
+                # 스위치가 실제 출구와 다르게 보이지 않도록 바로 알린다.
+                use_proxy, reason = routed
+                await self.send_download_update(req.id, {
+                    "use_proxy": use_proxy,
+                    "message": reason,
+                })
 
             # If file info is already present, skip parsing and start downloading right away.
             # However, for 1fichier, preparsing is needed to check the wait time and obtain a new download link.
@@ -2971,6 +3000,10 @@ class DownloadCore:
                     req.status = StatusEnum.stopped
                     req.progress = 0
                     req.message = "다운로드가 중지되었습니다."
+                    # 정지는 자동 재시도까지 멈추는 것이다. 이 값이 남아 있으면
+                    # 화면에 "재시도 대기 (3:06)" 카운트다운이 계속 돌아, 방금
+                    # 세운 항목이 곧 다시 출발할 것처럼 보인다.
+                    req.next_retry_at = None
                     await db_async.commit(db)
                     print(f"[DEBUG] DB 상태 업데이트 완료: {req_id}")
                 else:

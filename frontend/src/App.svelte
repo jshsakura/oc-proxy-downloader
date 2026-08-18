@@ -2698,7 +2698,6 @@
                       class="grid-proxy-toggle {download.use_proxy
                         ? 'proxy'
                         : 'local'}"
-                      disabled={!["stopped", "failed"].includes(download.status.toLowerCase())}
                       title={download.use_proxy
                         ? $t("proxy_mode")
                         : $t("local_mode")}
@@ -2713,6 +2712,12 @@
 
                           if (response.ok) {
                             const result = await response.json();
+                            // 실행 중인 항목은 서버가 정지 후 새 출구로 다시
+                            // 출발시킨다 — 조용히 하면 사용자가 눌러도 아무 일도
+                            // 없었던 것처럼 보인다.
+                            if (result.restarted) {
+                              toast.success($t("proxy_mode_restarted"));
+                            }
                             // Update the frontend state (grid + live list).
                             gridDownloads = gridDownloads.map((d) =>
                               d.id === download.id
@@ -2779,6 +2784,19 @@
                         <DeleteIcon />
                       </button>
                     {:else}
+                      {#if download.status?.toLowerCase() === "failed" && download.next_retry_at && new Date(download.next_retry_at).getTime() > currentTime}
+                        <!-- 자동 재시도를 기다리는 중. 이 상태에는 정지 버튼이
+                             없어서, 시작한 재시도 주기를 멈출 방법이 삭제밖에
+                             없었다. 정지하면 서버가 next_retry_at 을 지운다. -->
+                        <button
+                          class="button-icon"
+                          title={$t("action_cancel_retry")}
+                          on:click={() => callApi(`/api/downloads/stop/${download.id}`)}
+                          aria-label={$t("action_cancel_retry")}
+                        >
+                          <StopIcon />
+                        </button>
+                      {/if}
                       {#if ["downloading", "proxying", "pending", "parsing", "waiting"].includes(download.status?.toLowerCase())}
                         <button
                           class="button-icon"

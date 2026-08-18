@@ -744,16 +744,31 @@ async def toggle_proxy_mode(download_id: int, db: Session = Depends(get_db)):
         if not req:
             raise HTTPException(status_code=404, detail="다운로드 요청을 찾을 수 없습니다")
 
-        # Running downloads cannot be toggled
-        if req.status in [StatusEnum.parsing, StatusEnum.downloading, StatusEnum.waiting]:
-            raise HTTPException(status_code=400, detail="실행 중인 다운로드는 프록시 모드를 변경할 수 없습니다")
+        # 실행 중이어도 바꿀 수 있어야 한다. VPN 을 끄고 싶어지는 순간은 대개
+        # 그 항목이 VPN 으로 실패하고 있는 순간인데, 그때 스위치가 죽어 있으면
+        # 정지 → 토글 → 다시 시작을 손으로 해야 했다. 여기서 그걸 대신 한다.
+        was_running = req.status in [
+            StatusEnum.parsing, StatusEnum.downloading,
+            StatusEnum.waiting, StatusEnum.proxying,
+        ]
 
         # Toggle proxy mode. Keep the new value in a local before committing:
         # the commit expires the instance, so every req.use_proxy below would
         # otherwise re-SELECT the row on the event loop.
         use_proxy = not req.use_proxy
         req.use_proxy = use_proxy
+        # 사람이 직접 정한 값이다. download_route 가 auto/vpn/balance 여도 다음
+        # 시작 때 앱이 다시 뒤집지 않는다 — 뒤집으면 스위치가 장식이 된다.
+        req.proxy_pinned = True
         await db_async.commit(db)
+
+        if was_running:
+            await download_core.stop_download_async(download_id, db)
+            restarted = await db_async.first(
+                db.query(DownloadRequest).filter(DownloadRequest.id == download_id)
+            )
+            if restarted:
+                await download_core.start_download_async(restarted, db)
 
         # Notify the status change via SSE
         await sse_manager.broadcast_message("proxy_toggled", {
@@ -761,10 +776,17 @@ async def toggle_proxy_mode(download_id: int, db: Session = Depends(get_db)):
             "use_proxy": use_proxy,
             "message": f"프록시 모드가 {'활성화' if use_proxy else '비활성화'}되었습니다"
         })
+        # 그리드는 status_update 만 행에 병합한다. proxy_toggled 만 보내면 이
+        # 창에서는 스위치가 움직이고 다른 창에서는 그대로다.
+        await sse_manager.broadcast_message("status_update", {
+            "id": download_id,
+            "use_proxy": use_proxy,
+        })
 
         return {
             "success": True,
             "use_proxy": use_proxy,
+            "restarted": was_running,
             "message": f"프록시 모드가 {'활성화' if use_proxy else '비활성화'}되었습니다"
         }
 
