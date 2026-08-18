@@ -2,7 +2,6 @@
   import logo from "./assets/images/logo256.png";
   import {
     ACTIVE_STATUSES,
-    countActiveByStatus,
     isLiveStatus,
     truncateMiddle,
   } from "./lib/grid.js";
@@ -147,10 +146,6 @@
   let activeDownloadsTimer = null;
   // Tab badge counts come from the server (/api/history/stats), not from a local sweep.
   let workingCount = 0;
-  // Of those, the ones actually moving. The badge showed only the total, so a
-  // queue of 262 rows that were all stopped read as "262 in progress" with no
-  // speed anywhere — indistinguishable from a hung downloader.
-  let workingActiveCount = 0;
   let completedCount = 0;
 
 
@@ -1343,7 +1338,6 @@
           if (key !== "done") working += value || 0;
         }
         workingCount = working;
-        workingActiveCount = countActiveByStatus(statusCounts);
         completedCount = done;
       }
     } catch (error) {
@@ -2446,10 +2440,7 @@
             <span class="tab-icon"><DownloadIcon /></span>
             <span class="tab-label">{$t("tab_working")}</span>
             {#if workingCount > 0}
-              <span class="tab-count" title={$t("tab_working_count_hint")}
-                >{workingActiveCount}<span class="tab-count-sep">/</span
-                >{workingCount}</span
-              >
+              <span class="tab-count">{workingCount}</span>
             {/if}
           </button>
           <button

@@ -1389,14 +1389,6 @@ tbody tr:hover {
   overflow: hidden;
 }
 
-/* "3/262" — running over unfinished. The slash is dimmed so the pair reads as
-   one figure at a glance instead of two competing numbers. */
-.tab-count-sep {
-  opacity: 0.5;
-  margin: 0 0.05em;
-  font-weight: 400;
-}
-
 .filename-text {
   /* min-width:0 is what lets a flex item shrink below its content width —
      without it the name would overflow the cell instead of truncating. */

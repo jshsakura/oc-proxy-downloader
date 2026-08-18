@@ -462,6 +462,5 @@
   "download_route_auto": "자동 — 직접 연결로 시도하고 실패하면 프록시로 재시도",
   "download_route_balance": "분산 — 빈 슬롯이 있는 쪽으로",
   "download_route_manual": "항목별로 (기본) — 각 다운로드의 프록시 설정을 따릅니다",
-  "download_route_needs_proxy": "⚠ 활성화된 프록시가 없습니다. 설정 아래 프록시를 등록하기 전까지는 직접 연결로 동작합니다.",
-  "tab_working_count_hint": "실제 진행 중 / 미완료 전체"
+  "download_route_needs_proxy": "⚠ 활성화된 프록시가 없습니다. 설정 아래 프록시를 등록하기 전까지는 직접 연결로 동작합니다."
 }
