@@ -663,42 +663,53 @@
     }
   }
 
+  /* 그리드의 상태 라벨과 같은 공식으로 칠한다 — 예전엔 여기만 상태색을 꽉 채운
+     흰 글씨라, 같은 다운로드의 같은 상태가 표에서와 푸터에서 다르게 보였다. */
   .status-badge {
+    --status-hue: var(--text-secondary);
+    --status-ink: var(--text-secondary);
     display: inline-flex;
     align-items: center;
     padding: 6px 12px;
     border-radius: 20px;
     font-size: 0.75rem;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
+    color: var(--status-ink);
+    background: color-mix(in srgb, var(--status-hue) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--status-hue) 38%, transparent);
   }
 
   .status-badge.status-done {
-    background: var(--success-color);
-    color: white;
+    --status-hue: var(--status-done-border);
+    --status-ink: var(--status-done-text);
   }
 
   .status-badge.status-parsing {
-    background: var(--warning-color);
-    color: white;
+    --status-hue: var(--status-parsing-border);
+    --status-ink: var(--status-parsing-text);
   }
 
-  .status-badge.status-downloading,
-  .status-badge.status-proxying {
-    background: var(--primary-color);
-    color: white;
+  .status-badge.status-downloading {
+    --status-hue: var(--status-downloading-border);
+    --status-ink: var(--status-downloading-text);
   }
 
   .status-badge.status-failed {
-    background: var(--danger-color);
-    color: white;
+    --status-hue: var(--status-failed-border);
+    --status-ink: var(--status-failed-text);
   }
 
-  .status-badge.status-stopped,
-  .status-badge.status-pending {
-    background: var(--warning-color);
-    color: white;
+  .status-badge.status-stopped {
+    --status-hue: var(--status-stopped-border);
+    --status-ink: var(--status-stopped-text);
+  }
+
+  .status-badge.status-pending,
+  .status-badge.status-waiting,
+  .status-badge.status-proxying {
+    --status-hue: var(--status-pending-border);
+    --status-ink: var(--status-pending-text);
   }
 
   .timestamp {

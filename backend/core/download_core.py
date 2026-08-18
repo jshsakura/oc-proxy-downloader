@@ -79,12 +79,13 @@ DEFAULT_DOWNLOAD_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-# Retry caps
-# - Proxy parsing: more than 100 attempts is pointless even with many user proxies
-# - Proxy download: trying too many proxies for one download wastes time
-# - Local download: unless the network itself is down, 3 attempts recover most cases
-MAX_PROXY_PARSE_RETRIES_CAP = 100
-MAX_DOWNLOAD_RETRIES_PROXY_CAP = 20
+# Retry caps — 한 번의 시도 안에서 도는 횟수다. 바깥 자동 재시도(종류별 3회)와
+# 곱해지므로 여기가 크면 호스터가 보는 요청 수는 세 자리가 된다. 프록시 파싱이
+# 100 이었을 때, 링크 하나가 최대 300번 같은 페이지를 요청했다. 프록시를 바꿔가며
+# 두드려도 호스터 쪽에서는 그냥 계속 오는 요청이고, 안 되는 링크는 3번 안에 이미
+# 안 된다. 세 곳 모두 3회로 맞춘다.
+MAX_PROXY_PARSE_RETRIES_CAP = 3
+MAX_DOWNLOAD_RETRIES_PROXY_CAP = 3
 MAX_DOWNLOAD_RETRIES_LOCAL = 3
 
 # 1fichier free-tier host backoff. When 1fichier rejects the download form or

@@ -2594,13 +2594,6 @@
                       <span class="filename-text"
                         >{displayFileName(download)}</span
                       >
-                      {#if download.hoster}
-                        <span
-                          class="hoster-badge"
-                          data-hoster={download.hoster_key || "unknown"}
-                          >{download.hoster}</span
-                        >
-                      {/if}
                     </div>
                   </td>
                   <td class="center-align">

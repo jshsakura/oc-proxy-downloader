@@ -59,9 +59,10 @@ __all__ = [
 
 # MegaUp arms its ``?pt=`` hop behind a countdown (6s in the page's own script,
 # but the server releases it sooner). Poll it instead of sleeping out the whole
-# countdown: the first attempt usually already gets the 302.
+# countdown: the first attempt usually already gets the 302. 3회 — 폴링이라도
+# 호스터에는 요청 3개이고, 어차피 첫 번째에서 대부분 302 가 온다.
 MEGAUP_CONTINUE_DELAY_SEC = 2
-MEGAUP_CONTINUE_ATTEMPTS = 4
+MEGAUP_CONTINUE_ATTEMPTS = 3
 
 GOFILE_API_BASE = "https://api.gofile.io"
 _GOFILE_ID_RE = re.compile(r"/(?:d/)?([A-Za-z0-9]+)/?$")

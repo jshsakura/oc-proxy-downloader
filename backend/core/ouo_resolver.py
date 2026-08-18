@@ -142,7 +142,8 @@ class OuoResolverConfig:
     accept_intermediate_hosts: bool = True
 
     # Retry / pacing
-    max_retries: int = 5
+    # 3회. 바깥 자동 재시도와 곱해지므로 여기서 5번을 돌면 ouo 한 링크에 15번이 나간다.
+    max_retries: int = 3
     retry_base_delay: float = 5.0
     retry_max_delay: float = 30.0
     resolve_delay: float = 2.0
@@ -218,7 +219,7 @@ class OuoResolverConfig:
             allowed_download_hosts=allowed_hosts,
             allowed_intermediate_hosts=intermediate_hosts,
             accept_intermediate_hosts=bool(cfg.get("accept_intermediate_hosts", True)),
-            max_retries=max(1, int(cfg.get("max_retries", 5))),
+            max_retries=max(1, int(cfg.get("max_retries", 3))),
             retry_base_delay=float(cfg.get("retry_base_delay", 5.0)),
             retry_max_delay=max(
                 float(cfg.get("retry_base_delay", 5.0)),

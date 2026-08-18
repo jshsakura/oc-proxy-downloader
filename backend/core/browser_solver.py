@@ -47,8 +47,9 @@ POLL_INTERVAL_MS = 1_000
 
 READY_TEXT_TIMEOUT_S = 60
 # Popunder ad scripts swallow the first click on the step-1 button, so the click
-# is repeated until the captcha step actually appears.
-SUBMIT_ATTEMPTS = 4
+# is repeated until the captcha step actually appears. 3회 — 이미 열린 페이지
+# 안의 클릭이라 호스터로 나가는 요청은 아니지만, 재시도는 어디서든 3회로 맞춘다.
+SUBMIT_ATTEMPTS = 3
 SUBMIT_SETTLE_MS = 4_000
 # How long the step-1 button gets to show up before the flow gives up on it.
 SUBMIT_TIMEOUT_S = 20

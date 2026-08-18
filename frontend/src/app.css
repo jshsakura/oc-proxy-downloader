@@ -40,8 +40,9 @@
   --status-failed-border: #dc3545;
   --status-failed-text: #b02a37;
   --status-stopped-bg: rgba(108, 117, 125, 0.2);
-  --status-stopped-border: rgba(108, 117, 125, 0.2);
-  --status-stopped-text:  rgba(108, 117, 125, 0.8);
+  /* 반투명이면 배경·테두리·도트를 여기서 파생시킬 때 전부 흐려진다 — 불투명 값. */
+  --status-stopped-border: #6c757d;
+  --status-stopped-text: #5c636a;
 
   /* 파싱 상태 전용 색상 - Light Theme (보라색 계열) */
   --status-parsing-bg: rgba(156, 39, 176, 0.2);
@@ -1117,10 +1118,6 @@ select.input option {
     white-space: nowrap;
   }
   .filename { min-width: 0; }
-  /* Now that the row is not being crushed into the viewport, the badge fits
-     again — just smaller. */
-  .hoster-badge { font-size: 0.62rem; padding: 0.05rem 0.3rem; }
-
   /* Compact the action icons so up to 4 fit the 118px column on one line. */
   .actions {
     min-width: 0;
@@ -1383,8 +1380,7 @@ tbody tr:hover {
 
 /* The flex row lives INSIDE the cell, never on it. `display: flex` on a <td>
    takes it out of the table layout algorithm, so `width: 40%` above stops
-   applying and the column collapses to its minimum — which is what happened:
-   the name showed as "Dyn···" while the badge kept its full size. */
+   applying and the column collapses to its minimum. */
 .filename-cell {
   display: flex;
   align-items: center;
@@ -1401,47 +1397,9 @@ tbody tr:hover {
   font-weight: 400;
 }
 
-.hoster-badge {
-  flex: 0 0 auto;          /* never shrink; the filename gives up space instead */
-  margin-left: auto;       /* sit at the right edge of the cell */
-  padding: 0.05rem 0.4rem;
-  border-radius: 4px;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  /* Brand colour as ink and outline over a faint wash of itself, rather than a
-     solid fill: a saturated block per row would out-shout the filename, which
-     is the thing being read. --host-ink is set per host below. */
-  /* Default for hosts with no entry. Lightened from oc-scraper's #64748b,
-     which only reaches 3.3:1 on this dark background — under the 4.5:1 the
-     rest of the palette clears. */
-  --host-ink: #94a3b8;
-  color: var(--host-ink);
-  background: color-mix(in srgb, var(--host-ink) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--host-ink) 38%, transparent);
-}
-
-/* Palette mirrored from oc-scraper's web/lib/host.ts so the same host reads the
-   same in both apps. Keys come from the backend (hoster_slug) — a label is
-   prose and may be reworded; this is not. */
-.hoster-badge[data-hoster="1fichier"]    { --host-ink: #ff7043; }
-.hoster-badge[data-hoster="mega"]        { --host-ink: #ef5350; }
-.hoster-badge[data-hoster="mediafire"]   { --host-ink: #42a5f5; }
-.hoster-badge[data-hoster="rapidgator"]  { --host-ink: #66bb6a; }
-.hoster-badge[data-hoster="datanodes"]   { --host-ink: #38bdf8; }
-.hoster-badge[data-hoster="pixeldrain"]  { --host-ink: #ffb300; }
-.hoster-badge[data-hoster="gofile"]      { --host-ink: #26a69a; }
-.hoster-badge[data-hoster="megaup"]      { --host-ink: #ab7ce0; }
-.hoster-badge[data-hoster="sendnow"]     { --host-ink: #2dd4bf; }
-.hoster-badge[data-hoster="multiup"]     { --host-ink: #22d3ee; }
-.hoster-badge[data-hoster="vikingfile"]  { --host-ink: #f59e0b; }
-.hoster-badge[data-hoster="bunkr"]       { --host-ink: #f472b6; }
-.hoster-badge[data-hoster="ouo"]         { --host-ink: #94a3b8; }
-
 .filename-text {
-  /* min-width:0 is what lets a flex item shrink below its content width — without
-     it the name would push the badge out of the cell instead of truncating. */
+  /* min-width:0 is what lets a flex item shrink below its content width —
+     without it the name would overflow the cell instead of truncating. */
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -2881,23 +2839,11 @@ table th:first-child {
   width: 10px;
   height: 10px;
   border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-right-color: currentColor;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   vertical-align: middle;
-}
-
-/* 상태별 proxy-indicator 색상 (테마별 대응) */
-.proxy-indicator-downloading {
-  border-top: 2px solid var(--status-downloading-border);
-  border-right: 2px solid var(--status-downloading-border);
-}
-.proxy-indicator-parsing {
-  border-top: 2px solid var(--status-parsing-border);
-  border-right: 2px solid var(--status-parsing-border);
-}
-.proxy-indicator-proxying {
-  border-top: 2px solid var(--warning-color);
-  border-right: 2px solid var(--warning-color);
 }
 
 @keyframes spin {
@@ -2909,84 +2855,11 @@ table th:first-child {
   }
 }
 
-.status-parsing.interactive-status,
-.status-proxying.interactive-status,
-.status-downloading.interactive-status {
-  animation: pulse 2s ease-in-out infinite;
-  will-change: opacity;
-  contain: layout style;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.85;
-  }
-}
-
-.status-parsing.interactive-status {
-  border: 1px solid var(--warning-color);
-}
-
-.status-proxying.interactive-status {
-  border: 1px solid var(--warning-color);
-}
-
-.status-downloading.interactive-status.local-status {
-  border: 1px solid var(--primary-color);
-}
-
-.status-downloading.interactive-status.proxy-status,
-.status-parsing.interactive-status.proxy-status,
-.status-proxying.interactive-status.proxy-status,
-.status-pending.interactive-status.proxy-status,
-.status-waiting.interactive-status.proxy-status {
-  background-color: var(--warning-color);
-  color: white;
-  border: 1px solid var(--warning-color);
-}
-
-.status-failed.interactive-status {
-  border: 1px solid var(--danger-color);
-}
-
-.status-done.interactive-status {
-  border: 1px solid var(--success-color);
-}
-
-/* 1fichier 자동 재시도 상태 스타일 */
-.status-pending.interactive-status[title*="1fichier 자동 재시도"] {
-  border: 1px solid var(--warning-color);
-  background: linear-gradient(
-    45deg,
-    transparent 30%,
-    var(--warning-color) 30%,
-    var(--warning-color) 70%,
-    transparent 70%
-  );
-  background-size: 10px 10px;
-  animation: retry-pulse 3s ease-in-out infinite;
-}
-
-@keyframes retry-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    background-position: 0 0;
-  }
-  50% {
-    opacity: 0.7;
-    background-position: 5px 5px;
-  }
-}
-
+/* 라벨 안에 들어가는 카운트다운. 예전엔 여기만 --info-color 로 칠해서, 같은
+   상태인데 카운트다운이 붙은 줄만 다른 색으로 보였다. 라벨 색을 따른다. */
 .wait-countdown {
-  color: var(--info-color);
-  font-weight: bold;
-  animation: waitPulse 1.5s ease-in-out infinite;
+  color: inherit;
+  font-weight: 600;
 }
 
 /* Auto-retry budget spent — grey and un-pulsed so a stopped item is visually
@@ -3002,46 +2875,11 @@ table th:first-child {
   width: 8px;
   height: 8px;
   border: 1.5px solid transparent;
-  border-top: 1.5px solid var(--status-pending-border);
-  border-right: 1.5px solid var(--status-pending-border);
+  border-top-color: currentColor;
+  border-right-color: currentColor;
   border-radius: 50%;
   animation: spin 1.2s linear infinite;
   vertical-align: middle;
-}
-
-.proxy-status .wait-indicator {
-  border-top-color: white;
-  border-right-color: white;
-}
-
-/* 상태별 wait-indicator 색상 (테마별 대응) */
-.wait-indicator-pending,
-.wait-indicator-waiting {
-  border-top: 1.5px solid var(--status-pending-border) !important;
-  border-right: 1.5px solid var(--status-pending-border) !important;
-}
-.wait-indicator-downloading {
-  border-top: 1.5px solid var(--status-downloading-border) !important;
-  border-right: 1.5px solid var(--status-downloading-border) !important;
-}
-.wait-indicator-parsing,
-.wait-indicator-proxying {
-  border-top: 1.5px solid var(--status-pending-border) !important;
-  border-right: 1.5px solid var(--status-pending-border) !important;
-}
-.wait-indicator-failed {
-  border-top: 1.5px solid var(--status-failed-border) !important;
-  border-right: 1.5px solid var(--status-failed-border) !important;
-}
-
-@keyframes waitPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
 }
 
 .tabs-container {
@@ -3681,8 +3519,14 @@ table th:first-child {
   }
 }
 
-/* 상태라벨 기본 스타일 추가 */
+/* === 상태 라벨 ==========================================================
+   같은 열에 앉는 라벨들이 서로 다른 규칙으로 칠해져 있었다 — 어떤 건 채운
+   배경에 흰 글씨, 어떤 건 줄무늬, 어떤 건 상태색과 다른 테두리. 이제 상태가
+   정하는 것은 색 두 개(--status-hue / --status-ink)뿐이고 배경·테두리·도트는
+   전부 거기서 파생시킨다. 그래서 모양은 어떤 상태든 같다. */
 span.status {
+  --status-hue: var(--text-secondary);
+  --status-ink: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3692,108 +3536,59 @@ span.status {
   font-weight: 500;
   text-align: left;
   min-width: fit-content;
-  border: 1px solid var(--card-border);
-  background-color: var(--bg-secondary);
-  color: var(--text-secondary);
   line-height: 1.2;
   white-space: nowrap;
+  color: var(--status-ink);
+  background: color-mix(in srgb, var(--status-hue) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-hue) 38%, transparent);
 }
 
-/* 상태 도트 추가 */
+/* 상태 도트 — 채도가 있는 --status-hue 로 찍는다. 글자는 테마가 맞춰둔
+   읽기 좋은 --status-ink 라 둘을 나눠 쓴다. */
 span.status::before {
   content: "";
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: currentColor;
-  opacity: 0.7;
+  background-color: var(--status-hue);
   flex-shrink: 0;
   margin-left: 2px;
 }
 
-/* === 테마별 상태 라벨 색상 팔레트 === */
-
-/* 다운로드 중 */
-span.status.status-downloading,
-.status-downloading.interactive-status {
-  background-color: var(--status-downloading-bg) !important;
-  border-color: var(--status-downloading-border) !important;
-  color: var(--status-downloading-text) !important;
+/* === 상태별 색 — 이 두 줄이 상태가 지정하는 전부다 === */
+span.status.status-downloading {
+  --status-hue: var(--status-downloading-border);
+  --status-ink: var(--status-downloading-text);
 }
-.status-downloading::before {
-  background-color: var(--status-downloading-border);
-  animation: pulse-dot 1.5s infinite;
-}
-
-/* 대기/웨이팅 중 */
 span.status.status-pending,
 span.status.status-waiting,
-.status-pending.interactive-status,
-.status-waiting.interactive-status {
-  background-color: var(--status-pending-bg) !important;
-  border-color: var(--status-pending-border) !important;
-  color: var(--status-pending-text) !important;
+span.status.status-proxying {
+  --status-hue: var(--status-pending-border);
+  --status-ink: var(--status-pending-text);
 }
-.status-pending::before,
-.status-waiting::before {
-  background-color: var(--status-pending-border);
+span.status.status-parsing {
+  --status-hue: var(--status-parsing-border);
+  --status-ink: var(--status-parsing-text);
+}
+span.status.status-done {
+  --status-hue: var(--status-done-border);
+  --status-ink: var(--status-done-text);
+}
+span.status.status-failed {
+  --status-hue: var(--status-failed-border);
+  --status-ink: var(--status-failed-text);
+}
+span.status.status-stopped {
+  --status-hue: var(--status-stopped-border);
+  --status-ink: var(--status-stopped-text);
 }
 
-/* 파싱 중 */
-span.status.status-parsing,
-.status-parsing.interactive-status {
-  background-color: var(--status-parsing-bg) !important;
-  border-color: var(--status-parsing-border) !important;
-  color: var(--status-parsing-text) !important;
-}
-.status-parsing::before {
-  background-color: var(--status-parsing-border);
-}
-
-/* 프록싱 중 */
-span.status.status-proxying,
-.status-proxying.interactive-status {
-  background-color: var(--status-pending-bg) !important;
-  border-color: var(--status-pending-border) !important;
-  color: var(--status-pending-text) !important;
-}
+/* 아직 일하는 중인 상태만 도트가 뛴다 — 라벨 전체를 깜빡이게 하면 그 줄만
+   밝기가 달라 보여서 도트로 한정했다. */
+.status-downloading::before,
+.status-parsing::before,
 .status-proxying::before {
-  content: "";
-  background-color: var(--warning-color);
   animation: pulse-dot 1.5s infinite;
-}
-
-/* 완료 */
-span.status.status-done,
-.status-done.interactive-status {
-  background-color: var(--status-done-bg) !important;
-  border-color: var(--status-done-border) !important;
-  color: var(--status-done-text) !important;
-}
-.status-done::before {
-  background-color: var(--status-done-border);
-}
-
-/* 실패 */
-span.status.status-failed,
-.status-failed.interactive-status {
-  background-color: var(--status-failed-bg) !important;
-  border-color: var(--status-failed-border) !important;
-  color: var(--status-failed-text) !important;
-}
-.status-failed::before {
-  background-color: var(--status-failed-border);
-}
-
-/* 정지됨 */
-span.status.status-stopped,
-.status-stopped.interactive-status {
-  background-color: var(--status-stopped-bg) !important;
-  border-color: var(--status-stopped-border) !important;
-  color: var(--status-stopped-text) !important;
-}
-.status-stopped::before {
-  background-color: var(--status-stopped-border);
 }
 
 @keyframes pulse-dot {
