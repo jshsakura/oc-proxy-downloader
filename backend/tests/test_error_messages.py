@@ -153,6 +153,9 @@ class TestKindClassification:
         # 같은 "HTML 이 왔다" 여도 내 회선이 가로챈 것이면 조치가 정반대다.
         ("네트워크차단페이지: 공유기/ISP 필터가 이 주소를 가로채 차단 안내 페이지를 "
          "돌려줬습니다 (blocking.asus.hns.tm)", KIND_PROXY_BLOCKED),
+        # TLS 만 깨지는 회선 차단(SNI)도 같은 집단이다 — 노드 장애가 아니다.
+        ("회선SNI차단의심: 이 회선에서 megadl.boats 의 TLS(443) 연결만 실패합니다 "
+         "(평문 :80 은 정상 응답)", KIND_PROXY_BLOCKED),
     ])
     def test_other_hoster_constraints_are_classified(self, raw, expected_kind):
         assert classify_failure_text(raw) == expected_kind

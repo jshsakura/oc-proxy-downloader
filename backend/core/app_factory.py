@@ -23,7 +23,7 @@ from core.version import CURRENT_VERSION
 
 from services.sse_manager import sse_manager
 from services.download_service import download_service
-from api.middleware import log_requests, require_api_auth
+from api.middleware import log_requests, require_api_auth, _masked_url
 from api.routes import downloads, settings, events, auth, locales
 from api.routes.proxy import router as proxy_router
 from api.routes.history import router as history_router
@@ -246,7 +246,7 @@ def create_app() -> FastAPI:
 
         # CancelledError is part of normal shutdown, so it is not treated as an error
         if isinstance(exc, asyncio.CancelledError):
-            print(f"[LOG] Task cancelled (normal during shutdown): {request.url}")
+            print(f"[LOG] Task cancelled (normal during shutdown): {_masked_url(str(request.url))}")
             return JSONResponse(
                 status_code=499,  # Client Closed Request
                 content={"message": "Request cancelled"}
@@ -254,7 +254,7 @@ def create_app() -> FastAPI:
 
         print(f"[ERROR] 전역 예외 핸들러 활성화: {error_type}")
         print(f"[ERROR] 오류 세부: {error_msg}")
-        print(f"[ERROR] 요청 URL: {request.url}")
+        print(f"[ERROR] 요청 URL: {_masked_url(str(request.url))}")
 
         # Detailed logging for decompression errors
         if "decompressing" in error_msg.lower():
@@ -280,7 +280,7 @@ def create_app() -> FastAPI:
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         """Request validation error handler"""
         print(f"[ERROR] 요청 검증 오류: {exc}")
-        print(f"[ERROR] 요청 URL: {request.url}")
+        print(f"[ERROR] 요청 URL: {_masked_url(str(request.url))}")
         return JSONResponse(
             status_code=422,
             content={"error": "Validation Error", "details": exc.errors()}

@@ -109,7 +109,9 @@ export TZ=$TZ\n\
 Xvfb "$DISPLAY" -screen 0 1280x1200x24 -nolisten tcp &\n\
 \n\
 # 애플리케이션 실행\n\
-cd /app && su appuser -c "DISPLAY=$DISPLAY PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"\n\
+# --no-access-log: uvicorn 액세스 로그가 쿼리의 JWT(SSE token)를 평문으로 남긴다.\n\
+# 요청 라인은 토큰을 마스킹하는 앱 미들웨어(api/middleware.py)가 이미 찍는다.\n\
+cd /app && su appuser -c "DISPLAY=$DISPLAY PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --no-access-log"\n\
 ' > /start.sh && chmod +x /start.sh
 
 CMD ["/start.sh"] 

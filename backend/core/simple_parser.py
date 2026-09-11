@@ -574,6 +574,16 @@ def extract_file_info_simple(html_content):
         return None
 
 
+class PreparseDeadLinkError(Exception):
+    """1fichier 파일 페이지가 404 — 재시도로는 절대 살지 않는 확정 신호.
+
+    사전파싱은 원래 best-effort (실패해도 None 을 돌려주고 본 파싱에 맡긴다).
+    404 만은 예외다: 죽은 링크를 모르는 척 대기열에 세우면 placeholder 파일명을
+    든 채 세마포어 슬롯만 차지한다. 이 예외를 던지면 호출부는 다운로드를
+    즉시 실패(kind=dead)로 종료한다.
+    """
+
+
 def preparse_1fichier_standalone(url):
     """Preparse a 1fichier URL — uses cloudscraper, runs standalone."""
 
@@ -609,6 +619,9 @@ def preparse_1fichier_standalone(url):
         # Load the page
         response = scraper.get(url, headers=headers, timeout=(10, 30))
 
+        if response.status_code == 404:
+            print(f"[ERROR] 사전파싱 실패(파일 없음): HTTP 404")
+            raise PreparseDeadLinkError("1fichier 차단: 파일 없음")
         if response.status_code != 200:
             print(f"[ERROR] 사전파싱 실패: HTTP {response.status_code}")
             return None
@@ -629,6 +642,8 @@ def preparse_1fichier_standalone(url):
             print(f"[WARNING] 사전파싱: 파일 정보 추출 실패")
             return None
 
+    except PreparseDeadLinkError:
+        raise
     except Exception as e:
         print(f"[ERROR] 사전파싱 실패: {e}")
         return None

@@ -155,6 +155,17 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "이 링크는 파일명/확장자를 알 수 없습니다. 다른 미러를 사용하세요.",
      KIND_DEAD, True),
 
+    # --- this network breaks only TLS to this host (SNI filter) ---
+    # :443 TLS handshake is cut (WRONG_VERSION_NUMBER) while :80 answers the
+    # real host normally and no block page exists — an ISP/router DPI filter
+    # reading the ClientHello's SNI. Same family as 네트워크차단페이지: the
+    # line itself is the blocker, so a direct retry on it can never succeed.
+    ("회선sni차단의심",
+     "이 회선(공유기/ISP)에서 이 도메인의 TLS(443) 연결만 차단되고 있습니다",
+     "같은 회선에서 재시도하면 계속 실패합니다. 이 항목을 프록시(USE_PROXY)로 받거나 "
+     "VPN 회선에서 시도하세요.",
+     KIND_PROXY_BLOCKED, True),
+
     # --- special-hoster download node unreachable (per-node / port issue) ---
     # datanodes pins a file to one storage node; some nodes serve on a
     # non-standard port (e.g. :8443). If that node/port is unreachable from this

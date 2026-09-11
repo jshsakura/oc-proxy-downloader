@@ -20,8 +20,10 @@ import pytest
 
 from core.download_core import (
     _network_block_notice,
+    _sni_block_notice,
     looks_like_plaintext_on_tls_port,
 )
+from core.error_messages import KIND_PROXY_BLOCKED, classify_failure_text
 
 
 class TestPlaintextOnTlsPort:
@@ -63,3 +65,32 @@ class TestBlockPageRecognition:
 
     def test_a_real_hoster_page_is_not_a_block(self):
         assert _network_block_notice(b"<html><title>MegaUp</title></html>") == ""
+
+
+class TestSniBlockNotice:
+    """:80 alive + :443 TLS dead, no block page — the shape an SNI filter leaves.
+
+    Measured on 2026-09-11 against megaup's download node ``megadl.boats``:
+
+        :443  → TCP connects, TLS handshake fails ``[SSL: WRONG_VERSION_NUMBER]``
+        :80   → 200, the real site (no filter page anywhere)
+
+    and https://megadl.boats worked from every overseas check-host node. The old
+    "" fallback reported "노드 일시 장애" — the hoster's fault — and the user
+    retried their own ISP forever.
+    """
+
+    def test_notice_names_host_and_the_proxy_way_out(self):
+        notice = _sni_block_notice("megadl.boats")
+        assert "megadl.boats" in notice
+        assert "SNI" in notice
+        assert "프록시" in notice
+
+    def test_notice_without_hostname_still_names_the_condition(self):
+        notice = _sni_block_notice("")
+        assert "회선SNI차단의심" in notice
+
+    def test_notice_classifies_as_proxy_blocked_not_transient(self):
+        # Same line ⇒ same result on retry. It must route to proxy_blocked
+        # (definitive), not the node-outage transient that auto-retries.
+        assert classify_failure_text(_sni_block_notice("megadl.boats")) == KIND_PROXY_BLOCKED

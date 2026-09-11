@@ -45,6 +45,7 @@ from core.simple_parser import (
     preparse_1fichier_standalone,
     choose_1fichier_parse_url,
     is_1fichier_placeholder_name,
+    PreparseDeadLinkError,
 )
 from core.hoster_parsers import (
     fetch_special_hoster_file_info_sync,
@@ -276,6 +277,22 @@ def _network_block_notice(preview: bytes) -> str:
                 f"차단 안내 페이지를 돌려줬습니다 ({marker})"
             )
     return ""
+
+
+def _sni_block_notice(hostname: str) -> str:
+    """:80 은 살아 있는데 :443 TLS 만 깨진 조합의 안내 메시지.
+
+    차단 안내 페이지를 내놓는 필터(네트워크차단페이지)와 달리 SNI 차단은
+    :80 에 흔적을 남기지 않는다 — ClientHello 의 SNI 를 보고 TLS 연결만
+    깬다. 그래서 "TLS 핸드셰이크 실패 + :80 정상 HTTP 응답" 이면 회선이
+    이 도메인의 TLS 를 차단 중이라는 뜻이고, 같은 회선에서 직접 받을
+    방법은 없다. 프록시/VPN 경유가 유일한 출구다.
+    """
+    return (
+        f"회선SNI차단의심: 이 회선에서 {hostname or '대상 호스트'} 의 TLS(443) 연결만 "
+        f"실패합니다 (평문 :80 은 정상 응답). 공유기/ISP 의 SNI 차단으로 보이므로 "
+        f"프록시/VPN 경유로 다시 받으세요."
+    )
 
 
 def _read_head(path: str, size: int = _BLOCK_PAGE_SNIFF_BYTES) -> bytes:
@@ -855,6 +872,8 @@ class DownloadCore:
                     print(f"[LOG] SSE filename_update 전송 시작: {sse_data}")
                     await sse_manager.broadcast_message("filename_update", sse_data)
                     print(f"[LOG] 사전파싱 완료 - SSE 전송 완료")
+            except PreparseDeadLinkError:
+                raise
             except Exception as preparse_error:
                 print(f"[WARNING] 사전파싱 실패: {preparse_error}")
 
@@ -1340,6 +1359,8 @@ class DownloadCore:
                         print(f"[LOG] SSE filename_update 전송 시작: {sse_data}")
                         await sse_manager.broadcast_message("filename_update", sse_data)
                         print(f"[LOG] 사전파싱 완료 - SSE 전송 완료")
+                except PreparseDeadLinkError:
+                    raise
                 except Exception as preparse_error:
                     print(f"[WARNING] 사전파싱 실패: {preparse_error}")
             else:
@@ -1802,7 +1823,12 @@ class DownloadCore:
         if notice:
             print(f"[LOG] 회선 차단 확인: {parts.hostname}")
             return f"{notice} — 대상 도메인: {parts.hostname}"
-        return ""
+        # :80 answered real HTTP (any status, no block markers) while the TLS
+        # handshake on :443 broke. No filter page exists for this shape of block
+        # — an SNI filter leaves :80 completely untouched — so say so instead of
+        # falling back to the misleading "node outage" message.
+        print(f"[LOG] 회선 SNI 차단 의심: {parts.hostname} (:80 정상, :443 TLS 실패)")
+        return _sni_block_notice(parts.hostname or "")
 
     async def _probe_complete_length(self, session, url, headers, proxy=None):
         """Learn the resource's full length, or ``None`` if it cannot be had.

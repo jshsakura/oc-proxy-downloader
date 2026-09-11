@@ -2,6 +2,7 @@
 import hmac
 import os
 import time
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -31,6 +32,24 @@ AUTH_EXEMPT_PREFIXES = ("/api/locales",)
 # token as a query parameter instead. Restricted to that one route: query strings
 # leak into logs and referrers far more easily than headers do.
 QUERY_TOKEN_PATHS = frozenset({"/api/events"})
+
+# Query strings outlive the request in logs (docker logs above all). The SSE
+# ``token`` is a full JWT — anyone who can read the log can keep the session
+# open — and login probes put ``password`` in the query on bad clients. Mask
+# credential-shaped params everywhere a request line is printed.
+_REDACTED_QUERY_PARAMS = frozenset({"token", "password", "api_key", "apikey", "secret"})
+
+
+def _masked_url(url: str) -> str:
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    masked = [
+        (name, "***" if name.lower() in _REDACTED_QUERY_PARAMS else value)
+        for name, value in parse_qsl(parts.query, keep_blank_values=True)
+    ]
+    # safe="*": keep the mask literal — urlencode would percent-encode it.
+    return urlunsplit(parts._replace(query=urlencode(masked, safe="*")))
 
 
 def _is_exempt(path: str) -> bool:
@@ -99,7 +118,7 @@ async def log_requests(request: Request, call_next):
     start_time = time.time()
 
     # Request log
-    print(f"[LOG] {request.method} {request.url}")
+    print(f"[LOG] {request.method} {_masked_url(str(request.url))}")
 
     try:
         response = await call_next(request)
@@ -109,14 +128,14 @@ async def log_requests(request: Request, call_next):
 
         # Response log (slow requests only)
         if process_time > 1.0:
-            print(f"[LOG] {request.method} {request.url} - {response.status_code} ({process_time:.2f}s)")
+            print(f"[LOG] {request.method} {_masked_url(str(request.url))} - {response.status_code} ({process_time:.2f}s)")
             
         response.headers["X-Process-Time"] = str(process_time)
         return response
         
     except Exception as e:
         process_time = time.time() - start_time
-        print(f"[ERROR] {request.method} {request.url} - Error: {e} ({process_time:.2f}s)")
+        print(f"[ERROR] {request.method} {_masked_url(str(request.url))} - Error: {e} ({process_time:.2f}s)")
         
         return JSONResponse(
             status_code=500,

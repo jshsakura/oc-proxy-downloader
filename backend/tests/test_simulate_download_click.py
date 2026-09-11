@@ -554,9 +554,44 @@ def test_preparse_returns_none_for_non_1fichier_url():
     assert sp.preparse_1fichier_standalone("https://example.com/abc") is None
 
 
-def test_preparse_returns_none_when_status_not_200(monkeypatch):
+def test_preparse_404_raises_dead_link(monkeypatch):
+    # 404 on the file page is a definitive dead signal. Returning None here
+    # ("no info, keep going") is what let a dead link sit in the 1fichier queue
+    # for weeks under a placeholder name, holding a semaphore slot.
     response = MagicMock()
     response.status_code = 404
+    response.text = ""
+
+    scraper = MagicMock()
+    scraper.get.return_value = response
+    monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
+
+    with pytest.raises(sp.PreparseDeadLinkError):
+        sp.preparse_1fichier_standalone("https://1fichier.com/?abc")
+
+
+def test_preparse_dead_link_message_matches_dead_rule(monkeypatch):
+    # The raised text must hit the existing KIND_DEAD rule ("1fichier 차단:
+    # 파일 없음") so the outer failure handler pins it terminal without retry.
+    response = MagicMock()
+    response.status_code = 404
+    response.text = ""
+
+    scraper = MagicMock()
+    scraper.get.return_value = response
+    monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
+
+    from core.error_messages import classify_failure_text, KIND_DEAD
+    try:
+        sp.preparse_1fichier_standalone("https://1fichier.com/?abc")
+        pytest.fail("PreparseDeadLinkError not raised")
+    except sp.PreparseDeadLinkError as e:
+        assert classify_failure_text(str(e)) == KIND_DEAD
+
+
+def test_preparse_returns_none_when_status_not_200(monkeypatch):
+    response = MagicMock()
+    response.status_code = 503
     response.text = ""
 
     scraper = MagicMock()
