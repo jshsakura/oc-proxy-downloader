@@ -1,4 +1,4 @@
-﻿<script>
+<script>
   import logo from "./assets/images/logo256.png";
   import {
     ACTIVE_STATUSES,
@@ -46,6 +46,8 @@
   import CloseIcon from "./icons/CloseIcon.svelte";
   import ChevronLeftIcon from "./icons/ChevronLeftIcon.svelte";
   import ChevronRightIcon from "./icons/ChevronRightIcon.svelte";
+  import SunIcon from "./icons/SunIcon.svelte";
+  import MoonIcon from "./icons/MoonIcon.svelte";
   import { Toaster, toast } from 'svelte-sonner';
   import ConfirmModal from "./lib/ConfirmModal.svelte";
   import AuditModal from "./lib/AuditModal.svelte";
@@ -56,6 +58,7 @@
   import { EventSourceManager } from "./EventSource.js";
   import Skeleton from "./lib/Skeleton.svelte";
   import Checkbox from "./lib/Checkbox.svelte";
+  import AgDownloadGrid from "./lib/AgDownloadGrid.svelte";
 
   console.log(
     "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
@@ -141,6 +144,39 @@
 
   let downloadProxyInfo = {};
   let downloadWaitInfo = {};
+  let proxyInfo = null;
+
+  function toggleQuickTheme() {
+    const next = $theme === "light" ? "dark" : "light";
+    theme.set(next);
+  }
+
+  function detectHosterSlug(targetUrl) {
+    if (!targetUrl) return "";
+    try {
+      const parsed = new URL(targetUrl.trim());
+      const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+      if (host.includes("1fichier")) return "1fichier";
+      if (host.includes("mega.nz") || host.includes("mega.co.nz")) return "mega";
+      if (host.includes("datanodes")) return "datanodes";
+      if (host.includes("megaup")) return "megaup";
+      if (host.includes("send.now")) return "sendnow";
+      if (host.includes("gofile")) return "gofile";
+      if (host.includes("mediafire")) return "mediafire";
+      if (host.includes("pixeldrain")) return "pixeldrain";
+      if (host.includes("bunkr")) return "bunkr";
+      return "";
+    } catch {
+      return "";
+    }
+  }
+
+  $: detectedHoster = detectHosterSlug(url);
+  $: detectedLinkLines = (url || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  $: detectedLinkCount = detectedLinkLines.length;
 
   // Timer for debouncing
   let activeDownloadsTimer = null;
@@ -501,6 +537,7 @@
       const response = await authenticatedFetch("/api/proxy-status");
       if (response.ok) {
         const data = await response.json();
+        proxyInfo = data;
         proxyStats = {
           ...proxyStats,
           totalProxies: data.total_proxies,
@@ -2194,11 +2231,44 @@
     gridDownloads.length > 0 &&
     gridDownloads.every((d) => selectedIds.has(d.id));
 
-  // Dashboard summary cards rely on the server-side stats response;
-  // fall back to 0 when the stats haven't loaded yet (no client-side total).
   $: dashboardSummaryTotal = dashboardStats?.total ?? 0;
   $: dashboardSummarySuccessRate = dashboardStats?.success_rate ?? 0;
   $: dashboardSummaryBytes = dashboardStats?.total_bytes ?? 0;
+
+  async function handleProxyToggle(download) {
+    if (!download || !download.id) return;
+    try {
+      const response = await authenticatedFetch(
+        `/api/downloads/${download.id}/proxy-toggle`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.restarted) {
+          toast.success($t("proxy_mode_restarted"));
+        }
+        gridDownloads = gridDownloads.map((d) =>
+          d.id === download.id
+            ? { ...d, use_proxy: result.use_proxy }
+            : d
+        );
+        activeDownloads = activeDownloads.map((d) =>
+          d.id === download.id
+            ? { ...d, use_proxy: result.use_proxy }
+            : d
+        );
+      } else {
+        toast.error($t("proxy_mode_change_failed"));
+      }
+    } catch (error) {
+      console.error("프록시 토글 오류:", error);
+      toast.error($t("proxy_mode_change_error"));
+    }
+  }
 </script>
 
 <svelte:window bind:innerWidth={viewportWidth} />
@@ -2274,16 +2344,48 @@
     <LoginScreen on:login={handleLoginSuccess} />
   {:else}
     <div class="header">
-      <button
-        type="button"
-        class="logo-button"
-        on:click={() => (window.location.href = "/")}
-        aria-label={$t("main_refresh_aria")}
-      >
-        <img src={logo} alt="Logo" class="logo" />
-      </button>
-      <h1>{$t("title")}</h1>
+      <div class="header-brand-wrap">
+        <button
+          type="button"
+          class="logo-button"
+          on:click={() => (window.location.href = "/")}
+          aria-label={$t("main_refresh_aria")}
+        >
+          <img src={logo} alt="Logo" class="logo" />
+        </button>
+        <div class="brand-title-group">
+          <h1>{$t("title")}</h1>
+          <span class="v2-version-badge">v2.0</span>
+        </div>
+        <div
+          class="header-network-badge"
+          class:is-proxy={useProxy}
+          class:is-healthy={proxyInfo?.status === "healthy" || proxyInfo?.available_proxies > 0}
+        >
+          <span class="pulse-dot"></span>
+          <span class="network-text">
+            {#if useProxy}
+              {proxyInfo?.ip ? `Proxy (${proxyInfo.ip})` : "Proxy Ready"}
+            {:else}
+              Direct Network
+            {/if}
+          </span>
+        </div>
+      </div>
       <div class="header-actions">
+        <button
+          type="button"
+          class="button-icon theme-toggle-btn"
+          on:click={toggleQuickTheme}
+          title={$theme === "light" ? "Dark Mode" : "Light Mode"}
+          aria-label="Toggle Theme"
+        >
+          {#if $theme === "light"}
+            <MoonIcon />
+          {:else}
+            <SunIcon />
+          {/if}
+        </button>
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
@@ -2307,28 +2409,50 @@
             placeholder={$t("url_placeholder")}
             required
           />
-          <button
-            type="button"
-            class="button-icon clipboard-button"
-            on:click={pasteFromClipboard}
-            title={$t("clipboard_tooltip")}
-            aria-label={$t("clipboard_tooltip")}
-          >
-            <ClipboardIcon />
-          </button>
-          <button
-            type="button"
-            class="button-icon password-toggle-button"
-            on:click={openPasswordModal}
-            title={$t("password_tooltip")}
-            aria-label={$t("password_tooltip")}
-          >
-            {#if hasPassword}
-              <UnlockIcon />
-            {:else}
-              <LockIcon />
+          <div class="input-inner-actions">
+            {#if detectedHoster}
+              <span class="detected-host-badge ag-host-badge host-{detectedHoster}">
+                {detectedHoster}
+              </span>
+            {:else if detectedLinkCount > 1}
+              <span class="detected-host-badge host-multi">
+                🔗 {detectedLinkCount} links
+              </span>
             {/if}
-          </button>
+            {#if url}
+              <button
+                type="button"
+                class="button-icon input-action-btn clear-btn"
+                on:click={() => (url = "")}
+                title={$t("search_close") || "Clear"}
+                aria-label="Clear input"
+              >
+                <CloseIcon />
+              </button>
+            {/if}
+            <button
+              type="button"
+              class="button-icon input-action-btn clipboard-button"
+              on:click={pasteFromClipboard}
+              title={$t("clipboard_tooltip")}
+              aria-label={$t("clipboard_tooltip")}
+            >
+              <ClipboardIcon />
+            </button>
+            <button
+              type="button"
+              class="button-icon input-action-btn password-toggle-button"
+              on:click={openPasswordModal}
+              title={$t("password_tooltip")}
+              aria-label={$t("password_tooltip")}
+            >
+              {#if hasPassword}
+                <UnlockIcon />
+              {:else}
+                <LockIcon />
+              {/if}
+            </button>
+          </div>
         </div>
         <div class="proxy-and-download-container">
           <div class="proxy-toggle-container">
@@ -2507,404 +2631,26 @@
         </div>
       </div>
 
-      <div
-        class="table-container"
-        class:empty-table={gridDownloads.length === 0}
-      >
-        <table>
-          <thead>
-            <tr>
-              <th class="select-col">
-                <Checkbox
-                  checked={allVisibleSelected}
-                  indeterminate={someVisibleSelected && !allVisibleSelected}
-                  ariaLabel={$t("select_count", { count: selectedIds.size })}
-                  on:change={() => toggleSelectAll(gridDownloads)}
-                />
-              </th>
-              <th>{$t("table_header_file_name")}</th>
-              <th class="center-align">{$t("table_header_status")}</th>
-              <th class="center-align col-size">{$t("table_header_size")}</th>
-              <th class="center-align">{$t("table_header_progress")}</th>
-              {#if currentTab !== "completed"}
-                <th class="center-align col-speed">{$t("table_header_speed")}</th>
-              {/if}
-              <th class="center-align col-date">{$t("table_header_requested_date")}</th>
-              <th class="center-align col-proxy">{$t("table_header_proxy")}</th>
-              <th class="center-align actions-header"
-                >{$t("table_header_actions")}</th
-              >
-            </tr>
-          </thead>
-          <tbody>
-            {#if isDownloadsLoading}
-              {#each Array(5) as _}
-                <tr class="skeleton-row">
-                  <td class="select-col"><Skeleton width="18px" height="18px" radius="5px" /></td>
-                  <td><Skeleton width="80%" height="14px" radius="3px" /></td>
-                  <td class="center-align"><Skeleton width="64px" height="22px" radius="10px" /></td>
-                  <td class="center-align col-size"><Skeleton width="52px" height="14px" radius="3px" /></td>
-                  <td class="center-align"><Skeleton width="100%" height="8px" radius="4px" /></td>
-                  {#if currentTab !== "completed"}
-                    <td class="center-align col-speed"><Skeleton width="52px" height="14px" radius="3px" /></td>
-                  {/if}
-                  <td class="center-align col-date"><Skeleton width="82px" height="14px" radius="3px" /></td>
-                  <td class="center-align col-proxy"><Skeleton width="44px" height="22px" radius="10px" /></td>
-                  <td class="center-align"><Skeleton width="76px" height="28px" radius="6px" /></td>
-                </tr>
-              {/each}
-            {:else if gridDownloads.length === 0}
-              <tr class="empty-row">
-                <td
-                  colspan={currentTab === "completed" ? 8 : 9}
-                  class="no-downloads-message"
-                >
-                  {currentTab === "working"
-                    ? $t("no_working_downloads")
-                    : $t("no_completed_downloads")}
-                </td>
-              </tr>
-            {:else}
-              {#each gridDownloads as download (download.id)}
-                <tr
-                  class:is-selected={selectedIds.has(download.id)}
-                  class:is-dead={download.failure_kind === "dead"}
-                >
-                  <td class="select-col">
-                    <Checkbox
-                      checked={selectedIds.has(download.id)}
-                      ariaLabel="row {download.id}"
-                      on:change={() => toggleSelect(download.id)}
-                    />
-                  </td>
-                  <td
-                    class="filename"
-                    title={fileNameTitle(download)}
-                  >
-                    <div class="filename-cell">
-                      <span class="filename-text"
-                        >{displayFileName(download)}</span
-                      >
-                    </div>
-                  </td>
-                  <td class="center-align">
-                    <span
-                      class="status status-{download.status.toLowerCase()} interactive-status {download.use_proxy
-                        ? 'proxy-status'
-                        : 'local-status'}"
-                      title={getStatusTooltip(download)}
-                    >
-                      {#if auditingIds.has(download.id)}
-                        <span class="audit-loading">
-                          <span class="row-audit-spinner"></span>
-                          {$t("action_audit_running")}
-                        </span>
-                      {:else if downloadWaitInfo[download.id] && downloadWaitInfo[download.id].remaining_time > 0 && ["waiting", "parsing", "proxying", "pending"].includes(download.status.toLowerCase())}
-                        <!-- An active 1fichier wait countdown — show it even if the
-                             status field is still 'parsing'/'proxying' (events race). -->
-                        <span class="wait-countdown">
-                          {$t("download_waiting_time")} ({formatWaitTime(downloadWaitInfo[download.id].remaining_time)})
-                          <span class="wait-indicator wait-indicator-waiting"></span>
-                        </span>
-                      {:else if download.status.toLowerCase() === "downloading" && !download.progress}
-                        <span class="wait-countdown">
-                          {$t("download_downloading")}
-                          <span
-                            class="wait-indicator wait-indicator-{download.status.toLowerCase()}"
-                          ></span>
-                        </span>
-                      {:else if download.status.toLowerCase() === "failed" && download.failure_kind}
-                        <!-- Retry-pending failures are still part of the queue
-                             (auto-retry on cooldown). Read as "재시도 대기" + countdown
-                             so they don't look terminal. The specific kind stays
-                             visible in the detail modal / tooltip. -->
-                        {#if download.next_retry_at && new Date(download.next_retry_at).getTime() > currentTime}
-                          <!-- Waiting to auto-retry: keep the cell compact — just the
-                               label and a countdown. The attempt count and next-retry
-                               time live in the tooltip (getStatusTooltip). -->
-                          {$t("download_retry_pending")}
-                          <span class="wait-countdown">({formatWaitTime((new Date(download.next_retry_at).getTime() - currentTime) / 1000)})</span>
-                        {:else if download.attempt_count}
-                          <!-- Auto-retry spent: grey the kind label so a stopped item
-                               is visually distinct from one still cycling, without a
-                               long inline note. The "소진 · 수동 재시도" detail is in the
-                               tooltip. -->
-                          <span class="status-exhausted">{$t("kind_" + download.failure_kind)}</span>
-                        {:else}
-                          {$t("kind_" + download.failure_kind)}
-                        {/if}
-                      {:else}
-                        {$t(`download_${download.status.toLowerCase()}`)}
-                        {#if ["proxying", "parsing", "downloading"].includes(download.status.toLowerCase())}
-                          <span
-                            class="proxy-indicator proxy-indicator-{download.status.toLowerCase()}"
-                          ></span>
-                        {/if}
-                      {/if}
-                    </span>
-                  </td>
-                  <td class="center-align col-size">
-                    {download.total_size
-                      ? formatBytes(download.total_size)
-                      : download.file_size || "-"}
-                  </td>
-                  <td class="center-align">
-                    <div class="progress-container">
-                      <div
-                        class="progress-bar"
-                        style="width: {currentTab === 'completed'
-                          ? '100'
-                          : getDownloadProgress(download)}%"
-                      ></div>
-                      <span class="progress-text">
-                        {currentTab === "completed"
-                          ? "100"
-                          : getDownloadProgress(download)}%
-                      </span>
-                    </div>
-                  </td>
-                  {#if currentTab !== "completed"}
-                    <td class="center-align speed-cell col-speed">
-                      {#if download.download_speed && (download.status.toLowerCase() === "downloading" || download.status.toLowerCase() === "proxying" || download.status.toLowerCase() === "parsing")}
-                        <span
-                          class="speed-text {download.use_proxy
-                            ? 'proxy-speed'
-                            : 'local-speed'}"
-                        >
-                          {formatSpeed(download.download_speed)}
-                        </span>
-                      {:else if ["parsing", "downloading", "proxying", "pending", "waiting"].includes(download.status.toLowerCase())}
-                        <span
-                          class="speed-text parsing-indicator {download.use_proxy
-                            ? 'proxy-loading'
-                            : 'local-loading'}"
-                        >
-                          <span class="parsing-dots">•••</span>
-                        </span>
-                      {:else}
-                        <span class="speed-text-empty">-</span>
-                      {/if}
-                    </td>
-                  {/if}
-                  <td
-                    class="center-align col-date"
-                    title={formatFullDateTime(download.created_at)}
-                  >
-                    {formatDate(download.created_at)}
-                  </td>
-                  <td class="proxy-toggle-cell col-proxy">
-                    <button
-                      type="button"
-                      class="grid-proxy-toggle {download.use_proxy
-                        ? 'proxy'
-                        : 'local'}"
-                      title={download.use_proxy
-                        ? $t("proxy_mode")
-                        : $t("local_mode")}
-                      on:click={async () => {
-                        try {
-                          const response = await authenticatedFetch(
-                            `/api/downloads/${download.id}/proxy-toggle`,
-                            {
-                              method: "PUT",
-                              headers: { "Content-Type": "application/json" } }
-                          );
-
-                          if (response.ok) {
-                            const result = await response.json();
-                            // 실행 중인 항목은 서버가 정지 후 새 출구로 다시
-                            // 출발시킨다 — 조용히 하면 사용자가 눌러도 아무 일도
-                            // 없었던 것처럼 보인다.
-                            if (result.restarted) {
-                              toast.success($t("proxy_mode_restarted"));
-                            }
-                            // Update the frontend state (grid + live list).
-                            gridDownloads = gridDownloads.map((d) =>
-                              d.id === download.id
-                                ? { ...d, use_proxy: result.use_proxy }
-                                : d,
-                            );
-                            activeDownloads = activeDownloads.map((d) =>
-                              d.id === download.id
-                                ? { ...d, use_proxy: result.use_proxy }
-                                : d,
-                            );
-                          } else {
-                            toast.error(
-                              $t("proxy_mode_change_failed")
-                            );
-                          }
-                        } catch (error) {
-                          console.error("프록시 토글 오류:", error);
-                          toast.error(
-                            $t("proxy_mode_change_error")
-                          );
-                        }
-                      }}
-                      aria-label={download.use_proxy
-                        ? $t("proxy_mode")
-                        : $t("local_mode")}
-                    >
-                      <div class="grid-toggle-slider"></div>
-                      <div class="grid-toggle-icons"></div>
-                    </button>
-                  </td>
-                  <td class="actions-cell">
-                    {#if currentTab === "completed"}
-                      <button
-                        class="button-icon"
-                        title={$t("redownload")}
-                        on:click={() => redownload(download)}
-                        aria-label={$t("redownload")}
-                      >
-                        <RetryIcon />
-                      </button>
-                      <button
-                        class="button-icon"
-                        title={$t("copy_download_link")}
-                        on:click={() => copyDownloadLink(download)}
-                        aria-label={$t("copy_download_link")}
-                      >
-                        <LinkCopyIcon />
-                      </button>
-                      <button
-                        class="button-icon"
-                        title={$t("action_details")}
-                        on:click={() => openDetailModal(download)}
-                        aria-label={$t("action_details")}
-                      >
-                        <InfoIcon />
-                      </button>
-                      <button
-                        class="button-icon"
-                        title={$t("action_delete")}
-                        on:click={() => deleteDownload(download.id)}
-                        aria-label={$t("action_delete")}
-                      >
-                        <DeleteIcon />
-                      </button>
-                    {:else}
-                      {#if download.status?.toLowerCase() === "failed" && download.next_retry_at && new Date(download.next_retry_at).getTime() > currentTime}
-                        <!-- 자동 재시도를 기다리는 중. 이 상태에는 정지 버튼이
-                             없어서, 시작한 재시도 주기를 멈출 방법이 삭제밖에
-                             없었다. 정지하면 서버가 next_retry_at 을 지운다. -->
-                        <button
-                          class="button-icon"
-                          title={$t("action_cancel_retry")}
-                          on:click={() => callApi(`/api/downloads/stop/${download.id}`)}
-                          aria-label={$t("action_cancel_retry")}
-                        >
-                          <StopIcon />
-                        </button>
-                      {/if}
-                      {#if ["downloading", "proxying", "pending", "parsing", "waiting"].includes(download.status?.toLowerCase())}
-                        <button
-                          class="button-icon"
-                          title={$t("action_pause")}
-                          on:click={() => {
-                            if (download.id && !isNaN(parseInt(download.id))) {
-                              callApi(`/api/downloads/stop/${download.id}`)
-                            } else {
-                              console.error("❌ 잘못된 다운로드 ID:", download.id, download)
-                            }
-                          }}
-                          aria-label={$t("action_pause")}
-                        >
-                          <StopIcon />
-                        </button>
-                      {:else if ["stopped"].includes(download.status?.toLowerCase())}
-                        <button
-                          class="button-icon"
-                          title={download.progress > 0
-                            ? $t("action_resume")
-                            : $t("action_start")}
-                          on:click={() => callApi(`/api/downloads/start/${download.id}`)}
-                          aria-label={download.progress > 0
-                            ? $t("action_resume")
-                            : $t("action_start")}
-                        >
-                          <ResumeIcon />
-                        </button>
-                      {/if}
-                      {#if download.status?.toLowerCase() === "failed"}
-                        {#if download.failure_kind === "dead" || download.failure_kind === "unknown_terminal"}
-                          <!-- File whose source is gone / repeated failures — block the click itself to prevent pointless re-requests.
-                               A skull rather than a greyed retry arrow: at a glance the row is not "waiting", it is over. -->
-                          <button
-                            class="button-icon is-disabled"
-                            title={$t("retry_blocked_dead")}
-                            on:click={() => toast.error($t("retry_blocked_dead"))}
-                            aria-label={$t("retry_blocked_dead")}
-                            aria-disabled="true"
-                          >
-                            {#if download.failure_kind === "dead"}
-                              <SkullIcon />
-                            {:else}
-                              <RetryIcon />
-                            {/if}
-                          </button>
-                        {:else if download.failure_kind === "auth_required"}
-                          <button
-                            class="button-icon is-warn"
-                            title={$t("retry_blocked_auth_required")}
-                            on:click={() => callApi(`/api/retry/${download.id}`)}
-                            aria-label={$t("retry_blocked_auth_required")}
-                          >
-                            <RetryIcon />
-                          </button>
-                        {:else if download.next_retry_at && new Date(download.next_retry_at).getTime() > Date.now()}
-                          <!-- cooldown state — force retry is allowed (the server only resets the cooldown) -->
-                          <button
-                            class="button-icon is-cooldown"
-                            title={$t("retry_cooldown", { when: new Date(download.next_retry_at).toLocaleTimeString() })}
-                            on:click={() => callApi(`/api/retry/${download.id}`)}
-                            aria-label={$t("retry_cooldown", { when: new Date(download.next_retry_at).toLocaleTimeString() })}
-                          >
-                            <RetryIcon />
-                          </button>
-                        {:else}
-                          <button
-                            class="button-icon"
-                            title={download.failure_kind ? $t("kind_" + download.failure_kind) : $t("action_retry")}
-                            on:click={() => callApi(`/api/retry/${download.id}`)}
-                            aria-label={$t("action_retry")}
-                          >
-                            <RetryIcon />
-                          </button>
-                        {/if}
-                      {/if}
-                      <button
-                        class="button-icon"
-                        title={$t("copy_download_link")}
-                        on:click={() => copyDownloadLink(download)}
-                        aria-label={$t("copy_download_link")}
-                      >
-                        <LinkCopyIcon />
-                      </button>
-                      <button
-                        class="button-icon"
-                        title={$t("action_details")}
-                        on:click={() => openDetailModal(download)}
-                        aria-label={$t("action_details")}
-                      >
-                        <InfoIcon />
-                      </button>
-                      <button
-                        class="button-icon"
-                        title={$t("action_delete")}
-                        on:click={() => deleteDownload(download.id)}
-                        aria-label={$t("action_delete")}
-                      >
-                        <DeleteIcon />
-                      </button>
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            {/if}
-          </tbody>
-        </table>
-      </div>
+      <AgDownloadGrid
+        downloads={gridDownloads}
+        {currentTab}
+        {selectedIds}
+        {auditingIds}
+        {downloadWaitInfo}
+        {downloadProxyInfo}
+        {currentTime}
+        {isDownloadsLoading}
+        on:toggleSelect={(e) => toggleSelect(e.detail.id)}
+        on:toggleSelectAll={() => toggleSelectAll(gridDownloads)}
+        on:start={(e) => callApi(`/api/downloads/start/${e.detail.id}`)}
+        on:stop={(e) => callApi(`/api/downloads/stop/${e.detail.id}`)}
+        on:retry={(e) => callApi(`/api/retry/${e.detail.id}`)}
+        on:delete={(e) => deleteDownload(e.detail.id)}
+        on:details={(e) => openDetailModal(e.detail.download)}
+        on:copyLink={(e) => copyDownloadLink(e.detail.download)}
+        on:redownload={(e) => redownload(e.detail.download)}
+        on:proxyToggle={(e) => handleProxyToggle(e.detail.download)}
+      />
 
       <!-- Pagination - always shown -->
       <div class="pagination-footer">

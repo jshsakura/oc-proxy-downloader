@@ -21,6 +21,7 @@ const read = (rel) =>
 
 const CSS = read("../src/app.css");
 const APP = read("../src/App.svelte");
+const GRID = read("../src/lib/AgDownloadGrid.svelte");
 
 /** The `@media (max-width: 768px)` body — where the phone rules live. */
 function mobileBlock(css) {
@@ -47,17 +48,17 @@ function rulesFor(css, selectorPart) {
 }
 
 describe("column widths address the columns that exist", () => {
-  const headerCount = (APP.match(/<th[\s>]/g) || []).length;
+  const gridColCount = (GRID.match(/colId:\s*["'][^"']+["']/g) || []).length;
 
   it("the header has the nine columns the width rules assume", () => {
     // select, filename, status, size, progress, speed, date, proxy, actions.
-    expect(headerCount).toBe(9);
+    expect(gridColCount).toBe(9);
   });
 
   it("no width rule points past the last column", () => {
     const indexes = [...CSS.matchAll(/nth-child\((\d+)\)/g)].map((m) => Number(m[1]));
 
-    expect(Math.max(...indexes)).toBeLessThanOrEqual(headerCount);
+    expect(Math.max(...indexes)).toBeLessThanOrEqual(gridColCount);
   });
 
   it("column 1 is sized like the checkbox it holds", () => {
@@ -115,7 +116,7 @@ describe("cells stay table cells", () => {
   });
 
   it("the filename cell holds a wrapper for its flex row", () => {
-    expect(APP).toContain('class="filename-cell"');
+    expect(GRID).toContain('filename-cell');
     expect(rulesFor(CSS, ".filename-cell").join(" ")).toMatch(/display:\s*flex/);
   });
 });

@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import threading
 import time
+from html import unescape
 from dataclasses import dataclass
 from typing import Dict, Optional
+from urllib.parse import urlparse
 
 import cloudscraper
 
@@ -53,16 +55,47 @@ def _new_scraper() -> cloudscraper.CloudScraper:
 
 
 def _looks_logged_in(text: str) -> bool:
-    """Consider it logged in if the ``console`` menu is visible or a logout link is present."""
+    """Return True only for an explicit signed-in marker.
+
+    Public 1fichier pages advertise subscriptions with links such as
+    ``/console/abo.pl``.  Treating any ``/console/`` occurrence as proof of a
+    login made an anonymous page pass validation and caused an ordinary cookie
+    to be logged as an account session.  A logout action is the useful invariant:
+    it is shown only when the current session is authenticated.
+    """
     if not text:
         return False
-    lowered = text.lower()
-    return (
-        "/console/" in lowered
-        or "logout" in lowered
-        or "déconnexion" in lowered
-        or "logoff" in lowered
-    )
+    lowered = unescape(text).casefold()
+    return any(marker in lowered for marker in (
+        "logout",
+        "log out",
+        "logoff",
+        "sign out",
+        "déconnexion",
+        "deconnexion",
+    ))
+
+
+def _is_authenticated_console_response(response) -> bool:
+    """Validate both the final URL and the signed-in console contents.
+
+    An anonymous request to ``/console/index.pl`` redirects to ``/login.pl``
+    with HTTP 200.  Checking only the status and body lets that redirect masquerade
+    as a valid console response, especially because the login page itself contains
+    a subscription link under ``/console/``.
+    """
+    if getattr(response, "status_code", None) != 200:
+        return False
+    try:
+        parsed = urlparse(str(getattr(response, "url", "") or ""))
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").casefold()
+    if host not in {"1fichier.com", "www.1fichier.com"}:
+        return False
+    if not (parsed.path or "").casefold().startswith("/console/"):
+        return False
+    return _looks_logged_in(getattr(response, "text", "") or "")
 
 
 def _do_login(email: str, password: str) -> cloudscraper.CloudScraper:
@@ -123,7 +156,7 @@ def _do_login(email: str, password: str) -> cloudscraper.CloudScraper:
     except Exception as exc:
         raise FichierLoginError(f"세션 검증 실패: {exc}") from exc
 
-    if rc.status_code != 200 or not _looks_logged_in(rc.text):
+    if not _is_authenticated_console_response(rc):
         raise FichierLoginError("로그인 후 콘솔 페이지를 받지 못함 (자격증명 또는 차단)")
 
     return scraper

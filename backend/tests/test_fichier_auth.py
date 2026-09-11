@@ -16,7 +16,12 @@ def _clear_cache():
     fichier_auth.clear_cached_session()
 
 
-def _scraper_with(login_html: str, console_html: str, status: int = 200):
+def _scraper_with(
+    login_html: str,
+    console_html: str,
+    status: int = 200,
+    console_url: str = fichier_auth._CONSOLE_URL,
+):
     cookie = MagicMock()
     cookie.name, cookie.value = "SID", "abc123"
     scraper = MagicMock()
@@ -25,10 +30,12 @@ def _scraper_with(login_html: str, console_html: str, status: int = 200):
     login_response = MagicMock()
     login_response.status_code = status
     login_response.text = login_html
+    login_response.url = fichier_auth._LOGIN_URL
 
     console_response = MagicMock()
     console_response.status_code = 200
     console_response.text = console_html
+    console_response.url = console_url
 
     scraper.get.side_effect = [login_response, console_response]
     scraper.post.return_value = login_response  # login POST response
@@ -67,6 +74,31 @@ class TestLogin:
         with pytest.raises(fichier_auth.FichierLoginError, match="콘솔"):
             fichier_auth.get_authenticated_scraper("user@x.com", "pw")
 
+    def test_subscription_console_link_is_not_authentication(self, monkeypatch):
+        """The public page advertises plans under /console/ even when logged out."""
+        scraper = _scraper_with(
+            login_html="<html>welcome</html>",
+            console_html=(
+                '<a href="/login.pl">My Account</a>'
+                '<a href="/console/abo.pl">Premium offers</a>'
+            ),
+        )
+        monkeypatch.setattr(fichier_auth.cloudscraper, "create_scraper", lambda **kw: scraper)
+
+        with pytest.raises(fichier_auth.FichierLoginError, match="콘솔"):
+            fichier_auth.get_authenticated_scraper("user@x.com", "pw")
+
+    def test_redirect_to_login_is_not_authenticated_console(self, monkeypatch):
+        scraper = _scraper_with(
+            login_html="<html>welcome</html>",
+            console_html='<a href="/logout.pl">Logout</a>',
+            console_url=fichier_auth._LOGIN_URL,
+        )
+        monkeypatch.setattr(fichier_auth.cloudscraper, "create_scraper", lambda **kw: scraper)
+
+        with pytest.raises(fichier_auth.FichierLoginError, match="콘솔"):
+            fichier_auth.get_authenticated_scraper("user@x.com", "pw")
+
     def test_empty_credentials_rejected(self):
         with pytest.raises(fichier_auth.FichierLoginError, match="비어"):
             fichier_auth.get_authenticated_scraper("", "")
@@ -74,7 +106,7 @@ class TestLogin:
     def test_get_session_cookies_returns_dict(self, monkeypatch):
         scraper = _scraper_with(
             login_html="ok",
-            console_html='<a href="/console/index.pl">My account</a>',
+            console_html='<a href="/logout.pl">Logout</a>',
         )
         monkeypatch.setattr(fichier_auth.cloudscraper, "create_scraper", lambda **kw: scraper)
 
@@ -85,11 +117,11 @@ class TestLogin:
         # First call
         scraper1 = _scraper_with(
             login_html="ok",
-            console_html='<a href="/console/index.pl">My account</a>',
+            console_html='<a href="/logout.pl">Logout</a>',
         )
         scraper2 = _scraper_with(
             login_html="ok",
-            console_html='<a href="/console/index.pl">My account</a>',
+            console_html='<a href="/logout.pl">Logout</a>',
         )
 
         scrapers = iter([scraper1, scraper2])

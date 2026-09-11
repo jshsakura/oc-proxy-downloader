@@ -382,15 +382,13 @@
   .monitor-card {
     background: var(--dashboard-card-bg);
     border: 1px solid var(--dashboard-card-border);
-    border-radius: 12px;
-    padding: 0.65rem 0.75rem 0.5rem;
+    border-radius: 10px;
+    padding: 0.45rem 0.65rem 0.4rem;
     box-shadow: var(--shadow-light);
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    min-height: 110px;
-    /* Allow the grid track to shrink so wide content (numbers/sparkline) stays
-       inside the card instead of overflowing the grid. */
+    gap: 0.25rem;
+    min-height: 78px;
     min-width: 0;
     overflow: hidden;
   }
@@ -403,11 +401,11 @@
   }
 
   .monitor-title {
-    font-size: 0.7rem;
+    font-size: 0.68rem;
     font-weight: 700;
     color: var(--text-secondary);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
   }
 
   .monitor-meta {
@@ -421,35 +419,30 @@
 
   .monitor-body {
     display: grid;
-    grid-template-columns: 86px minmax(0, 1fr);
+    grid-template-columns: 54px minmax(0, 1fr);
     align-items: center;
-    gap: 0.7rem;
+    gap: 0.5rem;
     flex: 1;
     min-width: 0;
-  }
-
-  .monitor-body-stacked {
-    grid-template-columns: 1fr;
-    justify-items: center;
   }
 
   .disk-bar {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.25rem;
     width: 100%;
   }
   .disk-bar-row {
     display: grid;
-    grid-template-columns: 36px 1fr auto;
+    grid-template-columns: 32px 1fr auto;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.35rem;
     font-size: 0.62rem;
     color: var(--chart-muted);
   }
   .disk-bar-lbl {
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
   }
   .disk-bar-track {
     height: 4px;
@@ -469,18 +462,14 @@
   }
 
   .gauge {
-    width: 86px;
-    height: 86px;
+    width: 54px;
+    height: 54px;
     display: block;
-  }
-  .gauge-lg {
-    width: 96px;
-    height: 96px;
   }
 
   .spark {
     width: 100%;
-    height: 44px;
+    height: 28px;
   }
   .spark svg {
     width: 100%;
@@ -495,7 +484,7 @@
   .net-rates {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.15rem;
   }
 
   .net-rate {
@@ -578,8 +567,7 @@
       align-items: center;
       gap: 0;
     }
-    .gauge { width: 56px; height: 56px; }
-    .gauge-lg { width: 56px; height: 56px; }
+    .gauge { width: 50px; height: 50px; }
 
     /* Network card — with no gauge, show the ↓/↑ speeds compactly and vertically.
      * Units (B/s, KB/s, etc.) cause line breaks on mobile, so show only the numbers.

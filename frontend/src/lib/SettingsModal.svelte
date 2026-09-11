@@ -66,8 +66,8 @@
   let settings = {};
   let apiToken = "";
   let apiTokenCopied = false;
-  let selectedTheme = "system";
-  let originalTheme = "system";
+  let selectedTheme = $theme;
+  let originalTheme = $theme;
   let savedOnClose = false;
   let selectedLocale = "ko";
 
@@ -358,8 +358,15 @@
     savedOnClose = true;
     theme.set(selectedTheme);
 
+    // Runtime-only values explain inherited Docker/ENV configuration in the UI.
+    // They are not editable settings and must never be persisted into config.json.
+    const {
+      flaresolverr_url_effective: _effectiveFlareSolverrUrl,
+      flaresolverr_url_source: _flareSolverrUrlSource,
+      ...persistedSettings
+    } = settings;
     const settingsToSave = {
-      ...settings,
+      ...persistedSettings,
       theme: selectedTheme,
       language: selectedLocale };
 
@@ -1214,9 +1221,15 @@
               type="text"
               class="input"
               autocomplete="off"
-              placeholder={$t("flaresolverr_url_placeholder")}
+              placeholder={currentSettings?.flaresolverr_url_effective || $t("flaresolverr_url_placeholder")}
               bind:value={settings.flaresolverr_url}
             />
+            {#if currentSettings?.flaresolverr_url_effective}
+              <small class="input-hint">
+                {$t("flaresolverr_url_label")}:
+                <code>{currentSettings.flaresolverr_url_effective}</code>
+              </small>
+            {/if}
             <small class="input-hint">{$t("flaresolverr_url_hint")}</small>
           </fieldset>
 

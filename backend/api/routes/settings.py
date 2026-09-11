@@ -14,6 +14,7 @@ from core.config import (get_config, save_config, get_download_path, get_default
 from core.db import get_db
 from core.version import CURRENT_VERSION
 from core.download_core import download_core
+from core.hoster_common import resolve_flaresolverr_url
 from services.notification_service import send_telegram_notification
 
 
@@ -53,7 +54,23 @@ def get_settings_endpoint(request: Request):
     """Get settings"""
     try:
         # Stored credentials never leave the server in readable form.
-        return mask_secrets(get_config())
+        config = get_config()
+        response = mask_secrets(config)
+
+        # The editable value can intentionally be empty: at runtime that means
+        # "inherit FLARESOLVERR_URL from Docker Compose".  Returning only the
+        # stored value made a working integration look unconfigured in the UI.
+        # Keep the stored field empty (so saving another setting does not freeze
+        # the inherited value into config.json), and expose the resolved value as
+        # read-only metadata for display.
+        response["flaresolverr_url_effective"] = resolve_flaresolverr_url()
+        if (config.get("flaresolverr_url") or "").strip():
+            response["flaresolverr_url_source"] = "settings"
+        elif (os.environ.get("FLARESOLVERR_URL") or "").strip():
+            response["flaresolverr_url_source"] = "environment"
+        else:
+            response["flaresolverr_url_source"] = "default"
+        return response
     except Exception as e:
         print(f"[ERROR] Get settings failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -348,4 +365,3 @@ async def get_version_info(request: Request):
     except Exception as e:
         print(f"[ERROR] Get version info failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
