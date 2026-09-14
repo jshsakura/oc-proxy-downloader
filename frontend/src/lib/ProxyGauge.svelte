@@ -310,7 +310,7 @@
     line-height: 1;
   }
 
-  /* Header row — locked to a fixed height so it lines up with LocalGauge's
+  /* Header row: locked to a fixed height so it lines up with LocalGauge's
    * header exactly. Does NOT match the inner .proxy-status label (not a
    * direct child of .proxy-gauge). */
   .proxy-info {

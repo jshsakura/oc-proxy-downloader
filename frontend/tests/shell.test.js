@@ -143,6 +143,35 @@ describe("task-5 contracts: login identity (D-05, D-19, D-20)", () => {
       LOGIN.match(/\.input-group input \{([\s\S]*?)\n  \}/)?.[1] ?? "";
     expect(inputRule).toMatch(/var\(--input-bg\)/);
   });
+
+  it("failed-login ink meets AA: status-failed-text on the danger tint", () => {
+    // --danger-color as ink on its own 10% tint measured 4.23:1 in light
+    // (reviewer blocker). --status-failed-text is the per-theme ink the
+    // status pills already use for exactly this problem (DESIGN.md 8.1).
+    const errorRule = LOGIN.match(/\.error-message \{([\s\S]*?)\n  \}/)?.[1] ?? "";
+    expect(errorRule).toMatch(/color:\s*var\(--status-failed-text\)/);
+    expect(errorRule).not.toMatch(/color:\s*var\(--danger-color\)/);
+  });
+
+  it("locked-login ink is primary text: warning ink measured 2.9:1 in light", () => {
+    // The locked panel keeps its warning TINT (background + border) but the
+    // text and countdown must read as text: --text-primary ink.
+    const lockedRule =
+      LOGIN.match(/\.error-message\.locked \{([\s\S]*?)\n  \}/)?.[1] ?? "";
+    const timerRule =
+      LOGIN.match(/\.lockout-timer \{([\s\S]*?)\n  \}/)?.[1] ?? "";
+    expect(lockedRule).toMatch(/color:\s*var\(--text-primary\)/);
+    expect(lockedRule).not.toMatch(/color:\s*var\(--warning-color\)/);
+    expect(timerRule).toMatch(/color:\s*var\(--text-primary\)/);
+    expect(timerRule).not.toMatch(/color:\s*var\(--warning-color\)/);
+  });
+
+  it("the status-failed-text token is defined by every kept theme", () => {
+    // 11 kept themes: :root plus 10 html.<theme> blocks. A phantom here
+    // would silently blank the panel ink the previous test relies on.
+    const defs = (CSS.match(/--status-failed-text:/g) ?? []).length;
+    expect(defs).toBe(11);
+  });
 });
 
 describe("task-5 contracts: primary tab semantics (D-32)", () => {

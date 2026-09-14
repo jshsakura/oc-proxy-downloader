@@ -267,9 +267,10 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    color: var(--danger-color);
-    /* Tint derived from the solid token: --danger-color-rgb is a phantom
-       token, so the old rgba() pair silently dropped the panel fill (D-20). */
+    /* Ink is the per-theme failed-status text token: --danger-color itself
+       measured 4.23:1 on this tint in light (AA needs 4.5). The tint and
+       border still derive from the solid danger token (D-20). */
+    color: var(--status-failed-text);
     background: color-mix(in srgb, var(--danger-color) 10%, transparent);
     padding: 0.75rem;
     border-radius: 8px;
@@ -278,14 +279,16 @@
   }
 
   .error-message.locked {
-    color: var(--warning-color);
+    /* Locked keeps the warning tint; the ink becomes primary text because
+       warning-color ink measured 2.9:1 on this tint in light. */
+    color: var(--text-primary);
     background: color-mix(in srgb, var(--warning-color) 10%, transparent);
     border-color: color-mix(in srgb, var(--warning-color) 20%, transparent);
   }
 
   .lockout-timer {
     font-weight: 600;
-    color: var(--warning-color);
+    color: var(--text-primary);
     margin-left: auto;
   }
 

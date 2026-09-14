@@ -212,7 +212,7 @@
       color-mix(in srgb, var(--primary-color) 35%, transparent);
   }
 
-  /* Mobile (DESIGN.md 4.3) — full-width segment; when the custom range is
+  /* Mobile (DESIGN.md 4.3): full-width segment; when the custom range is
    * active, the date pair and apply button take the next full-width row. */
   @media (max-width: 768px) {
     .period-controls {

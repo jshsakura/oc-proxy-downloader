@@ -2935,7 +2935,7 @@ table th:first-child {
   background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
 }
 
-/* Period query row — left-aligned on desktop, full-width segmented on mobile.
+/* Period query row: left-aligned on desktop, full-width segmented on mobile.
  * The component (HistoryPeriodControls) owns its own responsive rule set;
  * the shell only cancels the component's bottom margin inside this bar. */
 .grid-period-bar {
