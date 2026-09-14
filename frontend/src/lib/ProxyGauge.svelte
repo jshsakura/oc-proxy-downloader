@@ -125,7 +125,7 @@
 </script>
 
 <div class="proxy-gauge">
-  <div class="status-text">
+  <div class="proxy-info">
     <div class="status-left">
       <div class="proxy-label">
         <span class="label-icon"><NetworkIcon /></span>
@@ -272,17 +272,14 @@
 </div>
 
 <style>
-  .proxy-gauge {
+      .proxy-gauge {
     padding: 0.75rem;
     margin-bottom: 0;
     height: 100%;
     display: flex;
     flex-direction: column;
-    transition:
-      background-color 0.3s ease,
-      border-color 0.3s ease,
-      box-shadow 0.3s ease;
-    font-size: 0.85rem;
+    justify-content: center;
+    gap: 0.5rem;
   }
 
   .proxy-label {
@@ -292,11 +289,12 @@
     gap: 6px;
     background-color: #ffb74d;
     color: white;
-    padding: 4px 14px;
+    padding: 0 12px;
     border-radius: 999px;
     font-size: 12px;
     font-weight: 600;
     line-height: 1;
+    /* Same height as LocalGauge's header label so the two panes line up. */
     height: 26px;
     min-width: 70px;
     box-sizing: border-box;
@@ -312,22 +310,19 @@
     line-height: 1;
   }
 
-  .status-text {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-    width: 100%;
-    min-height: 40px;
-  }
-
-  /* Header row only (direct child) — lock to a fixed height so it lines up with
-   * LocalGauge's header exactly. Does NOT match the inner .proxy-status label
-   * (not a direct child of .proxy-gauge). */
-  .proxy-gauge > .status-text {
+  /* Header row — locked to a fixed height so it lines up with LocalGauge's
+   * header exactly. Does NOT match the inner .proxy-status label (not a
+   * direct child of .proxy-gauge). */
+  .proxy-info {
     flex: 0 0 40px;
     height: 40px;
+    min-height: 40px;
     box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
   }
 
   /* The same .status-text class is reused for the bottom status label span.
@@ -369,62 +364,7 @@
     }
   }
 
-  .control-button {
-    background: none;
-    border: 1px solid var(--card-border);
-    border-radius: 6px;
-    padding: 0.4rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    margin-left: 0.25rem;
-  }
-
-  .control-button:hover {
-    background: var(--bg-secondary, #f8f9fa);
-    border-color: var(--primary-color);
-    color: var(--primary-color);
-  }
-
-  .control-button:active {
-    transform: scale(0.95);
-  }
-
-  .control-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .control-button:disabled:hover {
-    background: none;
-    border-color: var(--card-border);
-    color: var(--text-secondary);
-  }
-
-  .control-button.processing {
-    color: var(--primary-color);
-    border-color: var(--primary-color);
-  }
-
-  .stop-all-button:hover {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: var(--danger-color);
-    color: var(--danger-color);
-  }
-
-  .restart-all-button:hover {
-    background: rgba(34, 197, 94, 0.1);
-    border-color: var(--success-color);
-    color: var(--success-color);
-  }
-
-  .control-button svg {
-    width: 16px;
-    height: 16px;
-  }
+  /* .control-button lives in app.css (shared with LocalGauge). */
 
   .refresh-button svg.spin {
     animation: spin 1s linear infinite;
@@ -435,13 +375,15 @@
   .gauge-bar {
     flex: 1;
     min-width: 0;
-    height: 24px;
+    height: 28px;
     border-radius: 999px;
     overflow: hidden;
     display: flex;
     position: relative;
-    border: 1px solid var(--card-border);
-    background: var(--input-inner-bg, var(--card-background));
+    border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     margin-right: 0.5rem;
   }
 
@@ -451,7 +393,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: var(--card-border);
+    background: transparent;
     z-index: 0;
   }
 
@@ -484,7 +426,7 @@
   }
 
   .gauge-total {
-    color: var(--text-secondary);
+    color: var(--text-primary);
   }
 
   .gauge-fill {
@@ -529,7 +471,9 @@
   }
 
   .proxy-status.trying {
-    background-color: var(--card-border);
+    background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     color: var(--text-primary);
     border: 1px solid var(--card-border);
   }
@@ -547,10 +491,11 @@
   }
 
   .proxy-status.idle {
-    background-color: var(--card-background);
-    color: var(--text-secondary);
-    border: 1px solid var(--card-border);
-    opacity: 0.7;
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: var(--text-primary);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
   }
 
   .status-icon {

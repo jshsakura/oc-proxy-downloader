@@ -135,17 +135,14 @@
 </div>
 
 <style>
-  .local-gauge {
+      .local-gauge {
     padding: 0.75rem;
     margin-bottom: 0;
     height: 100%;
     display: flex;
     flex-direction: column;
-    transition:
-      background-color 0.3s ease,
-      border-color 0.3s ease,
-      box-shadow 0.3s ease;
-    font-size: 0.85rem;
+    justify-content: center;
+    gap: 0.5rem;
   }
 
   .local-info {
@@ -183,11 +180,12 @@
     gap: 6px;
     background-color: var(--primary-color);
     color: white;
-    padding: 4px 14px;
+    padding: 0 12px;
     border-radius: 999px;
     font-size: 12px;
     font-weight: 600;
     line-height: 1;
+    /* Same height as ProxyGauge's header label so the two panes line up. */
     height: 26px;
     min-width: 70px;
     box-sizing: border-box;
@@ -207,14 +205,16 @@
   .local-count {
     flex: 1;
     min-width: 0;
-    height: 24px;
+    height: 28px;
     padding: 0 0.75rem;
     border-radius: 999px;
-    border: 1px solid var(--card-border);
-    background: var(--input-inner-bg, var(--card-background));
+    border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     display: inline-flex;
     align-items: center;
-    color: var(--text-secondary);
+    color: var(--text-primary);
     font-size: 11px;
     font-weight: 600;
     margin-right: 0.5rem;
@@ -254,7 +254,7 @@
   }
 
   .local-dot:not(.downloading):not(.waiting):not(.completed):not(.failed) {
-    background-color: var(--text-secondary);
+    background-color: var(--text-primary);
     opacity: 0.3;
   }
 
@@ -279,10 +279,11 @@
   }
 
   .local-status.waiting {
-    background-color: var(--card-background);
-    color: var(--text-secondary);
-    border: 1px solid var(--card-border);
-    opacity: 0.7;
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: var(--text-primary);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
   }
 
   .local-status.completed {
@@ -298,10 +299,11 @@
   }
 
   .local-status.idle {
-    background-color: var(--card-background);
-    color: var(--text-secondary);
-    border: 1px solid var(--card-border);
-    opacity: 0.7;
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: var(--text-primary);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
   }
 
   .status-icon {
@@ -386,92 +388,7 @@
     white-space: nowrap;
   }
 
-  .control-button {
-    background: none;
-    border: 1px solid var(--card-border);
-    border-radius: 6px;
-    padding: 0.4rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    margin-left: 0.25rem;
-  }
-
-  .control-button:hover {
-    background: var(--bg-secondary, #f8f9fa);
-    border-color: var(--primary-color);
-    color: var(--primary-color);
-  }
-
-  .control-button:active {
-    transform: scale(0.95);
-  }
-
-  .control-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .control-button:disabled:hover {
-    background: none;
-    border-color: var(--card-border);
-    color: var(--text-secondary);
-  }
-
-  .control-button.processing {
-    color: var(--primary-color);
-    border-color: var(--primary-color);
-  }
-
-  .stop-all-button:hover {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: var(--danger-color);
-    color: var(--danger-color);
-  }
-
-  .restart-all-button:hover {
-    background: rgba(34, 197, 94, 0.1);
-    border-color: var(--success-color);
-    color: var(--success-color);
-  }
-
-  .active-downloads {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    background-color: rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    font-size: 0.75rem;
-  }
-
-  .download-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.25rem;
-  }
-
-  .download-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-right: 0.5rem;
-  }
-
-  .download-progress {
-    font-weight: 600;
-    min-width: 40px;
-    text-align: right;
-  }
-
-  .more-downloads {
-    text-align: center;
-    opacity: 0.7;
-    font-style: italic;
-  }
+  /* .control-button lives in app.css (shared with ProxyGauge). */
 
   @keyframes spin {
     from {
@@ -492,17 +409,6 @@
     }
   }
 
-  @keyframes blink {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.3;
-    }
-  }
-
-  /* Mobile responsiveness */
   /* Mobile responsiveness - stack vertically at 759px and below */
   @media (max-width: 759px) {
     .local-gauge {

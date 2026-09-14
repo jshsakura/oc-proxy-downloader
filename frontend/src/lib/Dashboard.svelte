@@ -348,8 +348,8 @@
             <Skeleton width="30%" height="10px" radius="3px" />
           </div>
           <div class="monitor-body">
-            <Skeleton width="86px" height="86px" circle={true} />
-            <Skeleton width="100%" height="44px" radius="4px" />
+            <Skeleton width="72px" height="72px" circle={true} />
+            <Skeleton width="100%" height="36px" radius="4px" />
           </div>
         </div>
       {/each}
@@ -363,10 +363,10 @@
 
 <style>
   .dashboard-section {
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
+    gap: 0.5rem;
   }
 
   /* Removed dash-header — the query condition moved to the grid. */
@@ -375,22 +375,21 @@
   .monitor-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 0.6rem;
-    margin-bottom: 0.75rem;
+    gap: 0.55rem;
+    margin-bottom: 0.6rem;
   }
 
   .monitor-card {
     background: var(--dashboard-card-bg);
     border: 1px solid var(--dashboard-card-border);
     border-radius: 10px;
-    padding: 0.45rem 0.65rem 0.4rem;
+    padding: 0.75rem 0.7rem 0.6rem;
     box-shadow: var(--shadow-light);
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    min-height: 78px;
+    gap: 0.5rem;
+    min-height: 110px;
     min-width: 0;
-    overflow: hidden;
   }
 
   .monitor-head {
@@ -401,7 +400,7 @@
   }
 
   .monitor-title {
-    font-size: 0.68rem;
+    font-size: 0.7rem;
     font-weight: 700;
     color: var(--text-secondary);
     text-transform: uppercase;
@@ -419,9 +418,9 @@
 
   .monitor-body {
     display: grid;
-    grid-template-columns: 54px minmax(0, 1fr);
+    grid-template-columns: 72px minmax(0, 1fr);
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
     flex: 1;
     min-width: 0;
   }
@@ -462,14 +461,14 @@
   }
 
   .gauge {
-    width: 54px;
-    height: 54px;
+    width: 72px;
+    height: 72px;
     display: block;
   }
 
   .spark {
     width: 100%;
-    height: 28px;
+    height: 36px;
   }
   .spark svg {
     width: 100%;

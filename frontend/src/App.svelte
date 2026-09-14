@@ -146,10 +146,7 @@
   let downloadWaitInfo = {};
   let proxyInfo = null;
 
-  function toggleQuickTheme() {
-    const next = $theme === "light" ? "dark" : "light";
-    theme.set(next);
-  }
+
 
   function detectHosterSlug(targetUrl) {
     if (!targetUrl) return "";
@@ -2275,117 +2272,24 @@
 
 <main>
   {#if $authLoading || $isLoading}
-    <div class="skeleton-page">
-      <!-- Header -->
-      <div class="skeleton-header">
-        <Skeleton width="38px" height="38px" circle={true} />
-        <div class="skeleton-header-title">
-          <Skeleton width="180px" height="26px" radius="6px" />
-        </div>
-        <Skeleton width="36px" height="36px" radius="8px" />
-      </div>
-      <!-- Form card -->
-      <div class="skeleton-card">
-        <Skeleton width="100%" height="42px" radius="8px" />
-        <div class="skeleton-form-row">
-          <Skeleton width="72px" height="36px" radius="20px" />
-          <Skeleton width="140px" height="36px" radius="8px" />
-        </div>
-      </div>
-      <!-- Live gauges -->
-      <div class="skeleton-live-card">
-        {#each Array(2) as _}
-          <div class="skeleton-live-pane">
-            <Skeleton width="55%" height="13px" radius="3px" />
-            <Skeleton width="100%" height="56px" radius="8px" />
-            <Skeleton width="80%" height="10px" radius="3px" />
-          </div>
-        {/each}
-      </div>
-      <!-- Monitor grid -->
-      <div class="skeleton-monitor-grid">
-        {#each Array(4) as _}
-          <div class="skeleton-monitor-card">
-            <Skeleton width="45%" height="11px" radius="3px" />
-            <div class="skeleton-monitor-body">
-              <Skeleton width="86px" height="86px" circle={true} />
-              <Skeleton width="100%" height="44px" radius="4px" />
-            </div>
-          </div>
-        {/each}
-      </div>
-      <!-- Tabs -->
-      <div class="skeleton-tabs-row">
-        <Skeleton width="90px" height="32px" radius="6px" />
-        <Skeleton width="90px" height="32px" radius="6px" />
-      </div>
-      <!-- Table -->
-      <div class="skeleton-table">
-        <div class="skeleton-table-header">
-          {#each Array(8) as _}
-            <Skeleton width="70%" height="12px" radius="3px" />
-          {/each}
-        </div>
-        {#each Array(5) as _}
-          <div class="skeleton-table-row">
-            <Skeleton width="85%" height="14px" radius="3px" />
-            <Skeleton width="64px" height="22px" radius="10px" />
-            <Skeleton width="52px" height="14px" radius="3px" />
-            <Skeleton width="100%" height="8px" radius="4px" />
-            <Skeleton width="52px" height="14px" radius="3px" />
-            <Skeleton width="82px" height="14px" radius="3px" />
-            <Skeleton width="44px" height="22px" radius="10px" />
-            <Skeleton width="76px" height="28px" radius="6px" />
-          </div>
-        {/each}
-      </div>
+    <div class="loading-container">
+      <div class="spinner"></div>
     </div>
   {:else if $needsLogin}
     <LoginScreen on:login={handleLoginSuccess} />
   {:else}
     <div class="header">
-      <div class="header-brand-wrap">
-        <button
-          type="button"
-          class="logo-button"
-          on:click={() => (window.location.href = "/")}
-          aria-label={$t("main_refresh_aria")}
-        >
-          <img src={logo} alt="Logo" class="logo" />
-        </button>
-        <div class="brand-title-group">
-          <h1>{$t("title")}</h1>
-          <span class="v2-version-badge">v2.0</span>
-        </div>
-        <div
-          class="header-network-badge"
-          class:is-proxy={useProxy}
-          class:is-healthy={proxyInfo?.status === "healthy" || proxyInfo?.available_proxies > 0}
-        >
-          <span class="pulse-dot"></span>
-          <span class="network-text">
-            {#if useProxy}
-              {proxyInfo?.ip ? `Proxy (${proxyInfo.ip})` : "Proxy Ready"}
-            {:else}
-              Direct Network
-            {/if}
-          </span>
-        </div>
-      </div>
+      <button
+        type="button"
+        class="logo-button"
+        on:click={() => (window.location.href = "/")}
+        aria-label={$t("main_refresh_aria")}
+      >
+        <img src={logo} alt="Logo" class="logo" />
+      </button>
+      <h1>{$t("title")}</h1>
       <div class="header-actions">
-        <button
-          type="button"
-          class="button-icon theme-toggle-btn"
-          on:click={toggleQuickTheme}
-          title={$theme === "light" ? "Dark Mode" : "Light Mode"}
-          aria-label="Toggle Theme"
-        >
-          {#if $theme === "light"}
-            <MoonIcon />
-          {:else}
-            <SunIcon />
-          {/if}
-        </button>
+
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
@@ -2407,6 +2311,7 @@
             type="text"
             bind:value={url}
             placeholder={$t("url_placeholder")}
+            aria-label={$t("url_placeholder")}
             required
           />
           <div class="input-inner-actions">
@@ -2461,6 +2366,8 @@
               class="proxy-toggle-button {useProxy
                 ? 'proxy'
                 : 'local'} {!proxyAvailable ? 'disabled' : ''}"
+              role="switch"
+              aria-checked={useProxy}
               on:click={() => {
                 if (proxyAvailable) {
                   useProxy = !useProxy;
@@ -2554,12 +2461,14 @@
       </div>
 
       <div class="tabs-container">
-        <div class="tabs">
+        <div class="tabs" role="tablist">
           <button
             class="tab"
             class:active={currentTab === "working"}
             on:click={() => onTabChange("working")}
             title={$t("tab_working")}
+            role="tab"
+            aria-selected={currentTab === "working"}
           >
             <span class="tab-icon"><DownloadIcon /></span>
             <span class="tab-label">{$t("tab_working")}</span>
@@ -2572,6 +2481,8 @@
             class:active={currentTab === "completed"}
             on:click={() => onTabChange("completed")}
             title={$t("tab_completed")}
+            role="tab"
+            aria-selected={currentTab === "completed"}
           >
             <span class="tab-icon"><CheckCircleIcon /></span>
             <span class="tab-label">{$t("tab_completed")}</span>
@@ -2593,15 +2504,16 @@
               <SearchIcon />
             </button>
             <div class="search-container">
-            <input
-              type="text"
-              class="search-input"
-              placeholder={$t("search_placeholder")}
-              bind:this={searchInputEl}
-              bind:value={searchQuery}
-              on:input={handleSearchInput}
-              on:focus={() => (searchExpanded = true)}
-            />
+          <input
+            type="text"
+            class="search-input"
+            placeholder={$t("search_placeholder")}
+            aria-label={$t("search_placeholder")}
+            bind:this={searchInputEl}
+            bind:value={searchQuery}
+            on:input={handleSearchInput}
+            on:focus={() => (searchExpanded = true)}
+          />
             {#if searchQuery && searchQuery.trim()}
               <button
                 type="button"
@@ -2640,6 +2552,11 @@
         {downloadProxyInfo}
         {currentTime}
         {isDownloadsLoading}
+        {currentPage}
+        {totalPages}
+        {itemsPerPage}
+        totalCount={currentTabTotalCount}
+        on:pageChange={(e) => goToPage(e.detail.page)}
         on:toggleSelect={(e) => toggleSelect(e.detail.id)}
         on:toggleSelectAll={() => toggleSelectAll(gridDownloads)}
         on:start={(e) => callApi(`/api/downloads/start/${e.detail.id}`)}
@@ -2651,229 +2568,6 @@
         on:redownload={(e) => redownload(e.detail.download)}
         on:proxyToggle={(e) => handleProxyToggle(e.detail.download)}
       />
-
-      <!-- Pagination - always shown -->
-      <div class="pagination-footer">
-      <div class="page-info">
-        {#if totalPages > 1}
-          <div>{$t("pagination_page_info", { currentPage, totalPages })}</div>
-        {/if}
-        <div class="items-info">
-          {#if currentTabTotalCount > 0}
-            {$t("pagination_items_info", {
-              total: currentTabTotalCount,
-              start: (currentPage - 1) * itemsPerPage + 1,
-              end: Math.min(
-                currentPage * itemsPerPage,
-                currentTabTotalCount
-              ) })}
-          {/if}
-        </div>
-      </div>
-      {#if totalPages > 1}
-        <div class="pagination-buttons">
-          <!-- Smart pagination for desktop -->
-          <div class="pagination-desktop">
-            <button
-              class="page-number-btn prev-next-btn"
-              on:click={() => goToPage(currentPage - 1)}
-              disabled={currentPage <= 1}
-            >
-              <ChevronLeftIcon />
-            </button>
-
-            <!-- Smart page-number buttons -->
-            {#if totalPages <= 7}
-              <!-- If there are 7 or fewer total pages, show them all -->
-              {#each Array(totalPages) as _, i}
-                {@const pageNum = i + 1}
-                <button
-                  class="page-number-btn"
-                  class:active={currentPage === pageNum}
-                  on:click={() => goToPage(pageNum)}
-                >
-                  {pageNum}
-                </button>
-              {/each}
-            {:else}
-              <!-- Complex pagination logic -->
-              {#if currentPage <= 4}
-                <!-- When the current page is near the front: 1,2,3,4,5 ... 14 -->
-                {#each [1,2,3,4,5] as pageNum}
-                  <button
-                    class="page-number-btn"
-                    class:active={currentPage === pageNum}
-                    on:click={() => goToPage(pageNum)}
-                  >
-                    {pageNum}
-                  </button>
-                {/each}
-                <span class="page-dots">...</span>
-                <button
-                  class="page-number-btn"
-                  on:click={() => goToPage(totalPages)}
-                >
-                  {totalPages}
-                </button>
-              {:else if currentPage >= totalPages - 3}
-                <!-- When the current page is near the end: 1 ... 10,11,12,13,14 -->
-                <button
-                  class="page-number-btn"
-                  on:click={() => goToPage(1)}
-                >
-                  1
-                </button>
-                <span class="page-dots">...</span>
-                {#each [totalPages-4, totalPages-3, totalPages-2, totalPages-1, totalPages] as pageNum}
-                  <button
-                    class="page-number-btn"
-                    class:active={currentPage === pageNum}
-                    on:click={() => goToPage(pageNum)}
-                  >
-                    {pageNum}
-                  </button>
-                {/each}
-              {:else}
-                <!-- When the current page is in the middle: 1 ... 7,8,9,10,11 ... 14 -->
-                <button
-                  class="page-number-btn"
-                  on:click={() => goToPage(1)}
-                >
-                  1
-                </button>
-                <span class="page-dots">...</span>
-                {#each [currentPage-2, currentPage-1, currentPage, currentPage+1, currentPage+2] as pageNum}
-                  <button
-                    class="page-number-btn"
-                    class:active={currentPage === pageNum}
-                    on:click={() => goToPage(pageNum)}
-                  >
-                    {pageNum}
-                  </button>
-                {/each}
-                <span class="page-dots">...</span>
-                <button
-                  class="page-number-btn"
-                  on:click={() => goToPage(totalPages)}
-                >
-                  {totalPages}
-                </button>
-              {/if}
-            {/if}
-
-            <button
-              class="page-number-btn prev-next-btn"
-              on:click={() => goToPage(currentPage + 1)}
-              disabled={currentPage >= totalPages}
-            >
-              <ChevronRightIcon />
-            </button>
-          </div>
-
-          <!-- Smart pagination for mobile -->
-          <div class="pagination-mobile">
-            <div class="page-nav-container">
-              <button
-                class="page-nav-btn prev-btn"
-                on:click={() => goToPage(currentPage - 1)}
-                disabled={currentPage <= 1}
-              >
-                <ChevronLeftIcon />
-                {$t("pagination_prev")}
-              </button>
-              <button
-                class="page-nav-btn next-btn"
-                on:click={() => goToPage(currentPage + 1)}
-                disabled={currentPage >= totalPages}
-              >
-                {$t("pagination_next")}
-                <ChevronRightIcon />
-              </button>
-            </div>
-
-            <div class="page-numbers-mobile">
-              {#if totalPages <= 7}
-                <!-- If there are 7 or fewer total pages, show them all -->
-                {#each Array(totalPages) as _, i}
-                  {@const pageNum = i + 1}
-                  <button
-                    class="page-number-btn-mobile"
-                    class:active={currentPage === pageNum}
-                    on:click={() => goToPage(pageNum)}
-                  >
-                    {pageNum}
-                  </button>
-                {/each}
-              {:else}
-                <!-- Complex pagination logic -->
-                {#if currentPage <= 4}
-                  <!-- When the current page is near the front: 1,2,3,4,5 ... 14 -->
-                  {#each [1,2,3,4,5] as pageNum}
-                    <button
-                      class="page-number-btn-mobile"
-                      class:active={currentPage === pageNum}
-                      on:click={() => goToPage(pageNum)}
-                    >
-                      {pageNum}
-                    </button>
-                  {/each}
-                  <span class="page-dots-mobile">...</span>
-                  <button
-                    class="page-number-btn-mobile"
-                    on:click={() => goToPage(totalPages)}
-                  >
-                    {totalPages}
-                  </button>
-                {:else if currentPage >= totalPages - 3}
-                  <!-- When the current page is near the end: 1 ... 10,11,12,13,14 -->
-                  <button
-                    class="page-number-btn-mobile"
-                    on:click={() => goToPage(1)}
-                  >
-                    1
-                  </button>
-                  <span class="page-dots-mobile">...</span>
-                  {#each [totalPages-4, totalPages-3, totalPages-2, totalPages-1, totalPages] as pageNum}
-                    <button
-                      class="page-number-btn-mobile"
-                      class:active={currentPage === pageNum}
-                      on:click={() => goToPage(pageNum)}
-                    >
-                      {pageNum}
-                    </button>
-                  {/each}
-                {:else}
-                  <!-- When the current page is in the middle: 1 ... 7,8,9,10,11 ... 14 -->
-                  <button
-                    class="page-number-btn-mobile"
-                    on:click={() => goToPage(1)}
-                  >
-                    1
-                  </button>
-                  <span class="page-dots-mobile">...</span>
-                  {#each [currentPage-2, currentPage-1, currentPage, currentPage+1, currentPage+2] as pageNum}
-                    <button
-                      class="page-number-btn-mobile"
-                      class:active={currentPage === pageNum}
-                      on:click={() => goToPage(pageNum)}
-                    >
-                      {pageNum}
-                    </button>
-                  {/each}
-                  <span class="page-dots-mobile">...</span>
-                  <button
-                    class="page-number-btn-mobile"
-                    on:click={() => goToPage(totalPages)}
-                  >
-                    {totalPages}
-                  </button>
-                {/if}
-              {/if}
-            </div>
-          </div>
-        </div>
-      {/if}
-      </div>
     </div>
   {/if}
 

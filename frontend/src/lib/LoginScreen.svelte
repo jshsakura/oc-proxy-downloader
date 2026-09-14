@@ -152,7 +152,9 @@
             type="button"
             class="password-toggle"
             on:click={() => showPassword = !showPassword}
-            tabindex="-1"
+            aria-pressed={showPassword}
+            aria-label={$t("login_password")}
+            title={$t("login_password")}
           >
             {#if showPassword}
               <!-- Eye slash icon (hide) -->
@@ -209,7 +211,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-dark) 100%);
+    /* One of the two sanctioned gradients (DESIGN.md 1). Both stops are real
+       tokens: --primary-color-dark never existed, which made the whole
+       background invalid and transparent (D-05/D-19). */
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
     padding: 1rem;
     overflow: auto;
   }
@@ -263,17 +268,19 @@
     align-items: center;
     gap: 0.5rem;
     color: var(--danger-color);
-    background: rgba(var(--danger-color-rgb), 0.1);
+    /* Tint derived from the solid token: --danger-color-rgb is a phantom
+       token, so the old rgba() pair silently dropped the panel fill (D-20). */
+    background: color-mix(in srgb, var(--danger-color) 10%, transparent);
     padding: 0.75rem;
     border-radius: 8px;
-    border: 1px solid rgba(var(--danger-color-rgb), 0.2);
+    border: 1px solid color-mix(in srgb, var(--danger-color) 20%, transparent);
     font-size: 0.875rem;
   }
 
   .error-message.locked {
     color: var(--warning-color);
-    background: rgba(255, 193, 7, 0.1);
-    border-color: rgba(255, 193, 7, 0.2);
+    background: color-mix(in srgb, var(--warning-color) 10%, transparent);
+    border-color: color-mix(in srgb, var(--warning-color) 20%, transparent);
   }
 
   .lockout-timer {
@@ -298,7 +305,7 @@
     padding: 0.75rem;
     border: 1px solid var(--input-border);
     border-radius: 8px;
-    background: var(--input-background);
+    background: var(--input-bg);
     color: var(--text-primary);
     font-size: 1rem;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
