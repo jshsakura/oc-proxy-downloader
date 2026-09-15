@@ -108,13 +108,9 @@ describe("baseline characterization: the shell keeps every control it renders to
 });
 
 describe("task-5 contracts: login identity (D-05, D-19, D-20)", () => {
-  it("the login gradient is opaque in every theme: primary to primary-hover", () => {
-    // --primary-color-dark is a phantom token; at computed-value time the
-    // whole background is invalid and renders transparent (D-05), which
-    // also causes the non-light login flash (D-19).
-    expect(LOGIN).toMatch(
-      /linear-gradient\([\s\S]*?var\(--primary-color\)[\s\S]*?var\(--primary-hover\)/,
-    );
+  it("the login backdrop stays on the selected theme surface", () => {
+    expect(LOGIN).toMatch(/\.login-container\s*\{[\s\S]*?background:\s*var\(--background\)/);
+    expect(LOGIN).not.toMatch(/\.login-container\s*\{[\s\S]*?linear-gradient/);
     expect(bare(LOGIN)).not.toContain("--primary-color-dark");
   });
 

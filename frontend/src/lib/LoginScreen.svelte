@@ -211,10 +211,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    /* One of the two sanctioned gradients (DESIGN.md 1). Both stops are real
-       tokens: --primary-color-dark never existed, which made the whole
-       background invalid and transparent (D-05/D-19). */
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+    background: var(--background);
     padding: 1rem;
     overflow: auto;
   }
@@ -225,7 +222,7 @@
     padding: 2rem;
     width: 100%;
     max-width: 400px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--shadow-medium);
     border: 1px solid var(--card-border);
     margin: auto;
   }

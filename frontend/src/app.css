@@ -4048,7 +4048,7 @@ html.forest,
 html.sunset {
   --button-primary-bg: color-mix(in srgb, var(--primary-color) 72%, #000);
   --button-primary-ink: #fff;
-  --button-danger-ink: black;
+  --button-danger-ink: #fff;
 }
 
 .status,
