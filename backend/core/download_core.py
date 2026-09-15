@@ -731,11 +731,31 @@ class DownloadCore:
             return True
         return False
 
-    def _register_fichier_block(self, egress: str = EGRESS_DIRECT):
+    def _register_fichier_block(self, egress: str = EGRESS_DIRECT,
+                                error: Optional[str] = None):
         """A 1fichier-local attempt hit a host block/quota — extend the cooldown.
 
         Scoped to the egress that was blocked; the other one keeps working.
         """
+        if "일일 무료 다운로드 한도" in (error or ""):
+            now = datetime.datetime.now()
+            # Do not feed every queued file into a quota page that explicitly
+            # says this egress has already used its daily allowance. Hold the
+            # one-per-IP queue until shortly after the next local midnight.
+            tomorrow = (
+                now.replace(hour=0, minute=0, second=0, microsecond=0)
+                + datetime.timedelta(days=1, minutes=10)
+            )
+            self._fichier_cooldown_until[egress] = tomorrow
+            self._fichier_block_streak[egress] = max(
+                1, self._fichier_block_streak.get(egress, 0)
+            )
+            print(
+                f"[LOG] 1fichier 일일 한도 감지 [{egress}] → "
+                f"{tomorrow.isoformat()}까지 전체 큐 대기"
+            )
+            return
+
         streak = self._fichier_block_streak.get(egress, 0) + 1
         self._fichier_block_streak[egress] = streak
         idx = min(streak - 1, len(FICHIER_HOST_BACKOFF_SECONDS) - 1)
@@ -1127,7 +1147,7 @@ class DownloadCore:
                     if req.status == StatusEnum.done:
                         self._register_fichier_success(fichier_egress)
                     elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED):
-                        self._register_fichier_block(fichier_egress)
+                        self._register_fichier_block(fichier_egress, req.error)
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
             else:
                 # General download (includes 1fichier proxy and plain URLs - max 5)

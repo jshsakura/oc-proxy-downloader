@@ -390,9 +390,11 @@ describe("download grid alignment", () => {
     expect(rulesFor(GRID, ".ag-cell-center").join(" ")).toMatch(/text-align:\s*center/);
   });
 
-  it("does not render a disabled terminal-failure icon as a fake action", () => {
-    expect(GRID).not.toContain("skullSvg");
-    expect(GRID).not.toContain('"is-disabled"');
+  it("renders a dead-source skull as a status icon, not a fake button", () => {
+    expect(GRID).toContain("skullSvg");
+    expect(GRID).toContain("makeIndicator(skullSvg");
+    expect(GRID).toContain('setAttribute("role", "img")');
+    expect(GRID).not.toContain('makeBtn(\n                skullSvg');
   });
 });
 

@@ -69,6 +69,20 @@ class TestFichierHostBackoff:
         assert dc._fichier_block_streak[EGRESS_DIRECT] == 0
         assert dc._fichier_cooldown_until[EGRESS_DIRECT] is None
 
+    def test_daily_quota_holds_the_entire_egress_until_tomorrow(self):
+        dc = DownloadCore()
+        now = datetime.datetime.now()
+
+        dc._register_fichier_block(
+            EGRESS_DIRECT,
+            "1fichier 일일 무료 다운로드 한도(10개)를 모두 사용했습니다",
+        )
+
+        cooldown = dc._fichier_cooldown_until[EGRESS_DIRECT]
+        assert cooldown.date() == (now + datetime.timedelta(days=1)).date()
+        assert (cooldown.hour, cooldown.minute) == (0, 10)
+        assert dc._fichier_cooldown_until.get(EGRESS_VPN) is None
+
     def test_a_blocked_egress_leaves_the_other_alone(self):
         # The reason the state is keyed at all: a flagged IP on one route must
         # not stop the route that is still working.

@@ -701,6 +701,15 @@
       }
       return btn;
     }
+    makeIndicator(iconSvg, title, extraClass = "") {
+      const indicator = document.createElement("span");
+      indicator.className = `button-icon ag-btn-icon ag-status-icon ${extraClass}`.trim();
+      indicator.title = title;
+      indicator.setAttribute("role", "img");
+      indicator.setAttribute("aria-label", title);
+      indicator.innerHTML = iconSvg;
+      return indicator;
+    }
     update(params) {
       const d = params.data;
       if (!d) return;
@@ -712,6 +721,7 @@
       const copySvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>`;
       const infoSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
       const deleteSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+      const skullSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5a8 8 0 0 1 16 0v2.7a2 2 0 0 1-1.4 1.9l-1.6.5V19a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-3.4l-1.6-.5A2 2 0 0 1 4 13.2Z"></path><circle cx="9" cy="11" r="1.7" fill="currentColor" stroke="none"></circle><circle cx="15" cy="11" r="1.7" fill="currentColor" stroke="none"></circle><path d="M12 14.2v1.6"></path></svg>`;
 
       if (currentTab === "completed") {
         this.eGui.appendChild(
@@ -750,9 +760,17 @@
         // that retry. Rendering the manual retry beside it produced five
         // controls and offered two contradictory actions at the same time.
         if (st === "failed" && !retryIsScheduled) {
-          if (d.failure_kind === "dead" || d.failure_kind === "unknown_terminal") {
-            // The status/details already explain a terminal failure. A
-            // disabled fourth icon looked actionable while doing nothing.
+          if (d.failure_kind === "dead") {
+            // A deleted/reported/missing source has no valid retry action. Keep
+            // the skull as a non-button status marker so it cannot be focused
+            // or mistaken for an action.
+            this.eGui.appendChild(
+              this.makeIndicator(skullSvg, $t("retry_blocked_dead"), "is-terminal")
+            );
+          } else if (d.failure_kind === "unknown_terminal") {
+            this.eGui.appendChild(
+              this.makeIndicator(retrySvg, $t("retry_blocked_dead"), "is-terminal")
+            );
           } else if (d.failure_kind === "auth_required") {
             this.eGui.appendChild(
               this.makeBtn(
@@ -1820,6 +1838,12 @@
     opacity: 0.35;
     cursor: not-allowed;
     transform: none;
+  }
+
+  :global(.ag-status-icon) {
+    opacity: 0.55;
+    cursor: default;
+    color: var(--danger-color);
   }
 
   :global(.ag-btn-icon.is-warn) {

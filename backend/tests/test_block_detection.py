@@ -53,6 +53,15 @@ class TestDetectBlockReason:
     def test_cloudflare_challenge(self):
         assert "Cloudflare" in sp.detect_block_reason(CLOUDFLARE_HTML)
 
+    def test_daily_free_quota(self):
+        html = "<div>You already downloaded for free more than 10 files today.</div>"
+        assert sp.detect_block_reason(html) == "일일 무료 다운로드 한도 초과"
+
+        classified = classify_error(
+            "파싱", "1fichier 차단: 일일 무료 다운로드 한도 초과"
+        )
+        assert classified.kind == "blocked"
+
     def test_wait_message_is_not_block(self):
         # "you must wait" is a normal flow, so it must not be detected as a block.
         html = "<html><body>You must wait 5 minutes before download.</body></html>"

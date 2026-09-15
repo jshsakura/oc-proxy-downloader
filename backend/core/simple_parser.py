@@ -223,6 +223,7 @@ def detect_block_reason(html_content):
         ("file has been reported", "파일이 신고되어 차단됨"),
         # Quota / rate limit
         ("you must wait", None),  # A wait time is the normal flow, so ignore it (marked with None)
+        ("you already downloaded for free more than", "일일 무료 다운로드 한도 초과"),
         ("limited to 1 download", "무료 다운로드 한도 초과"),
         # Guest slots full — can be bypassed by logging in as a registered (free) user
         ("free download is temporarily limited", "무료 게스트 슬롯이 가득 참 (1fichier 무료 계정 로그인 필요)"),

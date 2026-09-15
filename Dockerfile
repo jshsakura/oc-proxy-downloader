@@ -1,7 +1,7 @@
 # 1단계: Svelte 프론트엔드 빌드
-# 베이스 이미지는 AWS Public ECR 의 Docker 라이브러리 미러를 사용한다.
-# Docker Hub 의 anonymous pull rate limit (HTTP 429) 회피용.
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/node:20-alpine AS frontend-build
+# CI logs in to Docker Hub before Buildx starts, so these pulls are authenticated.
+# Public ECR began returning HTTP 429 before the build even reached our code.
+FROM --platform=$BUILDPLATFORM docker.io/library/node:20-alpine AS frontend-build
 WORKDIR /app/frontend
 
 # 의존성 파일들만 먼저 복사하여 캐싱 최적화
@@ -16,8 +16,8 @@ COPY frontend/ ./
 RUN npm test && npm run build
 
 # 2단계: Python FastAPI 백엔드 + 정적 파일
-# AWS Public ECR 의 Docker 라이브러리 미러 사용 (Docker Hub 429 회피).
-FROM public.ecr.aws/docker/library/python:3.11-slim AS backend
+# Authenticated Docker Hub pull; see the frontend stage note above.
+FROM docker.io/library/python:3.11-slim AS backend
 
 # Build arguments for multi-platform
 ARG TARGETPLATFORM
@@ -114,4 +114,4 @@ Xvfb "$DISPLAY" -screen 0 1280x1200x24 -nolisten tcp &\n\
 cd /app && su appuser -c "DISPLAY=$DISPLAY PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --no-access-log"\n\
 ' > /start.sh && chmod +x /start.sh
 
-CMD ["/start.sh"] 
+CMD ["/start.sh"]
