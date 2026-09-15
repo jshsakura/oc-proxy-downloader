@@ -361,7 +361,8 @@ Shared primitives used two or more times (file of record in parentheses;
 `.foo` = app.css global class):
 
 1. **Button** `.button` (app.css; AgDownloadGrid, modals, App): variants
-   `button-primary` (accent fill, `#fff` ink, glow shadow on hover),
+   `button-primary` (accent fill, black ink for AA contrast across every
+   kept accent, glow shadow on hover),
    `button-secondary` (tinted glass fill, card border), `button-danger`
    (danger fill; the bulk bar uses raw `#e53935`/`#b71c1c`, audit F4),
    `button-icon` (transparent, secondary ink, 8px radius; modifiers
@@ -529,9 +530,10 @@ carry it). Focus rings are 2 to 3px accent tints (section 8), never borders.
   in any modification: light-theme `--success-color` (#81c784) as text on
   white fails 4.5:1 (use a darker green when a text rule is touched);
   `#ffb74d` proxy toggle needs its dark slider/knob contrast preserved;
-  white text on `--primary-color` passes in all 11 themes today and must be
-  re-verified if any theme's accent changes; status-pill text tokens are the
-  per-theme contrast workaround and must never be replaced by hue tokens.
+  primary actions use black text because white misses AA on the brighter
+  custom-theme accents. Status pills use `--text-primary` over their tinted
+  surface; `--status-*-text` remains available for non-pill text where its
+  computed contrast has been verified.
 - **Focus visible (SC 2.4.7, 2.4.11).** Every interactive element shows a
   visible focus indicator: inputs/search use the accent border plus 2 to 3px
   `rgba(var(--primary-color-rgb), 0.1-0.2)` ring; buttons and tabs inherit

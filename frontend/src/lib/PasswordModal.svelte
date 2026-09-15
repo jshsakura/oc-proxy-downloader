@@ -1,11 +1,14 @@
 <script>
-  import { createEventDispatcher, onMount, onDestroy } from "svelte";
+  import { createEventDispatcher } from "svelte";
   import { t } from "./i18n.js";
+  import { modalFocus } from "./modal.js";
   import LockIcon from "../icons/LockIcon.svelte";
+  import UnlockIcon from "../icons/UnlockIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
 
   export let showModal;
   let passwordInput = "";
+  let showPassword = false;
 
   const dispatch = createEventDispatcher();
 
@@ -19,47 +22,52 @@
     closeModal();
   }
 
-  onMount(() => {
-    document.body.style.overflow = "hidden";
-  });
-  onDestroy(() => {
-    document.body.style.overflow = "";
-  });
 </script>
 
 {#if showModal}
-  <div
-    class="modal-backdrop"
-    role="dialog"
-    aria-label="Password"
-    aria-modal="true"
-    tabindex="0"
-    on:click={closeModal}
-    on:keydown={(e) => {
-      if (e.key === "Escape") closeModal();
-    }}
-  >
-    <div class="modal" on:click|stopPropagation on:keydown={() => {}} role="dialog" tabindex="-1">
+  <div class="modal-backdrop">
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="password-modal-title"
+      tabindex="-1"
+      use:modalFocus={{ onEscape: closeModal }}
+    >
       <div class="modal-header">
         <div class="modal-title-group">
           <LockIcon />
-          <h2>{$t("password_modal_title")}</h2>
+          <h2 id="password-modal-title">{$t("password_modal_title")}</h2>
         </div>
         <button class="button-icon close-button" on:click={closeModal} aria-label={$t("button_cancel")}>
           <XIcon />
         </button>
       </div>
       <div class="modal-body">
-        <input
-          id="password-input"
-          type="text"
-          class="input"
-          placeholder={$t("password_placeholder")}
-          bind:value={passwordInput}
-          on:keydown={(e) => {
-            if (e.key === "Enter") handleSave();
-          }}
-        />
+        <div class="password-field">
+          <input
+            id="password-input"
+            type={showPassword ? "text" : "password"}
+            class="input"
+            aria-label={$t("password_modal_title")}
+            placeholder={$t("password_placeholder")}
+            bind:value={passwordInput}
+            data-modal-autofocus
+            on:keydown={(e) => {
+              if (e.key === "Enter") handleSave();
+            }}
+          />
+          <button
+            type="button"
+            class="password-visibility"
+            aria-label={$t("login_password")}
+            title={$t("login_password")}
+            aria-pressed={showPassword}
+            on:click={() => (showPassword = !showPassword)}
+          >
+            {#if showPassword}<UnlockIcon />{:else}<LockIcon />{/if}
+          </button>
+        </div>
       </div>
       <div class="modal-actions">
         <button on:click={closeModal} class="button button-secondary">
@@ -101,7 +109,7 @@
   }
 
   .modal-header {
-    padding: 1.5rem 2rem 1rem 2rem;
+    padding: 0.75rem 1.25rem;
     border-bottom: 1px solid var(--card-border);
     display: flex;
     justify-content: space-between;
@@ -111,12 +119,18 @@
   .modal-title-group {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
+  }
+
+  .modal-title-group :global(svg) {
+    width: 16px;
+    height: 16px;
+    color: var(--primary-color);
   }
 
   .modal-title-group h2 {
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 1.05rem;
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -126,7 +140,12 @@
     border: none;
     cursor: pointer;
     color: var(--text-secondary);
-    padding: 0.5rem;
+    padding: 4px;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 6px;
     transition: all 0.2s ease;
   }
@@ -136,19 +155,65 @@
     color: var(--text-primary);
   }
 
+  .close-button :global(svg) {
+    width: 14px;
+    height: 14px;
+  }
+
   .modal-body {
-    padding: 1.5rem 2rem;
+    padding: 1rem 1.25rem;
   }
 
   .input {
     width: 100%;
-    padding: 0.75rem 1rem;
+    padding: 0.5rem 0.75rem;
     border: 1px solid var(--card-border);
-    border-radius: 8px;
+    border-radius: 6px;
     background: var(--card-background);
     color: var(--text-primary);
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     transition: all 0.2s ease;
+  }
+
+  .password-field {
+    position: relative;
+  }
+
+  .password-field .input {
+    padding-right: 2.75rem;
+  }
+
+  .password-visibility {
+    position: absolute;
+    inset-inline-end: 0.25rem;
+    top: 50%;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .password-visibility:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+  }
+
+  .password-visibility:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 35%, transparent);
+  }
+
+  .password-visibility :global(svg) {
+    width: 1rem;
+    height: 1rem;
   }
 
   .input:focus {
@@ -162,39 +227,10 @@
   }
 
   .modal-actions {
-    padding: 1rem 2rem 1.5rem 2rem;
+    padding: 0.65rem 1.25rem 0.85rem;
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     justify-content: flex-end;
   }
 
-  .button {
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid transparent;
-  }
-
-  .button-secondary {
-    background: var(--card-background);
-    color: var(--text-secondary);
-    border-color: var(--card-border);
-  }
-
-  .button-secondary:hover {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-  }
-
-  .button-primary {
-    background: var(--primary-color);
-    color: white;
-  }
-
-  .button-primary:hover {
-    background: var(--primary-hover);
-  }
 </style>

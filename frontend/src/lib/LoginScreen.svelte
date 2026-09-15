@@ -434,6 +434,10 @@
     border-color: var(--primary-color);
   }
 
+  .language-selector select:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 35%, transparent);
+  }
+
   .language-selector select:hover {
     border-color: var(--primary-color);
   }

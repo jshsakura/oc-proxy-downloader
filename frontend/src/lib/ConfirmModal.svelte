@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from "svelte";
   import { t } from "./i18n.js";
+  import { modalFocus } from "./modal.js";
   import XIcon from "../icons/XIcon.svelte";
   export let showModal = false;
   export let message = "";
@@ -23,14 +24,21 @@
 </script>
 
 {#if showModal}
-  <div class="modal-backdrop" role="dialog" aria-modal="true" tabindex="0">
-    <div class="modal" on:click|stopPropagation on:keydown={() => {}} role="dialog" tabindex="-1">
+  <div class="modal-backdrop">
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-modal-title"
+      tabindex="-1"
+      use:modalFocus={{ onEscape: handleCancel }}
+    >
       <div class="modal-header">
         <div class="modal-title-group">
           {#if icon}
             <span class="modal-icon">{@html icon}</span>
           {/if}
-          <h2>{title || $t("confirm_title")}</h2>
+          <h2 id="confirm-modal-title">{title || $t("confirm_title")}</h2>
         </div>
         <button
           class="button-icon close-button"
@@ -84,7 +92,7 @@
   }
 
   .modal-header {
-    padding: 1rem 1rem 1rem 1.5rem;
+    padding: 0.75rem 1.25rem;
     border-bottom: 1px solid var(--card-border);
     display: flex;
     justify-content: space-between;
@@ -98,7 +106,7 @@
 
   .modal-title-group h2 {
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 1.05rem;
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -108,7 +116,12 @@
     border: none;
     cursor: pointer;
     color: var(--text-secondary);
-    padding: 0.5rem;
+    padding: 4px;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 6px;
     transition: all 0.2s ease;
   }
@@ -118,66 +131,38 @@
     color: var(--text-primary);
   }
 
+  .close-button :global(svg) {
+    width: 14px;
+    height: 14px;
+  }
+
   .modal-body {
-    padding: 1.5rem 2rem;
+    padding: 1rem 1.25rem;
   }
 
   .modal-body p {
     margin: 0;
     color: var(--text-primary);
+    font-size: 0.875rem;
     line-height: 1.5;
   }
 
   .modal-actions {
-    padding: 1rem 2rem 1.5rem 2rem;
+    padding: 0.65rem 1.25rem 0.85rem;
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     justify-content: flex-end;
   }
 
-  .button {
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid transparent;
-  }
-
-  .button-secondary {
-    background: var(--card-background);
-    color: var(--text-secondary);
-    border-color: var(--card-border);
-  }
-
-  .button-secondary:hover {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-  }
-
-  .button-primary {
-    background: var(--primary-color);
-    color: white;
-  }
-
-  .button-primary:hover {
-    background: var(--primary-hover);
-  }
-
   .modal-icon {
-    font-size: 2rem;
-    margin-right: 0.5rem;
+    font-size: 1.25rem;
+    margin-right: 0.35rem;
+    display: inline-flex;
+    align-items: center;
   }
-  
-  .button-danger {
-    color: #fff;
-    background: #e53935;
-    border: none;
-    transition: background 0.2s;
-  }
-  
-  .button-danger:hover {
-    background: #b71c1c;
+
+  .modal-icon :global(svg) {
+    width: 18px;
+    height: 18px;
   }
 </style>

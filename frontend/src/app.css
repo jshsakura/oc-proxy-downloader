@@ -518,8 +518,8 @@ html.monokai {
   --primary-color: #f92672;
   --primary-hover: #e0175f;
   --primary-color-rgb: 249, 38, 114;
-  --danger-color: #f92672;
-  --danger-hover: #e0175f;
+  --danger-color: #ff5555;
+  --danger-hover: #e55a6a;
   --success-color: #a6e22e;
   --warning-color: #e6db74;
   --input-bg: #1e1f1c;
@@ -3934,8 +3934,8 @@ span.status.status-stopped {
   display: inline-block;
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top: 2px solid #ffffff;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-right: 8px;
@@ -4005,4 +4005,59 @@ select.input {
   padding: 0.25rem 2.2rem 0.25rem 0.75rem !important;
 }
 
+/* Accessibility authorities shared by every theme and component. */
+.button-primary {
+  background: var(--primary-color) !important;
+  border-color: var(--primary-color) !important;
+  color: black !important;
+}
 
+.button-primary:hover {
+  background: var(--primary-color) !important;
+  border-color: var(--primary-color) !important;
+}
+
+.button-danger {
+  background: var(--danger-color) !important;
+  border-color: var(--danger-color) !important;
+  color: var(--button-danger-ink, #fff) !important;
+}
+
+.button-danger:hover {
+  background: var(--danger-hover) !important;
+  border-color: var(--danger-hover) !important;
+}
+
+html.dark,
+html.dracula,
+html.nord,
+html.solarized,
+html.monokai,
+html.ocean,
+html.rose,
+html.neon,
+html.forest,
+html.sunset {
+  --button-danger-ink: black;
+}
+
+.status,
+.ag-status-pill {
+  color: var(--text-primary) !important;
+}
+
+.search-clear-btn {
+  min-width: 24px;
+  min-height: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

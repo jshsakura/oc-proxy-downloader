@@ -175,9 +175,10 @@ export const needsLogin = derived(
 // not help because the stale token lives in the browser. Dropping the session
 // here sends the user to the login screen, which is recoverable.
 export async function authenticatedFetch(url, options = {}) {
+    const requestToken = localStorage.getItem('auth_token');
     const headers = {
         ...options.headers,
-        ...authManager.getAuthHeaders()
+        ...(requestToken ? { 'Authorization': `Bearer ${requestToken}` } : {})
     };
 
     const response = await fetch(url, {
@@ -185,7 +186,13 @@ export async function authenticatedFetch(url, options = {}) {
         headers
     });
 
-    if (response.status === 401) {
+    // Ignore unauthenticated requests that raced with a successful login, and
+    // stale requests sent with a token that has since been replaced.
+    if (
+        response.status === 401 &&
+        requestToken &&
+        localStorage.getItem('auth_token') === requestToken
+    ) {
         authManager.logout();
     }
 

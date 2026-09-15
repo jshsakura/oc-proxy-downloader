@@ -22,6 +22,13 @@ const read = (rel) =>
 const CSS = read("../src/app.css");
 const APP = read("../src/App.svelte");
 const GRID = read("../src/lib/AgDownloadGrid.svelte");
+const DETAIL = read("../src/lib/DetailModal.svelte");
+const SETTINGS = read("../src/lib/SettingsModal.svelte");
+const PASSWORD = read("../src/lib/PasswordModal.svelte");
+const CONFIRM = read("../src/lib/ConfirmModal.svelte");
+const AUDIT = read("../src/lib/AuditModal.svelte");
+const MODAL_ACTION = read("../src/lib/modal.js");
+const THEME = read("../src/lib/theme.js");
 
 /** The `@media (max-width: 768px)` body — where the phone rules live. */
 function mobileBlock(css) {
@@ -227,5 +234,48 @@ describe("the bulk action bar stays readable on a phone", () => {
 
   it("bulk bar buttons never fragment their labels", () => {
     expect(rulesFor(CSS, ".bulk-action-bar .button").join(" ")).toMatch(/white-space:\s*nowrap/);
+  });
+});
+
+describe("modal and theme contracts", () => {
+  const modals = [DETAIL, SETTINGS, PASSWORD, CONFIRM, AUDIT];
+
+  it("every modal uses the shared focus trap and dialog semantics", () => {
+    for (const source of modals) {
+      expect(source).toContain("use:modalFocus");
+      expect(source).toContain('role="dialog"');
+      expect(source).toContain('aria-modal="true"');
+      expect(source).toContain("aria-labelledby");
+    }
+    expect(MODAL_ACTION).toContain('event.key !== "Tab"');
+    expect(MODAL_ACTION).toContain('event.key === "Escape"');
+    expect(MODAL_ACTION).toContain("trigger.focus");
+  });
+
+  it("detail rendering uses real API fields and the canonical formatter", () => {
+    expect(DETAIL).toContain("download.save_path");
+    expect(DETAIL).toContain("download.error_message");
+    expect(DETAIL).toContain("download.finished_at");
+    expect(DETAIL).toContain("formatTimestamp(download.created_at)");
+    expect(DETAIL).not.toMatch(/formatDate|getStatusClass|getStatusDot/);
+    expect(DETAIL).not.toContain("download.download_path");
+  });
+
+  it("settings previews a theme only after user input", () => {
+    expect(SETTINGS).toContain("on:change={previewTheme}");
+    expect(SETTINGS).toContain("selectedTheme = $theme");
+    expect(SETTINGS).not.toMatch(/\$:\s*if \(isInitialized && selectedTheme\)/);
+  });
+
+  it("one theme authority validates values and clears stale classes", () => {
+    expect(THEME).toContain('return THEMES.includes(value) ? value : "system"');
+    expect(THEME).toContain("root.classList.remove(...CLASS_THEMES)");
+    expect(THEME).toContain('mediaQuery.addEventListener?.("change"');
+  });
+
+  it("password input is masked and delete confirms retain danger intent", () => {
+    expect(PASSWORD).toContain('type={showPassword ? "text" : "password"}');
+    expect(PASSWORD).toContain("aria-pressed={showPassword}");
+    expect(APP).toContain("isDeleteAction={confirmIsDeleteAction}");
   });
 });

@@ -23,7 +23,6 @@
           Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         const result = await response.json();
-        console.log("로컬 다운로드 정지 완료:", result.message);
       } else {
         console.error("로컬 다운로드 일괄 정지 실패");
       }
@@ -46,7 +45,6 @@
           Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         const result = await response.json();
-        console.log("로컬 다운로드 재시작 완료:", result.message);
       } else {
         console.error("로컬 다운로드 일괄 재시작 실패");
       }

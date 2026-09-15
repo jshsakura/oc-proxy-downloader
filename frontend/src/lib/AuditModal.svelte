@@ -1,6 +1,7 @@
 <script>
-  import { createEventDispatcher, onMount } from "svelte";
+  import { createEventDispatcher } from "svelte";
   import { t } from "./i18n.js";
+  import { modalFocus } from "./modal.js";
   import XIcon from "../icons/XIcon.svelte";
 
   export let showModal = false;
@@ -110,16 +111,17 @@
 </script>
 
 {#if showModal}
-  <div class="modal-backdrop" role="dialog" aria-modal="true" tabindex="0">
+  <div class="modal-backdrop">
     <div
       class="modal"
-      on:click|stopPropagation
-      on:keydown={() => {}}
       role="dialog"
+      aria-modal="true"
+      aria-labelledby="audit-modal-title"
       tabindex="-1"
+      use:modalFocus={{ onEscape: cancel }}
     >
       <div class="modal-header">
-        <h2>{$t("audit_modal_title")}</h2>
+        <h2 id="audit-modal-title">{$t("audit_modal_title")}</h2>
         <button class="button-icon close-button" on:click={cancel} aria-label={$t("audit_modal_cancel")}>
           <XIcon />
         </button>
@@ -162,7 +164,7 @@
                 class:selected={selectedStatuses.has(s)}
                 on:click={() => toggleStatus(s)}
               >
-                {s}
+                {$t("download_" + s)}
               </button>
             {/each}
           </div>
@@ -240,7 +242,7 @@
     overflow-y: auto;
   }
   .modal-header {
-    padding: 1rem 1rem 1rem 1.5rem;
+    padding: 0.75rem 1.25rem;
     border-bottom: 1px solid var(--card-border);
     display: flex;
     justify-content: space-between;
@@ -248,7 +250,7 @@
   }
   .modal-header h2 {
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 1.05rem;
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -257,18 +259,28 @@
     border: none;
     cursor: pointer;
     color: var(--text-secondary);
-    padding: 0.5rem;
+    padding: 4px;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 6px;
+    transition: all 0.2s ease;
   }
   .close-button:hover {
     background: var(--bg-secondary);
     color: var(--text-primary);
   }
+  .close-button :global(svg) {
+    width: 14px;
+    height: 14px;
+  }
   .modal-body {
-    padding: 1.25rem 1.5rem;
+    padding: 1rem 1.25rem;
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: 1rem;
   }
   .field-header {
     display: flex;
@@ -277,19 +289,19 @@
     margin-bottom: 0.4rem;
   }
   .field-label {
-    font-size: 0.85rem;
+    font-size: 0.825rem;
     font-weight: 600;
     color: var(--text-primary);
   }
   .hint {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--text-secondary);
   }
   .link-button {
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     color: var(--text-secondary);
     padding: 0.15rem 0.35rem;
     border-radius: 4px;
@@ -301,12 +313,12 @@
   .chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
+    gap: 0.35rem;
   }
   .chip {
-    padding: 0.35rem 0.7rem;
+    padding: 0.25rem 0.6rem;
     border-radius: 999px;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     border: 1px solid var(--card-border);
     background: transparent;
     color: var(--text-secondary);
@@ -325,54 +337,30 @@
     align-items: center;
   }
   .period-inputs input {
-    padding: 0.45rem 0.6rem;
+    padding: 0.4rem 0.55rem;
     border-radius: 6px;
     border: 1px solid var(--card-border);
     background: var(--input-inner-bg, var(--card-background));
     color: var(--text-primary);
-    font-size: 0.85rem;
+    font-size: 0.825rem;
   }
   .period-sep {
     color: var(--text-secondary);
   }
   .limit-input {
     width: 100%;
-    padding: 0.5rem 0.7rem;
+    padding: 0.4rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--card-border);
     background: var(--input-inner-bg, var(--card-background));
     color: var(--text-primary);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
   }
   .modal-actions {
-    padding: 1rem 1.5rem 1.25rem;
+    padding: 0.65rem 1.25rem 0.85rem;
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     justify-content: flex-end;
     border-top: 1px solid var(--card-border);
-  }
-  .button {
-    padding: 0.6rem 1.2rem;
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    border: 1px solid transparent;
-  }
-  .button-secondary {
-    background: var(--card-background);
-    color: var(--text-secondary);
-    border-color: var(--card-border);
-  }
-  .button-secondary:hover {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-  }
-  .button-primary {
-    background: var(--primary-color);
-    color: white;
-  }
-  .button-primary:hover {
-    background: var(--primary-hover);
   }
 </style>

@@ -89,6 +89,7 @@
       />
       {#each segments as seg, i}
         <circle
+          role="presentation"
           cx={CX}
           cy={CY}
           r={R}
@@ -122,7 +123,7 @@
         dominant-baseline="middle"
         style="font-size:9px;fill:var(--chart-muted);letter-spacing:0.1em;text-transform:uppercase;"
       >
-        success
+        {$t("dashboard_success_rate")}
       </text>
     {:else}
       <text
@@ -142,6 +143,7 @@
       {#each segments as seg, i}
         <div
           class="legend-item"
+          role="presentation"
           class:hovered={hoveredSeg === i}
           on:mouseenter={() => hoveredSeg = i}
           on:mouseleave={() => hoveredSeg = -1}

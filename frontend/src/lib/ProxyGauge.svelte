@@ -60,7 +60,6 @@
           Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         const result = await response.json();
-        console.log("프록시 다운로드 정지 완료:", result.message);
 
         // Send the proxy-status reset event
         dispatch("resetProxyStatus");
@@ -86,7 +85,6 @@
           Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         const result = await response.json();
-        console.log("프록시 다운로드 재시작 완료:", result.message);
       } else {
         console.error("프록시 다운로드 일괄 재시작 실패");
       }
@@ -109,7 +107,6 @@
           Authorization: `Bearer ${localStorage.getItem("auth_token")}` } });
       if (response.ok) {
         // Notify that the reset succeeded
-        console.log($t("proxy_reset_success"));
         // Fire an event so the parent component refetches the status
         const event = new CustomEvent("proxy-refreshed");
         document.dispatchEvent(event);
@@ -136,7 +133,6 @@
       <div class="gauge-bar">
         <!-- Fill the entire background with light green -->
         <div class="gauge-background"></div>
-        <!-- Failed proxies are shown in red, starting from the right -->
         <div
           class="gauge-fill failed"
           style="width: {failDisplayPercentage}%"
@@ -438,9 +434,8 @@
   }
 
   .gauge-fill.failed {
-    background-color: var(--danger-color);
     right: 0;
-    background: rgba(239, 68, 68, 0.2);
+    background: transparent;
   }
 
   .warning {
@@ -488,6 +483,10 @@
     background-color: var(--danger-color);
     color: #fff;
     border: 1px solid var(--danger-color);
+  }
+
+  .proxy-status.failed .status-text {
+    color: #fff;
   }
 
   .proxy-status.idle {

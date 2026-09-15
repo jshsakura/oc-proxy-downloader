@@ -60,21 +60,6 @@
   import Checkbox from "./lib/Checkbox.svelte";
   import AgDownloadGrid from "./lib/AgDownloadGrid.svelte";
 
-  console.log(
-    "%c ██████  ██████   ██████ ██████  ███████    ████    ██   ██████  ██████ ██     █████    ███     ██████  █████ ██████ █████████████  \n" +
-      "██    ███         ██   ████   ████    ████ ██  ██  ██    ██   ████    ████     ██████   ███    ██    ████   ████   ████     ██   ██ \n" +
-      "██    ████        ██████ ██████ ██    ██ ███    ████     ██   ████    ████  █  ████ ██  ███    ██    ███████████   ███████  ██████  \n" +
-      "██    ███         ██     ██   ████    ████ ██    ██      ██   ████    ████ ███ ████  ██ ███    ██    ████   ████   ████     ██   ██ \n" +
-      " ██████  ██████   ██     ██   ██ ███████    ██   ██      ██████  ██████  ███ ███ ██   ██████████████████     ███████ █████████   ██ \n" +
-      "                                                                                                                                       \n" +
-      "                                                                                                                                       ",
-    "color: #474BDF; font-weight: bold; font-size: 12px;"
-  );
-  console.log(
-    "%cBy Husband of Rebekah",
-    "color: #bd93f9; font-weight: bold; font-size: 12px;"
-  );
-
   // Server-side pagination model:
   //   - gridDownloads: the items currently rendered in the grid (one server page).
   //   - activeDownloads: the small live list (in-progress only) powering gauges
@@ -227,6 +212,7 @@
   let confirmIcon = null;
   let confirmButtonText = null;
   let cancelButtonText = null;
+  let confirmIsDeleteAction = false;
 
   let isDark =
     typeof document !== "undefined" && document.body.classList.contains("dark");
@@ -255,7 +241,8 @@
     title = null,
     icon = null,
     confirmText = null,
-    cancelText = null }) {
+    cancelText = null,
+    isDeleteAction = false }) {
     confirmMessage = message;
     confirmAction = () => {
       onConfirm && onConfirm();
@@ -265,6 +252,7 @@
     confirmIcon = icon;
     confirmButtonText = confirmText;
     cancelButtonText = cancelText;
+    confirmIsDeleteAction = isDeleteAction;
     showConfirm = true;
   }
 
@@ -514,7 +502,6 @@
       totalAttempting: 0,
       status_message: ""
     };
-    console.log("🔄 프록시 상태 리셋됨 (일괄 정지)");
   }
 
   async function fetchSettings() {
@@ -765,9 +752,6 @@
                 proxyStats.currentProxy = null;
                 proxyStats.tryStartTime = null;
                 proxyStatsChanged = true;
-                console.log(
-                  `🔄 다운로드 ${downloadId} 상태 변경으로 인한 프록시 상태 리셋`,
-                );
               }
             }
 
@@ -920,11 +904,6 @@
                   proxyStats.currentIndex = 0;
                   proxyStats.totalAttempting = 0;
                   proxyStatsChanged = true;
-                  console.log(`[LOG] 마지막 프록시 다운로드 종료, 프록시 상태 초기화`);
-                } else {
-                  console.log(
-                    `[LOG] 다른 프록시 다운로드 진행 중 (${otherActiveProxyDownloads.length}개), 프록시 상태 유지`,
-                  );
                 }
               }
 
@@ -962,7 +941,6 @@
       // Handle proxy messages
       if (message.type === "proxy_trying") {
         const { id, proxy, step, current, total, failed } = message.data;
-        console.log(`[DEBUG] SSE proxy_trying 수신:`, message.data);
         proxyStats.currentProxy = proxy;
         proxyStats.currentStep = step;
         proxyStats.currentIndex = current;
@@ -973,15 +951,11 @@
         const newFailCount = failed || 0;
         const failedDiff = newFailCount - prevFailCount;
 
-        console.log(`[DEBUG] proxy_trying - 이전: ${prevFailCount}, 현재: ${newFailCount}, 차이: ${failedDiff}, 현재 잔여: ${proxyStats.availableProxies}`);
-
         proxyStats.failCount = newFailCount;
 
         // As the fail count increases, immediately decrement available proxies too
         if (failedDiff > 0 && proxyStats.availableProxies > 0) {
-          const beforeAvailable = proxyStats.availableProxies;
           proxyStats.availableProxies = Math.max(0, proxyStats.availableProxies - failedDiff);
-          console.log(`[DEBUG] 프록시 즉시 차감: ${failedDiff}개, ${beforeAvailable} -> ${proxyStats.availableProxies}`);
         }
         proxyStats.status = "trying";
 
@@ -1003,7 +977,6 @@
             if (downloadWaitInfo[id]) {
               delete downloadWaitInfo[id];
               downloadWaitInfo = { ...downloadWaitInfo };
-              console.log(`🛑 프록시 작업 시작으로 인한 대기 정보 제거: ${id} (${step})`);
             }
           }
         });
@@ -1062,7 +1035,6 @@
 
       // Handle proxy-status reset
       if (message.type === "proxy_reset") {
-        console.log("🔄 프록시 상태 초기화 메시지 수신:", message.data);
         proxyStats.status = "";
         proxyStats.currentProxy = "";
         proxyStats.currentStep = "";
@@ -1072,7 +1044,6 @@
         queueStateUpdate(() => {
           proxyStats = { ...proxyStats };
         });
-        console.log("[LOG] 프록시 상태 강제 초기화 완료");
       }
 
       // Handle the 1fichier wait time (waiting after parsing).
@@ -1106,7 +1077,6 @@
         let proxyStatsChanged = false;
         if (waitInfoExists) {
           delete downloadWaitInfo[id];
-          console.log(`🛑 정지로 인한 대기 정보 제거: ${id}`);
         }
 
         // Reset the proxy status (only when no other download is using a proxy)
@@ -1121,9 +1091,6 @@
             proxyStats.currentProxy = null;
             proxyStats.tryStartTime = null;
             proxyStatsChanged = true;
-            console.log(`🔄 마지막 프록시 다운로드 ${id} 중지로 인한 프록시 상태 리셋`);
-          } else {
-            console.log(`🔄 다른 프록시 다운로드 ${otherProxyDownloads.length}개 진행 중, 프록시 상태 유지`);
           }
         }
 
@@ -1141,7 +1108,6 @@
 
       // Handle filename updates
       if (message.type === "filename_update") {
-        console.log("📁 filename_update 메시지 수신:", message.data);
         const { id, filename, file_size } = message.data;
         queueStateUpdate(() => {
           gridDownloads = gridDownloads.map((d) =>
@@ -1165,12 +1131,10 @@
 
       // Handle SSE test messages
       if (message.type === "test_message") {
-        console.log("🧪 SSE 테스트 메시지 수신:", message.data);
         alert($t("sse_connection_normal") + ": " + message.data.message);
       }
 
       if (message.type === "force_refresh") {
-        console.log("🔄 Force refresh 요청 수신:", message.data);
         // Reload the visible page + live list + tab counts.
         fetchGridPage();
         fetchActiveDownloads();
@@ -1594,7 +1558,7 @@
       // If started=true, an SSE audit_progress(start) arrives shortly and shows a toast.
     } catch (e) {
       console.error("audit 시작 실패:", e);
-      toast.error(`audit error: ${e.message}`);
+      toast.error($t("action_request_failed", { action: $t("action_audit") }));
     }
   }
 
@@ -1690,7 +1654,6 @@
         const messageKey = `${action}_request_sent`;
         toast.success($t(messageKey));
         
-        console.log(`API 호출 성공: ${endpoint}`);
       } else {
         // Branch the retry-blocked reason into a separate message (permanent failure / login required)
         if (response.status === 409 && endpoint.includes("/retry/")) {
@@ -2132,8 +2095,6 @@
   }
 
   async function handleSettingsChanged(event) {
-    console.log("[DEBUG] Settings changed:", event.detail);
-
     if (event.detail) {
       currentSettings = { ...event.detail };
       downloadPath = currentSettings.download_path || "";
@@ -2279,8 +2240,11 @@
 
 <main>
   {#if $authLoading || $isLoading}
-    <div class="loading-container">
+    <div class="loading-container" role="status" aria-live="polite" aria-busy="true">
       <div class="spinner"></div>
+      {#if !$isLoading}
+        <span>{$t("loading_message")}</span>
+      {/if}
     </div>
   {:else if $needsLogin}
     <LoginScreen on:login={handleLoginSuccess} />
@@ -2296,7 +2260,17 @@
       </button>
       <h1>{$t("title")}</h1>
       <div class="header-actions">
-
+        <button
+          type="button"
+          on:click={() => startAudit(null)}
+          class="button-icon audit-button"
+          class:is-running={auditRunning}
+          aria-label={$t("action_audit")}
+          title={$t("action_audit")}
+          disabled={auditRunning}
+        >
+          <LinkCopyIcon />
+        </button>
         <button
           on:click={() => (showSettingsModal = true)}
           class="button-icon settings-button"
@@ -2336,8 +2310,8 @@
                 type="button"
                 class="button-icon input-action-btn clear-btn"
                 on:click={() => (url = "")}
-                title={$t("search_close") || "Clear"}
-                aria-label="Clear input"
+                title={$t("search_clear")}
+                aria-label={$t("search_clear")}
               >
                 <CloseIcon />
               </button>
@@ -2640,6 +2614,7 @@
       icon={confirmIcon}
       confirmText={confirmButtonText}
       cancelText={cancelButtonText}
+      isDeleteAction={confirmIsDeleteAction}
       on:confirm={confirmAction}
     />
 
@@ -2664,8 +2639,8 @@
   position="bottom-center"
   expand={true}
   visibleToasts={3}
-  closeButton={false}
-  duration={3000}
+  closeButton={true}
+  duration={7000}
   theme={$theme === 'light' ? 'light' : 'dark'}
   toastOptions={{
     class: `toast-${$theme}`,

@@ -1,10 +1,10 @@
 <script>
   import { createEventDispatcher } from "svelte";
   import { t, formatTimestamp } from "./i18n.js";
+  import { modalFocus } from "./modal.js";
   import InfoIcon from "../icons/InfoIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
-  import { onMount, onDestroy } from "svelte";
   import { toast } from 'svelte-sonner';
 
   export let showModal = false;
@@ -50,31 +50,17 @@
     }
   }
 
-  onMount(() => {
-    document.body.style.overflow = "hidden";
-  });
-  onDestroy(() => {
-    document.body.style.overflow = "";
-  });
 </script>
 
 {#if showModal}
-  <div
-    class="modern-backdrop"
-    role="dialog"
-    aria-label="Download Details"
-    aria-modal="true"
-    tabindex="0"
-    on:keydown={(e) => {
-      if (e.key === "Escape") closeModal();
-    }}
-  >
+  <div class="modern-backdrop">
     <div
       class="modern-modal"
-      on:click|stopPropagation
-      on:keydown={() => {}}
       role="dialog"
+      aria-modal="true"
+      aria-labelledby="detail-modal-title"
       tabindex="-1"
+      use:modalFocus={{ onEscape: closeModal }}
     >
       <!-- Modern header -->
       <div class="modal-header">
@@ -84,13 +70,13 @@
               <InfoIcon />
             </div>
             <div class="title-text">
-              <h2>{$t("detail_modal_title")}</h2>
+              <h2 id="detail-modal-title">{$t("detail_modal_title")}</h2>
               <p class="subtitle">
                 {download.filename || $t("detail_not_available")}
               </p>
             </div>
           </div>
-          <button class="close-button" on:click={closeModal}>
+          <button class="close-button" on:click={closeModal} aria-label={$t("close")} title={$t("close")}>
             <XIcon />
           </button>
         </div>
@@ -98,146 +84,97 @@
 
       <!-- Modern body -->
       <div class="modal-body">
-        <table class="detail-table">
-          <tbody>
-            <tr>
-              <th>{$t("detail_download_url")}</th>
-              <td>
+        <div class="detail-grid">
+          <div class="detail-row">
+            <div class="detail-label">{$t("detail_file_name")}</div>
+            <div class="detail-value">
+              {#if download.filename}
                 <div class="url-container">
-                  <span class="url-text" title={download.url}
-                    >{download.url}</span
-                  >
-                  <button
-                    class="copy-button"
-                    on:click={() => copyToClipboard(download.url)}
-                    title={$t("copy_url")}
-                  >
+                  <span class="url-text" title={download.filename}>{download.filename}</span>
+                  <button class="copy-button" on:click={() => copyToClipboard(download.filename)} title={$t("copy_filename")}>
                     <CopyIcon />
                   </button>
                 </div>
-              </td>
-            </tr>
-            {#if download.original_url}
-            <tr>
-              <th>{$t("detail_parsed_link")}</th>
-              <td>
+              {:else}
+                {$t("detail_not_available")}
+              {/if}
+            </div>
+          </div>
+
+          <div class="detail-row">
+            <div class="detail-label">{$t("detail_download_url")}</div>
+            <div class="detail-value">
+              <div class="url-container">
+                <span class="url-text" title={download.url}>{download.url}</span>
+                <button class="copy-button" on:click={() => copyToClipboard(download.url)} title={$t("copy_url")} aria-label={$t("copy_url")}>
+                  <CopyIcon />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {#if download.original_url}
+            <div class="detail-row">
+              <div class="detail-label">{$t("detail_parsed_link")}</div>
+              <div class="detail-value">
                 <div class="url-container">
-                  <span class="url-text" title={download.original_url}
-                    >{download.original_url}</span
-                  >
-                  <button
-                    class="copy-button"
-                    on:click={() => copyToClipboard(download.original_url)}
-                    title={$t("copy_url")}
-                  >
-                    <CopyIcon />
-                  </button>
+                  <span class="url-text" title={download.original_url}>{download.original_url}</span>
+                  <button class="copy-button" on:click={() => copyToClipboard(download.original_url)} title={$t("copy_url")} aria-label={$t("copy_url")}><CopyIcon /></button>
                 </div>
-              </td>
-            </tr>
-            {/if}
-            <tr>
-              <th>{$t("detail_download_path")}</th>
-              <td>
-                {#if download.save_path}
-                  <div class="url-container">
-                    <span class="url-text" title={download.save_path}
-                      >{download.save_path}</span
-                    >
-                    <button
-                      class="copy-button"
-                      on:click={() => copyToClipboard(download.save_path)}
-                      title={$t("copy_path")}
-                    >
-                      <CopyIcon />
-                    </button>
-                  </div>
-                {:else}
-                  {$t("detail_not_available")}
-                {/if}
-              </td>
-            </tr>
-            <tr>
-              <th>{$t("detail_requested_at")}</th>
-              <td>
-                {#if download.created_at}
-                  {formatTimestamp(download.created_at)}
-                {:else}
-                  {$t("detail_not_available")}
-                {/if}
-              </td>
-            </tr>
-            <tr>
-              <th>{$t("detail_status")}</th>
-              <td>
-                <span class="status status-{download.status?.toLowerCase()}">
-                  {$t(`download_${download.status?.toLowerCase()}`)}
-                </span>
-              </td>
-            </tr>
-            <tr>
-              <th>{$t("detail_file_name")}</th>
-              <td>
-                {#if download.filename}
-                  <div class="url-container">
-                    <span class="url-text" title={download.filename}
-                      >{download.filename}</span
-                    >
-                    <button
-                      class="copy-button"
-                      on:click={() => copyToClipboard(download.filename)}
-                      title={$t("copy_filename")}
-                    >
-                      <CopyIcon />
-                    </button>
-                  </div>
-                {:else}
-                  {$t("detail_not_available")}
-                {/if}
-              </td>
-            </tr>
-            <tr>
-              <th>{$t("detail_total_size")}</th>
-              <td>
-                {download.total_size
-                  ? formatBytes(download.total_size)
-                  : $t("detail_not_available")}
-              </td>
-            </tr>
-            <tr>
-              <th>{$t("detail_finished_at")}</th>
-              <td>
-                {#if download.finished_at}
-                  {formatTimestamp(download.finished_at)}
-                {:else}
-                  {$t("detail_not_available")}
-                {/if}
-              </td>
-            </tr>
-            <tr>
-              <th>{$t("detail_error_message")}</th>
-              <td>
-                <div class="error-message-container">
-                  <div
-                    class="error-text-block"
-                    title={download.error_message || ""}
-                  >
-                    {download.error_message || $t("detail_no_error")}
-                  </div>
-                  {#if download.error_message}
-                    <button
-                      class="copy-button"
-                      on:click={() => copyToClipboard(download.error_message)}
-                      title={$t("copy_error")}
-                    >
-                      <CopyIcon />
-                    </button>
-                  {/if}
+              </div>
+            </div>
+          {/if}
+
+          <div class="detail-row">
+            <div class="detail-label">{$t("detail_download_path")}</div>
+            <div class="detail-value">
+              {#if download.save_path}
+                <div class="url-container">
+                  <span class="url-text" title={download.save_path}>{download.save_path}</span>
+                  <button class="copy-button" on:click={() => copyToClipboard(download.save_path)} title={$t("copy_path")} aria-label={$t("copy_path")}><CopyIcon /></button>
                 </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              {:else}
+                {$t("detail_not_available")}
+              {/if}
+            </div>
+          </div>
+
+          <div class="detail-row">
+            <div class="detail-label">{$t("detail_requested_at")}</div>
+            <div class="detail-value">{download.created_at ? formatTimestamp(download.created_at) : $t("detail_not_available")}</div>
+          </div>
+
+          <div class="detail-row">
+            <div class="detail-label">{$t("detail_status")}</div>
+            <div class="detail-value">
+              <span class="status status-{download.status?.toLowerCase()}">
+                {$t(`download_${download.status?.toLowerCase()}`)}
+              </span>
+            </div>
+          </div>
+
+          <div class="detail-row">
+            <div class="detail-label">{$t("detail_total_size")}</div>
+            <div class="detail-value">{download.total_size ? formatBytes(download.total_size) : $t("detail_not_available")}</div>
+          </div>
+
+          <div class="detail-row">
+            <div class="detail-label">{$t("detail_finished_at")}</div>
+            <div class="detail-value">{download.finished_at ? formatTimestamp(download.finished_at) : $t("detail_not_available")}</div>
+          </div>
+
+          <div class="detail-row">
+            <div class="detail-label">{$t("detail_error_message")}</div>
+            <div class="detail-value">
+              <div class="error-message-container">
+                <div class="error-text-block" title={download.error_message || ""}>{download.error_message || $t("detail_no_error")}</div>
+                {#if download.error_message}
+                  <button class="copy-button" on:click={() => copyToClipboard(download.error_message)} title={$t("copy_error")} aria-label={$t("copy_error")}><CopyIcon /></button>
+                {/if}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Modern footer -->
@@ -413,6 +350,61 @@
   }
 
   /* Modal body - changed scroll behavior */
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+    background-color: var(--card-background);
+  }
+
+  .detail-row {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    border-bottom: 1px solid var(--card-border);
+  }
+
+  .detail-row:last-child {
+    border-bottom: none;
+  }
+
+  .detail-label {
+    padding: 12px 16px;
+    background-color: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    border-right: 1px solid var(--card-border);
+    display: flex;
+    align-items: center;
+  }
+
+  .detail-value {
+    padding: 12px 16px;
+    color: var(--text-primary);
+    word-break: break-all;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .detail-row:hover {
+    background-color: rgba(var(--primary-color-rgb), 0.05);
+  }
+
+  @media (max-width: 540px) {
+    .detail-row {
+      grid-template-columns: 110px 1fr;
+    }
+    .detail-label, .detail-value {
+      padding: 10px 12px;
+      font-size: 0.85rem;
+    }
+  }
+
   .modal-body {
     flex: 1;
     overflow: auto;
@@ -718,50 +710,6 @@
     font-weight: 500;
   }
 
-  .button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.75rem 1.5rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    border-radius: 12px;
-    border: 2px solid transparent;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    text-decoration: none;
-    min-width: 90px;
-    letter-spacing: 0.025em;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .button-primary {
-    background: linear-gradient(
-      135deg,
-      var(--primary-color) 0%,
-      var(--primary-hover, #1e40af) 100%
-    );
-    color: white;
-    box-shadow:
-      0 2px 4px rgba(0, 0, 0, 0.1),
-      0 1px 3px rgba(0, 0, 0, 0.08);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .button-primary:hover {
-    background: linear-gradient(
-      135deg,
-      var(--primary-hover, #1e40af) 0%,
-      var(--primary-color) 100%
-    );
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .button-primary:active {
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  }
-
   /* Per-theme footer styles */
   :global(body.dark) .modal-footer {
     background: #1f2937;
@@ -779,76 +727,6 @@
 
   :global(body.dracula) .timestamp {
     color: #6272a4;
-  }
-
-  /* Table - guarantee a minimum size */
-  .detail-table {
-    display: block;
-    width: 100%;
-    min-width: 100%;
-    overflow: visible;
-    resize: none;
-    user-select: none;
-  }
-
-  .detail-table tbody {
-    display: block;
-    width: 100%;
-    min-width: 100%;
-  }
-
-  .detail-table tr {
-    display: flex;
-    width: 100%;
-    min-width: 100%;
-    margin: 0;
-    padding: 0;
-  }
-
-  .detail-table th,
-  .detail-table td {
-    padding: 12px 16px;
-    margin: 0;
-    border-bottom: 1px solid var(--card-border);
-    font-size: 0.85em;
-    overflow: hidden;
-    word-break: break-all;
-    resize: none;
-  }
-
-  .detail-table th {
-    flex: 0 0 160px;
-    font-weight: 600;
-    /* The label column reads as a tinted strip (the "darker" side) so it is
-       clearly distinct from the value column. Theme-aware via the CSS vars —
-       no per-theme hardcoding needed. */
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    text-align: left;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-
-  .detail-table td {
-    flex: 1;
-    /* The value column is the "lighter" side — plain card background. */
-    background: var(--card-background);
-    color: var(--text-primary);
-    word-break: break-all;
-    word-wrap: break-word;
-    min-width: 200px;
-  }
-
-  /* Hover tints the whole row with a subtle primary wash (theme-aware). */
-  .detail-table tr:hover th,
-  .detail-table tr:hover td {
-    background-color: rgba(var(--primary-color-rgb), 0.08);
-  }
-
-  /* Remove the top border of the first row (merge with the modal border) */
-  .detail-table tr:first-child th,
-  .detail-table tr:first-child td {
-    border-top: none;
   }
 
   /* Mobile responsive styles */
@@ -912,18 +790,6 @@
       height: 1rem;
     }
 
-    .detail-table th {
-      flex: 0 0 120px;
-      font-size: 0.75rem;
-      padding: 8px 12px;
-    }
-
-    .detail-table td {
-      padding: 8px 12px;
-      font-size: 0.75rem;
-      min-width: 0;
-    }
-
     .modal-footer {
       padding: 1rem;
       flex-direction: column-reverse;
@@ -945,12 +811,6 @@
       width: 100%;
       min-width: unset;
     }
-  }
-
-  /* Remove the bottom border of the last row (merge with the modal border) */
-  .detail-table tr:last-child th,
-  .detail-table tr:last-child td {
-    border-bottom: none;
   }
 
   /* Pagination styles */
@@ -1046,19 +906,18 @@
     }
 
     .header-content {
-      flex-direction: column;
-      align-items: flex-start;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
       gap: 16px;
     }
-
     .title-section {
       margin-right: 0;
-      width: 100%;
+      width: auto;
     }
-
     .close-button {
-      position: absolute;
-      right: 16px;
+      position: relative;
+      right: 0;
       width: 32px;
       height: 32px;
     }
@@ -1084,22 +943,6 @@
 
     .subtitle {
       max-width: 250px;
-    }
-
-    .detail-table th,
-    .detail-table td {
-      padding: 12px 16px;
-      font-size: 0.85rem;
-    }
-
-    .detail-table th,
-    .detail-table td {
-      padding: 8px 12px;
-      font-size: 0.8rem;
-    }
-
-    .detail-table th {
-      width: 120px;
     }
 
     .copy-button {

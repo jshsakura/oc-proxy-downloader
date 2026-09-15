@@ -1,6 +1,7 @@
 <script>
-  import { createEventDispatcher, onMount, onDestroy } from "svelte";
+  import { createEventDispatcher, onMount } from "svelte";
   import { theme } from "./theme.js";
+  import { modalFocus } from "./modal.js";
   import { t, loadTranslations, isLoading, availableLanguages } from "./i18n.js";
   import HomeIcon from "../icons/HomeIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
@@ -132,6 +133,7 @@
     }
   }
   let showLogoutConfirm = false;
+  let showRegenerateConfirm = false;
 
   // Version information. No placeholder version here: an unanswered check must
   // read as "unknown", never as a real build number the server never reported.
@@ -325,7 +327,9 @@
       max_concurrent_downloads: currentSettings.max_concurrent_downloads ?? 8,
       max_per_host_downloads: currentSettings.max_per_host_downloads ?? 3,
       download_route: currentSettings.download_route || "direct" };
-    selectedTheme = settings.theme || $theme;
+    // The local theme store is the live authority. Opening settings must not
+    // unexpectedly replace it with a stale server-side preference.
+    selectedTheme = $theme;
     originalTheme = $theme;
     selectedLocale = localStorage.getItem("lang") || "ko";
     savedOnClose = false;
@@ -334,10 +338,6 @@
 
   // Routes other than manual/direct need somewhere to send the traffic.
   $: hasActiveProxy = (userProxies || []).some((p) => p.is_active);
-
-  $: if (isInitialized && selectedTheme) {
-    theme.set(selectedTheme);
-  }
 
   // Reset settings when modal is closed to allow re-initialization next time
   $: if (!showModal) {
@@ -355,7 +355,6 @@
   }
 
   async function saveSettings() {
-    savedOnClose = true;
     theme.set(selectedTheme);
 
     // Runtime-only values explain inherited Docker/ENV configuration in the UI.
@@ -370,20 +369,14 @@
       theme: selectedTheme,
       language: selectedLocale };
 
-    console.log("[DEBUG] Saving settings:", settingsToSave);
-
     try {
       const response = await authenticatedFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settingsToSave) });
 
-      console.log("[DEBUG] Save API response:", response.status);
-
       if (response.ok) {
-        const responseData = await response.json();
-        console.log("[DEBUG] Save response data:", responseData);
-
+        savedOnClose = true;
         // The language was already applied in changeLocale, so no extra handling is needed
 
         toast.success($t("settings_saved"));
@@ -410,17 +403,18 @@
     }
   }
 
+  function previewTheme() {
+    theme.set(selectedTheme);
+  }
+
   let environmentInfo = { is_standalone: false, is_docker: false };
 
   async function resetToDefault() {
     try {
-      console.log("[DEBUG] Calling API to get default path");
       const response = await authenticatedFetch("/api/default_download_path");
-      console.log("[DEBUG] API response received:", response.status);
 
       if (response.ok) {
         const data = await response.json();
-        console.log("[DEBUG] Default path data:", data);
 
         // Save the environment information
         environmentInfo = {
@@ -429,13 +423,8 @@
 
         if (data.default_download_path) {
           settings = { ...settings, download_path: data.default_download_path };
-          console.log(
-            "[DEBUG] Reset to default path:",
-            data.default_download_path
-          );
         } else {
           settings = { ...settings, download_path: "/downloads" };
-          console.log("[DEBUG] Reset to default: /downloads");
         }
       } else {
         console.warn(
@@ -524,20 +513,6 @@
     }
   }
 
-  let bodyOverflowSaved = null;
-
-  $: if (showModal) {
-    if (bodyOverflowSaved === null) {
-      bodyOverflowSaved = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-    }
-  } else {
-    if (bodyOverflowSaved !== null) {
-      document.body.style.overflow = bodyOverflowSaved;
-      bodyOverflowSaved = null;
-    }
-  }
-
   onMount(async () => {
     try {
       const response = await authenticatedFetch("/api/default_download_path");
@@ -579,7 +554,6 @@
   }
 
   async function regenerateApiToken() {
-    if (!confirm($t("api_token_regenerate_confirm"))) return;
     try {
       const res = await authenticatedFetch("/api/settings/api-token/regenerate", { method: "POST" });
       if (res.ok) {
@@ -593,22 +567,14 @@
 </script>
 
 {#if showModal}
-  <div
-    class="modern-backdrop"
-    role="dialog"
-    aria-label="Settings"
-    aria-modal="true"
-    tabindex="0"
-    on:keydown={(e) => {
-      if (e.key === "Escape") closeModal();
-    }}
-  >
+  <div class="modern-backdrop">
     <div
       class="modern-modal"
-      on:click|stopPropagation
-      on:keydown={() => {}}
       role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-modal-title"
       tabindex="-1"
+      use:modalFocus={{ onEscape: closeModal }}
     >
       {#if isSettingsLoading}
         <div class="modal-loading-container">
@@ -623,11 +589,11 @@
                 <SettingsIcon />
               </div>
               <div class="title-text">
-                <h2>{$t("settings_title")}</h2>
+                <h2 id="settings-modal-title">{$t("settings_title")}</h2>
                 <p class="subtitle">{$t("settings_subtitle")}</p>
               </div>
             </div>
-            <button class="close-button" on:click={closeModal}>
+            <button class="close-button" on:click={closeModal} aria-label={$t("close")} title={$t("close")}>
               <XIcon />
             </button>
           </div>
@@ -716,7 +682,7 @@
                 type="text"
                 class="input"
                 bind:value={settings.download_path}
-                placeholder={$t("download_path_placeholder_long")}
+                placeholder={$t("settings_download_path")}
               />
               <div class="path-buttons">
                 {#if !environmentInfo.is_docker}
@@ -773,93 +739,26 @@
           </div>
 
           <fieldset class="form-group">
-            <legend>{$t("settings_theme")}</legend>
-            <div class="theme-options">
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="light" hidden />
-                <div class="theme-card light-theme-card">
-                  <span class="theme-color-swatch" style="background: #6366f1"></span>
-                  <span class="theme-name">{$t("theme_light")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="dark" hidden />
-                <div class="theme-card dark-theme-card">
-                  <span class="theme-color-swatch" style="background: #818cf8"></span>
-                  <span class="theme-name">{$t("theme_dark")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="dracula" hidden />
-                <div class="theme-card dracula-theme-card">
-                  <span class="theme-color-swatch" style="background: #bd93f9"></span>
-                  <span class="theme-name">{$t("theme_dracula")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="nord" hidden />
-                <div class="theme-card nord-theme-card">
-                  <span class="theme-color-swatch" style="background: #88c0d0"></span>
-                  <span class="theme-name">{$t("theme_nord")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="solarized" hidden />
-                <div class="theme-card solarized-theme-card">
-                  <span class="theme-color-swatch" style="background: #b58900"></span>
-                  <span class="theme-name">{$t("theme_solarized")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="monokai" hidden />
-                <div class="theme-card monokai-theme-card">
-                  <span class="theme-color-swatch" style="background: #f92672"></span>
-                  <span class="theme-name">{$t("theme_monokai")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="ocean" hidden />
-                <div class="theme-card ocean-theme-card">
-                  <span class="theme-color-swatch" style="background: #3dd6b0"></span>
-                  <span class="theme-name">{$t("theme_ocean")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="rose" hidden />
-                <div class="theme-card rose-theme-card">
-                  <span class="theme-color-swatch" style="background: #f43f5e"></span>
-                  <span class="theme-name">{$t("theme_rose")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="neon" hidden />
-                <div class="theme-card neon-theme-card">
-                  <span class="theme-color-swatch" style="background: #e040fb"></span>
-                  <span class="theme-name">{$t("theme_neon")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="forest" hidden />
-                <div class="theme-card forest-theme-card">
-                  <span class="theme-color-swatch" style="background: #4ade80"></span>
-                  <span class="theme-name">{$t("theme_forest")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="sunset" hidden />
-                <div class="theme-card sunset-theme-card">
-                  <span class="theme-color-swatch" style="background: #fb923c"></span>
-                  <span class="theme-name">{$t("theme_sunset")}</span>
-                </div>
-              </label>
-              <label class="theme-option-label">
-                <input type="radio" bind:group={selectedTheme} value="system" hidden />
-                <div class="theme-card system-theme-card">
-                  <span class="theme-color-swatch" style="background: linear-gradient(135deg, #6366f1 50%, #818cf8 50%)"></span>
-                  <span class="theme-name">{$t("theme_system")}</span>
-                </div>
-              </label>
-            </div>
+            <label for="theme">{$t("settings_theme")}</label>
+            <select
+              id="theme"
+              class="input"
+              bind:value={selectedTheme}
+              on:change={previewTheme}
+            >
+              <option value="light">{$t("theme_light")}</option>
+              <option value="dark">{$t("theme_dark")}</option>
+              <option value="dracula">{$t("theme_dracula")}</option>
+              <option value="nord">{$t("theme_nord")}</option>
+              <option value="solarized">{$t("theme_solarized")}</option>
+              <option value="monokai">{$t("theme_monokai")}</option>
+              <option value="ocean">{$t("theme_ocean")}</option>
+              <option value="rose">{$t("theme_rose")}</option>
+              <option value="neon">{$t("theme_neon")}</option>
+              <option value="forest">{$t("theme_forest")}</option>
+              <option value="sunset">{$t("theme_sunset")}</option>
+              <option value="system">{$t("theme_system")}</option>
+            </select>
           </fieldset>
 
           <div class="form-group proxy-management">
@@ -1249,7 +1148,7 @@
               <button type="button" class="button button-secondary" on:click={copyApiToken}>
                 {apiTokenCopied ? $t("api_token_copied") : $t("api_token_copy")}
               </button>
-              <button type="button" class="button button-secondary" on:click={regenerateApiToken}>
+              <button type="button" class="button button-secondary" on:click={() => (showRegenerateConfirm = true)}>
                 {$t("api_token_regenerate")}
               </button>
             </div>
@@ -1778,6 +1677,14 @@
     on:confirm={confirmLogout}
     on:cancel={cancelLogout}
   />
+  <ConfirmModal
+    bind:showModal={showRegenerateConfirm}
+    title={$t("api_token_regenerate")}
+    message={$t("api_token_regenerate_confirm")}
+    confirmText={$t("button_confirm")}
+    cancelText={$t("button_cancel")}
+    on:confirm={regenerateApiToken}
+  />
 {/if}
 
 <style>
@@ -1802,7 +1709,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(15, 23, 42, 0.7);
+    background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(8px);
     display: flex;
     align-items: center;
@@ -1823,11 +1730,13 @@
   }
 
   .modern-modal {
-    background: var(--card-background);
+    background: color-mix(in srgb, var(--card-background) 70%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     border-radius: 16px;
     box-shadow:
-      0 25px 50px -12px rgba(0, 0, 0, 0.25),
-      0 0 0 1px rgba(255, 255, 255, 0.05);
+      0 25px 50px -12px rgba(0, 0, 0, 0.5),
+      0 0 0 1px color-mix(in srgb, var(--text-primary) 10%, transparent);
     width: 95vw;
     max-width: 800px;
     max-height: 90vh;
@@ -1851,15 +1760,15 @@
   }
 
   .modal-header {
-    background: linear-gradient(
-      135deg,
-      var(--primary-color) 0%,
-      var(--primary-hover, #1e40af) 100%
-    );
-    color: white;
-    padding: 0.875rem 1.25rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    flex-shrink: 0;
+    background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+    padding: 1rem 1.25rem;
+    color: var(--text-primary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
   }
 
   .header-content {
@@ -1895,16 +1804,13 @@
   }
 
   .title-text h2 {
-    margin: 0;
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: white;
+    color: var(--text-primary);
   }
 
   .title-text .subtitle {
     margin: 0.15rem 0 0 0;
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--text-secondary);
     font-weight: 400;
   }
 
@@ -1915,8 +1821,8 @@
     width: 2rem;
     height: 2rem;
     border: none;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+    color: var(--text-secondary);
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -1924,13 +1830,14 @@
   }
 
   .close-button:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+    color: var(--text-primary);
   }
 
   .close-button :global(svg) {
     width: 1rem;
     height: 1rem;
-    color: white;
+    color: currentColor;
   }
 
   .modal-loading-container {
@@ -2370,8 +2277,8 @@
     padding-right: 48px;
   }
 
-  .path-input-group .input {
-    padding-right: 88px;
+  :global(.path-input-group .input) {
+    padding-right: 88px !important;
   }
 
   .path-buttons {
@@ -2389,10 +2296,8 @@
   }
 
   .input-icon-button {
-    position: absolute;
-    right: 8px;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2rem;
+    height: 2rem;
     padding: 0;
     border: none !important;
     background-color: transparent;
@@ -2408,7 +2313,6 @@
   }
 
   .input-icon-button.reset-button {
-    right: 8px;
   }
 
   .input-icon-button:hover {
@@ -2421,96 +2325,13 @@
     height: 1rem;
   }
 
-  /* Theme cards — color swatch on the left, name centered. Two cards per row (desktop),
-   * one card per full-width row on mobile. The older variants that had baked-in gradient
-   * backgrounds are also gently toned down. */
-  .theme-options {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.4rem;
-    margin-top: 0.5rem;
-  }
-
-  @media (max-width: 540px) {
-    .theme-options {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  .theme-option-label {
-    cursor: pointer;
-    display: block;
-  }
-
-  .theme-card {
-    position: relative;
-    border: 1px solid var(--card-border, #e5e7eb);
-    border-radius: 10px;
-    padding: 0.5rem 0.75rem;
-    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
-    font-size: 0.82rem;
-    font-weight: 500;
-    display: grid;
-    grid-template-columns: 18px 1fr 18px;
-    align-items: center;
-    gap: 0.6rem;
-    background: var(--card-background);
-    color: var(--text-primary);
-    min-height: 40px;
-  }
-
-  .theme-card:hover {
-    border-color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb, 99, 102, 241), 0.04);
-  }
-
-  .theme-option-label input[type="radio"]:checked + .theme-card {
-    border-color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb, 99, 102, 241), 0.08);
-    box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb, 99, 102, 241), 0.18);
-  }
-
-  /* Check mark — show a small ✓ on the right of the selected card */
-  .theme-option-label input[type="radio"]:checked + .theme-card::after {
-    content: "";
-    grid-column: 3;
-    width: 14px;
-    height: 14px;
-    background: var(--primary-color);
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 3px var(--card-background);
-  }
-
-  .theme-color-swatch {
-    width: 18px;
-    height: 18px;
-    border-radius: 6px;
-    flex-shrink: 0;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-  }
-
-  .theme-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-    text-align: center;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-  }
-
-  /* Removed the (old) per-theme gradient card-background override — the new design
-   * conveys the theme color with the left swatch alone, so keeping a consistent card
-   * tone for the background is cleaner. */
-
   .modal-footer {
     padding: 0.75rem 1.25rem;
     border-top: 1px solid var(--card-border, #e5e7eb);
     background: linear-gradient(
       135deg,
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.03) 0%,
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.01) 100%
+      rgba(var(--primary-color-rgb, 59, 130, 246), 0.08) 0%,
+      rgba(var(--primary-color-rgb, 59, 130, 246), 0.04) 100%
     );
     backdrop-filter: blur(10px);
     display: flex;
@@ -2643,70 +2464,6 @@
     background: var(--primary-color);
     color: white;
     border-color: var(--primary-color);
-  }
-
-  .button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.75rem 1.5rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    border-radius: 12px;
-    border: 2px solid transparent;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    text-decoration: none;
-    min-width: 90px;
-    letter-spacing: 0.025em;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .button-primary {
-    background: linear-gradient(
-      135deg,
-      var(--primary-color) 0%,
-      var(--primary-hover, #1e40af) 100%
-    );
-    color: white;
-    box-shadow:
-      0 2px 4px rgba(0, 0, 0, 0.1),
-      0 1px 3px rgba(0, 0, 0, 0.08);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .button-primary:hover {
-    background: linear-gradient(
-      135deg,
-      var(--primary-hover, #1e40af) 0%,
-      var(--primary-color) 100%
-    );
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .button-primary:active {
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  }
-
-  .button-secondary {
-    background: var(--card-background);
-    color: var(--text-secondary);
-    border-color: var(--card-border, #e5e7eb);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  }
-
-  .button-secondary:hover {
-    background: var(
-      --button-secondary-background-hover,
-      var(--bg-secondary, #f8fafc)
-    );
-    border-color: var(--primary-color);
-    color: var(--text-primary);
-  }
-
-  .button-secondary:active {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   @media (max-height: 700px) {
@@ -2905,7 +2662,7 @@
   .telegram-chat-input {
     font-family: "Courier New", monospace;
     font-size: 0.875rem;
-    background: var(--input-background);
+    background: var(--input-bg);
     border: 1px solid var(--input-border);
     border-radius: 6px;
     padding: 0.75rem;
@@ -3501,15 +3258,16 @@
   }
 
   .proxy-action-btn {
+    height: 38px;
+    padding: 0 1rem;
+    box-sizing: border-box;
     background: none;
     border: none;
     cursor: pointer;
-    padding: 0.25rem;
     border-radius: 4px;
     font-size: 0.75rem;
     transition: all 0.2s;
     min-width: 24px;
-    height: 24px;
     display: flex !important;
     align-items: center;
     justify-content: center;

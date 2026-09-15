@@ -1,77 +1,61 @@
-import { writable } from 'svelte/store';
+import { writable } from "svelte/store";
 
-const createThemeStore = () => {
-  // Get initial theme from localStorage or system preference
-  const initialTheme = typeof window !== 'undefined'
-    ? localStorage.getItem('theme') || 'system'
-    : 'system'; // Default for SSR or if window is not defined
+export const THEMES = [
+  "light",
+  "dark",
+  "dracula",
+  "nord",
+  "solarized",
+  "monokai",
+  "ocean",
+  "rose",
+  "neon",
+  "forest",
+  "sunset",
+  "system",
+];
 
-  const { subscribe, set } = writable(initialTheme);
+const CLASS_THEMES = THEMES.filter((name) => !["light", "system"].includes(name));
 
-  // Function to apply the theme class to the document element
-  const applyThemeClass = (currentTheme) => {
-    if (typeof document !== 'undefined') {
-      
-      // Remove all theme classes first
-      document.documentElement.classList.remove('dark', 'dracula', 'nord', 'solarized', 'monokai', 'ocean', 'rose', 'neon', 'forest', 'sunset');
-      document.body.classList.remove('dark', 'dracula', 'nord', 'solarized', 'monokai', 'ocean', 'rose', 'neon', 'forest', 'sunset');
+export function normalizeTheme(value) {
+  return THEMES.includes(value) ? value : "system";
+}
 
-      if (currentTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-        document.body.classList.add('dark');
-      } else if (currentTheme === 'dracula') {
-        document.documentElement.classList.add('dracula');
-        document.body.classList.add('dracula');
-      } else if (currentTheme === 'nord') {
-        document.documentElement.classList.add('nord');
-        document.body.classList.add('nord');
-      } else if (currentTheme === 'solarized') {
-        document.documentElement.classList.add('solarized');
-        document.body.classList.add('solarized');
-      } else if (currentTheme === 'monokai') {
-        document.documentElement.classList.add('monokai');
-        document.body.classList.add('monokai');
-      } else if (currentTheme === 'ocean') {
-        document.documentElement.classList.add('ocean');
-        document.body.classList.add('ocean');
-      } else if (currentTheme === 'rose') {
-        document.documentElement.classList.add('rose');
-        document.body.classList.add('rose');
-      } else if (currentTheme === 'neon') {
-        document.documentElement.classList.add('neon');
-        document.body.classList.add('neon');
-      } else if (currentTheme === 'forest') {
-        document.documentElement.classList.add('forest');
-        document.body.classList.add('forest');
-      } else if (currentTheme === 'sunset') {
-        document.documentElement.classList.add('sunset');
-        document.body.classList.add('sunset');
-      } else if (currentTheme === 'system') {
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          document.documentElement.classList.add('dark');
-          document.body.classList.add('dark');
-        }
-      } else {
-        // Light theme - no classes needed
-      }
+function createThemeStore() {
+  const stored = typeof window === "undefined" ? "system" : localStorage.getItem("theme");
+  const initialTheme = normalizeTheme(stored);
+  const store = writable(initialTheme);
+  let currentTheme = initialTheme;
+  let mediaQuery;
+
+  function applyTheme(value) {
+    if (typeof document === "undefined") return;
+    const normalized = normalizeTheme(value);
+    const effective = normalized === "system" && mediaQuery?.matches ? "dark" : normalized;
+
+    for (const root of [document.documentElement, document.body]) {
+      root.classList.remove(...CLASS_THEMES);
+      if (CLASS_THEMES.includes(effective)) root.classList.add(effective);
     }
-  };
+  }
 
-  // Subscribe to changes in the store
-  subscribe(value => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('theme', value); // Save to localStorage
-      applyThemeClass(value); // Apply the class
-    }
-  });
+  function set(value) {
+    const normalized = normalizeTheme(value);
+    currentTheme = normalized;
+    if (typeof window !== "undefined") localStorage.setItem("theme", normalized);
+    applyTheme(normalized);
+    store.set(normalized);
+  }
 
-  // Immediately apply the initial theme class when the store is created
-  applyThemeClass(initialTheme);
+  if (typeof window !== "undefined") {
+    mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    mediaQuery.addEventListener?.("change", () => {
+      if (currentTheme === "system") applyTheme(currentTheme);
+    });
+    set(initialTheme);
+  }
 
-  return {
-    subscribe,
-    set,
-  };
-};
+  return { subscribe: store.subscribe, set };
+}
 
 export const theme = createThemeStore();
