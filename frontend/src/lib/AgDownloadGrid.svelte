@@ -1567,6 +1567,7 @@
     position: relative;
     outline: none;
     margin: 0;
+    box-sizing: border-box;
   }
   /* 24px hit area with the 16px visual unchanged (D-34 grid instance). */
   :global(.ag-custom-checkbox)::before {
@@ -1594,9 +1595,9 @@
     height: 8px;
     border: solid #ffffff;
     border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-    top: 1px;
-    left: 4px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -60%) rotate(45deg);
   }
   :global(.ag-custom-checkbox:indeterminate) {
     background-color: var(--primary-color);
@@ -1609,8 +1610,9 @@
     height: 2px;
     background: #ffffff;
     border-radius: 1px;
-    top: 5px;
-    left: 3px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
   }
 
   /* Status Cell: Wrapper to center the restored span.status pill */

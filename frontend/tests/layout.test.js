@@ -290,19 +290,19 @@ describe("the AG Grid density and state contracts", () => {
 });
 
 describe("the bulk action bar stays readable on a phone", () => {
-  // At 375px the one-row bar was wider than the viewport, so the flex-squeezed
-  // buttons fragmented their Korean labels one glyph per line (and the EN bar
-  // escaped the viewport entirely). The bar must wrap as rows inside the
-  // viewport and each label must stay on one line.
-  it("mobile rules let the bar wrap and clamp it to the viewport", () => {
+  // The generic mobile `.button { width:100% }` rule turned this into a tall
+  // three-row popup over the grid. It must stay a compact single toolbar.
+  it("mobile rules keep the bar on one row and clamp it to the viewport", () => {
     const barRules = rulesFor(CSS, ".bulk-action-bar").join(" ");
 
-    expect(barRules).toMatch(/flex-wrap:\s*wrap/);
-    expect(barRules).toMatch(/max-width:\s*calc\(100vw - 2rem\)/);
+    expect(barRules).toMatch(/flex-wrap:\s*nowrap/);
+    expect(barRules).toMatch(/max-width:\s*calc\(100vw - 1rem\)/);
   });
 
-  it("bulk bar buttons never fragment their labels", () => {
-    expect(rulesFor(CSS, ".bulk-action-bar .button").join(" ")).toMatch(/white-space:\s*nowrap/);
+  it("bulk bar buttons override the generic full-width mobile button", () => {
+    const rules = rulesFor(CSS, ".bulk-action-bar .bulk-actions .button").join(" ");
+    expect(rules).toMatch(/width:\s*auto !important/);
+    expect(rules).toMatch(/white-space:\s*nowrap/);
   });
 });
 
@@ -418,6 +418,15 @@ describe("download grid alignment", () => {
   it("keeps failed status text on its status color token", () => {
     expect(CSS).toMatch(/\.status\s*\{[^}]*color:\s*var\(--status-ink,/s);
     expect(CSS).not.toMatch(/\.status,\s*\n\.ag-status-pill\s*\{[^}]*--text-primary/s);
+  });
+
+  it("centers the custom checkbox glyph instead of pixel-offsetting it", () => {
+    expect(GRID).toMatch(/ag-custom-checkbox:checked::after[\s\S]*top:\s*50%;[\s\S]*left:\s*50%;[\s\S]*translate\(-50%, -60%\)/);
+    expect(GRID).toMatch(/ag-custom-checkbox[\s\S]*box-sizing:\s*border-box/);
+  });
+
+  it("keeps mobile bulk actions in one compact row", () => {
+    expect(CSS).toMatch(/\.bulk-action-bar \.bulk-actions \.button\s*\{[^}]*width:\s*auto !important;[^}]*height:\s*32px/s);
   });
 });
 

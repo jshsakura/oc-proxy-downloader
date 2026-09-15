@@ -1823,21 +1823,33 @@ tr.is-dead.is-selected {
  * label on a single line so buttons wrap as whole units. */
 @media (max-width: 640px) {
   .bulk-action-bar {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
     min-width: 0;
-    max-width: calc(100vw - 2rem);
-    padding: 0.6rem 0.75rem;
+    width: auto;
+    max-width: calc(100vw - 1rem);
+    padding: 0.5rem;
+  }
+  .bulk-count {
+    flex: 0 0 auto;
+    font-size: 0.78rem;
+    white-space: nowrap;
   }
   .bulk-actions {
-    flex-wrap: wrap;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
     justify-content: center;
-    gap: 0.5rem;
+    gap: 0.25rem;
+    min-width: 0;
   }
-  .bulk-action-bar .button {
+  .bulk-action-bar .bulk-actions .button {
+    width: auto !important;
+    min-width: 0;
+    height: 32px;
     white-space: nowrap;
-    padding: 0 0.75rem;
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
   }
 }
 .pagination {
