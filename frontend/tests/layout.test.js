@@ -160,3 +160,55 @@ describe("the header stays put while the body scrolls", () => {
     expect(rulesFor(CSS, ".table-container").join(" ")).toMatch(/overflow-y:\s*auto/);
   });
 });
+
+describe("the AG Grid density and state contracts", () => {
+  // D-12: three authorities once fought over row height (options 52, css 44,
+  // formula 34). The render constants, the css bridge, and the height formula
+  // must all say 44/40, with the DESIGN.md height clamps in one place only.
+  it("grid options render 44px rows under a 40px header", () => {
+    expect(GRID).toContain("rowHeight: GRID_ROW_HEIGHT");
+    expect(GRID).toContain("GRID_ROW_HEIGHT = 44");
+    expect(GRID).toContain("GRID_HEADER_HEIGHT = 40");
+    expect(GRID).not.toMatch(/rowHeight:\s*(34|52)/);
+  });
+
+  it("the height formula uses the rendered row heights and the documented clamps", () => {
+    expect(GRID).toMatch(/isMob \? 350 : 400/);
+    expect(GRID).toMatch(/isMob \? 500 : 800/);
+    expect(GRID).not.toMatch(/isMob \? 240 : 280/);
+    expect(GRID).not.toMatch(/isMob \? 300 : 380/);
+  });
+
+  it("no second height authority survives in the stylesheet", () => {
+    expect(rulesFor(GRID, ".ag-grid-inner").join(" ")).not.toMatch(/min-height|max-height/);
+    expect(rulesFor(GRID, ".ag-grid-inner").join(" ")).not.toMatch(/transition:\s*height/);
+  });
+
+  it("cell focus is not suppressed", () => {
+    // suppressCellFocus left keyboard users no way into the grid at all.
+    expect(GRID).not.toContain("suppressCellFocus: true");
+  });
+
+  it("loading uses the supported grid option, not the deprecated overlay API", () => {
+    expect(GRID).toContain('setGridOption("loading"');
+    expect(GRID).not.toMatch(/showLoadingOverlay|showNoRowsOverlay|hideOverlay/);
+  });
+
+  it("a fetch failure stays distinct from a genuinely empty grid (D-02)", () => {
+    expect(GRID).toContain("export let gridError");
+    expect(GRID).toContain('dispatch("retryFetch"');
+    expect(APP).toMatch(/gridFetchError = `http_/);
+    expect(APP).toContain("gridError={gridFetchError}");
+    expect(APP).toContain("on:retryFetch");
+  });
+
+  it("the terminal-failure action is genuinely disabled, not a focusable no-op", () => {
+    expect(GRID).not.toContain("aria-disabled");
+  });
+
+  it("checkbox and pagination controls carry localized names and current-page state", () => {
+    expect(GRID).not.toContain("Select all visible");
+    expect(GRID).toContain('aria-current=');
+    expect(GRID).toMatch(/aria-label=\{\$t\("pagination_(prev|next)"/);
+  });
+});

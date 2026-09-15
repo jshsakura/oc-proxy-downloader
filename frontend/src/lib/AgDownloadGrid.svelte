@@ -11,6 +11,9 @@
   import { truncateMiddle } from "./grid.js";
   import { theme } from "./theme.js";
 
+  import ChevronLeftIcon from "../icons/ChevronLeftIcon.svelte";
+  import ChevronRightIcon from "../icons/ChevronRightIcon.svelte";
+
   ModuleRegistry.registerModules([AllCommunityModule]);
 
   export let downloads = [];
@@ -21,34 +24,26 @@
   export let downloadProxyInfo = {};
   export let currentTime = Date.now();
   export let isDownloadsLoading = false;
+  // Truthy when the last grid fetch failed (D-02): kept distinct from a
+  // genuinely empty list so an outage never reads as "no downloads".
+  export let gridError = null;
+  export let currentPage = 1;
+  export let totalPages = 1;
+  export let itemsPerPage = 10;
+  export let totalCount = 0;
 
   const dispatch = createEventDispatcher();
 
   let gridContainer;
   let gridApi = null;
 
+  // One density authority (DESIGN.md 4.1/4.2): 44px rows, 40px header,
+  // grid height clamped to 350-500px below 640px and 400-800px above.
+  const GRID_ROW_HEIGHT = 44;
+  const GRID_HEADER_HEIGHT = 40;
+
   // Speed history buffer per download ID: maps id -> number[] (up to 16 points)
   const speedHistories = new Map();
-
-  function getHosterSlug(url) {
-    if (!url) return "";
-    try {
-      const parsed = new URL(url);
-      const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-      if (host.includes("1fichier")) return "1fichier";
-      if (host.includes("mega.nz") || host.includes("mega.co.nz")) return "mega";
-      if (host.includes("datanodes")) return "datanodes";
-      if (host.includes("megaup")) return "megaup";
-      if (host.includes("send.now")) return "sendnow";
-      if (host.includes("gofile")) return "gofile";
-      if (host.includes("mediafire")) return "mediafire";
-      if (host.includes("pixeldrain")) return "pixeldrain";
-      if (host.includes("bunkr")) return "bunkr";
-      return "";
-    } catch {
-      return "";
-    }
-  }
 
   function formatBytes(bytes) {
     if (!bytes || bytes === 0) return "0 B";
@@ -234,7 +229,6 @@
       this.checkbox = document.createElement("input");
       this.checkbox.type = "checkbox";
       this.checkbox.className = "ag-custom-checkbox";
-      this.checkbox.setAttribute("aria-label", "Select all visible");
 
       this.checkbox.addEventListener("change", () => {
         dispatch("toggleSelectAll");
@@ -259,6 +253,11 @@
         this.checkbox.checked = false;
         this.checkbox.indeterminate = false;
       }
+      // Localized name (D-15): reuses the "all {count}" vocabulary until the
+      // D-07 locale decision lands; the checkbox state itself is native.
+      const label = $t("all_downloads_short", { count: allCount });
+      this.checkbox.setAttribute("aria-label", label);
+      this.checkbox.title = label;
     }
     refresh() {
       this.updateState();
@@ -282,13 +281,23 @@
       });
 
       this.eGui.appendChild(this.checkbox);
+      this.applyName(params);
     }
     getGui() {
       return this.eGui;
     }
+    applyName(params) {
+      const d = params.data;
+      const label = `${$t("table_header_file_name")}: ${
+        d?.filename || d?.url || d?.id || ""
+      }`;
+      this.checkbox.setAttribute("aria-label", label);
+      this.checkbox.title = label;
+    }
     refresh(params) {
       this.params = params;
       this.checkbox.checked = selectedIds.has(params.data?.id);
+      this.applyName(params);
       return true;
     }
   }
@@ -298,19 +307,22 @@
       this.params = params;
       this.eGui = document.createElement("div");
       this.eGui.className = "filename-cell ag-filename-cell";
-      this.badgeSpan = document.createElement("span");
+      // Real button (D-35): filename details are keyboard reachable, and the
+      // full value rides along as the accessible name since the text truncates.
+      this.btn = document.createElement("button");
+      this.btn.type = "button";
+      this.btn.className = "ag-filename-button";
       this.nameSpan = document.createElement("span");
       this.nameSpan.className = "filename-text ag-filename-text";
+      this.btn.appendChild(this.nameSpan);
 
-      this.eGui.appendChild(this.badgeSpan);
-      this.eGui.appendChild(this.nameSpan);
-
-      this.eGui.addEventListener("click", () => {
+      this.btn.addEventListener("click", () => {
         if (this.params.data) {
           dispatch("details", { download: this.params.data });
         }
       });
 
+      this.eGui.appendChild(this.btn);
       this.update(params);
     }
     getGui() {
@@ -324,20 +336,10 @@
     update(params) {
       const d = params.data;
       if (!d) return;
-
-      const hosterSlug = d.hoster_key || getHosterSlug(d.url);
-      const hosterLabel = d.hoster || hosterSlug;
-
-      if (hosterLabel) {
-        this.badgeSpan.className = `ag-host-badge host-${hosterSlug || "default"}`;
-        this.badgeSpan.textContent = hosterLabel;
-        this.badgeSpan.style.display = "inline-flex";
-      } else {
-        this.badgeSpan.style.display = "none";
-      }
-
       this.nameSpan.textContent = getDisplayFileName(d);
-      this.eGui.title = d.filename || d.url || "";
+      const full = d.filename || d.url || "";
+      this.btn.title = full;
+      this.btn.setAttribute("aria-label", full || getDisplayFileName(d));
     }
   }
 
@@ -347,7 +349,6 @@
       this.eGui = document.createElement("div");
       this.eGui.className = "ag-status-cell-wrap";
       this.pill = document.createElement("span");
-      this.pill.className = "interactive-status ag-status-pill";
       this.eGui.appendChild(this.pill);
       this.update(params);
     }
@@ -368,27 +369,27 @@
       const isAuditing = auditingIds.has(d.id);
       const wait = downloadWaitInfo[d.id];
 
-      this.pill.className = `interactive-status ag-status-pill status-${st} ${
+      this.pill.className = `status status-${st} interactive-status ${
         isProxy ? "proxy-status" : "local-status"
       }`;
       this.pill.title = getStatusTooltip(d);
 
       if (isAuditing) {
-        this.pill.innerHTML = `<span class="row-audit-spinner"></span> <span>${$t("action_audit_running")}</span>`;
+        this.pill.innerHTML = `<span class="audit-loading"><span class="row-audit-spinner"></span>${$t("action_audit_running")}</span>`;
       } else if (
         wait &&
         wait.remaining_time > 0 &&
         ["waiting", "parsing", "proxying", "pending"].includes(st)
       ) {
-        this.pill.innerHTML = `<span>${$t("download_waiting_time")} (${formatWaitTime(
+        this.pill.innerHTML = `<span class="wait-countdown">${$t("download_waiting_time")} (${formatWaitTime(
           wait.remaining_time
-        )})</span><span class="wait-indicator wait-indicator-waiting"></span>`;
+        )})<span class="wait-indicator wait-indicator-waiting"></span></span>`;
       } else if (st === "downloading" && !d.progress) {
-        this.pill.innerHTML = `<span>${$t("download_downloading")}</span><span class="wait-indicator wait-indicator-downloading"></span>`;
+        this.pill.innerHTML = `<span class="wait-countdown">${$t("download_downloading")}<span class="wait-indicator wait-indicator-${st}"></span></span>`;
       } else if (st === "failed" && d.failure_kind) {
         if (d.next_retry_at && new Date(d.next_retry_at).getTime() > currentTime) {
-          const remSec = (new Date(d.next_retry_at).getTime() - currentTime) / 1000;
-          this.pill.innerHTML = `<span>${$t("download_retry_pending")} (${formatWaitTime(
+          const remSec = Math.max(0, (new Date(d.next_retry_at).getTime() - currentTime) / 1000);
+          this.pill.innerHTML = `${$t("download_retry_pending")} <span class="wait-countdown">(${formatWaitTime(
             remSec
           )})</span>`;
         } else if (d.attempt_count) {
@@ -401,7 +402,7 @@
         const liveDot = ["proxying", "parsing", "downloading"].includes(st)
           ? `<span class="proxy-indicator proxy-indicator-${st}"></span>`
           : "";
-        this.pill.innerHTML = `<span>${label}</span>${liveDot}`;
+        this.pill.innerHTML = `${label}${liveDot}`;
       }
     }
   }
@@ -544,6 +545,8 @@
         this.speedLabel.className = `ag-speed-label ${isProxy ? "proxy-speed" : "local-speed"}`;
         this.speedLabel.textContent = formatSpeed(spd);
         this.svg.style.opacity = "1";
+        this.svg.style.display = "block";
+        this.eGui.style.justifyContent = "space-between";
 
         const remBytes = (d.total_size && d.downloaded_size)
           ? Math.max(0, d.total_size - d.downloaded_size)
@@ -564,14 +567,16 @@
         this.speedLabel.textContent = "•••";
         this.etaLabel.textContent = "";
         this.etaLabel.style.display = "none";
-        this.svg.style.opacity = "0.3";
+        this.svg.style.display = "none";
+        this.eGui.style.justifyContent = "center";
         this.eGui.title = $t("download_" + st) || st;
       } else {
         this.speedLabel.className = "ag-speed-label is-empty";
         this.speedLabel.textContent = "-";
         this.etaLabel.textContent = "";
         this.etaLabel.style.display = "none";
-        this.svg.style.opacity = "0.15";
+        this.svg.style.display = "none";
+        this.eGui.style.justifyContent = "center";
         this.eGui.title = "";
       }
     }
@@ -641,8 +646,11 @@
       this.btn.className = `grid-proxy-toggle ag-grid-proxy-toggle ${
         isProxy ? "proxy" : "local"
       }`;
-      this.btn.title = isProxy ? $t("proxy_mode") : $t("local_mode");
-      this.btn.setAttribute("aria-label", isProxy ? $t("proxy_mode") : $t("local_mode"));
+      const modeLabel = isProxy ? $t("proxy_mode") : $t("local_mode");
+      this.btn.title = modeLabel;
+      this.btn.setAttribute("aria-label", modeLabel);
+      this.btn.setAttribute("role", "switch");
+      this.btn.setAttribute("aria-checked", String(isProxy));
     }
   }
 
@@ -650,7 +658,7 @@
     init(params) {
       this.params = params;
       this.eGui = document.createElement("div");
-      this.eGui.className = "actions ag-actions-cell";
+      this.eGui.className = "ag-actions-cell";
       this.update(params);
     }
     getGui() {
@@ -661,17 +669,23 @@
       this.update(params);
       return true;
     }
-    makeBtn(iconSvg, title, onClick, extraClass = "") {
+    makeBtn(iconSvg, title, onClick, extraClass = "", disabled = false) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = `button-icon ag-btn-icon ${extraClass}`.trim();
       btn.title = title;
       btn.setAttribute("aria-label", title);
       btn.innerHTML = iconSvg;
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onClick();
-      });
+      if (disabled) {
+        // Genuine disabled (D-40): removes the control from the tab order
+        // instead of leaving a focusable no-op behind.
+        btn.disabled = true;
+      } else {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onClick();
+        });
+      }
       return btn;
     }
     update(params) {
@@ -725,14 +739,15 @@
 
         if (st === "failed") {
           if (d.failure_kind === "dead" || d.failure_kind === "unknown_terminal") {
-            const btn = this.makeBtn(
-              d.failure_kind === "dead" ? skullSvg : retrySvg,
-              $t("retry_blocked_dead"),
-              () => {},
-              "is-disabled"
+            this.eGui.appendChild(
+              this.makeBtn(
+                d.failure_kind === "dead" ? skullSvg : retrySvg,
+                $t("retry_blocked_dead"),
+                () => {},
+                "is-disabled",
+                true
+              )
             );
-            btn.setAttribute("aria-disabled", "true");
-            this.eGui.appendChild(btn);
           } else if (d.failure_kind === "auth_required") {
             this.eGui.appendChild(
               this.makeBtn(
@@ -775,7 +790,12 @@
     }
   }
 
+  function isMobileView() {
+    return typeof window !== "undefined" && window.innerWidth < 640;
+  }
+
   function createColumnDefs() {
+    const mobile = isMobileView();
     return [
       {
         colId: "select",
@@ -784,7 +804,7 @@
         width: 44,
         minWidth: 44,
         maxWidth: 50,
-        pinned: "left",
+        pinned: mobile ? null : "left",
         sortable: false,
         resizable: false,
         suppressMovable: true,
@@ -795,7 +815,7 @@
         headerName: $t("table_header_file_name"),
         field: "filename",
         cellRenderer: FilenameCellRenderer,
-        minWidth: 180,
+        minWidth: 160,
         flex: 2,
         sortable: true,
         resizable: true,
@@ -811,8 +831,8 @@
         headerName: $t("table_header_status"),
         field: "status",
         cellRenderer: StatusCellRenderer,
-        width: 125,
-        minWidth: 110,
+        width: 140,
+        minWidth: 125,
         sortable: true,
         resizable: true,
         cellClass: "ag-cell-center"
@@ -897,9 +917,9 @@
         colId: "actions",
         headerName: $t("table_header_actions"),
         cellRenderer: ActionsCellRenderer,
-        width: 125,
-        minWidth: 110,
-        pinned: "right",
+        width: 140,
+        minWidth: 140,
+        pinned: mobile ? null : "right",
         sortable: false,
         resizable: false,
         suppressMovable: true,
@@ -916,18 +936,17 @@
       columnDefs: createColumnDefs(),
       rowData: downloads,
       getRowId: (params) => String(params.data?.id),
-      rowHeight: 38,
-      headerHeight: 36,
-      suppressCellFocus: true,
+      rowHeight: GRID_ROW_HEIGHT,
+      headerHeight: GRID_HEADER_HEIGHT,
       enableCellTextSelection: true,
       animateRows: false,
-      domLayout: "autoHeight",
+      domLayout: "normal",
       suppressRowClickSelection: true,
-      overlayNoRowsTemplate: `<span class="ag-empty-msg">${
+      overlayNoRowsTemplate: `<div class="ag-empty-overlay-msg no-downloads-message">${
         currentTab === "working"
           ? $t("no_working_downloads")
           : $t("no_completed_downloads")
-      }</span>`,
+      }</div>`,
       overlayLoadingTemplate: `<span class="ag-loading-msg">${$t("loading")}</span>`
     };
 
@@ -935,6 +954,7 @@
   }
 
   let resizeObserver = null;
+  let prevIsMobile = false;
 
   function cleanupSpeedHistories(items) {
     if (!items || !Array.isArray(items)) return;
@@ -947,11 +967,19 @@
   }
 
   onMount(() => {
+    prevIsMobile = isMobileView();
     initGrid();
     if (gridContainer && typeof window !== "undefined" && window.ResizeObserver) {
       resizeObserver = new ResizeObserver(() => {
         if (gridApi) {
-          gridApi.sizeColumnsToFit();
+          const curMobile = isMobileView();
+          if (curMobile !== prevIsMobile) {
+            prevIsMobile = curMobile;
+            gridApi.setGridOption("columnDefs", createColumnDefs());
+          }
+          if (!curMobile) {
+            gridApi.sizeColumnsToFit();
+          }
         }
       });
       resizeObserver.observe(gridContainer);
@@ -990,15 +1018,12 @@
     );
   }
 
-  // Reactivity: handle loading vs empty vs data overlays
+  // Reactivity: loading vs empty vs data. Loading uses the supported `loading`
+  // grid option (the imperative overlay calls are deprecated since v32); the
+  // no-rows overlay appears automatically for empty rowData, and a fetch
+  // failure renders the distinct error panel instead (D-02).
   $: if (gridApi) {
-    if (isDownloadsLoading) {
-      gridApi.showLoadingOverlay();
-    } else if (!downloads || downloads.length === 0) {
-      gridApi.showNoRowsOverlay();
-    } else {
-      gridApi.hideOverlay();
-    }
+    gridApi.setGridOption("loading", !!isDownloadsLoading);
   }
 
   // Reactivity: update check/indeterminate on selection changes
@@ -1011,6 +1036,19 @@
   $: if (gridApi && (currentTime || downloadWaitInfo)) {
     gridApi.refreshCells({ columns: ["status", "speed_graph"], force: true });
   }
+
+  // Dynamic height (DESIGN.md 4.2/4.3): one authority, using the same row and
+  // header heights the grid renders. Grows with the page up to the cap so no
+  // fetched row hides behind an unexpected internal scrollbar.
+  $: computedGridHeight = (() => {
+    const isMob = isMobileView();
+    const minH = isMob ? 350 : 400;
+    const maxH = isMob ? 500 : 800;
+    const count = downloads ? downloads.length : 0;
+    if (count === 0) return minH;
+    const needed = GRID_HEADER_HEIGHT + count * GRID_ROW_HEIGHT;
+    return Math.min(maxH, Math.max(minH, needed));
+  })();
 </script>
 
 <div
@@ -1019,35 +1057,352 @@
     : 'ag-theme-quartz-dark'}"
   class:empty-downloads={downloads.length === 0}
 >
-  <div bind:this={gridContainer} class="ag-grid-inner"></div>
+  <div class="ag-grid-area">
+    <div
+      bind:this={gridContainer}
+      class="ag-grid-inner"
+      style="height: {computedGridHeight}px;"
+    ></div>
+
+    {#if gridError}
+      <!-- Distinct fetch-failure state (D-02): never collapses into the
+           "no downloads" empty overlay. Retry rides the existing fetch path. -->
+      <div class="grid-error-overlay" role="alert">
+        <div class="grid-error-panel">
+          <span class="grid-error-title">{$t("settings_save_error_server")}</span>
+          <button
+            type="button"
+            class="button button-secondary grid-error-retry"
+            on:click={() => dispatch("retryFetch")}
+          >
+            {$t("action_retry")}
+          </button>
+        </div>
+      </div>
+    {/if}
+  </div>
+
+  <!-- Integrated pagination footer seamlessly merged into the grid -->
+  <div class="pagination-footer">
+    <div class="page-info">
+      {#if totalPages > 1}
+        <div>{$t("pagination_page_info", { currentPage, totalPages })}</div>
+      {/if}
+      <div class="items-info">
+        {#if totalCount > 0}
+          {$t("pagination_items_info", {
+            total: totalCount,
+            start: (currentPage - 1) * itemsPerPage + 1,
+            end: Math.min(currentPage * itemsPerPage, totalCount)
+          })}
+        {/if}
+      </div>
+    </div>
+    {#if totalPages > 1}
+      <div class="pagination-buttons">
+        <!-- Smart pagination for desktop -->
+        <div class="pagination-desktop">
+          <button
+            type="button"
+            class="page-number-btn prev-next-btn"
+            aria-label={$t("pagination_prev")}
+            title={$t("pagination_prev")}
+            on:click={() => dispatch("pageChange", { page: currentPage - 1 })}
+            disabled={currentPage <= 1}
+          >
+            <ChevronLeftIcon />
+          </button>
+
+          {#if totalPages <= 7}
+            {#each Array(totalPages) as _, i}
+              {@const pageNum = i + 1}
+              <button
+                type="button"
+                class="page-number-btn"
+                class:active={currentPage === pageNum}
+                aria-current={currentPage === pageNum ? "page" : undefined}
+                on:click={() => dispatch("pageChange", { page: pageNum })}
+              >
+                {pageNum}
+              </button>
+            {/each}
+          {:else if currentPage <= 4}
+            {#each [1, 2, 3, 4, 5] as pageNum}
+              <button
+                type="button"
+                class="page-number-btn"
+                class:active={currentPage === pageNum}
+                aria-current={currentPage === pageNum ? "page" : undefined}
+                on:click={() => dispatch("pageChange", { page: pageNum })}
+              >
+                {pageNum}
+              </button>
+            {/each}
+            <span class="page-dots">...</span>
+            <button
+              type="button"
+              class="page-number-btn"
+              on:click={() => dispatch("pageChange", { page: totalPages })}
+            >
+              {totalPages}
+            </button>
+          {:else if currentPage >= totalPages - 3}
+            <button
+              type="button"
+              class="page-number-btn"
+              on:click={() => dispatch("pageChange", { page: 1 })}
+            >
+              1
+            </button>
+            <span class="page-dots">...</span>
+            {#each [totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages] as pageNum}
+              <button
+                type="button"
+                class="page-number-btn"
+                class:active={currentPage === pageNum}
+                aria-current={currentPage === pageNum ? "page" : undefined}
+                on:click={() => dispatch("pageChange", { page: pageNum })}
+              >
+                {pageNum}
+              </button>
+            {/each}
+          {:else}
+            <button
+              type="button"
+              class="page-number-btn"
+              on:click={() => dispatch("pageChange", { page: 1 })}
+            >
+              1
+            </button>
+            <span class="page-dots">...</span>
+            {#each [currentPage - 2, currentPage - 1, currentPage, currentPage + 1, currentPage + 2] as pageNum}
+              <button
+                type="button"
+                class="page-number-btn"
+                class:active={currentPage === pageNum}
+                aria-current={currentPage === pageNum ? "page" : undefined}
+                on:click={() => dispatch("pageChange", { page: pageNum })}
+              >
+                {pageNum}
+              </button>
+            {/each}
+            <span class="page-dots">...</span>
+            <button
+              type="button"
+              class="page-number-btn"
+              on:click={() => dispatch("pageChange", { page: totalPages })}
+            >
+              {totalPages}
+            </button>
+          {/if}
+
+          <button
+            type="button"
+            class="page-number-btn prev-next-btn"
+            aria-label={$t("pagination_next")}
+            title={$t("pagination_next")}
+            on:click={() => dispatch("pageChange", { page: currentPage + 1 })}
+            disabled={currentPage >= totalPages}
+          >
+            <ChevronRightIcon />
+          </button>
+        </div>
+
+        <!-- Smart pagination for mobile -->
+        <div class="pagination-mobile">
+          <div class="page-nav-container">
+            <button
+              type="button"
+              class="page-nav-btn prev-btn"
+              on:click={() => dispatch("pageChange", { page: currentPage - 1 })}
+              disabled={currentPage <= 1}
+            >
+              <ChevronLeftIcon />
+              {$t("pagination_prev")}
+            </button>
+            <button
+              type="button"
+              class="page-nav-btn next-btn"
+              on:click={() => dispatch("pageChange", { page: currentPage + 1 })}
+              disabled={currentPage >= totalPages}
+            >
+              {$t("pagination_next")}
+              <ChevronRightIcon />
+            </button>
+          </div>
+
+          <div class="page-numbers-mobile">
+            {#if totalPages <= 7}
+              {#each Array(totalPages) as _, i}
+                {@const pageNum = i + 1}
+                <button
+                  type="button"
+                  class="page-number-btn-mobile"
+                  class:active={currentPage === pageNum}
+                  aria-current={currentPage === pageNum ? "page" : undefined}
+                  on:click={() => dispatch("pageChange", { page: pageNum })}
+                >
+                  {pageNum}
+                </button>
+              {/each}
+            {:else if currentPage <= 4}
+              {#each [1, 2, 3, 4, 5] as pageNum}
+                <button
+                  type="button"
+                  class="page-number-btn-mobile"
+                  class:active={currentPage === pageNum}
+                  aria-current={currentPage === pageNum ? "page" : undefined}
+                  on:click={() => dispatch("pageChange", { page: pageNum })}
+                >
+                  {pageNum}
+                </button>
+              {/each}
+              <span class="page-dots-mobile">...</span>
+              <button
+                type="button"
+                class="page-number-btn-mobile"
+                on:click={() => dispatch("pageChange", { page: totalPages })}
+              >
+                {totalPages}
+              </button>
+            {:else if currentPage >= totalPages - 3}
+              <button
+                type="button"
+                class="page-number-btn-mobile"
+                on:click={() => dispatch("pageChange", { page: 1 })}
+              >
+                1
+              </button>
+              <span class="page-dots-mobile">...</span>
+              {#each [totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages] as pageNum}
+                <button
+                  type="button"
+                  class="page-number-btn-mobile"
+                  class:active={currentPage === pageNum}
+                  aria-current={currentPage === pageNum ? "page" : undefined}
+                  on:click={() => dispatch("pageChange", { page: pageNum })}
+                >
+                  {pageNum}
+                </button>
+              {/each}
+            {:else}
+              <button
+                type="button"
+                class="page-number-btn-mobile"
+                on:click={() => dispatch("pageChange", { page: 1 })}
+              >
+                1
+              </button>
+              <span class="page-dots-mobile">...</span>
+              {#each [currentPage - 2, currentPage - 1, currentPage, currentPage + 1, currentPage + 2] as pageNum}
+                <button
+                  type="button"
+                  class="page-number-btn-mobile"
+                  class:active={currentPage === pageNum}
+                  aria-current={currentPage === pageNum ? "page" : undefined}
+                  on:click={() => dispatch("pageChange", { page: pageNum })}
+                >
+                  {pageNum}
+                </button>
+              {/each}
+              <span class="page-dots-mobile">...</span>
+              <button
+                type="button"
+                class="page-number-btn-mobile"
+                on:click={() => dispatch("pageChange", { page: totalPages })}
+              >
+                {totalPages}
+              </button>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
+  </div>
 </div>
 
 <style>
   .ag-grid-wrapper {
     position: relative;
     width: 100%;
-    min-height: 120px;
     border: 1px solid var(--card-border);
-    border-radius: 10px;
+    border-radius: 8px;
     background-color: var(--card-background);
     box-shadow: var(--shadow-light);
     overflow: hidden;
     margin-bottom: 0.5rem;
     transition: background-color 0.3s ease, border-color 0.3s ease;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ag-grid-area {
+    position: relative;
+    display: flex;
+    flex-direction: column;
   }
 
   .ag-grid-inner {
     width: 100%;
+    flex: 1 1 auto;
+  }
+
+  /* Distinct fetch-failure surface (D-02): danger-tinted, covers the grid
+     viewport so the automatic no-rows overlay cannot read as "no downloads". */
+  .grid-error-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--card-background);
+  }
+
+  .grid-error-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--status-failed-border);
+    border-radius: 8px;
+    background-color: var(--status-failed-bg);
+  }
+
+  .grid-error-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--status-failed-text);
+  }
+
+  .grid-error-retry:focus-visible {
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--primary-color) 35%, transparent);
+  }
+
+  .pagination-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.3rem 0.8rem;
+    min-height: 48px;
+    background-color: var(--card-background);
+    border-top: 1px solid var(--card-border);
+    margin: 0;
+    gap: 0.75rem;
+    box-sizing: border-box;
+    font-size: 14px;
   }
 
   /* ---- Custom AG-Grid Overrides to Match Theme Variables ---- */
   :global(.ag-theme-quartz),
   :global(.ag-theme-quartz-dark) {
     --ag-font-family: var(--font-sans);
-    --ag-font-size: 0.8125rem;
+    --ag-font-size: 14px;
     --ag-grid-size: 4px;
-    --ag-row-height: 38px;
-    --ag-header-height: 36px;
+    --ag-row-height: 44px;
+    --ag-header-height: 40px;
     --ag-background-color: var(--card-background);
     --ag-foreground-color: var(--text-primary);
     --ag-secondary-foreground-color: var(--text-secondary);
@@ -1060,10 +1415,26 @@
     --ag-selected-row-background-color: rgba(var(--primary-color-rgb), 0.1);
     --ag-range-selection-border-color: var(--primary-color);
   }
+  :global(.ag-header-cell[col-id="select"]),
+  :global(.ag-cell[col-id="select"]) {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
 
+  :global(.ag-header-cell[col-id="select"] .ag-header-cell-resize) {
+    display: none !important;
+  }
+
+  :global(.ag-header-cell[col-id="select"] .ag-header-cell-comp-wrapper) {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
   :global(.ag-header-cell-label) {
     font-weight: 700;
-    font-size: 0.76rem;
+    font-size: 14px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--text-secondary);
@@ -1086,14 +1457,34 @@
     overflow: hidden;
   }
 
-  /* Filename and Host Badges */
+  /* Filename Cell */
   :global(.ag-filename-cell) {
     display: flex;
     align-items: center;
     gap: 0.4rem;
     min-width: 0;
     width: 100%;
+  }
+
+  /* Keyboard-reachable details trigger (D-35): styled as plain cell text so
+     the grid's visual hierarchy is unchanged while focus becomes visible. */
+  :global(.ag-filename-button) {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    text-align: left;
     cursor: pointer;
+  }
+
+  :global(.ag-filename-button:focus-visible) {
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--primary-color) 35%, transparent);
+    border-radius: 4px;
   }
 
   :global(.ag-filename-text) {
@@ -1102,72 +1493,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.825rem;
+    font-size: 14px;
     font-weight: 500;
     color: var(--text-primary);
   }
 
-  :global(.ag-filename-cell:hover .ag-filename-text) {
+  :global(.ag-filename-button:hover .ag-filename-text) {
     color: var(--primary-color);
-  }
-
-  :global(.ag-host-badge) {
-    flex-shrink: 0;
-    font-size: 0.65rem;
-    font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 4px;
-    letter-spacing: 0.02em;
-    line-height: 1.3;
-    border: 1px solid rgba(var(--primary-color-rgb), 0.3);
-    background: rgba(var(--primary-color-rgb), 0.1);
-    color: var(--primary-color);
-  }
-
-  :global(.ag-host-badge.host-1fichier) {
-    background: rgba(156, 39, 176, 0.16);
-    border-color: #9c27b0;
-    color: #ba68c8;
-  }
-  :global(.ag-host-badge.host-mega) {
-    background: rgba(229, 57, 53, 0.16);
-    border-color: #e53935;
-    color: #ef5350;
-  }
-  :global(.ag-host-badge.host-datanodes) {
-    background: rgba(30, 136, 229, 0.16);
-    border-color: #1e88e5;
-    color: #42a5f5;
-  }
-  :global(.ag-host-badge.host-megaup) {
-    background: rgba(0, 137, 123, 0.16);
-    border-color: #00897b;
-    color: #26a69a;
-  }
-  :global(.ag-host-badge.host-sendnow) {
-    background: rgba(245, 124, 0, 0.16);
-    border-color: #f57c00;
-    color: #ff9800;
-  }
-  :global(.ag-host-badge.host-gofile) {
-    background: rgba(67, 160, 71, 0.16);
-    border-color: #43a047;
-    color: #66bb6a;
-  }
-  :global(.ag-host-badge.host-mediafire) {
-    background: rgba(3, 155, 229, 0.16);
-    border-color: #039be5;
-    color: #29b6f6;
-  }
-  :global(.ag-host-badge.host-pixeldrain) {
-    background: rgba(124, 179, 66, 0.16);
-    border-color: #7cb342;
-    color: #9ccc65;
-  }
-  :global(.ag-host-badge.host-bunkr) {
-    background: rgba(142, 36, 170, 0.16);
-    border-color: #8e24aa;
-    color: #ab47bc;
   }
 
   /* Custom Checkbox */
@@ -1175,6 +1507,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    height: 100%;
+    width: 100%;
   }
   :global(.ag-custom-checkbox) {
     -webkit-appearance: none;
@@ -1192,6 +1526,18 @@
     position: relative;
     outline: none;
     margin: 0;
+  }
+  /* 24px hit area with the 16px visual unchanged (D-34 grid instance). */
+  :global(.ag-custom-checkbox)::before {
+    content: "";
+    position: absolute;
+    inset: -4px;
+  }
+  /* Keyboard focus ring (D-13): AG's base css strips outlines on ag- classes,
+     so the ring must be restored explicitly (Checkbox.svelte recipe). */
+  :global(.ag-custom-checkbox:focus-visible) {
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--primary-color) 35%, transparent);
   }
   :global(.ag-custom-checkbox:hover) {
     border-color: var(--primary-color);
@@ -1226,34 +1572,40 @@
     left: 3px;
   }
 
-  /* Status Pill */
+  /* Status Cell: Wrapper to center the restored span.status pill */
   :global(.ag-status-cell-wrap) {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 100%;
+    height: 100%;
   }
 
-  :global(.ag-status-pill) {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    padding: 2px 8px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    border-radius: 12px;
-    max-width: 100%;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 1.3;
+  /* Empty state overlay */
+  :global(.ag-empty-overlay-msg) {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    padding: 1.5rem 1rem;
+    text-align: center;
+  }
+
+  :global(.ag-body-viewport) {
+    -webkit-overflow-scrolling: touch;
+  }
+  :global(.ag-body-horizontal-scroll) {
+    height: 10px !important;
+    min-height: 10px !important;
+  }
+  :global(.ag-body-horizontal-scroll-viewport) {
+    height: 10px !important;
+    min-height: 10px !important;
   }
 
   /* Size & Date */
   :global(.ag-size-text),
   :global(.ag-date-text) {
-    font-size: 0.78rem;
+    font-size: 14px;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
   }
@@ -1278,9 +1630,9 @@
 
   :global(.ag-progress-bar) {
     height: 100%;
-    background: linear-gradient(90deg, var(--primary-color), var(--primary-hover));
+    background: var(--primary-color);
     border-radius: 3px;
-    transition: width 0.3s ease;
+    transition: width 0.15s ease-out;
   }
 
   :global(.ag-progress-bar.is-complete) {
@@ -1288,17 +1640,19 @@
   }
 
   :global(.ag-progress-val) {
-    font-size: 0.74rem;
+    font-size: 14px;
     font-weight: 600;
-    min-width: 32px;
+    min-width: 28px;
     text-align: right;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
 
+  /* Text-safe green (D-18 migration-on-touch): the done-status ink token is
+     the per-theme contrast workaround; the raw success hue fails in light. */
   :global(.ag-progress-val.is-complete) {
-    color: var(--success-color, #10b981);
+    color: var(--status-done-text);
     font-weight: 700;
   }
 
@@ -1321,14 +1675,14 @@
   }
 
   :global(.ag-speed-label) {
-    font-size: 0.78rem;
+    font-size: 14px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 
   :global(.ag-speed-eta) {
-    font-size: 0.64rem;
+    font-size: 14px;
     font-weight: 500;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
@@ -1382,6 +1736,12 @@
     height: 22px;
   }
 
+  /* Keyboard focus ring (D-13): same recipe as the header switch in app.css. */
+  :global(.ag-grid-proxy-toggle:focus-visible) {
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--primary-color) 35%, transparent);
+  }
+
   /* Action Buttons Toolbar */
   :global(.ag-actions-wrapper) {
     justify-content: center;
@@ -1391,13 +1751,21 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 2px;
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+  /* Remove default grid padding for actions to save space */
+  :global(.ag-actions-wrapper) {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
   }
 
   :global(.ag-btn-icon) {
-    width: 24px;
-    height: 24px;
-    padding: 3px;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    flex-shrink: 0;
+    padding: 4px;
     border-radius: 6px;
     display: inline-flex;
     align-items: center;
@@ -1409,23 +1777,128 @@
     transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
   }
 
-  :global(.ag-btn-icon:hover) {
+  :global(.ag-btn-icon:focus-visible) {
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--primary-color) 35%, transparent);
+  }
+
+  :global(.ag-btn-icon:hover:not(:disabled)) {
     background: rgba(var(--primary-color-rgb), 0.1);
     color: var(--primary-color);
     transform: scale(1.08);
   }
 
-  :global(.ag-btn-icon.is-delete:hover) {
+  :global(.ag-btn-icon.is-delete:hover:not(:disabled)) {
     background: rgba(220, 38, 38, 0.12);
     color: var(--danger-color, #dc2626);
   }
 
-  :global(.ag-btn-icon.is-disabled) {
+  :global(.ag-btn-icon:disabled) {
     opacity: 0.35;
     cursor: not-allowed;
+    transform: none;
   }
 
   :global(.ag-btn-icon.is-warn) {
     color: var(--warning-color);
+  }
+
+  /* Mobile Responsiveness for Grid & Pagination */
+  @media (max-width: 640px) {
+    /* 48px mobile action targets (D-28): the documented house standard for
+       action icons on touch. */
+    :global(.ag-btn-icon) {
+      width: 48px;
+      height: 48px;
+      min-width: 48px;
+      padding: 10px;
+      border-radius: 8px;
+    }
+    .pagination-footer {
+      flex-direction: column;
+      gap: 0.6rem;
+      padding: 0.75rem 0.6rem;
+      align-items: center;
+    }
+    :global(.pagination-desktop) {
+      display: none !important;
+    }
+    :global(.pagination-mobile) {
+      display: flex !important;
+      flex-direction: column;
+      gap: 0.5rem;
+      width: 100%;
+      align-items: center;
+    }
+    :global(.page-nav-container) {
+      display: flex;
+      width: 100%;
+      max-width: 280px;
+      gap: 0.5rem;
+      justify-content: center;
+      order: 2;
+    }
+    :global(.page-numbers-mobile) {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      order: 1;
+    }
+    :global(.page-nav-btn) {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      height: 40px;
+      border: 1px solid var(--card-border);
+      background: var(--card-background);
+      color: var(--text-primary);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      gap: 0.35rem;
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    :global(.page-nav-btn:hover:not(:disabled)) {
+      background: var(--bg-secondary);
+      border-color: var(--primary-color);
+    }
+    :global(.page-nav-btn:disabled) {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    :global(.page-number-btn-mobile) {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--card-border);
+      background: var(--input-inner-bg, var(--card-background));
+      color: var(--text-primary);
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    :global(.page-number-btn-mobile.active) {
+      background: var(--primary-color);
+      color: #fff;
+      border-color: var(--primary-color);
+    }
+    :global(.page-dots-mobile) {
+      color: var(--text-secondary);
+      padding: 0 0.15rem;
+      font-weight: 600;
+    }
+
+    :global(.ag-custom-checkbox) {
+      width: 18px;
+      height: 18px;
+    }
   }
 </style>

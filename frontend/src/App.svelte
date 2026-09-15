@@ -92,6 +92,9 @@
   // not just the width at load.
   let viewportWidth = 0;
   let isDownloadsLoading = false;
+  // Truthy when the last grid fetch failed (D-02): the grid renders a distinct
+  // error surface with a retry path instead of collapsing into the empty state.
+  let gridFetchError = null;
   let isAddingDownload = false;
   // Server-reported total count for the currently active tab — used by
   // pagination text and the dashboard fallback.
@@ -1268,6 +1271,7 @@
   async function fetchGridPage({ silent = false } = {}) {
     if (!silent) {
       isDownloadsLoading = true;
+      gridFetchError = null;
     }
 
     const endpoint =
@@ -1286,7 +1290,7 @@
 
     try {
       // Must be authenticatedFetch: with auth enabled the API returns 401 to a
-      // tokenless request, which lands in the else branch and empties the grid —
+      // tokenless request, which lands in the else branch and empties the grid:
       // the "list disappeared after the update" bug.
       const response = await authenticatedFetch(`${endpoint}?${params.toString()}`);
       if (response.ok) {
@@ -1298,14 +1302,17 @@
         if (currentPage > totalPages && totalPages > 0) {
           currentPage = totalPages;
         }
+        gridFetchError = null;
       } else {
         console.error("Grid fetch failed with status:", response.status);
+        gridFetchError = `http_${response.status}`;
         gridDownloads = [];
         totalPages = 0;
         currentTabTotalCount = 0;
       }
     } catch (error) {
       console.error("Error fetching grid page:", error);
+      gridFetchError = "network";
       gridDownloads = [];
       totalPages = 0;
       currentTabTotalCount = 0;
@@ -2552,11 +2559,13 @@
         {downloadProxyInfo}
         {currentTime}
         {isDownloadsLoading}
+        gridError={gridFetchError}
         {currentPage}
         {totalPages}
         {itemsPerPage}
         totalCount={currentTabTotalCount}
         on:pageChange={(e) => goToPage(e.detail.page)}
+        on:retryFetch={() => fetchGridPage()}
         on:toggleSelect={(e) => toggleSelect(e.detail.id)}
         on:toggleSelectAll={() => toggleSelectAll(gridDownloads)}
         on:start={(e) => callApi(`/api/downloads/start/${e.detail.id}`)}
