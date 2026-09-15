@@ -30,9 +30,13 @@ async def test_ambiguous_legacy_blocks_are_relabelled_without_touching_real_bloc
     monkeypatch.setattr(app_factory, "get_db", lambda: iter([db]))
     await app_factory._run_migrations()
 
-    rows = dict(db.execute(text(
-        "SELECT id, failure_kind FROM download_requests ORDER BY id"
-    )).fetchall())
-    assert rows == {1: "unknown", 2: "blocked", 3: "unknown"}
+    rows = db.execute(text(
+        "SELECT id, failure_kind, error FROM download_requests ORDER BY id"
+    )).fetchall()
+    assert {row.id: row.failure_kind for row in rows} == {
+        1: "unknown", 2: "blocked", 3: "unknown"
+    }
+    assert "원인 미확인" in rows[0].error
+    assert rows[1].error == "1fichier 차단: 일일 무료 다운로드 한도 초과"
+    assert "원인 미확인" in rows[2].error
     db.close()
-

@@ -418,8 +418,17 @@ async def _run_migrations():
             # Explicit 1fichier body-marker blocks are deliberately excluded.
             db.execute(text("""
                 UPDATE download_requests
-                   SET failure_kind = 'unknown', next_retry_at = NULL
-                 WHERE failure_kind = 'blocked'
+                   SET failure_kind = 'unknown',
+                       next_retry_at = NULL,
+                       error = CASE
+                         WHEN error LIKE '%다운로드 폼을 찾을 수 없음%' THEN
+                           '[파싱 실패] 호스터 응답에서 다운로드 폼을 찾지 못했습니다 (원인 미확인)'
+                           || char(10) || '조치: 차단으로 확인된 것은 아닙니다. 반복되면 원문 응답과 함께 issue 를 등록해주세요.'
+                         ELSE
+                           '[파싱 실패] 호스터 응답에서 다운로드 링크를 추출하지 못했습니다 (원인 미확인)'
+                           || char(10) || '조치: 차단으로 확인된 것은 아닙니다. 반복되면 원문 응답과 함께 issue 를 등록해주세요.'
+                       END
+                 WHERE failure_kind IN ('blocked', 'unknown')
                    AND (
                         error LIKE '%다운로드 폼을 찾을 수 없음%'
                         OR error LIKE '%다운로드 링크를 찾을 수 없음%'
