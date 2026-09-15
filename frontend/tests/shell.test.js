@@ -95,7 +95,9 @@ describe("baseline characterization: the shell keeps every control it renders to
   });
 
   it("the 38px control-height contract still governs shell controls", () => {
-    expect(CSS).toMatch(/\.input, \.search-input, \.button[^{]*\{[^}]*height: 38px/i);
+    expect(CSS).toMatch(/\.input, \.button[^{]*\{[^}]*height: 38px/i);
+    expect(CSS).toMatch(/\.search-input\s*\{[^}]*height: 32px/i);
+    expect(CSS).toMatch(/\.tab\s*\{[^}]*height: 34px/i);
   });
 
   it("the login screen keeps its language selector and lockout panel", () => {
@@ -241,12 +243,12 @@ describe("task-5 contracts: period controls own one responsive rule set", () => 
     }
   });
 
-  it("the 38px control-height lock is declared once per control, un-patched", () => {
+  it("uses one explicit height per period control without patch overrides", () => {
     // The patch-era block re-declared the height rules with !important both
     // at desktop scope and again inside the media query. One declaration per
     // control (segment, custom group, apply) is the consolidated contract.
-    const heights = PERIOD_STYLE.match(/height: 38px/g) ?? [];
-    expect(heights.length).toBe(3);
+    expect(PERIOD_STYLE.match(/height: 38px/g)?.length).toBe(1);
+    expect(PERIOD_STYLE.match(/height: 32px/g)?.length).toBe(2);
     expect(bare(PERIOD_STYLE)).not.toContain("!important");
   });
 

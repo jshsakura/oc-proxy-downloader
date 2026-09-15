@@ -11,6 +11,9 @@
   import GitHubIcon from "../icons/GitHubIcon.svelte";
   import DockerIcon from "../icons/DockerIcon.svelte";
   import BarChartIcon from "../icons/BarChartIcon.svelte";
+  import SearchIcon from "../icons/SearchIcon.svelte";
+  import CheckCircleIcon from "../icons/CheckCircleIcon.svelte";
+  import AuditPanel from "./AuditPanel.svelte";
   import HistoryPeriodControls from "./HistoryPeriodControls.svelte";
   import TrendChart from "./TrendChart.svelte";
   import StatusDonutChart from "./StatusDonutChart.svelte";
@@ -36,9 +39,10 @@
   export let statsPeriod = "30d";
   export let statsStartDate = "";
   export let statsEndDate = "";
+  export let auditRunning = false;
 
-  // Tab state — general / stats
-  let activeTab = "general";
+  // Bound by the parent so header shortcuts can open a specific tab.
+  export let activeTab = "general";
 
   function setTab(tab) {
     activeTab = tab;
@@ -623,6 +627,17 @@
             <BarChartIcon />
             <span>{$t("tab_dashboard")}</span>
           </button>
+          <button
+            type="button"
+            class="settings-tab"
+            class:active={activeTab === "audit"}
+            role="tab"
+            aria-selected={activeTab === "audit"}
+            on:click={() => setTab("audit")}
+          >
+            <SearchIcon />
+            <span>{$t("audit_modal_title")}</span>
+          </button>
         </div>
 
         <div class="modal-body" class:tab-hidden={activeTab !== "general"}>
@@ -1113,7 +1128,6 @@
           </fieldset>
 
           <fieldset class="form-group">
-            <legend>FlareSolverr</legend>
             <label for="flaresolverr-url">{$t("flaresolverr_url_label")}</label>
             <input
               id="flaresolverr-url"
@@ -1653,14 +1667,20 @@
           {/if}
         </div>
 
+        <div class="modal-body audit-body" class:tab-hidden={activeTab !== "audit"}>
+          <AuditPanel {auditRunning} on:start={(event) => dispatch("auditStart", event.detail)} />
+        </div>
+
+        {#if activeTab !== "audit"}
         <div class="modal-footer">
           <button class="button button-secondary" on:click={closeModal}>
-            {$t("button_cancel")}
+            <XIcon /><span>{$t("button_cancel")}</span>
           </button>
           <button class="button button-primary" on:click={saveSettings}>
-            {$t("button_save")}
+            <CheckCircleIcon /><span>{$t("button_save")}</span>
           </button>
         </div>
+        {/if}
       {/if}
     </div>
   </div>
@@ -1739,13 +1759,21 @@
       0 0 0 1px color-mix(in srgb, var(--text-primary) 10%, transparent);
     width: 95vw;
     max-width: 800px;
-    max-height: 90vh;
+    height: min(92vh, 700px);
+    max-height: 92vh;
     min-height: 400px;
     overflow: hidden;
     animation: modal-slide-in 0.3s ease-out;
     position: relative;
     display: flex;
     flex-direction: column;
+  }
+
+  /* The focus trap programmatically focuses the dialog shell. Its browser
+     outline reads as a second modal frame; interactive controls keep their
+     own focus-visible rings. */
+  .modern-modal:focus {
+    outline: none;
   }
 
   @keyframes modal-slide-in {
@@ -1762,7 +1790,10 @@
   .modal-header {
     background: color-mix(in srgb, var(--primary-color) 15%, transparent);
     border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
-    padding: 1rem 1.25rem;
+    padding: 0.75rem 1rem;
+    min-height: 64px;
+    box-sizing: border-box;
+    margin: 0;
     color: var(--text-primary);
     display: flex;
     justify-content: space-between;
@@ -1781,13 +1812,13 @@
   .title-section {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.65rem;
     flex: 1;
   }
 
   .icon-wrapper {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     background: rgba(255, 255, 255, 0.15);
     border-radius: 10px;
     display: flex;
@@ -1805,11 +1836,12 @@
 
   .title-text h2 {
     color: var(--text-primary);
+    font-size: 1.05rem;
   }
 
   .title-text .subtitle {
     margin: 0.15rem 0 0 0;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--text-secondary);
     font-weight: 400;
   }
@@ -1900,8 +1932,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem 1.5rem;
-    min-height: 60px;
+    padding: 0.5rem 0.75rem;
+    min-height: 44px;
     background-color: var(--card-background);
     border: 1px solid var(--card-border);
     border-top: none;
@@ -2034,7 +2066,7 @@
   }
 
   .modal-body {
-    padding: 2rem;
+    padding: 1rem 1.25rem;
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
@@ -2050,10 +2082,11 @@
   .settings-tabs {
     display: flex;
     gap: 0.25rem;
-    padding: 0.5rem 1rem 0;
+    padding: 0.25rem 0.75rem 0;
     background: var(--card-background);
     border-bottom: 1px solid var(--card-border);
     flex-shrink: 0;
+    margin: 0;
   }
   .settings-tab {
     appearance: none;
@@ -2062,7 +2095,7 @@
     color: var(--text-secondary);
     font-size: 0.85rem;
     font-weight: 600;
-    padding: 0.5rem 0.9rem 0.6rem;
+    padding: 0.4rem 0.7rem 0.45rem;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -2090,6 +2123,7 @@
     flex-direction: column;
     gap: 0.75rem;
   }
+  .audit-body { display: flex; flex-direction: column; }
   .stats-kpi {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -2345,6 +2379,9 @@
     flex-shrink: 0;
   }
 
+  .modal-footer .button { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .modal-footer .button :global(svg) { width: 14px; height: 14px; }
+
   /* Version information section styles */
   .version-section {
     margin-top: 1.5rem;
@@ -2468,16 +2505,18 @@
 
   @media (max-height: 700px) {
     .modern-modal {
+      height: 95vh;
       max-height: 95vh;
       min-height: 300px;
     }
 
     .modal-header {
-      padding: 1rem 1.5rem;
+      padding: 0.65rem 1rem;
+      min-height: 58px;
     }
 
     .modal-body {
-      padding: 1.5rem;
+      padding: 1rem;
     }
 
     .modal-footer {
@@ -2485,11 +2524,11 @@
     }
 
     .title-text h2 {
-      font-size: 1.25rem;
+      font-size: 1.05rem;
     }
 
     .title-text .subtitle {
-      font-size: 0.8rem;
+      font-size: 0.7rem;
     }
   }
 
@@ -2519,13 +2558,13 @@
   }
 
   .proxy-management {
-    margin-top: 1.5rem;
+    margin-top: 1rem;
     margin-bottom: 0;
   }
 
   .proxy-form-section {
     margin-top: 0;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
   }
 
   .proxy-list-section {
@@ -2533,7 +2572,7 @@
   }
 
   .telegram-notifications {
-    margin-top: 1.5rem;
+    margin-top: 1rem;
   }
 
   .telegram-header {
@@ -2541,8 +2580,8 @@
     background: var(--card-background);
     border: 1px solid var(--card-border);
     border-radius: 8px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -2591,13 +2630,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 6px;
     background: var(--bg-secondary, #f8f9fa);
     color: var(--text-secondary);
     transition: all 0.2s ease;
-    margin-left: 1rem;
+    margin-left: 0.75rem;
   }
 
   .toggle-chevron svg {
@@ -2635,15 +2674,15 @@
   }
 
   .accordion-content {
-    padding: 1.5rem;
+    padding: 1rem;
     border-top: none;
   }
 
   .telegram-input-group {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
   }
 
   .input-field {
@@ -2813,13 +2852,13 @@
     );
     border: 1px solid rgba(59, 130, 246, 0.15);
     border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 2rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
   }
 
   .setup-guide-header {
     text-align: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
   }
 
   .guide-title {
@@ -2839,15 +2878,15 @@
   .setup-steps {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 1.5rem;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
   }
 
   .setup-step {
     background: var(--card-background);
     border: 1px solid var(--card-border);
     border-radius: 8px;
-    padding: 1.25rem;
+    padding: 0.9rem;
     transition: all 0.2s ease;
   }
 
@@ -2918,7 +2957,7 @@
 
   .detailed-guide {
     border-top: 1px solid var(--card-border);
-    padding-top: 1.5rem;
+    padding-top: 1rem;
   }
 
   .guide-header-button {
@@ -2926,8 +2965,8 @@
     background: var(--card-background);
     border: 1px solid var(--card-border);
     border-radius: 8px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -2966,7 +3005,7 @@
   }
 
   .guide-accordion-content {
-    padding: 1.5rem;
+    padding: 1rem;
     border-top: none;
   }
 
@@ -2974,13 +3013,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 6px;
     background: var(--bg-secondary, #f8f9fa);
     color: var(--text-secondary);
     transition: all 0.2s ease;
-    margin-left: 1rem;
+    margin-left: 0.75rem;
   }
 
   .guide-header-button .toggle-chevron svg {
@@ -3073,9 +3112,9 @@
   .proxy-add-button {
     grid-column: 3;
     white-space: nowrap;
-    padding: 0.75rem 1rem;
-    height: auto;
-    min-height: 2.5rem;
+    padding: 0 0.9rem;
+    height: 36px;
+    min-height: 36px;
   }
 
   .proxy-empty-state {
@@ -3137,7 +3176,7 @@
 
   .proxy-table th,
   .proxy-table td {
-    padding: 0.4rem 0.5rem;
+    padding: 0.3rem 0.5rem;
     text-align: left;
     border-bottom: 1px solid var(--card-border);
     font-size: 0.85rem;
@@ -3145,6 +3184,14 @@
     white-space: nowrap;
     min-width: fit-content;
     line-height: 1.3;
+  }
+
+  .proxy-table th {
+    height: 36px;
+  }
+
+  .proxy-table td {
+    height: 44px;
   }
 
   .proxy-table tbody tr:last-child td {
@@ -3204,15 +3251,15 @@
     background: var(--card-background);
     border: 1px solid var(--card-border);
     border-radius: 6px;
-    padding: 6px;
+    padding: 5px;
     cursor: pointer;
     color: var(--text-secondary);
     transition: all 0.2s ease;
     flex-shrink: 0;
-    width: 28px;
-    height: 28px;
-    min-width: 28px;
-    max-width: 28px;
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    max-width: 26px;
     display: flex !important;
     align-items: center;
     justify-content: center;
@@ -3241,7 +3288,8 @@
     display: block;
     opacity: 0.7;
     font-style: italic;
-    margin-top: 0.25rem;
+    margin-top: 0.1rem;
+    font-size: 0.75rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3258,8 +3306,8 @@
   }
 
   .proxy-action-btn {
-    height: 38px;
-    padding: 0 1rem;
+    height: 32px;
+    padding: 0 0.65rem;
     box-sizing: border-box;
     background: none;
     border: none;
@@ -3396,9 +3444,9 @@
   }
 
   .logout-btn {
-    background: var(--danger-color);
-    color: white;
-    border: none;
+    background: color-mix(in srgb, var(--danger-color) 12%, transparent);
+    color: var(--danger-color);
+    border: 1px solid color-mix(in srgb, var(--danger-color) 48%, transparent);
     padding: 0.5rem 1rem;
     border-radius: 8px;
     font-size: 0.875rem;
@@ -3417,7 +3465,13 @@
   }
 
   .logout-btn:hover {
-    background: var(--danger-hover);
+    background: color-mix(in srgb, var(--danger-color) 22%, transparent);
+    border-color: var(--danger-color);
+  }
+
+  .logout-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-color) 25%, transparent);
   }
 
   @media (max-width: 600px) {

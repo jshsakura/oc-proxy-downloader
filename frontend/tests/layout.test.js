@@ -27,8 +27,30 @@ const SETTINGS = read("../src/lib/SettingsModal.svelte");
 const PASSWORD = read("../src/lib/PasswordModal.svelte");
 const CONFIRM = read("../src/lib/ConfirmModal.svelte");
 const AUDIT = read("../src/lib/AuditModal.svelte");
+const AUDIT_PANEL = read("../src/lib/AuditPanel.svelte");
+const TREND = read("../src/lib/TrendChart.svelte");
 const MODAL_ACTION = read("../src/lib/modal.js");
 const THEME = read("../src/lib/theme.js");
+
+describe("settings link-audit tab", () => {
+  it("removes the duplicate header shortcut and uses the shared audit API", () => {
+    expect(APP).not.toContain("audit-button");
+    expect(APP).not.toContain("<LinkCopyIcon");
+    expect(APP).toContain("bind:activeTab={settingsTab}");
+    expect(APP).toContain('on:auditStart={(e) => startAudit(e.detail)}');
+    expect(APP).not.toContain("<AuditModal");
+  });
+
+  it("renders audit controls as the third settings tab", () => {
+    expect(SETTINGS).toContain('activeTab === "audit"');
+    expect(SETTINGS).toContain("<AuditPanel");
+    expect(AUDIT_PANEL).toContain('dispatch("start", payload)');
+  });
+
+  it("keeps the settings shell at a stable height across tabs", () => {
+    expect(SETTINGS).toMatch(/\.modern-modal\s*\{[^}]*height:\s*min\(92vh, 700px\)/s);
+  });
+});
 
 /** The `@media (max-width: 768px)` body — where the phone rules live. */
 function mobileBlock(css) {
@@ -196,6 +218,30 @@ describe("the AG Grid density and state contracts", () => {
     expect(GRID).not.toContain("suppressCellFocus: true");
   });
 
+  it("does not draw header-only column divider fragments", () => {
+    // AG Grid's default resize-handle tick looks like a vertical border that
+    // stops halfway through the table. The invisible hit target still works.
+    expect(GRID).toMatch(/--ag-header-column-resize-handle-display:\s*none/);
+  });
+
+  it("draws column dividers continuously through header and body cells", () => {
+    const dividers = rulesFor(GRID, 'ag-cell:not([col-id="actions"])').join(" ");
+    expect(dividers).toMatch(/border-right:\s*1px solid var\(--card-border\)/);
+    expect(GRID).toContain('.ag-header-cell:not([col-id="actions"])');
+  });
+
+  it("keeps the grid as one horizontally scrollable surface", () => {
+    expect(GRID).not.toMatch(/pinned:\s*(?:mobile\s*\?[^:]+:\s*)?["'](?:left|right)["']/);
+    expect(GRID).not.toContain("gridApi.sizeColumnsToFit()");
+    expect(GRID).toMatch(/colId:\s*["']filename["'][\s\S]*?minWidth:\s*mobile\s*\?\s*180\s*:\s*240[\s\S]*?flex:\s*1/);
+  });
+
+  it("opens details through a direct renderer callback", () => {
+    expect(GRID).toContain("export let onDetails");
+    expect(GRID).toContain("onDetails(download)");
+    expect(APP).toContain("onDetails={openDetailModal}");
+  });
+
   it("loading uses the supported grid option, not the deprecated overlay API", () => {
     expect(GRID).toContain('setGridOption("loading"');
     expect(GRID).not.toMatch(/showLoadingOverlay|showNoRowsOverlay|hideOverlay/);
@@ -234,6 +280,17 @@ describe("the bulk action bar stays readable on a phone", () => {
 
   it("bulk bar buttons never fragment their labels", () => {
     expect(rulesFor(CSS, ".bulk-action-bar .button").join(" ")).toMatch(/white-space:\s*nowrap/);
+  });
+});
+
+describe("button typography and theme ink", () => {
+  it("does not force desktop button labels to body-sized 1rem text", () => {
+    expect(CSS).toMatch(/\.button, \.add-download-button, \.logout-btn, \.tab\s*\{[\s\S]*?font-size:\s*0\.85rem !important/);
+  });
+
+  it("uses light primary-button text on dark themes", () => {
+    expect(CSS).toMatch(/--button-primary-ink:\s*#fff/);
+    expect(CSS).toMatch(/color:\s*var\(--button-primary-ink, #fff\) !important/);
   });
 });
 
@@ -277,5 +334,45 @@ describe("modal and theme contracts", () => {
     expect(PASSWORD).toContain('type={showPassword ? "text" : "password"}');
     expect(PASSWORD).toContain("aria-pressed={showPassword}");
     expect(APP).toContain("isDeleteAction={confirmIsDeleteAction}");
+  });
+});
+
+describe("settings density", () => {
+  it("gives the settings title room while keeping tabs and body compact", () => {
+    const header = rulesFor(SETTINGS, ".modal-header").join(" ");
+    expect(header).toMatch(/min-height:\s*64px/);
+    expect(header).toMatch(/margin:\s*0/);
+    expect(rulesFor(SETTINGS, ".settings-tabs").join(" ")).toMatch(/padding:\s*0\.25rem 0\.75rem 0/);
+    expect(rulesFor(SETTINGS, ".modal-body").join(" ")).toMatch(/padding:\s*1rem 1\.25rem/);
+    expect(rulesFor(SETTINGS, ".modern-modal:focus").join(" ")).toMatch(/outline:\s*none/);
+  });
+
+  it("keeps proxy rows and their footer compact", () => {
+    expect(rulesFor(SETTINGS, ".proxy-table th").join(" ")).toMatch(/height:\s*36px/);
+    expect(rulesFor(SETTINGS, ".proxy-table td").join(" ")).toMatch(/height:\s*44px/);
+    expect(rulesFor(SETTINGS, ".proxy-action-btn").join(" ")).toMatch(/height:\s*32px/);
+    expect(rulesFor(SETTINGS, ".proxy-table-footer").join(" ")).toMatch(/min-height:\s*44px/);
+  });
+
+  it("does not repeat the FlareSolverr heading above its input label", () => {
+    expect(SETTINGS).not.toContain("<legend>FlareSolverr</legend>");
+  });
+
+  it("uses compact accordion padding for Telegram settings", () => {
+    expect(rulesFor(SETTINGS, ".telegram-header").join(" ")).toMatch(/padding:\s*0\.75rem 1rem/);
+    expect(rulesFor(SETTINGS, ".accordion-content").join(" ")).toMatch(/padding:\s*1rem/);
+  });
+});
+
+describe("settings trend chart bounds", () => {
+  it("keeps headroom above the highest data point", () => {
+    expect(TREND).toContain("HEADROOM_RATIO = 1.12");
+    expect(TREND).toContain("domainMax(d)");
+  });
+
+  it("clamps smoothed control points and gives the glow room", () => {
+    expect(TREND).toContain("clampPlotY(p1.y");
+    expect(TREND).toContain("clampPlotY(p2.y");
+    expect(TREND).toMatch(/<filter id="glow" x="-20%" y="-30%"/);
   });
 });

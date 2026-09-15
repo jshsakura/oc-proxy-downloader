@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from "svelte";
   import { t } from "./i18n.js";
+  import SearchIcon from "../icons/SearchIcon.svelte";
 
   export let period = "custom";
   export let startDate = "";
@@ -85,7 +86,8 @@
         />
       </div>
       <button type="button" class="period-apply" on:click={applyCustom}>
-        {$t("history_period_apply")}
+        <SearchIcon />
+        <span>{$t("history_period_apply")}</span>
       </button>
     </div>
   {/if}
@@ -94,9 +96,10 @@
 <style>
   /* One responsive rule set (task 5). The previous style block carried the
    * desktop rules twice: verbatim again inside the mobile media query, plus
-   * !important height locks patching the duplication. Now the 38px control
-   * height (DESIGN.md 4.1) is declared once per control and only the reflow
-   * changes at the breakpoint. The mobile reflow follows DESIGN.md 4.3: the
+   * !important height locks patching the duplication. The period selector is
+   * intentionally more prominent than the compact date/apply controls, and
+   * only the reflow changes at the breakpoint. The mobile reflow follows
+   * DESIGN.md 4.3: the
    * segment goes full width and the custom dates + apply button take the
    * next full-width row, which requires the row itself to wrap. */
 
@@ -137,9 +140,9 @@
     border: none;
     background: transparent;
     color: var(--text-secondary);
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     font-weight: 600;
-    padding: 0 0.8rem;
+    padding: 0 0.7rem;
     border-radius: 6px;
     cursor: pointer;
     transition: background-color 0.2s ease, color 0.2s ease;
@@ -164,7 +167,7 @@
   .period-custom {
     display: flex;
     align-items: center;
-    height: 38px;
+    height: 32px;
     box-sizing: border-box;
     gap: 0.5rem;
     padding: 0 0.75rem;
@@ -178,7 +181,7 @@
     border: none;
     background: transparent;
     color: var(--text-primary);
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     padding: 0;
     font-family: inherit;
     outline: none;
@@ -187,19 +190,26 @@
   }
 
   .period-apply {
-    height: 38px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 0.35rem;
     border: none;
     background: var(--primary-color);
     color: #fff;
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     font-weight: 600;
-    padding: 0 1.25rem;
+    padding: 0 0.75rem;
     border-radius: 8px; /* Match segment */
     cursor: pointer;
     transition: background-color 0.2s ease;
+  }
+
+  .period-apply :global(svg) {
+    width: 13px;
+    height: 13px;
+    flex: 0 0 auto;
   }
 
   .period-apply:hover {

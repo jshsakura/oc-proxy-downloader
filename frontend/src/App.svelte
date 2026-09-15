@@ -37,7 +37,6 @@
   import FolderIcon from "./icons/FolderIcon.svelte";
   import NetworkIcon from "./icons/NetworkIcon.svelte";
   import InfoIcon from "./icons/InfoIcon.svelte";
-  import LinkCopyIcon from "./icons/LinkCopyIcon.svelte";
   import DownloadIcon from "./icons/DownloadIcon.svelte";
   import SettingsIcon from "./icons/SettingsIcon.svelte";
   import SearchIcon from "./icons/SearchIcon.svelte";
@@ -50,7 +49,6 @@
   import MoonIcon from "./icons/MoonIcon.svelte";
   import { Toaster, toast } from 'svelte-sonner';
   import ConfirmModal from "./lib/ConfirmModal.svelte";
-  import AuditModal from "./lib/AuditModal.svelte";
   import ProxyGauge from "./lib/ProxyGauge.svelte";
   import LocalGauge from "./lib/LocalGauge.svelte";
   import Dashboard from "./lib/Dashboard.svelte";
@@ -86,6 +84,7 @@
   let currentTabTotalCount = 0;
 
   let showSettingsModal = false;
+  let settingsTab = "general";
   let showPasswordModal = false;
   let showDetailModal = false;
   let currentSettings = {};
@@ -100,7 +99,6 @@
   let auditRunning = false;
   let auditDone = 0;
   let auditTotal = 0;
-  let showAuditModal = false;
   // Rows currently being audited — used to show a per-row loading spinner.
   let auditingIds = new Set();
   // Multi-select — checkboxes are always visible in the leading table column.
@@ -1529,18 +1527,7 @@
     }
   }
 
-  async function startAudit(payload = null) {
-    // If called without a payload, open the modal — on header-button click.
-    if (payload === null) {
-      if (auditRunning) {
-        toast.warning($t("audit_already_running"));
-        return;
-      }
-      showAuditModal = true;
-      return;
-    }
-
-    // Send exactly the payload received from the modal's 'start' event.
+  async function startAudit(payload) {
     try {
       const response = await authenticatedFetch("/api/downloads/audit", {
         method: "POST",
@@ -2261,18 +2248,7 @@
       <h1>{$t("title")}</h1>
       <div class="header-actions">
         <button
-          type="button"
-          on:click={() => startAudit(null)}
-          class="button-icon audit-button"
-          class:is-running={auditRunning}
-          aria-label={$t("action_audit")}
-          title={$t("action_audit")}
-          disabled={auditRunning}
-        >
-          <LinkCopyIcon />
-        </button>
-        <button
-          on:click={() => (showSettingsModal = true)}
+          on:click={() => { settingsTab = "general"; showSettingsModal = true; }}
           class="button-icon settings-button"
           aria-label={$t("settings_title")}
         >
@@ -2538,6 +2514,7 @@
         {totalPages}
         {itemsPerPage}
         totalCount={currentTabTotalCount}
+        onDetails={openDetailModal}
         on:pageChange={(e) => goToPage(e.detail.page)}
         on:retryFetch={() => fetchGridPage()}
         on:toggleSelect={(e) => toggleSelect(e.detail.id)}
@@ -2546,7 +2523,6 @@
         on:stop={(e) => callApi(`/api/downloads/stop/${e.detail.id}`)}
         on:retry={(e) => callApi(`/api/retry/${e.detail.id}`)}
         on:delete={(e) => deleteDownload(e.detail.id)}
-        on:details={(e) => openDetailModal(e.detail.download)}
         on:copyLink={(e) => copyDownloadLink(e.detail.download)}
         on:redownload={(e) => redownload(e.detail.download)}
         on:proxyToggle={(e) => handleProxyToggle(e.detail.download)}
@@ -2566,9 +2542,12 @@
       bind:statsPeriod={dashboardPeriod}
       bind:statsStartDate={dashboardStartDate}
       bind:statsEndDate={dashboardEndDate}
+      bind:activeTab={settingsTab}
+      {auditRunning}
       on:settingsChanged={handleSettingsChanged}
       on:proxyChanged={checkProxyAvailability}
       on:statsPeriodChange={() => scheduleDashboardFetch()}
+      on:auditStart={(e) => startAudit(e.detail)}
       on:close={() => (showSettingsModal = false)}
     />
   {/if}
@@ -2616,11 +2595,6 @@
       cancelText={cancelButtonText}
       isDeleteAction={confirmIsDeleteAction}
       on:confirm={confirmAction}
-    />
-
-    <AuditModal
-      bind:showModal={showAuditModal}
-      on:start={(e) => startAudit(e.detail)}
     />
 
     <ConfirmModal

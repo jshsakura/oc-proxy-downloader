@@ -31,6 +31,9 @@
   export let totalPages = 1;
   export let itemsPerPage = 10;
   export let totalCount = 0;
+  // AG Grid renderers are plain DOM classes. A direct callback avoids routing
+  // the details action through a component CustomEvent boundary.
+  export let onDetails = null;
 
   const dispatch = createEventDispatcher();
 
@@ -44,6 +47,15 @@
 
   // Speed history buffer per download ID: maps id -> number[] (up to 16 points)
   const speedHistories = new Map();
+
+  function openDetails(download) {
+    if (typeof onDetails === "function") {
+      onDetails(download);
+      return;
+    }
+    // Keep the event as a compatibility fallback for other consumers.
+    dispatch("details", { download });
+  }
 
   function formatBytes(bytes) {
     if (!bytes || bytes === 0) return "0 B";
@@ -318,7 +330,7 @@
 
       this.btn.addEventListener("click", () => {
         if (this.params.data) {
-          dispatch("details", { download: this.params.data });
+          openDetails(this.params.data);
         }
       });
 
@@ -776,7 +788,7 @@
       );
       this.eGui.appendChild(
         this.makeBtn(infoSvg, $t("action_details"), () =>
-          dispatch("details", { download: d })
+          openDetails(d)
         )
       );
       this.eGui.appendChild(
@@ -804,7 +816,6 @@
         width: 44,
         minWidth: 44,
         maxWidth: 50,
-        pinned: mobile ? null : "left",
         sortable: false,
         resizable: false,
         suppressMovable: true,
@@ -815,8 +826,8 @@
         headerName: $t("table_header_file_name"),
         field: "filename",
         cellRenderer: FilenameCellRenderer,
-        minWidth: 160,
-        flex: 2,
+        minWidth: mobile ? 180 : 240,
+        flex: 1,
         sortable: true,
         resizable: true,
         cellClass: "ag-cell-filename",
@@ -919,7 +930,6 @@
         cellRenderer: ActionsCellRenderer,
         width: 140,
         minWidth: 140,
-        pinned: mobile ? null : "right",
         sortable: false,
         resizable: false,
         suppressMovable: true,
@@ -976,9 +986,6 @@
           if (curMobile !== prevIsMobile) {
             prevIsMobile = curMobile;
             gridApi.setGridOption("columnDefs", createColumnDefs());
-          }
-          if (!curMobile) {
-            gridApi.sizeColumnsToFit();
           }
         }
       });
@@ -1414,6 +1421,10 @@
     --ag-row-hover-color: rgba(var(--primary-color-rgb), 0.05);
     --ag-selected-row-background-color: rgba(var(--primary-color-rgb), 0.1);
     --ag-range-selection-border-color: var(--primary-color);
+    /* AG Grid draws short vertical ticks for resizable headers by default.
+       They look like broken column borders because they stop inside the
+       header. Keep the resize hit target and cursor, but remove the tick. */
+    --ag-header-column-resize-handle-display: none;
   }
   :global(.ag-header-cell[col-id="select"]),
   :global(.ag-cell[col-id="select"]) {
@@ -1446,6 +1457,14 @@
     padding-left: 8px;
     padding-right: 8px;
     border-bottom: 1px solid var(--card-border);
+  }
+
+  /* Real column dividers: unlike AG Grid's short resize-handle ticks, these
+     continue from the header through every row. The outer frame closes the
+     final actions column, so it does not need a second overlapping border. */
+  :global(.ag-header-cell:not([col-id="actions"])),
+  :global(.ag-cell:not([col-id="actions"])) {
+    border-right: 1px solid var(--card-border);
   }
 
   :global(.ag-cell-center) {

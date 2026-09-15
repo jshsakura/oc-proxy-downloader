@@ -3,6 +3,8 @@
   import { t } from "./i18n.js";
   import { modalFocus } from "./modal.js";
   import XIcon from "../icons/XIcon.svelte";
+  import SearchIcon from "../icons/SearchIcon.svelte";
+  import CheckCircleIcon from "../icons/CheckCircleIcon.svelte";
 
   export let showModal = false;
   // The "category currently being viewed" that the parent provides up front — the modal presets to it.
@@ -111,9 +113,9 @@
 </script>
 
 {#if showModal}
-  <div class="modal-backdrop">
+  <div class="modern-backdrop">
     <div
-      class="modal"
+      class="modern-modal"
       role="dialog"
       aria-modal="true"
       aria-labelledby="audit-modal-title"
@@ -121,7 +123,12 @@
       use:modalFocus={{ onEscape: cancel }}
     >
       <div class="modal-header">
-        <h2 id="audit-modal-title">{$t("audit_modal_title")}</h2>
+        <div class="title-section">
+          <div class="icon-wrapper" aria-hidden="true"><SearchIcon /></div>
+          <div class="title-text">
+            <h2 id="audit-modal-title">{$t("audit_modal_title")}</h2>
+          </div>
+        </div>
         <button class="button-icon close-button" on:click={cancel} aria-label={$t("audit_modal_cancel")}>
           <XIcon />
         </button>
@@ -132,8 +139,9 @@
         <section class="field">
           <header class="field-header">
             <span class="field-label">{$t("audit_modal_kinds_label")}</span>
-            <button class="link-button" on:click={clearAllKinds} class:active={allKinds}>
-              {$t("audit_modal_kinds_all")}
+            <button class="link-button" on:click={clearAllKinds} class:active={allKinds} aria-pressed={allKinds}>
+              <CheckCircleIcon />
+              <span>{$t("audit_modal_kinds_all")}</span>
             </button>
           </header>
           <div class="chips">
@@ -142,9 +150,11 @@
                 type="button"
                 class="chip kind-chip kind-chip-{k}"
                 class:selected={selectedKinds.has(k)}
+                aria-pressed={selectedKinds.has(k)}
                 on:click={() => toggleKind(k)}
               >
-                {$t("kind_" + k)}
+                <CheckCircleIcon />
+                <span>{$t("kind_" + k)}</span>
               </button>
             {/each}
           </div>
@@ -162,9 +172,11 @@
                 type="button"
                 class="chip status-chip"
                 class:selected={selectedStatuses.has(s)}
+                aria-pressed={selectedStatuses.has(s)}
                 on:click={() => toggleStatus(s)}
               >
-                {$t("download_" + s)}
+                <CheckCircleIcon />
+                <span>{$t("download_" + s)}</span>
               </button>
             {/each}
           </div>
@@ -174,8 +186,9 @@
         <section class="field">
           <header class="field-header">
             <span class="field-label">{$t("audit_modal_period_label")}</span>
-            <button class="link-button" on:click={clearPeriod} class:active={allPeriod && !since && !until}>
-              {$t("audit_modal_period_all")}
+            <button class="link-button" on:click={clearPeriod} class:active={allPeriod && !since && !until} aria-pressed={allPeriod && !since && !until}>
+              <CheckCircleIcon />
+              <span>{$t("audit_modal_period_all")}</span>
             </button>
           </header>
           <div class="period-inputs">
@@ -210,10 +223,12 @@
 
       <div class="modal-actions">
         <button class="button button-secondary" on:click={cancel}>
-          {$t("audit_modal_cancel")}
+          <XIcon />
+          <span>{$t("audit_modal_cancel")}</span>
         </button>
         <button class="button button-primary" on:click={start}>
-          {$t("audit_modal_start")}
+          <SearchIcon />
+          <span>{$t("audit_modal_start")}</span>
         </button>
       </div>
     </div>
@@ -221,66 +236,84 @@
 {/if}
 
 <style>
-  .modal-backdrop {
+  .modern-backdrop {
     position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 20000;
+    z-index: 10000;
   }
-  .modal {
-    background: var(--card-background);
-    border-radius: 12px;
-    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-    width: 90vw;
+  .modern-modal {
+    width: 95vw;
     max-width: 560px;
-    max-height: 92vh;
-    overflow-y: auto;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--card-background) 70%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+    border-radius: 16px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   }
+  .modern-modal:focus { outline: none; }
   .modal-header {
-    padding: 0.75rem 1.25rem;
-    border-bottom: 1px solid var(--card-border);
+    min-height: 64px;
+    padding: 0.75rem 1rem;
+    box-sizing: border-box;
+    margin: 0;
+    background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
+  .title-section { display: flex; align-items: center; gap: 0.65rem; min-width: 0; }
+  .icon-wrapper {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+  .icon-wrapper :global(svg) { width: 17px; height: 17px; }
   .modal-header h2 {
     margin: 0;
     font-size: 1.05rem;
     font-weight: 600;
     color: var(--text-primary);
   }
+  .title-text p { margin: 0.15rem 0 0; font-size: 0.7rem; color: var(--text-secondary); }
   .close-button {
-    background: none;
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
     border: none;
     cursor: pointer;
     color: var(--text-secondary);
     padding: 4px;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border-radius: 6px;
     transition: all 0.2s ease;
   }
-  .close-button:hover {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-  }
-  .close-button :global(svg) {
-    width: 14px;
-    height: 14px;
-  }
+  .close-button:hover { background: var(--bg-secondary); color: var(--text-primary); }
+  .close-button :global(svg) { width: 14px; height: 14px; }
   .modal-body {
     padding: 1rem 1.25rem;
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    overflow-y: auto;
+    min-height: 0;
   }
   .field-header {
     display: flex;
@@ -288,15 +321,8 @@
     align-items: baseline;
     margin-bottom: 0.4rem;
   }
-  .field-label {
-    font-size: 0.825rem;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .hint {
-    font-size: 0.72rem;
-    color: var(--text-secondary);
-  }
+  .field-label { font-size: 0.825rem; font-weight: 600; color: var(--text-primary); }
+  .hint { font-size: 0.72rem; color: var(--text-secondary); }
   .link-button {
     background: none;
     border: none;
@@ -305,16 +331,12 @@
     color: var(--text-secondary);
     padding: 0.15rem 0.35rem;
     border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
   }
-  .link-button.active {
-    color: var(--primary-color);
-    font-weight: 600;
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-  }
+  .link-button.active { color: var(--primary-color); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .chip {
     padding: 0.25rem 0.6rem;
     border-radius: 999px;
@@ -324,18 +346,19 @@
     color: var(--text-secondary);
     cursor: pointer;
     transition: filter 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
   }
+  .chip :global(svg), .link-button :global(svg) { width: 12px; height: 12px; opacity: 0.35; }
+  .chip.selected :global(svg), .link-button.active :global(svg) { opacity: 1; color: var(--primary-color); }
   .chip.selected {
     filter: brightness(1.15);
     border-color: var(--primary-color);
     color: var(--text-primary);
     background: var(--bg-secondary);
   }
-  .period-inputs {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
+  .period-inputs { display: flex; gap: 0.5rem; align-items: center; }
   .period-inputs input {
     padding: 0.4rem 0.55rem;
     border-radius: 6px;
@@ -344,11 +367,10 @@
     color: var(--text-primary);
     font-size: 0.825rem;
   }
-  .period-sep {
-    color: var(--text-secondary);
-  }
+  .period-sep { color: var(--text-secondary); }
   .limit-input {
     width: 100%;
+    box-sizing: border-box;
     padding: 0.4rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--card-border);
@@ -362,5 +384,8 @@
     gap: 0.5rem;
     justify-content: flex-end;
     border-top: 1px solid var(--card-border);
+    background: color-mix(in srgb, var(--primary-color) 6%, var(--card-background));
   }
+  .modal-actions .button { gap: 0.4rem; }
+  .modal-actions .button :global(svg) { width: 14px; height: 14px; }
 </style>

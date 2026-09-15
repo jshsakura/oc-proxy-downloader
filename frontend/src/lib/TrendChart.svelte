@@ -11,6 +11,7 @@
   const PAD_B = 28;
   const plotW = W - PAD_L - PAD_R;
   const plotH = H - PAD_T - PAD_B;
+  const HEADROOM_RATIO = 1.12;
 
   let hoveredIdx = -1;
   let svgEl;
@@ -28,9 +29,17 @@
     return Math.max(...d.map((r) => r.count || 0), 1);
   }
 
+  function domainMax(d) {
+    return Math.max(1, Math.ceil(maxCount(d) * HEADROOM_RATIO));
+  }
+
+  function clampPlotY(y) {
+    return Math.max(PAD_T, Math.min(PAD_T + plotH, y));
+  }
+
   function buildPoints(d) {
     if (!d || d.length === 0) return [];
-    const mx = maxCount(d);
+    const mx = domainMax(d);
     return d.map((row, i) => {
       const x = PAD_L + (d.length === 1 ? plotW / 2 : (i / (d.length - 1)) * plotW);
       const y = PAD_T + plotH - ((row.count || 0) / mx) * plotH;
@@ -47,9 +56,9 @@
       const p2 = pts[i + 1];
       const p3 = pts[Math.min(pts.length - 1, i + 2)];
       const cp1x = p1.x + (p2.x - p0.x) / 6;
-      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp1y = clampPlotY(p1.y + (p2.y - p0.y) / 6);
       const cp2x = p2.x - (p3.x - p1.x) / 6;
-      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      const cp2y = clampPlotY(p2.y - (p3.y - p1.y) / 6);
       d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
     }
     return d;
@@ -66,7 +75,7 @@
 
   function buildYTicks(d) {
     if (!d || d.length === 0) return [];
-    const mx = maxCount(d);
+    const mx = domainMax(d);
     const ticks = [];
     const steps = 4;
     for (let i = 0; i <= steps; i++) {
@@ -136,7 +145,7 @@
         <stop offset="50%" stop-color="var(--chart-color-1)" stop-opacity="1" />
         <stop offset="100%" stop-color="var(--chart-color-1)" stop-opacity="0.6" />
       </linearGradient>
-      <filter id="glow">
+      <filter id="glow" x="-20%" y="-30%" width="140%" height="160%">
         <feGaussianBlur stdDeviation="3" result="coloredBlur" />
         <feMerge>
           <feMergeNode in="coloredBlur" />

@@ -1681,11 +1681,6 @@ html[data-theme="light"] {
 .button-icon.is-cooldown:hover {
   opacity: 0.85;
 }
-.button-icon.audit-button.is-running {
-  opacity: 0.6;
-  cursor: progress;
-}
-
 /* 실패 분류 칩 — 상태 셀 안에서 다운로드 사유를 한눈에 알려준다. */
 .kind-chip {
   display: inline-block;
@@ -2948,7 +2943,7 @@ table th:first-child {
 .tabs {
   display: inline-flex;
   gap: 0.25rem;
-  padding: 0.25rem;
+  padding: 3px;
   border-radius: 10px;
   /* A track derived from each theme's own surface, so the segmented control
      reads correctly in light and dark alike. The previous design filled the
@@ -2984,10 +2979,10 @@ table th:first-child {
   /* Inactive segments are transparent over the track — no hardcoded colour, so
      they stay legible in every theme. Only the active segment gets a fill. */
   background: transparent;
-  padding: 0 1rem; height: 38px;
+  padding: 0 0.85rem; height: 34px;
   cursor: pointer;
   font-weight: 500;
-  font-size: 1rem;
+  font-size: 0.88rem;
   transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   color: var(--text-secondary);
   border-radius: 8px;
@@ -2997,7 +2992,7 @@ table th:first-child {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  min-height: 38px;
+  min-height: 34px;
 }
 
 .tab-icon {
@@ -3120,9 +3115,9 @@ table th:first-child {
     flex: 1 1 auto;
     width: auto;
     min-width: 0;
-    padding: 0.65rem 0.7rem;
-    font-size: 1rem;
-    min-height: 38px;
+    padding: 0 0.65rem;
+    font-size: 0.88rem;
+    min-height: 34px;
   }
 
   .tab-label {
@@ -3308,19 +3303,20 @@ table th:first-child {
 
 .proxy-toggle-slider {
   position: absolute;
-  top: 2px;
+  top: 50%;
   left: 2px;
   width: 18px;
   height: 18px;
   background-color: white;
   border-radius: 50%;
+  transform: translateY(-50%);
   transition: transform 0.25s ease;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
   z-index: 2;
 }
 
 .proxy-toggle-button.proxy .proxy-toggle-slider {
-  transform: translateX(26px);
+  transform: translate(26px, -50%);
 }
 
 .proxy-toggle-icons {
@@ -3367,19 +3363,20 @@ table th:first-child {
 
 .grid-toggle-slider {
   position: absolute;
-  top: 1px;
+  top: 50%;
   left: 1px;
   width: 18px;
   height: 18px;
   background-color: white;
   border-radius: 50%;
+  transform: translateY(-50%);
   transition: transform 0.25s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   z-index: 1;
 }
 
 .grid-proxy-toggle.proxy .grid-toggle-slider {
-  transform: translateX(20px);
+  transform: translate(20px, -50%);
 }
 
 .grid-toggle-icons {
@@ -3990,11 +3987,22 @@ span.status.status-stopped {
 }
 
 
-/* Guarantee precise, comfortable desktop heights */
-.input, .search-input, .button, .add-download-button, .logout-btn, .tab {
+/* Guarantee precise, comfortable desktop heights. Inputs keep a slightly
+   larger reading size; button labels use the compact control scale. */
+.input, .button, .add-download-button, .logout-btn {
   box-sizing: border-box !important;
   height: 38px !important;
-  font-size: 1rem !important;
+}
+.search-input, .tab {
+  box-sizing: border-box !important;
+}
+.search-input { height: 32px !important; }
+.tab { height: 34px !important; }
+.input {
+  font-size: 0.9rem !important;
+}
+.search-input, .button, .add-download-button, .logout-btn, .tab {
+  font-size: 0.85rem !important;
 }
 .button, .add-download-button, .logout-btn {
   display: inline-flex !important;
@@ -4007,9 +4015,9 @@ select.input {
 
 /* Accessibility authorities shared by every theme and component. */
 .button-primary {
-  background: var(--primary-color) !important;
+  background: var(--button-primary-bg, var(--primary-color)) !important;
   border-color: var(--primary-color) !important;
-  color: black !important;
+  color: var(--button-primary-ink, #fff) !important;
 }
 
 .button-primary:hover {
@@ -4038,6 +4046,8 @@ html.rose,
 html.neon,
 html.forest,
 html.sunset {
+  --button-primary-bg: color-mix(in srgb, var(--primary-color) 72%, #000);
+  --button-primary-ink: #fff;
   --button-danger-ink: black;
 }
 
