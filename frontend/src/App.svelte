@@ -2,6 +2,7 @@
   import logo from "./assets/images/logo256.png";
   import {
     ACTIVE_STATUSES,
+    itemsPerPageForWidth,
     isLiveStatus,
     truncateMiddle,
   } from "./lib/grid.js";
@@ -1945,32 +1946,21 @@
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   }
 
-  // Calculate the number of items per page based on screen size
+  // Pick a stable page size for the responsive layout. Never use innerHeight:
+  // mobile browsers resize it as the address bar hides/shows while scrolling,
+  // which previously changed the number of rows in the grid mid-scroll.
   function calculateItemsPerPage() {
     if (typeof window === 'undefined') return 10;
-
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-
-    // Mobile
-    if (width < 768) {
-      return Math.max(5, Math.floor(height / 80)); // On mobile, assume an item height of 80px
-    }
-    // Tablet
-    else if (width < 1024) {
-      return Math.max(8, Math.floor(height / 70)); // On tablet, assume an item height of 70px
-    }
-    // Desktop
-    else {
-      return Math.max(10, Math.floor(height / 60)); // On desktop, assume an item height of 60px
-    }
+    return itemsPerPageForWidth(window.innerWidth);
   }
 
   // Window resize handler
   function handleResize() {
     const newItemsPerPage = calculateItemsPerPage();
     if (newItemsPerPage !== itemsPerPage) {
+      const firstVisibleIndex = (currentPage - 1) * itemsPerPage;
       itemsPerPage = newItemsPerPage;
+      currentPage = Math.floor(firstVisibleIndex / newItemsPerPage) + 1;
       // Re-fetch with the new page size; server is authoritative for totalPages.
       scheduleGridFetch();
     }

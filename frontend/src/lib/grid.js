@@ -68,6 +68,20 @@ export function retryAttemptLabel(download) {
 }
 
 /**
+ * Stable server page size for each responsive layout.
+ *
+ * Mobile browsers change `innerHeight` while their address bar collapses on
+ * scroll. Deriving page size from height therefore made rows appear/disappear
+ * simply by scrolling. Width only changes when the layout actually changes.
+ */
+export function itemsPerPageForWidth(width) {
+  if (!Number.isFinite(width) || width <= 0) return 10;
+  if (width < 768) return 8;
+  if (width < 1024) return 10;
+  return 15;
+}
+
+/**
  * Shorten a release name from the middle.
  *
  * The meaning sits at both ends: the title in front, and

@@ -5,10 +5,26 @@ import {
   countActiveByStatus,
   countLive,
   hasScheduledRetry,
+  itemsPerPageForWidth,
   isLiveStatus,
   retryAttemptLabel,
   truncateMiddle,
 } from "../src/lib/grid.js";
+
+describe("stable grid page size", () => {
+  it("depends on responsive width, not viewport height or scroll state", () => {
+    expect(itemsPerPageForWidth(390)).toBe(8);
+    expect(itemsPerPageForWidth(800)).toBe(10);
+    expect(itemsPerPageForWidth(1440)).toBe(15);
+  });
+
+  it("uses stable values on both sides of each breakpoint", () => {
+    expect(itemsPerPageForWidth(767)).toBe(8);
+    expect(itemsPerPageForWidth(768)).toBe(10);
+    expect(itemsPerPageForWidth(1023)).toBe(10);
+    expect(itemsPerPageForWidth(1024)).toBe(15);
+  });
+});
 
 /**
  * Both helpers here shipped wrong, and both times a person found it by looking

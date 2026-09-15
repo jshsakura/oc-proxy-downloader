@@ -32,6 +32,17 @@ const TREND = read("../src/lib/TrendChart.svelte");
 const MODAL_ACTION = read("../src/lib/modal.js");
 const THEME = read("../src/lib/theme.js");
 
+describe("stable grid row count", () => {
+  it("does not derive page size from viewport height", () => {
+    const calculator = APP.slice(
+      APP.indexOf("function calculateItemsPerPage"),
+      APP.indexOf("function handleResize"),
+    );
+    expect(calculator).toContain("itemsPerPageForWidth(window.innerWidth)");
+    expect(calculator).not.toContain("innerHeight");
+  });
+});
+
 describe("settings link-audit tab", () => {
   it("removes the duplicate header shortcut and uses the shared audit API", () => {
     expect(APP).not.toContain("audit-button");
