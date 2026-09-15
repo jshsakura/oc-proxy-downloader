@@ -411,6 +411,21 @@ async def _run_migrations():
                 "CREATE INDEX IF NOT EXISTS ix_download_requests_next_retry_at "
                 "ON download_requests(next_retry_at)"
             ))
+
+            # Older releases treated a missing form/link as proof of a host
+            # block. It is only proof that extraction failed: re-label those
+            # rows so the UI does not keep presenting an invented diagnosis.
+            # Explicit 1fichier body-marker blocks are deliberately excluded.
+            db.execute(text("""
+                UPDATE download_requests
+                   SET failure_kind = 'unknown', next_retry_at = NULL
+                 WHERE failure_kind = 'blocked'
+                   AND (
+                        error LIKE '%다운로드 폼을 찾을 수 없음%'
+                        OR error LIKE '%다운로드 링크를 찾을 수 없음%'
+                   )
+                   AND error NOT LIKE '%1fichier 차단:%'
+            """))
             db.commit()
         except Exception as e:
             print(f"[ERROR] Migration failed: {e}")
