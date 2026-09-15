@@ -104,6 +104,7 @@ describe("baseline characterization: the shell keeps every control it renders to
     expect(LOGIN).toContain("language-selector");
     expect(LOGIN).toContain("lockout-timer");
     expect(LOGIN).toContain("login-button");
+    expect(LOGIN).toContain("font-family: var(--font-logo)");
   });
 });
 

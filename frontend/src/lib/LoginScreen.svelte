@@ -241,6 +241,7 @@
 
 
   .logo-text {
+    font-family: var(--font-logo);
     font-size: 2.7rem;
     color: var(--text-primary);
     margin: 0;

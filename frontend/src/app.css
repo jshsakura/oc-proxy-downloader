@@ -1,6 +1,7 @@
 :root {
   color-scheme: light;
   --font-sans: 'Nanum Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  --font-logo: 'Monoton', cursive, sans-serif;
   --date-icon-filter: none;
 
   /* Modern Gray Light Theme */
@@ -851,7 +852,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 h1 {
-  font-family: 'Zen Tokyo Zoo', cursive;
+  font-family: var(--font-logo);
   font-size: 2rem;
   font-weight: normal;
   letter-spacing: 0.03em;
@@ -1178,7 +1179,7 @@ select.input option {
   margin: 0;
   flex-grow: 1;
   text-align: center;
-  font-family: 'Zen Tokyo Zoo', cursive;
+  font-family: var(--font-logo);
   font-size: 1.8rem;
   font-weight: normal;
   letter-spacing: -0.02em;
