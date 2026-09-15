@@ -342,7 +342,7 @@
   {:else}
     <div class="monitor-grid">
       {#each Array(4) as _}
-        <div class="monitor-card">
+        <div class="monitor-card monitor-card-skeleton">
           <div class="monitor-head">
             <Skeleton width="45%" height="11px" radius="3px" />
             <Skeleton width="30%" height="10px" radius="3px" />
@@ -423,6 +423,15 @@
     gap: 0.6rem;
     flex: 1;
     min-width: 0;
+  }
+
+  /* Keep the loading geometry identical to the real monitor cards. In the
+   * four-column mobile layout a 72px inline skeleton was wider than the card;
+   * max-width squeezed only its width and left its height at 72px, producing
+   * four differently distorted placeholders. */
+  :global(.monitor-card-skeleton .monitor-body .skeleton:first-child) {
+    width: 72px !important;
+    height: 72px !important;
   }
 
   .disk-bar {
@@ -558,6 +567,17 @@
     .monitor-title {
       font-size: 0.6rem;
       letter-spacing: 0.05em;
+    }
+    :global(.monitor-card-skeleton .monitor-head .skeleton:last-child),
+    :global(.monitor-card-skeleton .monitor-body .skeleton:last-child) {
+      display: none;
+    }
+    :global(.monitor-card-skeleton .monitor-head .skeleton:first-child) {
+      width: 60% !important;
+    }
+    :global(.monitor-card-skeleton .monitor-body .skeleton:first-child) {
+      width: 50px !important;
+      height: 50px !important;
     }
     /* Gauge alone in the center of the card — a single column instead of a left/right grid */
     .monitor-body {

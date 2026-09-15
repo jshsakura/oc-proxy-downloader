@@ -167,7 +167,7 @@ class TestKindClassification:
         ("limite atteinte", KIND_RATE_LIMITED),
         ("Cloudflare 챌린지 통과 못함", KIND_CLOUDFLARE),
         ("Professional infrastructure detected", KIND_PROXY_BLOCKED),
-        ("다운로드 폼을 찾을 수 없음", KIND_BLOCKED),
+        ("다운로드 폼을 찾을 수 없음", KIND_UNKNOWN),
     ])
     def test_kind_routing(self, raw, expected_kind):
         assert classify_failure_text(raw) == expected_kind

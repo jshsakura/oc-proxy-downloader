@@ -4053,7 +4053,10 @@ html.sunset {
   --button-danger-ink: #fff;
 }
 
-.status,
+.status {
+  color: var(--status-ink, var(--text-primary)) !important;
+}
+
 .ag-status-pill {
   color: var(--text-primary) !important;
 }

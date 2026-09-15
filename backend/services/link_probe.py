@@ -376,9 +376,10 @@ async def probe_1fichier_url(url: str) -> ProbeResult:
             retry_after_seconds=None, definitive=True,
         )
 
-    # 200 but no file info and no known block marker — possible UI change/captcha
+    # 200 but no file info and no known block marker. This is evidence that our
+    # parser could not identify the page, not evidence that the host blocked us.
     return ProbeResult(
-        kind="blocked",
+        kind="unknown",
         summary="probe 가 파일 정보를 찾지 못함 (페이지 변경 가능성)",
         raw_status=status, body_marker=None,
         retry_after_seconds=None, definitive=False,

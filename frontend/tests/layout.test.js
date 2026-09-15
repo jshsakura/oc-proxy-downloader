@@ -22,6 +22,7 @@ const read = (rel) =>
 const CSS = read("../src/app.css");
 const APP = read("../src/App.svelte");
 const GRID = read("../src/lib/AgDownloadGrid.svelte");
+const DASHBOARD = read("../src/lib/Dashboard.svelte");
 const DETAIL = read("../src/lib/DetailModal.svelte");
 const SETTINGS = read("../src/lib/SettingsModal.svelte");
 const PASSWORD = read("../src/lib/PasswordModal.svelte");
@@ -412,6 +413,18 @@ describe("download grid alignment", () => {
     const footerRules = rulesFor(GRID, ".pagination-footer").join(" ");
     expect(footerRules).toMatch(/min-height:\s*64px/);
     expect(footerRules).toMatch(/overflow:\s*visible/);
+  });
+
+  it("keeps failed status text on its status color token", () => {
+    expect(CSS).toMatch(/\.status\s*\{[^}]*color:\s*var\(--status-ink,/s);
+    expect(CSS).not.toMatch(/\.status,\s*\n\.ag-status-pill\s*\{[^}]*--text-primary/s);
+  });
+});
+
+describe("dashboard skeleton geometry", () => {
+  it("uses a dedicated skeleton card and a square mobile gauge", () => {
+    expect(DASHBOARD).toContain("monitor-card monitor-card-skeleton");
+    expect(DASHBOARD).toMatch(/monitor-card-skeleton \.monitor-body \.skeleton:first-child[^}]*width:\s*50px !important;[^}]*height:\s*50px !important;/s);
   });
 });
 

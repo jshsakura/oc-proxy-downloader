@@ -25,8 +25,8 @@ Classification (kind) values:
   waiting / switching network.
 - ``proxy_blocked``: VPS/VPN/Professional infrastructure block. May pass on a
   different proxy or a residential line.
-- ``blocked``: classified but matches none of the above two — a temporary block.
-  Short cooldown.
+- ``blocked``: an explicit host/network refusal confirmed by a response marker.
+  A missing form or parser extraction failure alone is not proof of a block.
 - ``transient``: network/timeout/5xx/one-off 404·410 cases. Exponential backoff.
 - ``unknown``: classification failed. Quarantined after accumulated attempts.
 """
@@ -305,14 +305,14 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "통신사 CGNAT/공유 IP 가 비주거용으로 분류된 경우가 많습니다. "
      "프록시 모드를 켜거나 1fichier 계정 로그인으로 시도하세요.",
      KIND_BLOCKED, False),
-    ("다운로드 폼", "호스터 페이지 구조 변경 또는 캡차 발생",
-     "잠시 후 다시 시도하세요. 반복되면 issue 를 등록해주세요.",
-     KIND_BLOCKED, False),
+    ("다운로드 폼", "호스터 응답에서 다운로드 폼을 찾지 못했습니다 (페이지 구조/응답 원인 미확인)",
+     "페이지 구조 변경, 불완전 응답, 보안 검증 중 어느 원인인지 확인되지 않았습니다. 반복되면 원문 응답과 함께 issue 를 등록해주세요.",
+     KIND_UNKNOWN, False),
     # Every hoster raises "<Host> 다운로드 링크를 찾을 수 없음", so the summary must stay
     # host-agnostic — the raw message already names the host in parentheses.
-    ("다운로드 링크를 찾을 수 없음", "호스터 응답에서 다운로드 링크를 추출하지 못했습니다",
-     "잠시 후 다시 시도하거나 프록시 모드를 켜세요.",
-     KIND_BLOCKED, False),
+    ("다운로드 링크를 찾을 수 없음", "호스터 응답에서 다운로드 링크를 추출하지 못했습니다 (원인 미확인)",
+     "차단으로 확인된 것은 아닙니다. 반복되면 원문 응답과 함께 issue 를 등록해주세요.",
+     KIND_UNKNOWN, False),
     # A page-load failure that carries an explicit HTTP status must defer to the
     # status code: 404/410 are link-expiry/session-loss (transient), NOT a dead
     # URL. These specific rules precede the generic "페이지 로드 실패" catch below
