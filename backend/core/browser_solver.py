@@ -21,7 +21,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from patchright.sync_api import Page, sync_playwright
 
@@ -177,11 +177,18 @@ DATANODES_FLOW = BrowserFlow(
 SEND_NOW_FLOW = BrowserFlow(
     action_selector='button:has-text("Download"), a:has-text("Download")',
 )
+MIXDROP_FLOW = BrowserFlow(
+    # MixDrop runs reCAPTCHA v3 itself after the click and changes this anchor
+    # into the final download link after a short countdown.
+    action_selector="a.download-btn",
+)
 DEFAULT_FLOW = BrowserFlow()
 
 _FLOWS = {
     "datanodes.to": DATANODES_FLOW,
     "send.now": SEND_NOW_FLOW,
+    "mixdrop.ag": MIXDROP_FLOW,
+    "mixdrop.top": MIXDROP_FLOW,
 }
 
 # Hosts that have a browser flow at all. Used to route their parses onto the
@@ -193,7 +200,7 @@ BROWSER_FLOW_HOSTS = frozenset(_FLOWS)
 # captcha, so a build without one can refuse the link immediately. Send.now is
 # deliberately absent — it only shows a captcha sometimes, and FlareSolverr still
 # resolves the rest, so gating it up front would break links that do work.
-BROWSER_REQUIRED_HOSTS = frozenset({"datanodes.to"})
+BROWSER_REQUIRED_HOSTS = frozenset({"datanodes.to", "mixdrop.ag", "mixdrop.top"})
 
 
 def flow_for_host(host: str) -> BrowserFlow:
@@ -255,6 +262,36 @@ def _is_file_navigation(candidate: str, page_url: str) -> bool:
         return False
     match = _FILE_PATH_RE.search((parsed.path or "").rstrip("/"))
     return bool(match) and match.group(1).lower() not in _PAGE_EXTENSIONS
+
+
+def _capture_download_response(response, page_url: str, captured: Dict[str, str]) -> None:
+    """Read the host's final ``download2`` JSON response directly.
+
+    DataNodes' Vue component obtains the storage URL with ``fetch`` and only
+    afterwards assigns it to ``document.location``. Watching that later
+    navigation alone is lossy: Chromium can reject an unreachable storage node
+    before Playwright exposes a useful navigation/download event. The JSON is
+    the authoritative hand-off and also carries the host's real error when it
+    refuses to mint a link.
+    """
+    try:
+        request = response.request
+        headers = {str(k).lower(): str(v) for k, v in request.headers.items()}
+        if request.method.upper() != "POST" or headers.get("x-dn-dl") != "1":
+            return
+        data = response.json()
+        if not isinstance(data, dict):
+            return
+        candidate = unquote(str(data.get("url") or ""))
+        if candidate and _is_file_navigation(candidate, page_url):
+            captured.setdefault("url", candidate)
+        error = str(data.get("error") or "").strip()
+        if error:
+            captured["error"] = error[:500]
+    except Exception:
+        # A non-JSON challenge page is handled by the page flow/retry loop. An
+        # event listener must never abort the browser solve itself.
+        return
 
 
 def _proxy_settings(proxies: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
@@ -453,8 +490,10 @@ def _drive_to_download(
         page.wait_for_timeout(min(ACTION_ROUND_WAIT_MS, deadline.budget_ms(ACTION_ROUND_WAIT_MS)))
         if captured.get("url"):
             return captured["url"]
+    detail = captured.get("error")
+    suffix = f" (호스터 응답: {detail})" if detail else ""
     raise HosterParseError(
-        "캡차는 통과했지만 다운로드 링크가 발급되지 않았습니다"
+        f"캡차는 통과했지만 다운로드 링크가 발급되지 않았습니다{suffix}"
     )
 
 
@@ -488,6 +527,9 @@ def solve_download_page(
         if request.is_navigation_request() and _is_file_navigation(request.url, url):
             captured.setdefault("url", request.url)
 
+    def on_response(response) -> None:
+        _capture_download_response(response, url, captured)
+
     host = (urlparse(url).hostname or "").lower()
     with _queued_browser_slot(host, deadline):
         with sync_playwright() as pw:
@@ -501,6 +543,7 @@ def solve_download_page(
                 page = context.new_page()
                 page.on("download", on_download)
                 page.on("request", on_request)
+                page.on("response", on_response)
 
                 page.goto(
                     url,

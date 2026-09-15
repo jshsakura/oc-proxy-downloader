@@ -23,6 +23,7 @@ class TestKnownHosts:
         ("https://gofile.io/d/abc", "GoFile"),
         ("https://mega.nz/file/abc", "MEGA"),
         ("https://pixeldrain.com/u/abc", "Pixeldrain"),
+        ("https://multiup.io/download/a/b", "MultiUp"),
     ])
     def test_registry_and_extra_hosts_get_their_display_name(self, url, expected):
         assert hoster_label(url) == expected
@@ -49,7 +50,7 @@ class TestUnknownAndEmpty:
 
     def test_an_unsupported_host_shows_its_hostname(self):
         """More useful than "Unknown": it says exactly where the link points."""
-        assert hoster_label("https://multiup.io/download/a/b") == "multiup.io"
+        assert hoster_label("https://example.com/download/a/b") == "example.com"
 
     @pytest.mark.parametrize("url", ["", None, "not a url", "/relative/path"])
     def test_nothing_to_label_yields_an_empty_string(self, url):

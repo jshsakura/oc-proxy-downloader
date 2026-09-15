@@ -44,6 +44,15 @@ export function countActiveByStatus(byStatus) {
   );
 }
 
+/** Whether a failed row currently has an automatic retry scheduled. */
+export function hasScheduledRetry(download, now = Date.now()) {
+  return Boolean(
+    String(download?.status || "").toLowerCase() === "failed" &&
+      download?.next_retry_at &&
+      new Date(download.next_retry_at).getTime() > now,
+  );
+}
+
 /**
  * Shorten a release name from the middle.
  *

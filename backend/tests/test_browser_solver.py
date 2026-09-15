@@ -294,6 +294,58 @@ def test_queue_slots_are_released_when_a_solve_fails(monkeypatch):
     bs._BROWSER_SLOTS.release()
 
 
+class _Download2Request:
+    method = "POST"
+    headers = {"X-Dn-Dl": "1"}
+
+
+class _Download2Response:
+    request = _Download2Request()
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def json(self):
+        return self.payload
+
+
+def test_download2_json_url_is_captured_before_browser_navigation():
+    captured = {}
+    encoded = "https%3A%2F%2Fstor03.datanodes.to%3A8443%2Fd%2Fx%2Fgame.rar"
+
+    bs._capture_download_response(
+        _Download2Response({"url": encoded}),
+        "https://datanodes.to/abc",
+        captured,
+    )
+
+    assert captured["url"] == "https://stor03.datanodes.to:8443/d/x/game.rar"
+
+
+def test_download2_json_error_is_preserved_for_diagnostics():
+    captured = {}
+
+    bs._capture_download_response(
+        _Download2Response({"error": "Security token expired"}),
+        "https://datanodes.to/abc",
+        captured,
+    )
+
+    assert captured["error"] == "Security token expired"
+
+
+def test_unrelated_post_response_is_ignored():
+    response = _Download2Response({"url": "https://ads.example/file.rar"})
+    response.request = type(
+        "Request", (), {"method": "POST", "headers": {"X-Dn-Dl": "0"}}
+    )()
+    captured = {}
+
+    bs._capture_download_response(response, "https://datanodes.to/abc", captured)
+
+    assert captured == {}
+
+
 def test_queued_solve_gives_up_when_no_useful_time_remains(monkeypatch):
     """Rather than start a browser it cannot finish, a link that waited too long
     fails as transient so the retry logic picks it up later."""

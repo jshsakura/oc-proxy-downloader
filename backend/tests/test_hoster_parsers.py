@@ -327,6 +327,139 @@ def test_gofile_content_id_extraction():
     assert hs._gofile_content_id("https://gofile.io/") == ""
 
 
+def test_multiup_extracts_filename_and_size_from_metadata():
+    html = """
+    <meta name="description"
+      content="Download Digimon Story Time Stranger [010062E01FE0C000][v0][Base].part1.rar (6.00 GB) on gofile.io mixdrop.ag ">
+    """
+
+    assert hs._extract_multiup_file_info(html, "https://multiup.io/download/id/file.rar") == {
+        "name": "Digimon Story Time Stranger [010062E01FE0C000][v0][Base].part1.rar",
+        "size": "6.00 GB",
+    }
+
+
+def test_multiup_posts_csrf_and_resolves_gofile_mirror(monkeypatch):
+    source_url = "https://multiup.io/download/de16/file.rar"
+
+    class Response:
+        def __init__(self, text, url):
+            self.text = text
+            self.url = url
+            self.status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+    class Session:
+        def __init__(self):
+            self.headers = {}
+            self.proxies = {}
+            self.posted = None
+
+        def get(self, url, timeout):
+            return Response("""
+                <meta name="description" content="Download file.rar (6.00 GB) on gofile.io">
+                <form action="/fr/mirror/de16" method="post">
+                  <input name="_csrf_token" value="token-123">
+                </form>
+            """, url)
+
+        def post(self, url, data, headers, timeout):
+            self.posted = (url, data, headers)
+            assert url == "https://multiup.io/fr/mirror/de16"
+            assert data == {"_csrf_token": "token-123"}
+            assert headers["Referer"] == source_url
+            return Response("""
+                <a nameHost="mixdrop.ag" link="https://mixdrop.ag/f/nope"></a>
+                <a nameHost="gofile.io" link="https://gofile.io/d/VNgJf9"></a>
+            """, url)
+
+    monkeypatch.setattr(hs.requests, "Session", Session)
+    monkeypatch.setattr(
+        hs,
+        "parse_gofile_sync",
+        lambda url, proxies=None: {
+            "download_link": "https://store.gofile.io/download/file.rar",
+            "file_info": None,
+            "cookies": {"accountToken": "guest"},
+        },
+    )
+
+    result = hp.parse_special_hoster_sync(source_url)
+
+    assert result["download_link"] == "https://store.gofile.io/download/file.rar"
+    assert result["file_info"] == {"name": "file.rar", "size": "6.00 GB"}
+
+
+def test_multiup_falls_back_to_mixdrop_when_gofile_blocks_the_egress(monkeypatch):
+    class Response:
+        status_code = 200
+        url = "https://multiup.io/download/id/file.rar"
+
+        def __init__(self, text):
+            self.text = text
+
+        def raise_for_status(self):
+            return None
+
+    class Session:
+        headers = {}
+        proxies = {}
+
+        def get(self, url, timeout):
+            return Response('<form action="/fr/mirror/id"><input name="_csrf_token" value="x"></form>')
+
+        def post(self, url, data, headers, timeout):
+            return Response('''
+                <a nameHost="gofile.io" link="https://gofile.io/d/x"></a>
+                <a nameHost="mixdrop.ag" link="https://mixdrop.ag/f/x"></a>
+            ''')
+
+    monkeypatch.setattr(hs.requests, "Session", Session)
+    monkeypatch.setattr(
+        hs,
+        "parse_gofile_sync",
+        lambda *a, **k: (_ for _ in ()).throw(hp.HosterParseError("데이터센터 IP")),
+    )
+    monkeypatch.setattr(
+        hs,
+        "parse_mixdrop_sync",
+        lambda *a, **k: {"download_link": "https://mixdrop-cdn.example/file.rar", "file_info": None},
+    )
+
+    result = hp.parse_special_hoster_sync("https://multiup.io/download/id/file.rar")
+
+    assert result["download_link"] == "https://mixdrop-cdn.example/file.rar"
+
+
+def test_multiup_reports_when_only_unsupported_mirrors_exist(monkeypatch):
+    class Response:
+        status_code = 200
+        url = "https://multiup.io/download/id/file.rar"
+
+        def __init__(self, text):
+            self.text = text
+
+        def raise_for_status(self):
+            return None
+
+    class Session:
+        headers = {}
+        proxies = {}
+
+        def get(self, url, timeout):
+            return Response('<form action="/fr/mirror/id"><input name="_csrf_token" value="x"></form>')
+
+        def post(self, url, data, headers, timeout):
+            return Response('<a nameHost="unsupported.test" link="https://unsupported.test/f/x"></a>')
+
+    monkeypatch.setattr(hs.requests, "Session", Session)
+
+    with pytest.raises(hp.HosterParseError, match="자동 다운로드 가능한 미러가 없음"):
+        hp.parse_special_hoster_sync("https://multiup.io/download/id/file.rar")
+
+
 def test_gofile_single_file_resolves_direct_link(monkeypatch):
     _patch_gofile_tokens(monkeypatch)
     contents = {

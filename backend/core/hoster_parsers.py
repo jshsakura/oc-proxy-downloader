@@ -43,7 +43,12 @@ from core.browser_solver import (
 from core.hoster_sites import (  # noqa: F401
     _extract_datanodes_file_info,
     _extract_mediafire_file_info,
+    _extract_multiup_file_info,
 )
+
+
+def _multiup_info_from_page(url: str, html_text: str) -> Dict[str, str]:
+    return _extract_multiup_file_info(html_text, url)
 
 
 def is_special_hoster_url(url: str) -> bool:
@@ -89,6 +94,8 @@ class HosterSpec:
 
 
 HOSTER_REGISTRY = (
+    HosterSpec("MultiUp", ("multiup.io",), "parse_multiup_sync", "_multiup_info_from_page"),
+    HosterSpec("MixDrop", ("mixdrop.ag", "mixdrop.top"), "parse_mixdrop_sync"),
     HosterSpec("MegaUp", ("megaup.net",), "parse_megaup_sync", "_megaup_info_from_page"),
     HosterSpec("DataNodes", ("datanodes.to",), "parse_datanodes_sync", "_extract_datanodes_file_info"),
     HosterSpec("Rapidgator", ("rapidgator.net",), "parse_rapidgator_constraints_sync"),

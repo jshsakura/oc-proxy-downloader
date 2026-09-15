@@ -26,7 +26,7 @@ from core.error_messages import KIND_DEAD
 
 DEAD_URL = "https://datanodes.to/gone"
 ALIVE_URL = "https://datanodes.to/here"
-OFF_SCOPE_URL = "https://multiup.io/download/x/y.nsp"
+OFF_SCOPE_URL = "https://discord.gg/x"
 
 
 def _probe_for(url):

@@ -275,6 +275,7 @@
     align-items: center;
     justify-content: space-between;
     width: 100%;
+    min-width: 0;
     position: relative;
   }
 
@@ -283,6 +284,11 @@
     align-items: center;
     gap: 0.75rem;
     flex: 1;
+    min-width: 0;
+  }
+
+  .title-text {
+    min-width: 0;
   }
 
   .icon-wrapper {
@@ -895,6 +901,7 @@
   @media (max-width: 768px) {
     .modern-modal {
       width: 95vw;
+      box-sizing: border-box;
       height: 85vh;
       max-height: 500px;
       min-height: 350px;
@@ -914,12 +921,14 @@
     .title-section {
       margin-right: 0;
       width: auto;
+      min-width: 0;
     }
     .close-button {
       position: relative;
       right: 0;
       width: 32px;
       height: 32px;
+      flex-shrink: 0;
     }
 
     .close-button :global(svg) {

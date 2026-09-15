@@ -28,8 +28,8 @@ from services.link_probe import (
 
 DATANODES = "https://datanodes.to/oi9iokrci5va"
 FICHIER = "https://1fichier.com/?abc123"
-# Not in HOSTER_REGISTRY: nothing here can read it.
-UNSUPPORTED = "https://multiup.io/download/abc/file.nsp"
+MULTIUP = "https://multiup.io/download/abc/file.nsp"
+UNSUPPORTED = "https://discord.gg/x"
 
 
 class TestProbeScope:
@@ -44,13 +44,14 @@ class TestProbeScope:
         "https://pixeldrain.com/u/abc",
         "https://send.now/abc",
         "https://bunkr.ru/f/abc",
+        MULTIUP,
     ])
     def test_every_supported_hoster_is_in_scope(self, url):
         """The registry decides what the downloader accepts; the auditor has to
         cover the same ground or those rows never get a verdict at all."""
         assert is_probe_supported(url) is True
 
-    @pytest.mark.parametrize("url", [UNSUPPORTED, "https://discord.gg/x", "", None])
+    @pytest.mark.parametrize("url", [UNSUPPORTED, "", None])
     def test_a_host_outside_the_registry_is_out_of_scope(self, url):
         assert is_probe_supported(url) is False
 

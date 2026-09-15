@@ -49,6 +49,9 @@ class TestFileNameReplacement:
     def test_keeps_existing_real_name(self):
         assert dc._should_replace_file_name("movie.mkv", "other.mkv") is False
 
+    def test_placeholder_still_needs_preparse_even_when_size_is_known(self):
+        assert dc._name_needs_resolution("1fichier:7l0ob90lh7te986slxsq") is True
+
 
 class _FakeBody:
     """Just enough of aiohttp's stream to let the guard peek at the body."""

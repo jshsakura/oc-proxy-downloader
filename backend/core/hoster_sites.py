@@ -46,6 +46,8 @@ from core.hoster_common import (
 
 
 __all__ = [
+    'parse_multiup_sync',
+    'parse_mixdrop_sync',
     'parse_megaup_sync',
     'parse_datanodes_sync',
     'parse_rapidgator_constraints_sync',
@@ -83,6 +85,147 @@ _GOFILE_CONTENTS_PARAMS = {
     "sortField": "name",
     "sortDirection": "1",
 }
+
+_MULTIUP_META_RE = re.compile(
+    r"^(?:Download|Mirror list)\s+(.+?)\s+\(([\d.,]+\s*[KMGTPE]?B)\)\s+on\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_multiup_file_info(
+    soup_or_html, url: str, html_text: Optional[str] = None
+) -> Dict[str, str]:
+    """Read MultiUp's filename and size without mistaking its mirror page for a file."""
+    if isinstance(soup_or_html, BeautifulSoup):
+        soup = soup_or_html
+        text = html_text or str(soup)
+    else:
+        text = str(soup_or_html or "")
+        soup = BeautifulSoup(text, "html.parser")
+
+    candidates = []
+    for attrs in ({"name": "description"}, {"property": "og:description"}):
+        node = soup.find("meta", attrs=attrs)
+        if node and node.get("content"):
+            candidates.append(html.unescape(str(node["content"])).strip())
+    if soup.title:
+        candidates.append(soup.title.get_text(" ", strip=True))
+
+    for candidate in candidates:
+        match = _MULTIUP_META_RE.search(candidate)
+        if match:
+            return {"name": match.group(1).strip(), "size": match.group(2).strip()}
+
+    path_name = unquote((urlparse(url or "").path or "").rstrip("/").rsplit("/", 1)[-1])
+    info: Dict[str, str] = {}
+    if path_name and path_name.lower() != "download":
+        info["name"] = path_name
+    size = _extract_size_from_text(text)
+    if size:
+        info["size"] = size
+    return info
+
+
+def _extract_mixdrop_file_info(url: str, html_text: str) -> Dict[str, str]:
+    soup = BeautifulSoup(html_text or "", "html.parser")
+    title_node = soup.select_one(".download-top .title b[title]")
+    info: Dict[str, str] = {}
+    if title_node and title_node.get("title"):
+        info["name"] = html.unescape(str(title_node["title"])).strip()
+    size = _extract_size_from_text(
+        soup.select_one(".download-top .title").get_text(" ", strip=True)
+        if soup.select_one(".download-top .title") else html_text
+    )
+    if size:
+        info["size"] = size
+    return info
+
+
+def parse_mixdrop_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
+    scraper = _scraper(proxies)
+    response = scraper.get(url, timeout=30)
+    text = _response_text(response)
+    _raise_for_dead_page("MixDrop", text, getattr(response, "status_code", 0))
+    file_info = _extract_mixdrop_file_info(url, text)
+
+    solved = solve_download_page(url, flow_for_host(_host(url)), proxies=proxies)
+    return HosterParseResult(
+        download_link=solved.download_link,
+        file_info=file_info or None,
+        cookies=solved.cookies,
+        user_agent=solved.user_agent,
+        referer=url,
+    ).as_parse_result()
+
+
+def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
+    """Resolve MultiUp's two-step mirror list, preferring its supported GoFile mirror."""
+    session = requests.Session()
+    session.headers.update({"User-Agent": DEFAULT_HOSTER_USER_AGENT})
+    if proxies:
+        session.proxies.update(proxies)
+
+    try:
+        page = session.get(url, timeout=30)
+        page.raise_for_status()
+    except requests.RequestException as exc:
+        raise HosterParseError(f"MultiUp 페이지 조회 실패: {exc}") from exc
+
+    page_text = _response_text(page)
+    page_soup = BeautifulSoup(page_text, "html.parser")
+    file_info = _extract_multiup_file_info(page_soup, url, page_text)
+    form = page_soup.find("form", action=re.compile(r"/mirror/", re.IGNORECASE))
+    if not form:
+        raise HosterParseError("MultiUp 미러 목록 폼을 찾을 수 없음")
+
+    payload = {
+        node.get("name"): node.get("value", "")
+        for node in form.find_all("input")
+        if node.get("name")
+    }
+    action = urljoin(getattr(page, "url", None) or url, form.get("action") or "")
+    try:
+        mirrors_response = session.post(
+            action,
+            data=payload,
+            headers={"Referer": getattr(page, "url", None) or url},
+            timeout=30,
+        )
+        mirrors_response.raise_for_status()
+    except requests.RequestException as exc:
+        raise HosterParseError(f"MultiUp 미러 목록 조회 실패: {exc}") from exc
+
+    mirrors_soup = BeautifulSoup(_response_text(mirrors_response), "html.parser")
+    mirrors = []
+    for anchor in mirrors_soup.select("a[namehost], a[link]"):
+        mirror_url = anchor.get("link") or anchor.get("href") or ""
+        if mirror_url.startswith("http"):
+            mirrors.append(mirror_url)
+
+    gofile_url = next((item for item in mirrors if _host(item).removeprefix("www.") == "gofile.io"), "")
+    mixdrop_url = next(
+        (item for item in mirrors if _host(item).removeprefix("www.") in {"mixdrop.ag", "mixdrop.top"}),
+        "",
+    )
+    if not gofile_url and not mixdrop_url:
+        available = ", ".join(sorted({_host(item) for item in mirrors if _host(item)}))
+        detail = f" (현재 미러: {available})" if available else ""
+        raise HosterParseError(f"MultiUp에 자동 다운로드 가능한 미러가 없음{detail}")
+
+    if gofile_url:
+        try:
+            result = parse_gofile_sync(gofile_url, proxies=proxies)
+        except HosterParseError:
+            if not mixdrop_url:
+                raise
+            result = parse_mixdrop_sync(mixdrop_url, proxies=proxies)
+    else:
+        result = parse_mixdrop_sync(mixdrop_url, proxies=proxies)
+    resolved_info = dict(result.get("file_info") or {})
+    for key, value in file_info.items():
+        resolved_info.setdefault(key, value)
+    result["file_info"] = resolved_info or None
+    return result
 
 
 def _extract_megaup_file_info(soup: BeautifulSoup, url: str, html_text: str) -> Dict[str, str]:

@@ -213,3 +213,27 @@ class TestAQueueWaitDoesNotLookLikeAFailure:
         # And it still keys on a retry time, so a download parked behind a
         # semaphore by a live task is left to the task that owns it.
         assert "next_retry_at.isnot(None)" in body
+
+    def test_slot_cleanup_does_not_bypass_a_scheduled_queue_wait(self):
+        """Task cleanup may fill a free download slot, but it must leave rows
+        carrying a retry deadline to the retry sweeper."""
+        import inspect
+
+        from core import download_core
+
+        body = inspect.getsource(download_core.DownloadCore._start_next_pending_download)
+
+        assert "DownloadRequest.next_retry_at.is_(None)" in body
+
+    def test_restart_does_not_bypass_a_scheduled_queue_wait(self):
+        """A restart must preserve the same retry deadline instead of creating
+        an immediate host stampede during service startup."""
+        import inspect
+
+        from services import download_service
+
+        body = inspect.getsource(
+            download_service.DownloadService._start_pending_downloads_after_restart
+        )
+
+        assert "DownloadRequest.next_retry_at.is_(None)" in body

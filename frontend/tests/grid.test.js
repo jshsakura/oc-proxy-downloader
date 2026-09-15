@@ -4,6 +4,7 @@ import {
   ACTIVE_STATUSES,
   countActiveByStatus,
   countLive,
+  hasScheduledRetry,
   isLiveStatus,
   truncateMiddle,
 } from "../src/lib/grid.js";
@@ -69,6 +70,31 @@ describe("what counts as running", () => {
     // stopped rows in the "in progress" count.
     expect(ACTIVE_STATUSES).not.toContain("failed");
     expect(ACTIVE_STATUSES).not.toContain("stopped");
+  });
+});
+
+describe("scheduled retry actions", () => {
+  const now = new Date("2026-09-15T14:00:00Z").getTime();
+
+  it("recognises only a failed row with a future retry deadline", () => {
+    expect(
+      hasScheduledRetry(
+        { status: "failed", next_retry_at: "2026-09-15T14:01:00Z" },
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      hasScheduledRetry(
+        { status: "failed", next_retry_at: "2026-09-15T13:59:00Z" },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      hasScheduledRetry(
+        { status: "stopped", next_retry_at: "2026-09-15T14:01:00Z" },
+        now,
+      ),
+    ).toBe(false);
   });
 });
 

@@ -211,9 +211,12 @@ class DownloadService:
     async def _start_pending_downloads_after_restart(self, db: Session):
         """Automatically start pending downloads after a server restart"""
         try:
-            # Query all pending downloads (sorted ascending by request time)
+            # Scheduled pending rows (notably browser-host queue waits) belong
+            # to the retry sweeper. Respect their next_retry_at deadline after a
+            # restart instead of launching them all immediately.
             pending_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
-                DownloadRequest.status == StatusEnum.pending
+                DownloadRequest.status == StatusEnum.pending,
+                DownloadRequest.next_retry_at.is_(None),
             ).order_by(DownloadRequest.requested_at.asc()))
 
             if not pending_downloads:

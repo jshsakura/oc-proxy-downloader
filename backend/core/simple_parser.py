@@ -507,7 +507,22 @@ def extract_file_info_simple(html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
         file_info = {}
 
-        # 1. First find the table containing the QR code (the most reliable anchor)
+        # 1. Current 1fichier layout (2026-09): the QR card moved out of the old
+        # table into a ``.tier`` div. Read its explicitly named fields first.
+        tier_name = soup.select_one('.tier-name')
+        tier_size = soup.select_one('.tier-feat')
+        if tier_name:
+            filename = tier_name.get_text(' ', strip=True)
+            if filename and not any(x in filename.lower() for x in ['1fichier', 'cloud storage', 'error']):
+                file_info['name'] = filename
+                print(f"[DEBUG] 1fichier 티어 카드에서 파일명 추출: {filename}")
+        if tier_size:
+            size = tier_size.get_text(' ', strip=True)
+            if re.search(r'\b\d+(?:\.\d+)?\s*[KMGT]B\b', size, re.IGNORECASE):
+                file_info['size'] = size
+                print(f"[DEBUG] 1fichier 티어 카드에서 파일크기 추출: {size}")
+
+        # 2. Legacy layout: find the table containing the QR code.
         qr_img = soup.find('img', src=lambda s: s and 'qr.pl' in s)
         if qr_img:
             info_table = qr_img.find_parent('table')
@@ -529,7 +544,7 @@ def extract_file_info_simple(html_content):
                             file_info['size'] = size
                             print(f"[DEBUG] QR 코드 테이블 구조에서 파일크기 추출: {size}")
 
-        # 2. If nothing was found above, fall back to regex
+        # 3. If nothing was found above, fall back to regex
         if not file_info.get('name'):
             filename_patterns = [
                 r'<h1[^>]*>([^<]+)</h1>',

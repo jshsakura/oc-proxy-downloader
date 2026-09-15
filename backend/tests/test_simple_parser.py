@@ -257,8 +257,27 @@ REGEX_HTML = """
 </body></html>
 """
 
+TIER_CARD_HTML = """
+<html><body>
+  <div class="tiers">
+    <div class="tier">
+      <img src="/qr.pl?do=0.abc&amp;s=1" alt="QR code">
+      <div class="tier-body">
+        <span class="tier-name">Kingdom Rush Origins [0100ABE0121F8000][v0][Base].rar</span>
+        <span class="tier-feat">416.60 MB</span>
+      </div>
+    </div>
+  </div>
+</body></html>
+"""
+
 
 class TestExtractFileInfo:
+    def test_current_tier_card_layout_extracts_name_and_size(self):
+        info = sp.extract_file_info_simple(TIER_CARD_HTML)
+        assert info["name"] == "Kingdom Rush Origins [0100ABE0121F8000][v0][Base].rar"
+        assert info["size"] == "416.60 MB"
+
     def test_qr_table_structure_is_preferred(self):
         info = sp.extract_file_info_simple(QR_HTML)
         assert info["name"] == "my_movie.mkv"

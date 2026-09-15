@@ -329,6 +329,14 @@ describe("modal and theme contracts", () => {
     expect(DETAIL).not.toContain("download.download_path");
   });
 
+  it("lets the detail header title shrink before clipping the mobile close button", () => {
+    expect(rulesFor(DETAIL, ".header-content").join(" ")).toMatch(/min-width:\s*0/);
+    expect(rulesFor(DETAIL, ".title-section").join(" ")).toMatch(/min-width:\s*0/);
+    expect(rulesFor(DETAIL, ".title-text").join(" ")).toMatch(/min-width:\s*0/);
+    expect(mobileBlock(DETAIL)).toMatch(/\.modern-modal\s*\{[^}]*box-sizing:\s*border-box/s);
+    expect(mobileBlock(DETAIL)).toMatch(/\.close-button\s*\{[^}]*flex-shrink:\s*0/s);
+  });
+
   it("settings previews a theme only after user input", () => {
     expect(SETTINGS).toContain("on:change={previewTheme}");
     expect(SETTINGS).toContain("selectedTheme = $theme");
@@ -372,6 +380,19 @@ describe("settings density", () => {
   it("uses compact accordion padding for Telegram settings", () => {
     expect(rulesFor(SETTINGS, ".telegram-header").join(" ")).toMatch(/padding:\s*0\.75rem 1rem/);
     expect(rulesFor(SETTINGS, ".accordion-content").join(" ")).toMatch(/padding:\s*1rem/);
+  });
+});
+
+describe("download grid alignment", () => {
+  it("centers every grid column except the filename", () => {
+    expect(GRID).toContain('.ag-header-cell:not([col-id="filename"]) .ag-header-cell-label');
+    expect(GRID).toContain('.ag-header-cell[col-id="filename"] .ag-header-cell-label');
+    expect(rulesFor(GRID, ".ag-cell-center").join(" ")).toMatch(/text-align:\s*center/);
+  });
+
+  it("does not render a disabled terminal-failure icon as a fake action", () => {
+    expect(GRID).not.toContain("skullSvg");
+    expect(GRID).not.toContain('"is-disabled"');
   });
 });
 

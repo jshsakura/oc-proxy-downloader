@@ -814,7 +814,13 @@ class DownloadCore:
     async def _perform_preparse(self, req: DownloadRequest, db: Session):
         """Run preparsing (executed outside the semaphore)"""
         # Skip preparsing if file info is already present
-        if req.file_name and req.file_size and req.total_size and req.total_size > 0:
+        if (
+            req.file_name
+            and not _name_needs_resolution(req.file_name)
+            and req.file_size
+            and req.total_size
+            and req.total_size > 0
+        ):
             print(f"[LOG] 파일 정보가 이미 있음, 사전파싱 건너뜀: {req.id} - {req.file_name} ({req.file_size})")
             return
 
@@ -3195,9 +3201,16 @@ class DownloadCore:
         try:
             db = SessionLocal()
 
-            # Query all pending downloads (sorted by request time ascending)
+            # Query only ordinary semaphore-pending downloads. A row with a
+            # next_retry_at value is not waiting for this download slot: it was
+            # deliberately scheduled by the failure/host-queue backoff and is
+            # owned by DownloadService's retry sweeper. Starting it here used to
+            # bypass that deadline every time any task cleaned up, turning a
+            # 45-75 second browser-queue delay into a roughly five-second retry
+            # loop against DataNodes.
             pending_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
-                DownloadRequest.status == StatusEnum.pending
+                DownloadRequest.status == StatusEnum.pending,
+                DownloadRequest.next_retry_at.is_(None),
             ).order_by(DownloadRequest.requested_at.asc()))
 
             if not pending_downloads:
