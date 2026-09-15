@@ -236,6 +236,17 @@ describe("the AG Grid density and state contracts", () => {
     expect(GRID).toMatch(/colId:\s*["']filename["'][\s\S]*?minWidth:\s*mobile\s*\?\s*180\s*:\s*240[\s\S]*?flex:\s*1/);
   });
 
+  it("keeps every mobile row action inside its own column", () => {
+    expect(GRID).toMatch(/colId:\s*["']actions["'][\s\S]*?width:\s*mobile \? 128 : 140/);
+    expect(GRID).toMatch(/minWidth:\s*mobile \? 128 : 140/);
+    expect(GRID).toMatch(
+      /@media \(max-width: 640px\)[\s\S]*?\.ag-actions-cell[\s\S]*?gap:\s*2px[\s\S]*?\.ag-btn-icon[\s\S]*?width:\s*28px[\s\S]*?min-width:\s*28px/,
+    );
+    expect(GRID).not.toMatch(
+      /@media \(max-width: 640px\)[\s\S]*?\.ag-btn-icon[\s\S]*?width:\s*48px/,
+    );
+  });
+
   it("opens details through a direct renderer callback", () => {
     expect(GRID).toContain("export let onDetails");
     expect(GRID).toContain("onDetails(download)");

@@ -471,7 +471,13 @@
     }
   });
 
-  function handleLoginSuccess() {
+  async function handleLoginSuccess() {
+    // The initial settings request runs before authentication and correctly
+    // returns 401. Reload the persisted server config as soon as login succeeds;
+    // otherwise the settings modal initializes from an empty object and saving
+    // that form clears stored integration values such as FlareSolverr/1fichier.
+    await fetchSettings();
+
     // After successful login, load the needed data and connect EventSource
     fetchGridPage();
     fetchTabCounts();
@@ -515,6 +521,16 @@
     } catch (error) {
       console.error("Error fetching settings:", error);
     }
+  }
+
+  async function openSettings(tab = "general") {
+    settingsTab = tab;
+    // Never initialize the editable form from a stale or pre-login snapshot.
+    // The modal stays on its loading surface until this authenticated request
+    // supplies the persisted settings.
+    currentSettings = {};
+    showSettingsModal = true;
+    await fetchSettings();
   }
 
   async function fetchProxyStatus() {
@@ -2248,7 +2264,7 @@
       <h1>{$t("title")}</h1>
       <div class="header-actions">
         <button
-          on:click={() => { settingsTab = "general"; showSettingsModal = true; }}
+          on:click={() => openSettings("general")}
           class="button-icon settings-button"
           aria-label={$t("settings_title")}
         >

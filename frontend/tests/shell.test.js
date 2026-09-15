@@ -48,6 +48,22 @@ describe("baseline characterization: the shell keeps every control it renders to
     expect(APP).toContain('class="tab-label"');
   });
 
+  it("reloads persisted settings after login and before opening the settings form", () => {
+    expect(APP).toMatch(
+      /async function handleLoginSuccess\(\)\s*\{[\s\S]*?await fetchSettings\(\)/,
+    );
+    expect(APP).toContain('on:click={() => openSettings("general")}');
+    expect(APP).toMatch(
+      /async function openSettings\(tab = "general"\)[\s\S]*?currentSettings = \{\};[\s\S]*?await fetchSettings\(\)/,
+    );
+  });
+
+  it("keeps settings read-only until persisted server settings have loaded", () => {
+    expect(read("../src/lib/SettingsModal.svelte")).toMatch(
+      /isSettingsLoading\s*=\s*[\s\S]*?!currentSettings\s*\|\|\s*Object\.keys\(currentSettings\)\.length === 0/,
+    );
+  });
+
   it("renders the period bar above the grid, bound to the dashboard period", () => {
     expect(APP).toContain("HistoryPeriodControls");
     expect(APP).toContain('bind:period={dashboardPeriod}');

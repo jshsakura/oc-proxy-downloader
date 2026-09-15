@@ -149,7 +149,11 @@
   let isLoadingVersion = false;
   let hasRequestedVersion = false;
 
-  $: isSettingsLoading = !settings || Object.keys(settings).length === 0;
+  // `settings` used to be populated with client defaults even when the
+  // authenticated GET /api/settings had never succeeded. That made the form
+  // look ready and allowed an empty save to erase persisted integrations.
+  $: isSettingsLoading =
+    !currentSettings || Object.keys(currentSettings).length === 0;
 
   function closeModal() {
     dispatch("close");
@@ -315,7 +319,12 @@
     hasRequestedVersion = false;
   }
 
-  $: if (showModal && currentSettings && !isInitialized) {
+  $: if (
+    showModal &&
+    currentSettings &&
+    Object.keys(currentSettings).length > 0 &&
+    !isInitialized
+  ) {
     settings = {
       ...currentSettings,
       telegram_bot_token: currentSettings.telegram_bot_token || "",

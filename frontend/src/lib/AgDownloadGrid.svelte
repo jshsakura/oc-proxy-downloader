@@ -928,8 +928,8 @@
         colId: "actions",
         headerName: $t("table_header_actions"),
         cellRenderer: ActionsCellRenderer,
-        width: 140,
-        minWidth: 140,
+        width: mobile ? 128 : 140,
+        minWidth: mobile ? 128 : 140,
         sortable: false,
         resizable: false,
         suppressMovable: true,
@@ -1770,6 +1770,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 100%;
+    min-width: 0;
     gap: 4px;
     flex-wrap: nowrap;
   }
@@ -1824,14 +1826,19 @@
 
   /* Mobile Responsiveness for Grid & Pagination */
   @media (max-width: 640px) {
-    /* 48px mobile action targets (D-28): the documented house standard for
-       action icons on touch. */
+    /* A row can have four actions. 48px targets made even three buttons wider
+       than the action column and visibly spill into the next cell. Keep the
+       compact icon toolbar inside its 128px grid column. */
+    :global(.ag-actions-cell) {
+      gap: 2px;
+    }
+
     :global(.ag-btn-icon) {
-      width: 48px;
-      height: 48px;
-      min-width: 48px;
-      padding: 10px;
-      border-radius: 8px;
+      width: 28px;
+      height: 28px;
+      min-width: 28px;
+      padding: 4px;
+      border-radius: 6px;
     }
     .pagination-footer {
       flex-direction: column;
