@@ -1403,8 +1403,10 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.5rem 0.75rem;
-    min-height: 52px;
+    padding: 0.75rem 1rem;
+    min-height: 64px;
+    flex: 0 0 auto;
+    overflow: visible;
     background: var(--bg-secondary);
     border-top: 1px solid var(--card-border);
     margin: 0;

@@ -396,6 +396,12 @@ describe("download grid alignment", () => {
     expect(GRID).toContain('setAttribute("role", "img")');
     expect(GRID).not.toContain('makeBtn(\n                skullSvg');
   });
+
+  it("keeps enough footer height for the pagination controls", () => {
+    const footerRules = rulesFor(GRID, ".pagination-footer").join(" ");
+    expect(footerRules).toMatch(/min-height:\s*64px/);
+    expect(footerRules).toMatch(/overflow:\s*visible/);
+  });
 });
 
 describe("settings trend chart bounds", () => {
