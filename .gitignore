@@ -67,6 +67,9 @@ CLAUDE.md
 # Sisyphus local agent state
 .sisyphus/
 
+# Local design-review and execution evidence
+.omo/
+
 # Kiro
 .kiro/
 
