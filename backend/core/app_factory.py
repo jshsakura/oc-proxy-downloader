@@ -308,6 +308,19 @@ def create_app() -> FastAPI:
         frontend_path = None
 
     if frontend_path and os.path.exists(frontend_path):
+        def index_response():
+            # index.html contains the content-hashed bundle names. Browsers and
+            # reverse proxies must revalidate it or an old grid bundle can stay
+            # visible after deployment (including the old duplicate actions).
+            return FileResponse(
+                os.path.join(frontend_path, "index.html"),
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
+
         # Check that the Vite build assets directory is named 'assets'
         assets_dir = os.path.join(frontend_path, "assets")
         if os.path.exists(assets_dir):
@@ -331,7 +344,7 @@ def create_app() -> FastAPI:
 
             # If the path has no file name, or the root is requested, return index.html
             if not os.path.basename(full_path) or not "." in os.path.basename(full_path):
-                return FileResponse(os.path.join(frontend_path, "index.html"))
+                return index_response()
 
             # If the file exists, return that file
             if os.path.exists(requested_file_path) and os.path.isfile(requested_file_path):
@@ -339,7 +352,7 @@ def create_app() -> FastAPI:
 
             # If the file is missing, return index.html for SPA routing
             else:
-                return FileResponse(os.path.join(frontend_path, "index.html"))
+                return index_response()
     else:
         # When the frontend was not found in either path
         warning_message = f"[WARNING] Frontend not found. Looked in {docker_path} (for Docker) and {local_dev_path} (for Local Dev)."

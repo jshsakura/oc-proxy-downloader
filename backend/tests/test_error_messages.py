@@ -275,22 +275,20 @@ class TestApplyFailure:
         assert req.next_retry_at is None  # auto-retry exhausted
         assert "수동 재시도" in req.error
 
-    def test_proxy_blocked_stops_after_ceiling(self):
-        """proxy_blocked retried every 30s must not loop forever — it stops at its cap."""
-        req = _FakeReq()
-        for i in range(8):  # proxy_blocked ceiling
-            apply_failure_to_request(req, "파싱", f"professional infrastructure detected #{i}")
-        assert req.failure_kind == KIND_PROXY_BLOCKED
-        assert req.next_retry_at is None
-        # The capping verdict's message tells the user to retry manually.
-        assert "수동 재시도" in req.error
-
-    def test_proxy_blocked_still_retries_below_ceiling(self):
-        """Below the ceiling, proxy_blocked keeps its short auto-retry cooldown."""
+    def test_proxy_blocked_never_auto_retries(self):
+        """A known infrastructure rejection must not be hammered automatically."""
         req = _FakeReq()
         apply_failure_to_request(req, "파싱", "professional infrastructure detected #1")
         assert req.failure_kind == KIND_PROXY_BLOCKED
-        assert req.next_retry_at is not None
+        assert req.next_retry_at is None
+        assert "자동 재시도하지 않습니다" in req.error
+
+    def test_cloudflare_never_auto_retries(self):
+        req = _FakeReq()
+        apply_failure_to_request(req, "파싱", "1fichier 차단: Cloudflare")
+        assert req.failure_kind == KIND_CLOUDFLARE
+        assert req.next_retry_at is None
+        assert "자동 재시도하지 않습니다" in req.error
 
     def test_duplicate_apply_within_window_is_a_noop(self):
         """Even if the handler chain calls twice in a row with the same raw, the

@@ -8,7 +8,7 @@
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-quartz.css";
   import { t } from "./i18n.js";
-  import { hasScheduledRetry, truncateMiddle } from "./grid.js";
+  import { hasScheduledRetry, retryAttemptLabel, truncateMiddle } from "./grid.js";
   import { theme } from "./theme.js";
 
   import ChevronLeftIcon from "../icons/ChevronLeftIcon.svelte";
@@ -401,7 +401,8 @@
       } else if (st === "failed" && d.failure_kind) {
         if (d.next_retry_at && new Date(d.next_retry_at).getTime() > currentTime) {
           const remSec = Math.max(0, (new Date(d.next_retry_at).getTime() - currentTime) / 1000);
-          this.pill.innerHTML = `${$t("download_retry_pending")} <span class="wait-countdown">(${formatWaitTime(
+          const attemptLabel = retryAttemptLabel(d);
+          this.pill.innerHTML = `${$t("download_retry_pending")}${attemptLabel ? ` ${attemptLabel}` : ""} <span class="wait-countdown">(${formatWaitTime(
             remSec
           )})</span>`;
         } else if (d.attempt_count) {

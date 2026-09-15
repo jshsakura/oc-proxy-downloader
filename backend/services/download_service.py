@@ -17,7 +17,11 @@ from core.models import DownloadRequest, StatusEnum
 from core.db import SessionLocal
 from core.config import get_config
 from core.download_core import download_core
-from core.error_messages import is_retry_blocked_now, KIND_QUEUED
+from core.error_messages import (
+    auto_retry_budget_exhausted,
+    is_retry_blocked_now,
+    KIND_QUEUED,
+)
 from core.hoster_common import _host
 from core.proxy_manager import proxy_manager
 from services.sse_manager import sse_manager
@@ -193,7 +197,27 @@ class DownloadService:
                     req.error = "서버 재시작으로 인한 초기화"
                     reset_count += 1
 
+                # Policy changes must also invalidate retry timestamps already
+                # stored in the database. Otherwise a block detected by an old
+                # build can still fire once after deploying the safer policy.
+                scheduled = await db_async.all_rows(db.query(DownloadRequest).filter(
+                    DownloadRequest.next_retry_at.isnot(None),
+                ))
+                cancelled_retry_ids = []
+                for req in scheduled:
+                    if auto_retry_budget_exhausted(
+                        req.failure_kind, req.attempt_count or 0
+                    ):
+                        req.next_retry_at = None
+                        cancelled_retry_ids.append(req.id)
+
                 await db_async.commit(db)
+
+                if cancelled_retry_ids:
+                    print(
+                        "[LOG] 정책 초과 자동 재시도 취소: "
+                        f"ids={cancelled_retry_ids}"
+                    )
 
                 if reset_count > 0:
                     print(f"[LOG] {reset_count}개 다운로드 상태 초기화 완료")

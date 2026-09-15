@@ -53,6 +53,20 @@ export function hasScheduledRetry(download, now = Date.now()) {
   );
 }
 
+/** Total attempts allowed by the backend (the initial request is attempt 1). */
+export const AUTO_RETRY_LIMITS = Object.freeze({
+  transient: 3,
+  rate_limited: 2,
+  unknown: 3,
+});
+
+/** Compact current/maximum counter for a scheduled retry status pill. */
+export function retryAttemptLabel(download) {
+  const count = Number(download?.attempt_count || 0);
+  const limit = AUTO_RETRY_LIMITS[download?.failure_kind];
+  return count > 0 && limit ? `${count}/${limit}` : "";
+}
+
 /**
  * Shorten a release name from the middle.
  *

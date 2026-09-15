@@ -26,6 +26,7 @@ from core.error_messages import (
     KIND_TRANSIENT,
     KIND_UNKNOWN,
     _compute_next_retry_at,
+    auto_retry_budget_exhausted,
 )
 
 
@@ -42,8 +43,7 @@ def _wait(kind, attempt=1, retry_after=None):
 class TestNothingRetriesTooSoon:
 
     @pytest.mark.parametrize("kind", [
-        KIND_TRANSIENT, KIND_BLOCKED, KIND_PROXY_BLOCKED,
-        KIND_CLOUDFLARE, KIND_RATE_LIMITED, KIND_UNKNOWN,
+        KIND_TRANSIENT, KIND_RATE_LIMITED, KIND_UNKNOWN,
     ])
     def test_no_kind_retries_within_a_minute(self, kind):
         """A sub-minute retry is the behaviour that gets an IP banned. The
@@ -56,15 +56,12 @@ class TestNothingRetriesTooSoon:
 
 class TestBeingRefusedBacksOffHarder:
 
-    def test_blocked_grows_with_each_attempt(self):
-        """`blocked` means the host is refusing us. Repeating a flat two-minute
-        wait is how a temporary refusal becomes a permanent one."""
-        first, second = _wait(KIND_BLOCKED, 1), _wait(KIND_BLOCKED, 2)
-
-        assert second > first * 1.5
-
-    def test_proxy_blocked_grows_too(self):
-        assert _wait(KIND_PROXY_BLOCKED, 2) > _wait(KIND_PROXY_BLOCKED, 1)
+    @pytest.mark.parametrize("kind", [
+        KIND_BLOCKED, KIND_PROXY_BLOCKED, KIND_CLOUDFLARE,
+    ])
+    def test_known_refusal_is_never_automatically_probed_again(self, kind):
+        assert _compute_next_retry_at(kind, 1, None) is None
+        assert auto_retry_budget_exhausted(kind, 1) is True
 
     def test_transient_backoff_escalates(self):
         waits = [_wait(KIND_TRANSIENT, n) for n in (1, 2)]
@@ -76,7 +73,7 @@ class TestBeingRefusedBacksOffHarder:
 class TestJitter:
 
     @pytest.mark.parametrize("kind", [
-        KIND_TRANSIENT, KIND_BLOCKED, KIND_PROXY_BLOCKED, KIND_CLOUDFLARE,
+        KIND_TRANSIENT,
     ])
     def test_waits_are_spread(self, kind):
         """Identical waits mean simultaneous failures retry in lockstep, which
@@ -93,22 +90,21 @@ class TestJitter:
 
 class TestTheBudgetIsSmall:
 
-    @pytest.mark.parametrize("kind", [
-        KIND_TRANSIENT, KIND_BLOCKED, KIND_PROXY_BLOCKED,
-        KIND_CLOUDFLARE, KIND_RATE_LIMITED,
-    ])
-    def test_every_kind_gives_up_after_three_attempts(self, kind):
+    def test_transient_gives_up_after_three_attempts(self):
         """The ceilings were set when the waits between attempts were seconds.
         With waits in minutes, five or eight attempts is just sustained knocking
         on a door that already said no."""
-        assert _compute_next_retry_at(kind, 3, None) is None
+        assert _compute_next_retry_at(KIND_TRANSIENT, 3, None) is None
 
-    @pytest.mark.parametrize("kind", [KIND_TRANSIENT, KIND_BLOCKED, KIND_CLOUDFLARE])
-    def test_the_first_two_attempts_are_still_scheduled(self, kind):
+    def test_transient_first_two_attempts_are_still_scheduled(self):
         """Giving up must not become giving up immediately — a blip deserves a
         second look."""
-        assert _compute_next_retry_at(kind, 1, None) is not None
-        assert _compute_next_retry_at(kind, 2, None) is not None
+        assert _compute_next_retry_at(KIND_TRANSIENT, 1, None) is not None
+        assert _compute_next_retry_at(KIND_TRANSIENT, 2, None) is not None
+
+    def test_rate_limit_gets_only_one_delayed_retry(self):
+        assert _compute_next_retry_at(KIND_RATE_LIMITED, 1, None) is not None
+        assert _compute_next_retry_at(KIND_RATE_LIMITED, 2, None) is None
 
 
 class TestPerHostSpacing:

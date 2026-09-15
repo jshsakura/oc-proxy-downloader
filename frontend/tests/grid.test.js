@@ -6,6 +6,7 @@ import {
   countLive,
   hasScheduledRetry,
   isLiveStatus,
+  retryAttemptLabel,
   truncateMiddle,
 } from "../src/lib/grid.js";
 
@@ -95,6 +96,12 @@ describe("scheduled retry actions", () => {
         now,
       ),
     ).toBe(false);
+  });
+
+  it("shows the current and maximum total attempt count", () => {
+    expect(retryAttemptLabel({ failure_kind: "transient", attempt_count: 1 })).toBe("1/3");
+    expect(retryAttemptLabel({ failure_kind: "rate_limited", attempt_count: 1 })).toBe("1/2");
+    expect(retryAttemptLabel({ failure_kind: "queued", attempt_count: 0 })).toBe("");
   });
 });
 

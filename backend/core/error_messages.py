@@ -75,18 +75,23 @@ _ATTEMPTS_RING_SIZE = 5  # attempts_json ring-buffer length
 # Kinds NOT listed here (DEAD / AUTH_REQUIRED / unknown_terminal) are already
 # terminal and never auto-retry; UNKNOWN is bounded separately by
 # `_UNKNOWN_MAX_ATTEMPTS` (quarantine → unknown_terminal).
-# Three attempts for every recoverable kind. Past that, more knocking does not
-# find a door that opens — it just keeps a refusal fresh, and the ceilings were
-# set when the waits between them were seconds rather than minutes. A download
-# that exhausts its budget stays failed with its reason; "다시 받기" grants a
-# fresh one when a human decides the situation has changed.
+# A known refusal is never probed automatically again. Retrying a block page,
+# proxy rejection, or Cloudflare challenge from the same machine is more likely
+# to extend the block than clear it. Genuine transport failures get two retries;
+# an explicit rate-limit gets one deliberately delayed retry.
 _MAX_AUTO_RETRY_ATTEMPTS = {
     KIND_TRANSIENT: 3,
-    KIND_RATE_LIMITED: 3,
-    KIND_CLOUDFLARE: 3,
-    KIND_PROXY_BLOCKED: 3,
-    KIND_BLOCKED: 3,
+    KIND_RATE_LIMITED: 2,
+    KIND_CLOUDFLARE: 1,
+    KIND_PROXY_BLOCKED: 1,
+    KIND_BLOCKED: 1,
 }
+
+_NO_AUTOMATIC_RETRY_KINDS = frozenset({
+    KIND_CLOUDFLARE,
+    KIND_PROXY_BLOCKED,
+    KIND_BLOCKED,
+})
 
 
 @dataclass(frozen=True)
@@ -545,6 +550,23 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
     return None
 
 
+def auto_retry_limit(kind: Optional[str]) -> Optional[int]:
+    """Maximum total attempts for a failure kind, or ``None`` if uncapped.
+
+    The count includes the request that just failed. For example, a limit of 3
+    means the initial request plus at most two automatic retries.
+    """
+    if kind == KIND_UNKNOWN:
+        return _UNKNOWN_MAX_ATTEMPTS
+    return _MAX_AUTO_RETRY_ATTEMPTS.get(kind)
+
+
+def auto_retry_budget_exhausted(kind: Optional[str], attempt_count: int) -> bool:
+    """Whether a persisted retry schedule is invalid under today's policy."""
+    limit = auto_retry_limit(kind)
+    return limit is not None and (attempt_count or 0) >= limit
+
+
 def _load_attempts(attempts_json: Optional[str]) -> List[dict]:
     if not attempts_json:
         return []
@@ -663,7 +685,12 @@ def apply_failure_to_request(
     # When a recoverable failure has used up its auto-retry budget, the action
     # text above still implies "auto-retry soon" — append a note so the user
     # knows the loop has stopped and a manual retry is now required.
-    if next_retry_at is None and kind not in TERMINAL_KINDS:
+    if next_retry_at is None and kind in _NO_AUTOMATIC_RETRY_KINDS:
+        user_message += (
+            "\n이 차단 유형은 추가 요청이 차단을 악화시킬 수 있어 자동 재시도하지 않습니다. "
+            "원인이 해소되었거나 회선을 바꾼 뒤 '다시 받기'를 누르세요."
+        )
+    elif next_retry_at is None and kind not in TERMINAL_KINDS:
         user_message += (
             f"\n자동 재시도 {attempt_count}회를 모두 사용했습니다. "
             "원인이 해소되었다면 '다시 받기'로 수동 재시도하세요."
