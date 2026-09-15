@@ -1821,6 +1821,29 @@ tr.is-dead.is-selected {
 .bulk-action-bar .button-danger:hover {
   background: #b71c1c;
 }
+/* Phone selected state: the one-row bar is wider than a 375px viewport, which
+ * crushed the buttons until their Korean labels fragmented one glyph per
+ * line. Let the bar wrap into rows, clamp it to the viewport, and keep each
+ * label on a single line so buttons wrap as whole units. */
+@media (max-width: 640px) {
+  .bulk-action-bar {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: calc(100vw - 2rem);
+    padding: 0.6rem 0.75rem;
+  }
+  .bulk-actions {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .bulk-action-bar .button {
+    white-space: nowrap;
+    padding: 0 0.75rem;
+  }
+}
 .pagination {
   display: flex;
   justify-content: right;

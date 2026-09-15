@@ -212,3 +212,20 @@ describe("the AG Grid density and state contracts", () => {
     expect(GRID).toMatch(/aria-label=\{\$t\("pagination_(prev|next)"/);
   });
 });
+
+describe("the bulk action bar stays readable on a phone", () => {
+  // At 375px the one-row bar was wider than the viewport, so the flex-squeezed
+  // buttons fragmented their Korean labels one glyph per line (and the EN bar
+  // escaped the viewport entirely). The bar must wrap as rows inside the
+  // viewport and each label must stay on one line.
+  it("mobile rules let the bar wrap and clamp it to the viewport", () => {
+    const barRules = rulesFor(CSS, ".bulk-action-bar").join(" ");
+
+    expect(barRules).toMatch(/flex-wrap:\s*wrap/);
+    expect(barRules).toMatch(/max-width:\s*calc\(100vw - 2rem\)/);
+  });
+
+  it("bulk bar buttons never fragment their labels", () => {
+    expect(rulesFor(CSS, ".bulk-action-bar .button").join(" ")).toMatch(/white-space:\s*nowrap/);
+  });
+});
