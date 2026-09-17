@@ -175,7 +175,15 @@ DATANODES_FLOW = BrowserFlow(
     action_selector='button:has-text("Free Download"), button:has-text("Start Download")',
 )
 SEND_NOW_FLOW = BrowserFlow(
-    action_selector='button:has-text("Download"), a:has-text("Download")',
+    # Send.now's current challenge page does not render a button.  After the
+    # Turnstile token is issued it exposes a form submit input named
+    # ``download_a``; pressing that POSTs the verification form and only then
+    # opens the real file page.  Keep the ordinary selectors too because the
+    # next page still uses a Download button/link.
+    action_selector=(
+        'input[type="submit"][name="download_a"], '
+        'button:has-text("Download"), a:has-text("Download")'
+    ),
 )
 MIXDROP_FLOW = BrowserFlow(
     # MixDrop runs reCAPTCHA v3 itself after the click and changes this anchor

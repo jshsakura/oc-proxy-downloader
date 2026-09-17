@@ -105,9 +105,19 @@ def regenerate_api_token_endpoint(request: Request):
 def update_settings_endpoint(settings: dict, request: Request):
     """Update settings"""
     try:
+        stored = get_config()
+        incoming_email = (settings.get("fichier_email") or "").strip()
+        incoming_password = settings.get("fichier_password") or ""
+        fichier_credentials_changed = (
+            incoming_email != (stored.get("fichier_email") or "").strip()
+            or (
+                incoming_password not in ("", "********")
+                and incoming_password != (stored.get("fichier_password") or "")
+            )
+        )
         # An unchanged form echoes the placeholder back; keep the stored value
         # rather than overwriting the credential with asterisks.
-        settings = restore_masked_secrets(settings, get_config())
+        settings = restore_masked_secrets(settings, stored)
         print(f"[LOG] Updating settings: {list(settings)}")
 
         # Save the settings
@@ -115,6 +125,8 @@ def update_settings_endpoint(settings: dict, request: Request):
 
         # Apply concurrency changes to new downloads without a restart.
         download_core.refresh_concurrency_settings()
+        if fichier_credentials_changed:
+            download_core.clear_fichier_cooldowns("계정 정보 변경")
 
         return {"success": True, "message": "설정이 저장되었습니다."}
 

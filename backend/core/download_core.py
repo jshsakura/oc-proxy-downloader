@@ -770,6 +770,60 @@ class DownloadCore:
         self._fichier_block_streak[egress] = 0
         self._fichier_cooldown_until[egress] = None
 
+    def clear_fichier_cooldowns(self, reason: str = "설정 변경") -> None:
+        """Wake every 1fichier queue after the operator changes authentication.
+
+        A daily-limit cooldown is intentionally kept in memory so dozens of
+        queued rows do not hammer the same blocked guest session.  A successful
+        account login materially changes that session, however: leaving the old
+        deadline in place keeps the live task asleep until midnight even though
+        the user has just supplied a working authenticated session.  Waiters
+        poll this mapping, so clearing it wakes the holder without cancelling or
+        duplicating any download task.
+        """
+        active = [
+            egress for egress, until in self._fichier_cooldown_until.items()
+            if until and until > datetime.datetime.now()
+        ]
+        for egress in tuple(self._fichier_cooldown_until):
+            self._fichier_cooldown_until[egress] = None
+            self._fichier_block_streak[egress] = 0
+        if active:
+            print(
+                f"[LOG] 1fichier 대기열 재개 ({reason}) — "
+                f"해제된 출구: {', '.join(sorted(active))}"
+            )
+
+    async def _publish_fichier_cooldown(self, db: Session, egress: str) -> None:
+        """Persist one egress deadline on every row waiting behind its slot.
+
+        Only the semaphore holder executes ``_await_fichier_cooldown``.  Without
+        this fan-out the holder shows a countdown while every row behind it just
+        says ``pending``, which makes the whole grid look abandoned.  The rows
+        already have live tasks; ``next_retry_at`` also keeps slot-cleanup from
+        launching duplicate owners while they wait.
+        """
+        target = self._fichier_cooldown_until.get(egress)
+        if not target or target <= datetime.datetime.now():
+            return
+        use_proxy = egress == EGRESS_VPN
+        queued = await db_async.all_rows(
+            db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.pending,
+                DownloadRequest.url.contains("1fichier.com"),
+                DownloadRequest.use_proxy == use_proxy,
+            )
+        )
+        for item in queued:
+            item.next_retry_at = target
+        await db_async.commit(db)
+        for item in queued:
+            await self.send_download_update(item.id, {
+                "status": "pending",
+                "message": "1fichier 차단 회피 대기 중...",
+                "next_retry_at": target.isoformat(),
+            })
+
     async def _await_fichier_cooldown(self, req: DownloadRequest, db: Session,
                                       egress: str = EGRESS_DIRECT):
         """If a 1fichier-local host backoff is active, wait it out before
@@ -782,6 +836,10 @@ class DownloadCore:
         remaining = int((cooldown_until - datetime.datetime.now()).total_seconds())
         print(f"[LOG] 1fichier 호스트 백오프 대기 [{egress}] {remaining}s (id={req.id})")
         req.status = StatusEnum.pending
+        # Persist the same deadline sent over SSE.  Without this, reconnecting
+        # the UI turns every parked row into a generic idle-looking "pending"
+        # item with no explanation of when it will resume.
+        req.next_retry_at = cooldown_until
         await db_async.commit(db)
         await self.send_download_update(req.id, {
             "status": "pending",
@@ -792,6 +850,8 @@ class DownloadCore:
             now = datetime.datetime.now()
             target = self._fichier_cooldown_until.get(egress)
             if not target or target <= now:
+                req.next_retry_at = None
+                await db_async.commit(db)
                 return
             await db_async.refresh(db, req)
             if req.status == StatusEnum.stopped or cancel_signal.is_cancelled(req.id):
@@ -1148,6 +1208,7 @@ class DownloadCore:
                         self._register_fichier_success(fichier_egress)
                     elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED):
                         self._register_fichier_block(fichier_egress, req.error)
+                        await self._publish_fichier_cooldown(db, fichier_egress)
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
             else:
                 # General download (includes 1fichier proxy and plain URLs - max 5)

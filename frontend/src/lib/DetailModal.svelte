@@ -361,17 +361,18 @@
     display: grid;
     grid-template-columns: 1fr;
     border: 1px solid var(--card-border);
-    border-radius: 8px;
+    border-radius: 10px;
     overflow: hidden;
-    margin-bottom: 1.5rem;
+    margin: 0;
     font-size: 0.9rem;
     background-color: var(--card-background);
   }
 
   .detail-row {
     display: grid;
-    grid-template-columns: 140px 1fr;
+    grid-template-columns: 140px minmax(0, 1fr);
     border-bottom: 1px solid var(--card-border);
+    min-width: 0;
   }
 
   .detail-row:last-child {
@@ -379,22 +380,26 @@
   }
 
   .detail-label {
-    padding: 12px 16px;
+    padding: 13px 16px;
     background-color: var(--bg-secondary);
     color: var(--text-secondary);
     font-weight: 600;
     border-right: 1px solid var(--card-border);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
+    line-height: 1.5;
   }
 
   .detail-value {
-    padding: 12px 16px;
+    padding: 13px 16px;
     color: var(--text-primary);
-    word-break: break-all;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     min-width: 0;
+    min-height: 48px;
+    box-sizing: border-box;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 
   .detail-row:hover {
@@ -414,9 +419,10 @@
   .modal-body {
     flex: 1;
     overflow: auto;
-    padding: 0;
+    padding: 1.25rem 2rem;
     background: var(--card-background);
     width: 100%;
+    box-sizing: border-box;
     resize: none;
     position: relative;
     /* A thin overlay-style scrollbar. The mismatch between header/footer width
@@ -453,7 +459,7 @@
     align-items: flex-start;
     gap: 8px;
     width: 100%;
-    min-width: 200px;
+    min-width: 0;
   }
 
   .error-text,
@@ -463,10 +469,10 @@
     color: var(--text-primary, #1f2937);
     font-family: "Courier New", monospace;
     font-size: 13px;
-    word-break: break-all;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
     min-width: 0;
-    max-width: calc(100% - 40px);
-    overflow: hidden;
   }
 
   .error-text-block {
@@ -475,12 +481,9 @@
     font-size: 13px;
     line-height: 1.5;
     min-width: 0;
-    /* Fixed to one line + truncate with ``...`` if long. See the full message
-       via the title hover or the adjacent copy button. */
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    cursor: help;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .copy-button {
@@ -750,6 +753,10 @@
     }
 
     .modal-header {
+      padding: 1rem;
+    }
+
+    .modal-body {
       padding: 1rem;
     }
 

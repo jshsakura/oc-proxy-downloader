@@ -341,6 +341,16 @@ describe("modal and theme contracts", () => {
     expect(DETAIL).not.toContain("download.download_path");
   });
 
+  it("keeps the detail grid inset and lets long values grow their rows", () => {
+    expect(rulesFor(DETAIL, ".modal-body").join(" ")).toMatch(/padding:\s*1\.25rem 2rem/);
+    expect(rulesFor(DETAIL, ".detail-row").join(" ")).toMatch(
+      /grid-template-columns:\s*140px minmax\(0, 1fr\)/,
+    );
+    expect(rulesFor(DETAIL, ".error-text-block").join(" ")).toMatch(/white-space:\s*pre-wrap/);
+    expect(rulesFor(DETAIL, ".error-text-block").join(" ")).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(rulesFor(DETAIL, ".error-text-block").join(" ")).not.toMatch(/text-overflow:\s*ellipsis/);
+  });
+
   it("lets the detail header title shrink before clipping the mobile close button", () => {
     expect(rulesFor(DETAIL, ".header-content").join(" ")).toMatch(/min-width:\s*0/);
     expect(rulesFor(DETAIL, ".title-section").join(" ")).toMatch(/min-width:\s*0/);

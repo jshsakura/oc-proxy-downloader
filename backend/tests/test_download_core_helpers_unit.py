@@ -69,6 +69,58 @@ class TestFichierHostBackoff:
         assert dc._fichier_block_streak[EGRESS_DIRECT] == 0
         assert dc._fichier_cooldown_until[EGRESS_DIRECT] is None
 
+    def test_successful_login_wakes_every_egress_queue(self):
+        dc = DownloadCore()
+        dc._register_fichier_block(EGRESS_DIRECT, "일일 무료 다운로드 한도")
+        dc._register_fichier_block(EGRESS_VPN, "일일 무료 다운로드 한도")
+
+        dc.clear_fichier_cooldowns("test")
+
+        assert dc._fichier_cooldown_until[EGRESS_DIRECT] is None
+        assert dc._fichier_cooldown_until[EGRESS_VPN] is None
+        assert dc._fichier_block_streak[EGRESS_DIRECT] == 0
+        assert dc._fichier_block_streak[EGRESS_VPN] == 0
+
+    def test_queue_deadline_is_published_to_every_waiting_row(self, monkeypatch):
+        dc = DownloadCore()
+        dc._register_fichier_block(EGRESS_DIRECT, "일일 무료 다운로드 한도")
+
+        class _Row:
+            def __init__(self, row_id):
+                self.id = row_id
+                self.next_retry_at = None
+
+        rows = [_Row(1), _Row(2)]
+
+        class _Query:
+            def filter(self, *args):
+                return self
+
+        class _Db:
+            def query(self, *args):
+                return _Query()
+
+        async def all_rows(_query):
+            return rows
+
+        async def commit(_db):
+            return None
+
+        updates = []
+
+        monkeypatch.setattr("core.download_core.db_async.all_rows", all_rows)
+        monkeypatch.setattr("core.download_core.db_async.commit", commit)
+
+        async def send(row_id, data):
+            updates.append((row_id, data))
+
+        monkeypatch.setattr(dc, "send_download_update", send)
+        asyncio.run(dc._publish_fichier_cooldown(_Db(), EGRESS_DIRECT))
+
+        deadline = dc._fichier_cooldown_until[EGRESS_DIRECT]
+        assert [row.next_retry_at for row in rows] == [deadline, deadline]
+        assert [row_id for row_id, _ in updates] == [1, 2]
+
     def test_daily_quota_holds_the_entire_egress_until_tomorrow(self):
         dc = DownloadCore()
         now = datetime.datetime.now()

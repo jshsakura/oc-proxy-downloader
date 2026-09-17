@@ -401,6 +401,11 @@ def test_different_sites_do_not_queue_behind_each_other(monkeypatch):
     assert entered_together, "two different sites must be able to run at once"
 
 
+def test_sendnow_flow_submits_the_security_verification_form():
+    """The 2026 Send.now challenge uses an input, not a Download button."""
+    assert 'input[type="submit"][name="download_a"]' in bs.SEND_NOW_FLOW.action_selector
+
+
 def test_queue_timeout_is_reported_as_queued_not_as_a_failure():
     """The queue message has to classify as KIND_QUEUED; as a plain failure it
     would eat the retry budget and eventually drop the link."""
