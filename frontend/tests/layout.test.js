@@ -448,17 +448,17 @@ describe("dashboard skeleton geometry", () => {
 });
 
 describe("loading experience", () => {
-  it("uses the branded loading surface instead of a lone spinner", () => {
-    expect(APP).toContain('class="loading-logo-stage"');
-    expect(APP).toContain('class="loading-progress-track"');
-    expect(APP).toContain('class="loading-preview"');
-    expect(CSS).toContain("@keyframes loading-orbit");
+  it("uses a restrained branded loading surface", () => {
+    expect(APP).toContain('class="loading-mark"');
+    expect(APP).not.toContain('class="loading-preview"');
+    expect(APP).not.toContain('class="loading-aurora"');
+    expect(CSS).toContain("@keyframes loading-spin");
     expect(CSS).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
   it("uses the matching compact loader inside the download grid", () => {
     expect(GRID).toContain('class="ag-loading-state"');
-    expect(GRID).toContain('class="ag-loading-rail"');
+    expect(GRID).not.toContain('class="ag-loading-rail"');
   });
 });
 

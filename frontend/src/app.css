@@ -1157,297 +1157,78 @@ select.input option {
 
 /* Styles from App.svelte */
 .loading-container {
-  position: relative;
-  isolation: isolate;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
   min-height: calc(100vh - 1rem);
   padding: 2rem 1rem;
+  display: grid;
+  place-items: center;
   color: var(--text-secondary);
-  overflow: hidden;
-}
-
-.loading-aurora {
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.loading-aurora span {
-  position: absolute;
-  width: min(58vw, 560px);
-  aspect-ratio: 1;
-  border-radius: 50%;
-  filter: blur(72px);
-  opacity: 0.15;
-  background: var(--primary-color);
-  animation: loading-drift 8s ease-in-out infinite alternate;
-}
-
-.loading-aurora span:first-child {
-  top: 4%;
-  left: 4%;
-}
-
-.loading-aurora span:last-child {
-  right: 2%;
-  bottom: 2%;
-  opacity: 0.09;
-  animation-delay: -4s;
-  animation-direction: alternate-reverse;
 }
 
 .loading-panel {
-  position: relative;
-  width: min(100%, 420px);
-  padding: 2.25rem 2.35rem 2rem;
+  width: min(100%, 280px);
   display: flex;
   flex-direction: column;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, var(--card-border));
-  border-radius: 28px;
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--card-background) 96%, transparent), color-mix(in srgb, var(--card-background) 82%, transparent));
-  box-shadow:
-    0 24px 70px color-mix(in srgb, var(--primary-color) 12%, transparent),
-    var(--shadow-medium),
-    inset 0 1px 0 color-mix(in srgb, white 36%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  overflow: hidden;
+  text-align: center;
 }
 
-.loading-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
-  opacity: 0.7;
-}
-
-.loading-logo-stage {
+.loading-mark {
   position: relative;
-  width: 150px;
-  height: 150px;
+  width: 72px;
+  height: 72px;
   display: grid;
   place-items: center;
-  margin-bottom: 1.35rem;
+  margin-bottom: 1.15rem;
 }
 
-.loading-logo-stage::before {
-  content: "";
+.loading-mark span {
   position: absolute;
-  inset: 27px;
+  inset: 0;
+  border: 2px solid color-mix(in srgb, var(--primary-color) 16%, transparent);
+  border-top-color: var(--primary-color);
   border-radius: 50%;
-  background: color-mix(in srgb, var(--primary-color) 18%, transparent);
-  filter: blur(18px);
-  animation: loading-breathe 2.2s ease-in-out infinite;
+  animation: loading-spin 0.9s linear infinite;
 }
 
-.loading-logo-shell {
-  position: relative;
-  z-index: 2;
-  width: 78px;
-  height: 78px;
-  padding: 13px;
-  display: grid;
-  place-items: center;
-  border-radius: 24px;
-  border: 1px solid color-mix(in srgb, var(--primary-color) 32%, var(--card-border));
-  background: color-mix(in srgb, var(--card-background) 90%, transparent);
-  box-shadow:
-    0 12px 30px color-mix(in srgb, var(--primary-color) 22%, transparent),
-    inset 0 1px 0 color-mix(in srgb, white 45%, transparent);
-  transform: rotate(-3deg);
-}
-
-.loading-logo-shell img {
+.loading-mark img {
+  width: 36px;
+  height: 36px;
   display: block;
-  width: 100%;
-  height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 5px 8px color-mix(in srgb, var(--primary-color) 24%, transparent));
-}
-
-.loading-orbit {
-  position: absolute;
-  inset: 5px;
-  border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
-  border-radius: 50%;
-  animation: loading-orbit 5.2s linear infinite;
-}
-
-.loading-orbit-inner {
-  inset: 20px;
-  border-style: dashed;
-  opacity: 0.72;
-  animation-duration: 3.8s;
-  animation-direction: reverse;
-}
-
-.loading-orbit i {
-  position: absolute;
-  top: 50%;
-  right: -4px;
-  width: 8px;
-  height: 8px;
-  margin-top: -4px;
-  border-radius: 50%;
-  background: var(--primary-color);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary-color) 13%, transparent),
-              0 0 16px var(--primary-color);
-}
-
-.loading-orbit-inner i {
-  width: 6px;
-  height: 6px;
-  right: auto;
-  left: -3px;
-  background: var(--success-color);
 }
 
 .loading-brand {
   color: var(--text-primary);
   font-family: var(--font-logo);
-  font-size: clamp(1.1rem, 4vw, 1.45rem);
-  line-height: 1.2;
-  letter-spacing: 0.055em;
-  text-align: center;
+  font-size: 1.2rem;
+  line-height: 1.25;
+  letter-spacing: 0.04em;
 }
 
 .loading-title {
-  min-height: 1.5em;
-  margin-top: 0.55rem;
+  min-height: 1.4em;
+  margin-top: 0.5rem;
   color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
-.loading-progress-track {
-  width: min(100%, 280px);
-  height: 5px;
-  margin-top: 1.45rem;
-  border-radius: 999px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--primary-color) 11%, var(--card-border));
-}
-
-.loading-progress-track span {
-  display: block;
-  width: 42%;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, transparent, var(--primary-color), color-mix(in srgb, var(--primary-color) 55%, white));
-  box-shadow: 0 0 14px color-mix(in srgb, var(--primary-color) 60%, transparent);
-  animation: loading-sweep 1.65s cubic-bezier(.45, 0, .25, 1) infinite;
-}
-
-.loading-pulse {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 1rem;
-}
-
-.loading-pulse span {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--primary-color);
-  opacity: 0.28;
-  animation: loading-dot 1.25s ease-in-out infinite;
-}
-
-.loading-pulse span:nth-child(2) { animation-delay: 0.16s; }
-.loading-pulse span:nth-child(3) { animation-delay: 0.32s; }
-
-.loading-preview {
-  width: min(86%, 330px);
-  height: 46px;
-  margin-top: -10px;
-  display: grid;
-  grid-template-columns: 1.2fr 0.8fr 1fr;
-  gap: 8px;
-  padding: 17px 20px 0;
-  border: 1px solid color-mix(in srgb, var(--primary-color) 12%, var(--card-border));
-  border-top: 0;
-  border-radius: 0 0 20px 20px;
-  opacity: 0.62;
-  background: color-mix(in srgb, var(--card-background) 70%, transparent);
-}
-
-.loading-preview span {
-  height: 5px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--skeleton-base), var(--skeleton-shimmer), var(--skeleton-base));
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.8s ease-in-out infinite;
-}
-
-@keyframes loading-orbit {
+@keyframes loading-spin {
   to { transform: rotate(360deg); }
-}
-
-@keyframes loading-breathe {
-  0%, 100% { transform: scale(0.9); opacity: 0.65; }
-  50% { transform: scale(1.15); opacity: 1; }
-}
-
-@keyframes loading-sweep {
-  0% { transform: translateX(-120%); }
-  100% { transform: translateX(340%); }
-}
-
-@keyframes loading-dot {
-  0%, 70%, 100% { transform: translateY(0); opacity: 0.25; }
-  35% { transform: translateY(-4px); opacity: 1; }
-}
-
-@keyframes loading-drift {
-  from { transform: translate3d(-3%, -3%, 0) scale(0.92); }
-  to { transform: translate3d(9%, 7%, 0) scale(1.08); }
 }
 
 @media (max-width: 520px) {
   .loading-container {
     min-height: calc(100dvh - 1rem);
-    padding-inline: 0.35rem;
-  }
-  .loading-panel {
-    padding: 1.75rem 1.25rem 1.55rem;
-    border-radius: 24px;
-  }
-  .loading-logo-stage {
-    width: 130px;
-    height: 130px;
-    margin-bottom: 1rem;
-  }
-  .loading-logo-shell {
-    width: 70px;
-    height: 70px;
+    padding-inline: 0.5rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .loading-aurora span,
-  .loading-logo-stage::before,
-  .loading-orbit,
-  .loading-progress-track span,
-  .loading-pulse span,
-  .loading-preview span {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-  }
-  .loading-progress-track span {
-    width: 72%;
-    transform: none;
+  .loading-mark span {
+    animation-duration: 1.8s;
   }
 }
 .header {
