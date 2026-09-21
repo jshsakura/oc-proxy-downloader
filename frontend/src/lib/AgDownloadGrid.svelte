@@ -968,7 +968,11 @@
           ? $t("no_working_downloads")
           : $t("no_completed_downloads")
       }</div>`,
-      overlayLoadingTemplate: `<span class="ag-loading-msg">${$t("loading")}</span>`
+      overlayLoadingTemplate: `<div class="ag-loading-state" role="status">
+        <span class="ag-loading-mark" aria-hidden="true"><i></i></span>
+        <span class="ag-loading-copy">${$t("loading")}</span>
+        <span class="ag-loading-rail" aria-hidden="true"><i></i></span>
+      </div>`
     };
 
     gridApi = createGrid(gridContainer, gridOptions);
@@ -1631,6 +1635,99 @@
     color: var(--text-secondary);
     padding: 1.5rem 1rem;
     text-align: center;
+  }
+
+  /* Compact counterpart of the branded app loader. Keeping the same orbit +
+     light rail makes page changes feel like part of the grid instead of a
+     browser-default overlay flashing over it. */
+  :global(.ag-loading-state) {
+    min-width: 188px;
+    padding: 1.05rem 1.2rem 0.95rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--text-secondary);
+    border: 1px solid color-mix(in srgb, var(--primary-color) 18%, var(--card-border));
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--card-background) 91%, transparent);
+    box-shadow: 0 12px 34px color-mix(in srgb, var(--primary-color) 10%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  :global(.ag-loading-mark) {
+    position: relative;
+    width: 34px;
+    height: 34px;
+    display: block;
+    border: 1px solid color-mix(in srgb, var(--primary-color) 28%, transparent);
+    border-radius: 50%;
+    animation: grid-loading-spin 1.6s linear infinite;
+  }
+
+  :global(.ag-loading-mark::before) {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--primary-color) 16%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 20%, transparent);
+  }
+
+  :global(.ag-loading-mark i) {
+    position: absolute;
+    top: 50%;
+    right: -3px;
+    width: 6px;
+    height: 6px;
+    margin-top: -3px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    box-shadow: 0 0 9px var(--primary-color);
+  }
+
+  :global(.ag-loading-copy) {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+
+  :global(.ag-loading-rail) {
+    width: 120px;
+    height: 3px;
+    display: block;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary-color) 10%, var(--card-border));
+  }
+
+  :global(.ag-loading-rail i) {
+    width: 42%;
+    height: 100%;
+    display: block;
+    border-radius: inherit;
+    background: linear-gradient(90deg, transparent, var(--primary-color));
+    animation: grid-loading-sweep 1.35s ease-in-out infinite;
+  }
+
+  @keyframes grid-loading-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes grid-loading-sweep {
+    from { transform: translateX(-120%); }
+    to { transform: translateX(340%); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.ag-loading-mark),
+    :global(.ag-loading-rail i) {
+      animation: none;
+    }
+    :global(.ag-loading-rail i) {
+      width: 72%;
+    }
   }
 
   :global(.ag-body-viewport) {

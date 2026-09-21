@@ -2234,10 +2234,32 @@
 <main>
   {#if $authLoading || $isLoading}
     <div class="loading-container" role="status" aria-live="polite" aria-busy="true">
-      <div class="spinner"></div>
-      {#if !$isLoading}
-        <span>{$t("loading_message")}</span>
-      {/if}
+      <div class="loading-aurora" aria-hidden="true">
+        <span></span>
+        <span></span>
+      </div>
+      <div class="loading-panel">
+        <div class="loading-logo-stage" aria-hidden="true">
+          <span class="loading-orbit loading-orbit-outer"><i></i></span>
+          <span class="loading-orbit loading-orbit-inner"><i></i></span>
+          <div class="loading-logo-shell">
+            <img src={logo} alt="" />
+          </div>
+        </div>
+        <div class="loading-brand">OC PROXY DOWNLOADER</div>
+        <div class="loading-title">
+          {$isLoading ? "LOADING" : $t("loading_message")}
+        </div>
+        <div class="loading-progress-track" aria-hidden="true">
+          <span></span>
+        </div>
+        <div class="loading-pulse" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+      <div class="loading-preview" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
     </div>
   {:else if $needsLogin}
     <LoginScreen on:login={handleLoginSuccess} />
