@@ -233,3 +233,24 @@ class TestAQueueWaitDoesNotLookLikeAFailure:
         )
 
         assert "DownloadRequest.next_retry_at.is_(None)" in body
+
+    def test_busy_fichier_slot_keeps_a_live_task_owner(self):
+        """A busy slot must queue an asyncio task, not only paint the DB pending.
+
+        The old early return had no periodic owner. If the preceding task's
+        cleanup handoff was missed, that row stayed pending forever.
+        """
+        import inspect
+
+        from core import download_core
+
+        admission = inspect.getsource(
+            download_core.DownloadCore.start_download_async
+        )
+        assert "_fichier_sem(egress_of(req.use_proxy))._value == 0" not in admission
+
+        worker = inspect.getsource(download_core.DownloadCore._download_task)
+        fichier_branch = worker[worker.index('if is_1fichier and not req.use_proxy:'):]
+        assert fichier_branch.index("async with slot_without_session") < fichier_branch.index(
+            "await self._perform_preparse"
+        )

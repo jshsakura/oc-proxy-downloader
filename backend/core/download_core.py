@@ -1070,20 +1070,6 @@ class DownloadCore:
                 has_file_info and not is_1fichier and not is_special_hoster and not is_mega
             )
 
-            # For a 1fichier local download with a file name present (restart), check the semaphore
-            if is_1fichier and not req.use_proxy and has_file_info:
-                if self._fichier_sem(egress_of(req.use_proxy))._value == 0:
-                    # If the semaphore is unavailable, wait in the pending state
-                    req.status = StatusEnum.pending
-                    await self.send_download_update(req.id, {
-                        "status": "pending",
-                        "progress": 0,
-                        "message": "대기중..."
-                    })
-                    await db_async.commit(db)
-                    print(f"[LOG] 1fichier 로컬 세마포어 대기: {req.id}")
-                    return True
-
             if skip_parsing:
                 print(f"[LOG] 파일 정보가 이미 있음, 파싱 건너뛰고 바로 다운로드 시작: {req.id} - {req.file_name} ({req.file_size})")
                 req.status = StatusEnum.downloading
@@ -1145,12 +1131,6 @@ class DownloadCore:
                 # 1fichier local download (to work around the free-tier limit - max 1)
                 print(f"[DEBUG] 1fichier 로컬 다운로드 시작: {req_id}")
 
-                # Run preparsing after checking the skip-parsing condition
-                if not skip_parsing:
-                    await self._perform_preparse(req, db)
-                else:
-                    print(f"[LOG] 파일 정보 존재로 사전파싱 건너뜀: {req_id}")
-
                 # Apply the 1fichier local download concurrency limit
                 # Check whether to wait on the semaphore
                 fichier_egress = egress_of(req.use_proxy)
@@ -1182,6 +1162,16 @@ class DownloadCore:
                     if req.status == StatusEnum.stopped:
                         print(f"[LOG] 1fichier 백오프 후 정지 상태, 시작 안 함: {req_id}")
                         return
+
+                    # Resolve metadata only after this row owns the host slot.
+                    # Doing it before the semaphore let every queued 1fichier
+                    # task hit the page together.  Returning early when the slot
+                    # was busy was worse: the DB said pending, but no task owned
+                    # the row, so a missed cleanup callback stranded it forever.
+                    if not skip_parsing:
+                        await self._perform_preparse(req, db)
+                    else:
+                        print(f"[LOG] 파일 정보 존재로 사전파싱 건너뜀: {req_id}")
 
                     if skip_parsing:
                         # File info is present, so skip parsing and start downloading immediately

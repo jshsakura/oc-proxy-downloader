@@ -44,10 +44,11 @@ export function countActiveByStatus(byStatus) {
   );
 }
 
-/** Whether a failed row currently has an automatic retry scheduled. */
+/** Whether a failed or queue-parked row has an automatic retry scheduled. */
 export function hasScheduledRetry(download, now = Date.now()) {
+  const status = String(download?.status || "").toLowerCase();
   return Boolean(
-    String(download?.status || "").toLowerCase() === "failed" &&
+    (status === "failed" || status === "pending") &&
       download?.next_retry_at &&
       new Date(download.next_retry_at).getTime() > now,
   );

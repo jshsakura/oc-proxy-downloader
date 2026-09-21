@@ -93,7 +93,7 @@ describe("what counts as running", () => {
 describe("scheduled retry actions", () => {
   const now = new Date("2026-09-15T14:00:00Z").getTime();
 
-  it("recognises only a failed row with a future retry deadline", () => {
+  it("recognises failed and queue-pending rows with a future retry deadline", () => {
     expect(
       hasScheduledRetry(
         { status: "failed", next_retry_at: "2026-09-15T14:01:00Z" },
@@ -106,6 +106,12 @@ describe("scheduled retry actions", () => {
         now,
       ),
     ).toBe(false);
+    expect(
+      hasScheduledRetry(
+        { status: "pending", next_retry_at: "2026-09-15T14:01:00Z" },
+        now,
+      ),
+    ).toBe(true);
     expect(
       hasScheduledRetry(
         { status: "stopped", next_retry_at: "2026-09-15T14:01:00Z" },

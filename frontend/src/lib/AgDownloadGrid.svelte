@@ -160,6 +160,11 @@
 
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
+    if (hasScheduledRetry(download)) {
+      return $t("retry_cooldown", {
+        when: new Date(download.next_retry_at).toLocaleTimeString()
+      });
+    }
     if (
       download.status?.toLowerCase() === "pending" &&
       download.error_message &&
@@ -398,14 +403,14 @@
         )})<span class="wait-indicator wait-indicator-waiting"></span></span>`;
       } else if (st === "downloading" && !d.progress) {
         this.pill.innerHTML = `<span class="wait-countdown">${$t("download_downloading")}<span class="wait-indicator wait-indicator-${st}"></span></span>`;
+      } else if (hasScheduledRetry(d, currentTime)) {
+        const remSec = Math.max(0, (new Date(d.next_retry_at).getTime() - currentTime) / 1000);
+        const attemptLabel = retryAttemptLabel(d);
+        this.pill.innerHTML = `${$t("download_retry_pending")}${attemptLabel ? ` ${attemptLabel}` : ""} <span class="wait-countdown">(${formatWaitTime(
+          remSec
+        )})</span>`;
       } else if (st === "failed" && d.failure_kind) {
-        if (d.next_retry_at && new Date(d.next_retry_at).getTime() > currentTime) {
-          const remSec = Math.max(0, (new Date(d.next_retry_at).getTime() - currentTime) / 1000);
-          const attemptLabel = retryAttemptLabel(d);
-          this.pill.innerHTML = `${$t("download_retry_pending")}${attemptLabel ? ` ${attemptLabel}` : ""} <span class="wait-countdown">(${formatWaitTime(
-            remSec
-          )})</span>`;
-        } else if (d.attempt_count) {
+        if (d.attempt_count) {
           this.pill.innerHTML = `<span class="status-exhausted">${$t("kind_" + d.failure_kind)}</span>`;
         } else {
           this.pill.textContent = $t("kind_" + d.failure_kind);
