@@ -21,6 +21,9 @@ from core.error_messages import (
     auto_retry_budget_exhausted,
     is_retry_blocked_now,
     KIND_QUEUED,
+    KIND_BLOCKED,
+    KIND_DAILY_QUOTA,
+    next_fichier_quota_reset,
 )
 from core.hoster_common import _host
 from core.proxy_manager import proxy_manager
@@ -211,7 +214,25 @@ class DownloadService:
                         req.next_retry_at = None
                         cancelled_retry_ids.append(req.id)
 
+                # Earlier builds treated the explicit daily quota as a
+                # permanent block. Recover those rows once so links already
+                # stranded in a live database join the daily retry schedule.
+                old_quota_rows = await db_async.all_rows(db.query(DownloadRequest).filter(
+                    DownloadRequest.status == StatusEnum.failed,
+                    DownloadRequest.failure_kind == KIND_BLOCKED,
+                    DownloadRequest.next_retry_at.is_(None),
+                    DownloadRequest.error.contains("1fichier 일일 무료 다운로드 한도"),
+                ))
+                now = datetime.datetime.now()
+                for req in old_quota_rows:
+                    req.failure_kind = KIND_DAILY_QUOTA
+                    reset_at = next_fichier_quota_reset(req.finished_at or req.requested_at or now)
+                    req.next_retry_at = max(reset_at, now + datetime.timedelta(seconds=30))
+
                 await db_async.commit(db)
+
+                if old_quota_rows:
+                    print(f"[LOG] 과거 1fichier 일일 한도 실패 {len(old_quota_rows)}개 자동 재시도 예약")
 
                 if cancelled_retry_ids:
                     print(

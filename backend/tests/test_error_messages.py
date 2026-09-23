@@ -26,11 +26,13 @@ from core.error_messages import (
     KIND_DEAD,
     KIND_AUTH_REQUIRED,
     KIND_RATE_LIMITED,
+    KIND_DAILY_QUOTA,
     KIND_CLOUDFLARE,
     KIND_PROXY_BLOCKED,
     KIND_BLOCKED,
     KIND_TRANSIENT,
     KIND_UNKNOWN,
+    next_fichier_quota_reset,
 )
 
 
@@ -387,6 +389,26 @@ class TestRateLimitRealWait:
         delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
         base = 240 * 60 + 60
         assert base - 10 <= delta <= base * 1.25 + 10
+
+
+class TestDailyQuotaRecovery:
+    def test_reset_is_next_local_day_with_margin(self):
+        now = datetime.datetime(2026, 9, 21, 23, 59)
+        assert next_fichier_quota_reset(now) == datetime.datetime(2026, 9, 22, 0, 10)
+
+    def test_explicit_daily_quota_keeps_a_retry_schedule(self):
+        req = _FakeReq()
+        raw = "1fichier 차단: 일일 무료 다운로드 한도 초과"
+        verdict = apply_failure_to_request(req, "파싱", raw)
+        assert verdict.kind == KIND_DAILY_QUOTA
+        assert req.next_retry_at == next_fichier_quota_reset()
+        assert "자동으로 다시 시도" in req.error
+
+        # A second day with a shared IP still gets one attempt on the next day.
+        req.attempts_json = None
+        second = apply_failure_to_request(req, "파싱", raw)
+        assert second.kind == KIND_DAILY_QUOTA
+        assert second.next_retry_at is not None
 
 
 class TestBrowserFallbackCookieHandoff:

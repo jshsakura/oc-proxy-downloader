@@ -43,6 +43,7 @@ from typing import List, Optional, Tuple
 KIND_DEAD = "dead"
 KIND_AUTH_REQUIRED = "auth_required"
 KIND_RATE_LIMITED = "rate_limited"
+KIND_DAILY_QUOTA = "daily_quota"
 KIND_CLOUDFLARE = "cloudflare"
 KIND_PROXY_BLOCKED = "proxy_blocked"
 KIND_BLOCKED = "blocked"
@@ -237,8 +238,8 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      KIND_RATE_LIMITED, True),
     ("1fichier 차단: 일일 무료 다운로드 한도 초과",
      "1fichier 일일 무료 다운로드 한도(10개)를 모두 사용했습니다",
-     "같은 회선에서는 오늘 더 받을 수 없습니다. 다음 날 다시 시도하거나 프리미엄 계정/다른 회선을 사용하세요.",
-     KIND_BLOCKED, True),
+     "같은 회선의 한도가 풀리는 다음 날 자동으로 다시 시도합니다. 프리미엄 계정이나 다른 회선을 사용해도 됩니다.",
+     KIND_DAILY_QUOTA, True),
     ("limite", "1fichier 무료 다운로드 한도에 걸렸습니다",
      "프록시 모드를 켜거나 한도가 풀릴 때까지 기다리세요.",
      KIND_RATE_LIMITED, True),
@@ -500,6 +501,12 @@ def _with_jitter(seconds: float) -> timedelta:
     return timedelta(seconds=seconds + random.uniform(0, spread))
 
 
+def next_fichier_quota_reset(now: Optional[datetime] = None) -> datetime:
+    """First conservative retry time after the next local calendar midnight."""
+    now = now or datetime.now()
+    return now.replace(hour=0, minute=10, second=0, microsecond=0) + timedelta(days=1)
+
+
 def _compute_next_retry_at(kind: str, attempt_count: int,
                            retry_after_seconds: Optional[int]) -> Optional[datetime]:
     """Compute the next retry-allowed time from ``kind`` + past attempt count.
@@ -520,6 +527,11 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
         # Short, jittered, and uncapped above — the queue drains on its own, so
         # giving up here would lose a link for no reason.
         return now + timedelta(seconds=45 + random.randint(0, 30))
+
+    if kind == KIND_DAILY_QUOTA:
+        # A quota is a known daily wait, not a permanent host block. One
+        # attempt after each reset is safe even if the quota persists.
+        return next_fichier_quota_reset(now)
 
     if kind == KIND_RATE_LIMITED:
         # If 1fichier specified a wait time, use it + a 60s margin.

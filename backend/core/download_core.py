@@ -56,9 +56,11 @@ from core.hoster_parsers import (
 from core.error_messages import (
     apply_failure_to_request,
     KIND_BLOCKED,
+    KIND_DAILY_QUOTA,
     KIND_PROXY_BLOCKED,
     KIND_QUEUED,
     KIND_RATE_LIMITED,
+    next_fichier_quota_reset,
 )
 from core.executors import parse_executor_for
 from core.mega_hoster import (
@@ -742,10 +744,7 @@ class DownloadCore:
             # Do not feed every queued file into a quota page that explicitly
             # says this egress has already used its daily allowance. Hold the
             # one-per-IP queue until shortly after the next local midnight.
-            tomorrow = (
-                now.replace(hour=0, minute=0, second=0, microsecond=0)
-                + datetime.timedelta(days=1, minutes=10)
-            )
+            tomorrow = next_fichier_quota_reset(now)
             self._fichier_cooldown_until[egress] = tomorrow
             self._fichier_block_streak[egress] = max(
                 1, self._fichier_block_streak.get(egress, 0)
@@ -1196,7 +1195,7 @@ class DownloadCore:
                     await db_async.refresh(db, req)
                     if req.status == StatusEnum.done:
                         self._register_fichier_success(fichier_egress)
-                    elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED):
+                    elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED, KIND_DAILY_QUOTA):
                         self._register_fichier_block(fichier_egress, req.error)
                         await self._publish_fichier_cooldown(db, fichier_egress)
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")

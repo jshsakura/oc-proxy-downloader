@@ -60,7 +60,7 @@ class TestDetectBlockReason:
         classified = classify_error(
             "파싱", "1fichier 차단: 일일 무료 다운로드 한도 초과"
         )
-        assert classified.kind == "blocked"
+        assert classified.kind == "daily_quota"
 
     def test_wait_message_is_not_block(self):
         # "you must wait" is a normal flow, so it must not be detected as a block.
