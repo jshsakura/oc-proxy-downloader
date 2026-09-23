@@ -21,6 +21,7 @@ import pytest
 from core.error_messages import (
     KIND_BLOCKED,
     KIND_CLOUDFLARE,
+    KIND_DAILY_QUOTA,
     KIND_PROXY_BLOCKED,
     KIND_RATE_LIMITED,
     KIND_TRANSIENT,
@@ -55,6 +56,12 @@ class TestNothingRetriesTooSoon:
 
 
 class TestBeingRefusedBacksOffHarder:
+
+    def test_daily_quota_gets_two_next_day_retries_then_stops(self):
+        assert _compute_next_retry_at(KIND_DAILY_QUOTA, 1, None) is not None
+        assert _compute_next_retry_at(KIND_DAILY_QUOTA, 2, None) is not None
+        assert _compute_next_retry_at(KIND_DAILY_QUOTA, 3, None) is None
+        assert auto_retry_budget_exhausted(KIND_DAILY_QUOTA, 3) is True
 
     @pytest.mark.parametrize("kind", [
         KIND_BLOCKED, KIND_PROXY_BLOCKED, KIND_CLOUDFLARE,

@@ -404,11 +404,17 @@ class TestDailyQuotaRecovery:
         assert req.next_retry_at == next_fichier_quota_reset()
         assert "자동으로 다시 시도" in req.error
 
-        # A second day with a shared IP still gets one attempt on the next day.
+        # Two automatic attempts are allowed on later days; then stop.
         req.attempts_json = None
         second = apply_failure_to_request(req, "파싱", raw)
         assert second.kind == KIND_DAILY_QUOTA
         assert second.next_retry_at is not None
+        req.attempts_json = None
+        third = apply_failure_to_request(req, "파싱", raw)
+        assert third.kind == KIND_DAILY_QUOTA
+        assert third.next_retry_at is None
+        assert req.next_retry_at is None
+        assert "자동 재시도를 중단" in req.error
 
 
 class TestBrowserFallbackCookieHandoff:

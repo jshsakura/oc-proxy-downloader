@@ -83,6 +83,7 @@ _ATTEMPTS_RING_SIZE = 5  # attempts_json ring-buffer length
 _MAX_AUTO_RETRY_ATTEMPTS = {
     KIND_TRANSIENT: 3,
     KIND_RATE_LIMITED: 2,
+    KIND_DAILY_QUOTA: 3,  # initial failure + at most two daily retries
     KIND_CLOUDFLARE: 1,
     KIND_PROXY_BLOCKED: 1,
     KIND_BLOCKED: 1,
@@ -529,8 +530,8 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
         return now + timedelta(seconds=45 + random.randint(0, 30))
 
     if kind == KIND_DAILY_QUOTA:
-        # A quota is a known daily wait, not a permanent host block. One
-        # attempt after each reset is safe even if the quota persists.
+        # A quota is a known daily wait, not a permanent host block. The
+        # attempt cap above stops trying after two unsuccessful daily retries.
         return next_fichier_quota_reset(now)
 
     if kind == KIND_RATE_LIMITED:
@@ -701,7 +702,12 @@ def apply_failure_to_request(
     # When a recoverable failure has used up its auto-retry budget, the action
     # text above still implies "auto-retry soon" — append a note so the user
     # knows the loop has stopped and a manual retry is now required.
-    if next_retry_at is None and kind in _NO_AUTOMATIC_RETRY_KINDS:
+    if next_retry_at is None and kind == KIND_DAILY_QUOTA:
+        user_message += (
+            "\n일일 한도가 반복되어 자동 재시도를 중단했습니다. "
+            "한도가 풀렸거나 계정/회선을 바꾼 뒤 '다시 받기'를 누르세요."
+        )
+    elif next_retry_at is None and kind in _NO_AUTOMATIC_RETRY_KINDS:
         user_message += (
             "\n이 차단 유형은 추가 요청이 차단을 악화시킬 수 있어 자동 재시도하지 않습니다. "
             "원인이 해소되었거나 회선을 바꾼 뒤 '다시 받기'를 누르세요."
