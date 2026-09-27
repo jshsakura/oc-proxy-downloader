@@ -835,6 +835,39 @@ class DownloadCore:
                 "next_retry_at": target.isoformat(),
             })
 
+    async def _stop_fichier_queue_for_busy_slots(self, db: Session, egress: str) -> None:
+        """Stop the rest of a batch after 1fichier refuses its free slots.
+
+        A per-file no-retry verdict is ineffective if the next queued file
+        immediately makes the same request from the same account and IP.
+        Explicitly stopped rows can be resumed by the user once slots reopen.
+        """
+        queued = await db_async.all_rows(
+            db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.pending,
+                DownloadRequest.url.contains("1fichier.com"),
+                DownloadRequest.use_proxy == (egress == EGRESS_VPN),
+            )
+        )
+        if not queued:
+            return
+        for item in queued:
+            item.status = StatusEnum.stopped
+            item.next_retry_at = None
+            cancel_signal.signal_cancel(item.id)
+        await db_async.commit(db)
+        language = (get_config().get("language") or "ko")
+        message = (
+            "1fichier free slots are busy. The remaining queue is paused; resume it manually."
+            if language == "en" else
+            "1fichier 무료 슬롯이 사용 중이어서 나머지 대기열을 중지했습니다. 나중에 수동으로 재개하세요."
+        )
+        for item in queued:
+            await self.send_download_update(item.id, {
+                "status": "stopped", "message": message, "next_retry_at": None,
+            })
+        print(f"[LOG] 1fichier 무료 슬롯 혼잡으로 대기열 {len(queued)}건 중지 [{egress}]")
+
     async def _await_fichier_cooldown(self, req: DownloadRequest, db: Session,
                                       egress: str = EGRESS_DIRECT):
         """If a 1fichier-local host backoff is active, wait it out before
@@ -1217,7 +1250,9 @@ class DownloadCore:
                         await db_async.refresh(db, req)
                         if req.status == StatusEnum.done:
                             self._register_fichier_success(fichier_egress)
-                        elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED, KIND_DAILY_QUOTA, KIND_SLOT_BUSY):
+                        elif getattr(req, "failure_kind", None) == KIND_SLOT_BUSY:
+                            await self._stop_fichier_queue_for_busy_slots(db, fichier_egress)
+                        elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED, KIND_DAILY_QUOTA):
                             self._register_fichier_block(fichier_egress, req.error)
                             await self._publish_fichier_cooldown(db, fichier_egress)
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")

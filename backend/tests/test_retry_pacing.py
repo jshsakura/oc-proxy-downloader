@@ -15,6 +15,8 @@ And the structural one: backoff is per download, but a block is per host.
 """
 
 import datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -58,6 +60,30 @@ class TestNothingRetriesTooSoon:
 
 
 class TestBeingRefusedBacksOffHarder:
+
+    @pytest.mark.asyncio
+    async def test_busy_free_slots_stop_the_rest_of_the_fichier_queue(self, monkeypatch):
+        from core import download_core as core_module
+        from core.models import StatusEnum
+
+        core = core_module.DownloadCore()
+        queued = [
+            SimpleNamespace(id=101, status=StatusEnum.pending, next_retry_at=datetime.datetime.now()),
+            SimpleNamespace(id=102, status=StatusEnum.pending, next_retry_at=None),
+        ]
+        monkeypatch.setattr(core_module.db_async, "all_rows", AsyncMock(return_value=queued))
+        commit = AsyncMock()
+        monkeypatch.setattr(core_module.db_async, "commit", commit)
+        monkeypatch.setattr(core_module.cancel_signal, "signal_cancel", lambda _id: None)
+        monkeypatch.setattr(core_module, "get_config", lambda: {"language": "ko"})
+        core.send_download_update = AsyncMock()
+
+        await core._stop_fichier_queue_for_busy_slots(MagicMock(), core_module.EGRESS_DIRECT)
+
+        assert all(item.status == StatusEnum.stopped for item in queued)
+        assert all(item.next_retry_at is None for item in queued)
+        assert core.send_download_update.await_count == 2
+        commit.assert_awaited_once()
 
     def test_busy_free_slots_do_not_retry_the_same_link(self):
         assert _compute_next_retry_at(KIND_SLOT_BUSY, 1, None) is None

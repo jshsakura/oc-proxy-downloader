@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """1fichier account login — issues an authenticated cloudscraper session.
 
-Logging in with a free 1fichier account lets you bypass guest-slot shortage
-cases such as ``Free download is temporarily limited due to high demand``
-(registered-user slots are guaranteed separately).
+Logging in with a free 1fichier account can bypass guest-only slot shortages.
+1fichier can still reject a logged-in free account when all free download slots
+are in use; authentication is not a guarantee of an available slot.
 
 Design:
 - Cache a single authenticated ``cloudscraper`` instance at module scope.
