@@ -12,6 +12,7 @@ Core contracts:
 
 import datetime
 import json
+from pathlib import Path
 
 import pytest
 
@@ -49,6 +50,14 @@ class _FakeReq:
         self.last_probed_at = None
         for k, v in kwargs.items():
             setattr(self, k, v)
+
+
+def test_failure_kind_labels_exist_in_korean_and_english():
+    locales = Path(__file__).resolve().parents[1] / "locales"
+    for language in ("ko", "en"):
+        labels = json.loads((locales / f"{language}.json").read_text(encoding="utf-8"))
+        for key in ("kind_daily_quota", "kind_slot_busy", "kind_browser_parse"):
+            assert labels[key] and labels[key] != key
 
 
 # ---------------------------------------------------------------------------
