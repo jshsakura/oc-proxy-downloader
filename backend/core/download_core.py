@@ -1159,9 +1159,7 @@ class DownloadCore:
                 # 1fichier shares the same total ceiling as every other host.
                 # Its dedicated slot alone let a DataNodes parse run alongside
                 # one 1fichier job even when the user set the total limit to 1.
-                async with slot_without_session(
-                    db, fichier_semaphore, self.total_download_semaphore
-                ):
+                async with slot_without_session(db, fichier_semaphore):
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 획득: {req_id}")
 
                     # The wait detached everything the session held, so the row
@@ -1179,42 +1177,49 @@ class DownloadCore:
                         print(f"[LOG] 1fichier 백오프 후 정지 상태, 시작 안 함: {req_id}")
                         return
 
-                    # Resolve metadata only after this row owns the host slot.
-                    # Doing it before the semaphore let every queued 1fichier
-                    # task hit the page together.  Returning early when the slot
-                    # was busy was worse: the DB said pending, but no task owned
-                    # the row, so a missed cleanup callback stranded it forever.
-                    if not skip_parsing:
-                        await self._perform_preparse(req, db)
-                    else:
-                        print(f"[LOG] 파일 정보 존재로 사전파싱 건너뜀: {req_id}")
+                    # A host cooldown owns only the 1fichier slot, so it cannot
+                    # hold the global slot idle for thirty minutes.
+                    async with slot_without_session(db, self.total_download_semaphore):
+                        req = await db_async.first(
+                            db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
+                        if not req or req.status == StatusEnum.stopped:
+                            return
+                        # Resolve metadata only after this row owns the host slot.
+                        # Doing it before the semaphore let every queued 1fichier
+                        # task hit the page together.  Returning early when the slot
+                        # was busy was worse: the DB said pending, but no task owned
+                        # the row, so a missed cleanup callback stranded it forever.
+                        if not skip_parsing:
+                            await self._perform_preparse(req, db)
+                        else:
+                            print(f"[LOG] 파일 정보 존재로 사전파싱 건너뜀: {req_id}")
 
-                    if skip_parsing:
-                        # File info is present, so skip parsing and start downloading immediately
-                        await self.send_download_update(req_id, {
-                            "status": "downloading",
-                            "message": "다운로드 시작 중..."
-                        })
-                        req.status = StatusEnum.downloading
-                    else:
-                        # When parsing is required
-                        await self.send_download_update(req_id, {
-                            "status": "parsing",
-                            "message": "대기 완료, 1fichier 로컬 다운로드 시작 중..."
-                        })
-                        req.status = StatusEnum.parsing
-                    await db_async.commit(db)
+                        if skip_parsing:
+                            # File info is present, so skip parsing and start downloading immediately
+                            await self.send_download_update(req_id, {
+                                "status": "downloading",
+                                "message": "다운로드 시작 중..."
+                            })
+                            req.status = StatusEnum.downloading
+                        else:
+                            # When parsing is required
+                            await self.send_download_update(req_id, {
+                                "status": "parsing",
+                                "message": "대기 완료, 1fichier 로컬 다운로드 시작 중..."
+                            })
+                            req.status = StatusEnum.parsing
+                        await db_async.commit(db)
 
-                    await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # Depends on whether parsing is skipped
+                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # Depends on whether parsing is skipped
 
-                    # Feed the result into the host backoff: a block/quota signal
-                    # extends the cooldown for the whole queue; a success resets it.
-                    await db_async.refresh(db, req)
-                    if req.status == StatusEnum.done:
-                        self._register_fichier_success(fichier_egress)
-                    elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED, KIND_DAILY_QUOTA, KIND_SLOT_BUSY):
-                        self._register_fichier_block(fichier_egress, req.error)
-                        await self._publish_fichier_cooldown(db, fichier_egress)
+                        # Feed the result into the host backoff: a block/quota signal
+                        # extends the cooldown for the whole queue; a success resets it.
+                        await db_async.refresh(db, req)
+                        if req.status == StatusEnum.done:
+                            self._register_fichier_success(fichier_egress)
+                        elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED, KIND_DAILY_QUOTA, KIND_SLOT_BUSY):
+                            self._register_fichier_block(fichier_egress, req.error)
+                            await self._publish_fichier_cooldown(db, fichier_egress)
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
             else:
                 # General download (includes 1fichier proxy and plain URLs - max 5)
