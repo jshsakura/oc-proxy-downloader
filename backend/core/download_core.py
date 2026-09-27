@@ -543,7 +543,10 @@ class DownloadCore:
         host = (urlparse(url or "").hostname or "").lower()
         site_key = next((k for k in SITE_DOWNLOAD_LIMITS if k in host), None)
         if site_key is not None:
-            return site_key, SITE_DOWNLOAD_LIMITS[site_key]
+            # The operator's per-host setting is a ceiling even for hosts with
+            # a tuned upper bound. Otherwise selecting 1 still launches three
+            # DataNodes captcha/download tasks from one bulk add.
+            return site_key, min(SITE_DOWNLOAD_LIMITS[site_key], self.MAX_PER_HOST_DOWNLOADS)
         return (host or "_default"), self.MAX_PER_HOST_DOWNLOADS
 
     def _fichier_sem(self, egress: str) -> asyncio.Semaphore:

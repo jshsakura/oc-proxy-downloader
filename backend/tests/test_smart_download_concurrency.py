@@ -59,6 +59,15 @@ def test_listed_host_uses_its_tuned_limit():
     assert limit == SITE_DOWNLOAD_LIMITS["gofile.io"]
 
 
+@pytest.mark.parametrize("host", ["datanodes.to", "gofile.io", "megaup.net", "send.now"])
+def test_operator_one_per_host_caps_listed_hosts_too(host):
+    _write_config({"max_concurrent_downloads": 8, "max_per_host_downloads": 1})
+    dc = DownloadCore()
+    key, limit = dc._resolve_host_limit(f"https://{host}/file")
+    assert key == host
+    assert limit == 1
+
+
 def test_unlisted_host_uses_default_per_host_cap():
     _write_config({})
     dc = DownloadCore()
