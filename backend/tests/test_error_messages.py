@@ -31,6 +31,7 @@ from core.error_messages import (
     KIND_PROXY_BLOCKED,
     KIND_BLOCKED,
     KIND_TRANSIENT,
+    KIND_BROWSER_PARSE,
     KIND_UNKNOWN,
     next_fichier_quota_reset,
 )
@@ -55,6 +56,18 @@ class _FakeReq:
 # ---------------------------------------------------------------------------
 
 class TestClassify:
+    @pytest.mark.parametrize("raw", [
+        "캡차는 통과했지만 다운로드 링크가 발급되지 않았습니다",
+        "Locator.count: Execution context was destroyed, most likely because of a navigation.",
+        "브라우저 캡차 우회 제한시간(270초)을 초과했습니다",
+    ])
+    def test_browser_parse_failure_does_not_auto_retry(self, raw):
+        req = _FakeReq()
+        verdict = apply_failure_to_request(req, "파싱", raw)
+        assert verdict.kind == KIND_BROWSER_PARSE
+        assert verdict.next_retry_at is None
+        assert "자동 반복하지 않습니다" in req.error
+
     @pytest.mark.parametrize(
         "raw,expected_kw_in_summary",
         [

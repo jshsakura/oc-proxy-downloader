@@ -97,7 +97,7 @@ MAX_DOWNLOAD_RETRIES_LOCAL = 3
 # the same block to every queued download. Instead, pause ALL 1fichier-local
 # downloads for an increasing cooldown (reset on the next success), so a flagged
 # IP gets time to recover the way slow manual pacing used to.
-FICHIER_HOST_BACKOFF_SECONDS = (120, 300, 900, 1800)  # 2m → 5m → 15m → 30m (capped)
+FICHIER_HOST_BACKOFF_SECONDS = (1800, 3600, 7200, 7200)  # 30m → 1h → 2h (capped)
 
 # Per-site concurrent-download limits (host substring -> max concurrent).
 # Different hosts tolerate different parallelism, so each gets its own queue
@@ -762,7 +762,7 @@ class DownloadCore:
         if "무료 다운로드 슬롯" in (error or ""):
             streak = self._fichier_block_streak.get(egress, 0) + 1
             self._fichier_block_streak[egress] = streak
-            secs = min(900 * (2 ** (streak - 1)), 3600)
+            secs = min(1800 * (2 ** (streak - 1)), 7200)
             self._fichier_cooldown_until[egress] = datetime.datetime.now() + datetime.timedelta(seconds=secs)
             print(f"[LOG] 1fichier 무료 슬롯 혼잡 [{egress}] → {secs}s 대기")
             return

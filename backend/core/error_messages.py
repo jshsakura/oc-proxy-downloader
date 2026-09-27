@@ -45,6 +45,7 @@ KIND_AUTH_REQUIRED = "auth_required"
 KIND_RATE_LIMITED = "rate_limited"
 KIND_DAILY_QUOTA = "daily_quota"
 KIND_SLOT_BUSY = "slot_busy"
+KIND_BROWSER_PARSE = "browser_parse"
 KIND_CLOUDFLARE = "cloudflare"
 KIND_PROXY_BLOCKED = "proxy_blocked"
 KIND_BLOCKED = "blocked"
@@ -85,7 +86,8 @@ _MAX_AUTO_RETRY_ATTEMPTS = {
     KIND_TRANSIENT: 3,
     KIND_RATE_LIMITED: 2,
     KIND_DAILY_QUOTA: 3,  # initial failure + at most two daily retries
-    KIND_SLOT_BUSY: 4,  # initial failure + three spaced retries
+    KIND_SLOT_BUSY: 1,  # another automatic request cannot create a free slot
+    KIND_BROWSER_PARSE: 1,  # repeated captcha solves can trigger a host block
     KIND_CLOUDFLARE: 1,
     KIND_PROXY_BLOCKED: 1,
     KIND_BLOCKED: 1,
@@ -95,6 +97,7 @@ _NO_AUTOMATIC_RETRY_KINDS = frozenset({
     KIND_CLOUDFLARE,
     KIND_PROXY_BLOCKED,
     KIND_BLOCKED,
+    KIND_SLOT_BUSY,
 })
 
 
@@ -290,16 +293,19 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "사이트별로 한 번에 하나씩 처리됩니다. 순서가 되면 자동으로 이어서 받습니다.",
      KIND_QUEUED, False),
     ("브라우저 캡차 우회 제한시간", "브라우저 캡차 우회가 제한시간 안에 끝나지 않았습니다",
-     "사이트가 느리거나 응답이 바뀐 경우입니다. 잠시 후 다시 시도하세요.",
-     KIND_TRANSIENT, False),
+     "자동 재시도하지 않습니다. 사이트 상태를 확인한 뒤 수동으로 다시 시도하세요.",
+     KIND_BROWSER_PARSE, False),
 
     # --- in-page Turnstile handled by the headful browser fallback ---
     ("turnstile 캡차를 통과하지 못했습니다", "브라우저로도 Turnstile 캡차를 통과하지 못했습니다",
      "잠시 후 다시 시도하세요. 반복되면 해당 호스터가 캡차 난이도를 올린 것일 수 있습니다.",
      KIND_CLOUDFLARE, False),
     ("캡차는 통과했지만", "캡차는 통과했으나 호스터가 다운로드 링크를 발급하지 않았습니다",
-     "잠시 후 다시 시도하세요. 호스터의 대기시간/동시 다운로드 제한일 수 있습니다.",
-     KIND_TRANSIENT, False),
+     "자동 재시도하지 않습니다. 호스터의 대기시간이나 차단 상태를 확인하세요.",
+     KIND_BROWSER_PARSE, False),
+    ("execution context was destroyed", "호스터 페이지 이동 중 브라우저 연결이 끊겼습니다",
+     "자동 재시도하지 않습니다. 잠시 후 수동으로 다시 시도하세요.",
+     KIND_BROWSER_PARSE, False),
     ("docker 버전에서만 지원됩니다", "이 링크는 브라우저 캡차 우회가 필요해 Docker 버전에서만 받을 수 있습니다",
      "Windows/standalone 빌드에는 브라우저가 포함되어 있지 않습니다. Docker 로 실행하거나 다른 미러를 사용하세요.",
      KIND_BLOCKED, True),
@@ -717,6 +723,8 @@ def apply_failure_to_request(
             "\n일일 한도가 반복되어 자동 재시도를 중단했습니다. "
             "한도가 풀렸거나 계정/회선을 바꾼 뒤 '다시 받기'를 누르세요."
         )
+    elif next_retry_at is None and kind == KIND_BROWSER_PARSE:
+        user_message += "\n차단을 피하기 위해 같은 브라우저 파싱을 자동 반복하지 않습니다."
     elif next_retry_at is None and kind in _NO_AUTOMATIC_RETRY_KINDS:
         user_message += (
             "\n이 차단 유형은 추가 요청이 차단을 악화시킬 수 있어 자동 재시도하지 않습니다. "

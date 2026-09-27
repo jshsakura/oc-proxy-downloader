@@ -25,6 +25,7 @@ from core.error_messages import (
     KIND_PROXY_BLOCKED,
     KIND_RATE_LIMITED,
     KIND_SLOT_BUSY,
+    KIND_BROWSER_PARSE,
     KIND_TRANSIENT,
     KIND_UNKNOWN,
     _compute_next_retry_at,
@@ -58,11 +59,13 @@ class TestNothingRetriesTooSoon:
 
 class TestBeingRefusedBacksOffHarder:
 
-    def test_busy_free_slots_retry_with_backoff_and_stop(self):
-        assert 900 <= _wait(KIND_SLOT_BUSY, 1) <= 1125
-        assert 1800 <= _wait(KIND_SLOT_BUSY, 2) <= 2250
-        assert _compute_next_retry_at(KIND_SLOT_BUSY, 4, None) is None
-        assert auto_retry_budget_exhausted(KIND_SLOT_BUSY, 4)
+    def test_busy_free_slots_do_not_retry_the_same_link(self):
+        assert _compute_next_retry_at(KIND_SLOT_BUSY, 1, None) is None
+        assert auto_retry_budget_exhausted(KIND_SLOT_BUSY, 1)
+
+    def test_browser_parse_failure_does_not_repeat_captcha(self):
+        assert _compute_next_retry_at(KIND_BROWSER_PARSE, 1, None) is None
+        assert auto_retry_budget_exhausted(KIND_BROWSER_PARSE, 1)
 
     def test_daily_quota_gets_two_next_day_retries_then_stops(self):
         assert _compute_next_retry_at(KIND_DAILY_QUOTA, 1, None) is not None
