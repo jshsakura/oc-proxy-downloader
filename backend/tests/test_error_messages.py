@@ -56,6 +56,19 @@ class _FakeReq:
 # ---------------------------------------------------------------------------
 
 class TestClassify:
+    @pytest.mark.parametrize("language,expected,excluded", [
+        ("ko", "자동 재시도하지 않습니다", "자동으로 다시 시도"),
+        ("en", "Automatic retry is disabled", "조치:"),
+    ])
+    def test_slot_busy_message_has_one_consistent_action(self, language, expected, excluded):
+        req = _FakeReq()
+        verdict = apply_failure_to_request(
+            req, "파싱", "1fichier 차단: 무료 다운로드 슬롯 혼잡", language=language
+        )
+        assert verdict.next_retry_at is None
+        assert expected in req.error
+        assert excluded not in req.error
+
     @pytest.mark.parametrize("raw", [
         "캡차는 통과했지만 다운로드 링크가 발급되지 않았습니다",
         "Locator.count: Execution context was destroyed, most likely because of a navigation.",

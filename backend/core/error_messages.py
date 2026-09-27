@@ -116,7 +116,20 @@ class ClassifiedError:
     # "you must wait N seconds" in the body. None otherwise.
     retry_after_seconds: Optional[int] = None
 
-    def to_user_message(self) -> str:
+    def to_user_message(self, language: str = "ko") -> str:
+        if self.kind == KIND_SLOT_BUSY:
+            if language == "en":
+                stage = {"파싱": "Parsing", "다운로드": "Download"}.get(self.stage, self.stage)
+                return (
+                    f"[{stage} failed] All 1fichier free download slots are in use.\n"
+                    "Action: Automatic retry is disabled. Try again manually after a "
+                    "slot becomes available or your connection changes."
+                )
+            return (
+                f"[{self.stage} 실패] 1fichier 무료 다운로드 슬롯이 모두 사용 중입니다.\n"
+                "조치: 자동 재시도하지 않습니다. 슬롯이 비거나 회선 상태가 바뀐 뒤 "
+                "'다시 받기'를 누르세요."
+            )
         return f"[{self.stage} 실패] {self.summary} ({self.raw})\n조치: {self.action}"
 
 
@@ -244,7 +257,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      KIND_RATE_LIMITED, True),
     ("1fichier 차단: 무료 다운로드 슬롯 혼잡",
      "1fichier 무료 다운로드 슬롯이 모두 사용 중입니다",
-     "슬롯이 비기를 기다렸다가 자동으로 다시 시도합니다. 반복되면 계정/회선을 확인하세요.",
+     "자동 재시도하지 않습니다. 슬롯이 빈 뒤 수동으로 다시 시도하세요.",
      KIND_SLOT_BUSY, True),
     ("1fichier 차단: 일일 무료 다운로드 한도 초과",
      "1fichier 일일 무료 다운로드 한도(10개)를 모두 사용했습니다",
@@ -634,6 +647,7 @@ def apply_failure_to_request(
     stage: str,
     raw_error: str,
     proxy_addr: Optional[str] = None,
+    language: Optional[str] = None,
 ) -> FailureVerdict:
     """Perform all follow-up handling for a single failure (classification,
     attempts ring buffer, next_retry_at, error text) at once and update the
@@ -654,6 +668,9 @@ def apply_failure_to_request(
       attempts entry and returned — no column/ring-buffer change.
     """
     classified = classify_error(stage, raw_error or "")
+    if language is None:
+        from core.config import get_config
+        language = get_config().get("language") or "ko"
     now = datetime.now()
     raw_truncated = (raw_error or "")[:500]
 
@@ -671,7 +688,7 @@ def apply_failure_to_request(
             and (now - last_ts).total_seconds() < _DUPLICATE_APPLY_WINDOW_SEC
         ):
             return FailureVerdict(
-                user_message=req.error or classified.to_user_message(),
+                user_message=req.error or classified.to_user_message(language),
                 kind=getattr(req, "failure_kind", None) or classified.kind,
                 next_retry_at=getattr(req, "next_retry_at", None),
                 attempt_count=getattr(req, "attempt_count", 0) or 0,
@@ -714,7 +731,7 @@ def apply_failure_to_request(
         kind, attempt_count, classified.retry_after_seconds
     )
 
-    user_message = classified.to_user_message()
+    user_message = classified.to_user_message(language)
     # When a recoverable failure has used up its auto-retry budget, the action
     # text above still implies "auto-retry soon" — append a note so the user
     # knows the loop has stopped and a manual retry is now required.
@@ -725,7 +742,7 @@ def apply_failure_to_request(
         )
     elif next_retry_at is None and kind == KIND_BROWSER_PARSE:
         user_message += "\n차단을 피하기 위해 같은 브라우저 파싱을 자동 반복하지 않습니다."
-    elif next_retry_at is None and kind in _NO_AUTOMATIC_RETRY_KINDS:
+    elif next_retry_at is None and kind in _NO_AUTOMATIC_RETRY_KINDS and kind != KIND_SLOT_BUSY:
         user_message += (
             "\n이 차단 유형은 추가 요청이 차단을 악화시킬 수 있어 자동 재시도하지 않습니다. "
             "원인이 해소되었거나 회선을 바꾼 뒤 '다시 받기'를 누르세요."

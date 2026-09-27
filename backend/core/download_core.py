@@ -1146,7 +1146,7 @@ class DownloadCore:
                 # Check whether to wait on the semaphore
                 fichier_egress = egress_of(req.use_proxy)
                 fichier_semaphore = self._fichier_sem(fichier_egress)
-                if fichier_semaphore._value == 0:  # The semaphore is already in use
+                if fichier_semaphore._value == 0 or self.total_download_semaphore._value == 0:
                     print(f"[DEBUG] 1fichier 로컬 다운로드 제한 도달, 순서 대기 중: {req_id}")
                     await self.send_download_update(req_id, {
                         "status": "pending",
@@ -1156,7 +1156,12 @@ class DownloadCore:
                     req.status = StatusEnum.pending
                     await db_async.commit(db)
 
-                async with slot_without_session(db, fichier_semaphore):
+                # 1fichier shares the same total ceiling as every other host.
+                # Its dedicated slot alone let a DataNodes parse run alongside
+                # one 1fichier job even when the user set the total limit to 1.
+                async with slot_without_session(
+                    db, fichier_semaphore, self.total_download_semaphore
+                ):
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 획득: {req_id}")
 
                     # The wait detached everything the session held, so the row
@@ -1222,7 +1227,7 @@ class DownloadCore:
                 # Resolve the special-hoster name/size BEFORE queueing on the
                 # download slot, so a queued item shows its real filename instead
                 # of a stuck skeleton while it waits its turn.
-                if not skip_parsing:
+                if not skip_parsing and self.MAX_CONCURRENT_DOWNLOADS > 1:
                     await self._perform_special_preparse(req, db)
 
                 # Smart admission: every host gets its OWN queue, so several big
@@ -1271,6 +1276,11 @@ class DownloadCore:
                         # one used to start anyway.
                         print(f"[LOG] 대기 중 정지됨, 시작 안 함: {req_id}")
                         return
+
+                    # With a total limit of one, parsing must also own that
+                    # slot: special-host parsing itself makes network requests.
+                    if not skip_parsing and self.MAX_CONCURRENT_DOWNLOADS == 1:
+                        await self._perform_special_preparse(req, db)
 
                     if skip_parsing:
                         # File info is present, so skip parsing and start downloading immediately
