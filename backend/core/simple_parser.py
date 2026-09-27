@@ -225,6 +225,9 @@ def detect_block_reason(html_content):
         ("you must wait", None),  # A wait time is the normal flow, so ignore it (marked with None)
         ("you already downloaded for free more than", "일일 무료 다운로드 한도 초과"),
         ("limited to 1 download", "무료 다운로드 한도 초과"),
+        # This also appears for logged-in free accounts. It is temporary slot
+        # congestion, not a rejected form or a request for account login.
+        ("all free download slots are currently in use", "무료 다운로드 슬롯 혼잡"),
         # Guest slots full — can be bypassed by logging in as a registered (free) user
         ("free download is temporarily limited", "무료 게스트 슬롯이 가득 참 (1fichier 무료 계정 로그인 필요)"),
         ("all free guest slots are currently in use", "무료 게스트 슬롯이 가득 참 (1fichier 무료 계정 로그인 필요)"),

@@ -24,6 +24,7 @@ from core.error_messages import (
     KIND_DAILY_QUOTA,
     KIND_PROXY_BLOCKED,
     KIND_RATE_LIMITED,
+    KIND_SLOT_BUSY,
     KIND_TRANSIENT,
     KIND_UNKNOWN,
     _compute_next_retry_at,
@@ -56,6 +57,12 @@ class TestNothingRetriesTooSoon:
 
 
 class TestBeingRefusedBacksOffHarder:
+
+    def test_busy_free_slots_retry_with_backoff_and_stop(self):
+        assert 900 <= _wait(KIND_SLOT_BUSY, 1) <= 1125
+        assert 1800 <= _wait(KIND_SLOT_BUSY, 2) <= 2250
+        assert _compute_next_retry_at(KIND_SLOT_BUSY, 4, None) is None
+        assert auto_retry_budget_exhausted(KIND_SLOT_BUSY, 4)
 
     def test_daily_quota_gets_two_next_day_retries_then_stops(self):
         assert _compute_next_retry_at(KIND_DAILY_QUOTA, 1, None) is not None

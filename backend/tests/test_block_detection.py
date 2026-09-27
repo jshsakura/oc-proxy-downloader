@@ -62,6 +62,14 @@ class TestDetectBlockReason:
         )
         assert classified.kind == "daily_quota"
 
+    def test_logged_in_free_slots_busy_is_scheduled_not_auth_blocked(self):
+        html = "<html><title>1fichier.com: Cloud Storage</title><body>High demand: all free download slots are currently in use.</body></html>"
+        assert sp.detect_block_reason(html) == "무료 다운로드 슬롯 혼잡"
+        response = MagicMock(status_code=200, text=html)
+        error = sp._classify_post_failure(response)
+        classified = classify_error("파싱", str(error))
+        assert classified.kind == "slot_busy"
+
     def test_wait_message_is_not_block(self):
         # "you must wait" is a normal flow, so it must not be detected as a block.
         html = "<html><body>You must wait 5 minutes before download.</body></html>"

@@ -44,6 +44,7 @@ KIND_DEAD = "dead"
 KIND_AUTH_REQUIRED = "auth_required"
 KIND_RATE_LIMITED = "rate_limited"
 KIND_DAILY_QUOTA = "daily_quota"
+KIND_SLOT_BUSY = "slot_busy"
 KIND_CLOUDFLARE = "cloudflare"
 KIND_PROXY_BLOCKED = "proxy_blocked"
 KIND_BLOCKED = "blocked"
@@ -84,6 +85,7 @@ _MAX_AUTO_RETRY_ATTEMPTS = {
     KIND_TRANSIENT: 3,
     KIND_RATE_LIMITED: 2,
     KIND_DAILY_QUOTA: 3,  # initial failure + at most two daily retries
+    KIND_SLOT_BUSY: 4,  # initial failure + three spaced retries
     KIND_CLOUDFLARE: 1,
     KIND_PROXY_BLOCKED: 1,
     KIND_BLOCKED: 1,
@@ -237,6 +239,10 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "1fichier 무료 다운로드 한도에 걸렸습니다",
      "프록시 모드를 켜거나 한도가 풀릴 때까지 기다리세요.",
      KIND_RATE_LIMITED, True),
+    ("1fichier 차단: 무료 다운로드 슬롯 혼잡",
+     "1fichier 무료 다운로드 슬롯이 모두 사용 중입니다",
+     "슬롯이 비기를 기다렸다가 자동으로 다시 시도합니다. 반복되면 계정/회선을 확인하세요.",
+     KIND_SLOT_BUSY, True),
     ("1fichier 차단: 일일 무료 다운로드 한도 초과",
      "1fichier 일일 무료 다운로드 한도(10개)를 모두 사용했습니다",
      "같은 회선의 한도가 풀리는 다음 날 자동으로 다시 시도합니다. 프리미엄 계정이나 다른 회선을 사용해도 됩니다.",
@@ -533,6 +539,10 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
         # A quota is a known daily wait, not a permanent host block. The
         # attempt cap above stops trying after two unsuccessful daily retries.
         return next_fichier_quota_reset(now)
+
+    if kind == KIND_SLOT_BUSY:
+        # Do not turn a crowded free tier into a tight request loop.
+        return now + _with_jitter(900 * (2 ** max(0, attempt_count - 1)))
 
     if kind == KIND_RATE_LIMITED:
         # If 1fichier specified a wait time, use it + a 60s margin.

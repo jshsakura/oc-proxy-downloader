@@ -407,11 +407,24 @@ def _poll(page: Page, probe: Callable[[], object], seconds: int, deadline: Deadl
     for _ in range(seconds):
         if deadline.expired():
             return None
-        value = probe()
+        try:
+            value = probe()
+        except Exception as exc:
+            # The host navigates the tab when issuing a download. A locator
+            # attached to the old document can briefly lose its JS context.
+            # Retry the probe after navigation instead of failing the item.
+            if not _is_navigation_race(exc):
+                raise
+            value = None
         if value:
             return value
         page.wait_for_timeout(POLL_INTERVAL_MS)
     return None
+
+
+def _is_navigation_race(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "execution context was destroyed" in message and "navigation" in message
 
 
 def _turnstile_box(page: Page) -> Optional[dict]:
@@ -446,7 +459,14 @@ def _reach_captcha(page: Page, flow: BrowserFlow, deadline: Deadline) -> Optiona
 
     for _ in range(SUBMIT_ATTEMPTS):
         deadline.check("1단계 버튼")
-        if not submit.count():
+        try:
+            present = bool(submit.count())
+        except Exception as exc:
+            if not _is_navigation_race(exc):
+                raise
+            page.wait_for_timeout(POLL_INTERVAL_MS)
+            continue
+        if not present:
             break
         # The button is disabled until the page finishes arming itself, so this
         # click waits for it. A wait that runs out is one lost attempt, not a
@@ -485,8 +505,17 @@ def _drive_to_download(
     """Press the action button until the browser starts fetching the file."""
     for _ in range(ACTION_ROUNDS):
         deadline.check("다운로드 시작 버튼")
+        if captured.get("url"):
+            return captured["url"]
         action = page.locator(flow.action_selector).first
-        if action.count():
+        try:
+            present = bool(action.count())
+        except Exception as exc:
+            if not _is_navigation_race(exc):
+                raise
+            page.wait_for_timeout(POLL_INTERVAL_MS)
+            continue
+        if present:
             # The button relabels itself through the countdown ("Free Download" →
             # "Ready in 4s" → "Start Download"), and a click landing on the frame
             # that re-renders it times out. That is one lost press, not a failed

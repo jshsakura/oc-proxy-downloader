@@ -9,6 +9,46 @@ from core.browser_solver import BrowserSolveResult
 from core.hoster_common import HosterParseError
 
 
+def test_navigation_during_locator_probe_is_retried():
+    calls = 0
+
+    def probe():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("Execution context was destroyed, most likely because of a navigation.")
+        return 1
+
+    class Page:
+        def wait_for_timeout(self, _ms):
+            pass
+
+    assert bs._poll(Page(), probe, 2, bs.Deadline(5)) == 1
+
+
+def test_download_navigation_keeps_captured_link():
+    captured = {}
+
+    class Locator:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        def count(self):
+            captured["url"] = "https://stor03.datanodes.to/file.rar"
+            raise RuntimeError("Execution context was destroyed, most likely because of a navigation.")
+
+    class Page:
+        def locator(self, _selector):
+            return Locator()
+
+        def wait_for_timeout(self, _ms):
+            pass
+
+    assert bs._drive_to_download(Page(), bs.DATANODES_FLOW, captured, bs.Deadline(5)) == captured["url"]
+
+
 # --- flow registry ---
 
 

@@ -57,6 +57,7 @@ from core.error_messages import (
     apply_failure_to_request,
     KIND_BLOCKED,
     KIND_DAILY_QUOTA,
+    KIND_SLOT_BUSY,
     KIND_PROXY_BLOCKED,
     KIND_QUEUED,
     KIND_RATE_LIMITED,
@@ -755,6 +756,14 @@ class DownloadCore:
             )
             return
 
+        if "무료 다운로드 슬롯" in (error or ""):
+            streak = self._fichier_block_streak.get(egress, 0) + 1
+            self._fichier_block_streak[egress] = streak
+            secs = min(900 * (2 ** (streak - 1)), 3600)
+            self._fichier_cooldown_until[egress] = datetime.datetime.now() + datetime.timedelta(seconds=secs)
+            print(f"[LOG] 1fichier 무료 슬롯 혼잡 [{egress}] → {secs}s 대기")
+            return
+
         streak = self._fichier_block_streak.get(egress, 0) + 1
         self._fichier_block_streak[egress] = streak
         idx = min(streak - 1, len(FICHIER_HOST_BACKOFF_SECONDS) - 1)
@@ -1195,7 +1204,7 @@ class DownloadCore:
                     await db_async.refresh(db, req)
                     if req.status == StatusEnum.done:
                         self._register_fichier_success(fichier_egress)
-                    elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED, KIND_DAILY_QUOTA):
+                    elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED, KIND_DAILY_QUOTA, KIND_SLOT_BUSY):
                         self._register_fichier_block(fichier_egress, req.error)
                         await self._publish_fichier_cooldown(db, fichier_egress)
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
