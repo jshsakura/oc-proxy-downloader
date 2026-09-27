@@ -65,6 +65,24 @@ def _should_skip_retry(req: DownloadRequest, has_credentials: bool) -> Optional[
     """
     return is_retry_blocked_now(req, has_credentials)
 
+
+def _retry_host(req: DownloadRequest) -> str:
+    """Use the original host when a parser has replaced the download URL."""
+    return (urlparse(req.original_url or req.url or "").hostname or f"request:{req.id}").lower()
+
+
+def _one_retry_per_idle_host(candidates, active):
+    """A bulk retry must never fan out across one blocked host."""
+    busy_hosts = {_retry_host(req) for req in active}
+    selected = []
+    for req in sorted(candidates, key=lambda row: (row.requested_at, row.id)):
+        host = _retry_host(req)
+        if host in busy_hosts:
+            continue
+        busy_hosts.add(host)
+        selected.append(req)
+    return selected
+
 def _find_completed_duplicate(db: Session, url: str) -> Optional[DownloadRequest]:
     """Return a prior completed download of the same URL whose file is still on
     disk, or None. Used to skip re-downloading something already fetched — the
@@ -1126,12 +1144,20 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
 
 @router.post("/downloads/restart-failed-local")
 async def restart_failed_local_downloads(db: Session = Depends(get_db)):
-    """Restart failed/stopped local downloads"""
+    """Restart at most one failed download per idle host."""
     try:
-        # Find local downloads in failed or stopped status (use_proxy=False)
+        # Stopped means explicitly parked by the user; a bulk retry must not
+        # silently revive it. Select only one failure per idle host so a block
+        # page cannot be requested for every file in a batch.
         all_failed = await db_async.all_rows(db.query(DownloadRequest).filter(
-            DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.stopped]),
+            DownloadRequest.status == StatusEnum.failed,
             _egress_filter(False)
+        ))
+        active = await db_async.all_rows(db.query(DownloadRequest).filter(
+            DownloadRequest.status.in_([
+                StatusEnum.pending, StatusEnum.parsing,
+                StatusEnum.downloading, StatusEnum.waiting,
+            ])
         ))
 
         # Exclude permanent-failure / login-required / cooldown items
@@ -1156,7 +1182,9 @@ async def restart_failed_local_downloads(db: Session = Depends(get_db)):
                 f"auth_required={skipped_auth}, cooldown={skipped_cooldown} 건 건너뜀"
             )
 
-        # Change all downloads to pending status (in one pass)
+        failed_local_downloads = _one_retry_per_idle_host(failed_local_downloads, active)
+
+        # Change selected downloads to pending status (in one pass)
         for download in failed_local_downloads:
             download.status = StatusEnum.pending
             # The column name is ``error`` — the transient attribute formerly
