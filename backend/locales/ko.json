@@ -165,6 +165,7 @@
   "copy_path": "경로 복사",
   "detail_requested_at": "요청 시간",
   "detail_status": "상태",
+  "detail_fichier_queue_note": "1fichier 무료 다운로드는 한 번에 1건씩 진행합니다. 앞선 작업이 끝나면 순서대로 시작합니다.",
   "detail_file_name": "파일명",
   "copy_filename": "파일명 복사",
   "detail_total_size": "총 크기",

@@ -3,12 +3,12 @@ import { writable, derived, get } from 'svelte/store';
 const isLoading = writable(true);
 const translations = writable({});
 const locale = writable('en');
-// New failure kinds must remain readable even while a third-party locale is
-// missing its own wording. Korean and English have native entries in JSON.
-const failureKindFallback = {
+// New labels remain readable when a locale lacks its own wording.
+const translationFallback = {
     kind_daily_quota: 'Daily free quota',
     kind_slot_busy: 'Free slots busy',
     kind_browser_parse: 'Browser parsing failed',
+    detail_fichier_queue_note: '1fichier free downloads run one at a time. This file starts when earlier jobs finish.',
 };
 
 // Apply text direction (rtl/ltr) and lang attribute to <html> for the active language.
@@ -46,7 +46,7 @@ const t = derived(translations, ($translations) => {
 
         if (text === undefined) {
             console.warn(`[i18n] Translation key not found: ${key}`);
-            return failureKindFallback[key] || key;
+            return translationFallback[key] || key;
         }
 
         if (text && typeof text === 'string' && vars) {

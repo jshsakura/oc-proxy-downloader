@@ -341,22 +341,23 @@ describe("modal and theme contracts", () => {
     expect(DETAIL).not.toContain("download.download_path");
   });
 
-  it("keeps the detail grid inset and lets long values grow their rows", () => {
-    expect(rulesFor(DETAIL, ".modal-body").join(" ")).toMatch(/padding:\s*1\.25rem 2rem/);
-    expect(rulesFor(DETAIL, ".detail-row").join(" ")).toMatch(
-      /grid-template-columns:\s*140px minmax\(0, 1fr\)/,
-    );
+  it("shows detail sections without a boxed table and keeps long values readable", () => {
+    expect(DETAIL).not.toContain("detail-grid");
+    expect(DETAIL).not.toContain("detail-row");
+    expect(DETAIL).toContain('<dl class="time-list">');
+    expect(DETAIL).toContain('status === "pending" && isFichier');
+    expect(rulesFor(DETAIL, ".modal-body").join(" ")).toMatch(/padding:\s*24px 28px/);
+    expect(rulesFor(DETAIL, ".long-value").join(" ")).toMatch(/overflow-wrap:\s*anywhere/);
     expect(rulesFor(DETAIL, ".error-text-block").join(" ")).toMatch(/white-space:\s*pre-wrap/);
     expect(rulesFor(DETAIL, ".error-text-block").join(" ")).toMatch(/overflow-wrap:\s*anywhere/);
     expect(rulesFor(DETAIL, ".error-text-block").join(" ")).not.toMatch(/text-overflow:\s*ellipsis/);
   });
 
-  it("lets the detail header title shrink before clipping the mobile close button", () => {
-    expect(rulesFor(DETAIL, ".header-content").join(" ")).toMatch(/min-width:\s*0/);
+  it("lets the detail title wrap without clipping the mobile close button", () => {
     expect(rulesFor(DETAIL, ".title-section").join(" ")).toMatch(/min-width:\s*0/);
-    expect(rulesFor(DETAIL, ".title-text").join(" ")).toMatch(/min-width:\s*0/);
-    expect(mobileBlock(DETAIL)).toMatch(/\.modern-modal\s*\{[^}]*box-sizing:\s*border-box/s);
-    expect(mobileBlock(DETAIL)).toMatch(/\.close-button\s*\{[^}]*flex-shrink:\s*0/s);
+    expect(rulesFor(DETAIL, "h2").join(" ")).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(DETAIL).toMatch(/@media \(max-width: 600px\)[\s\S]*?\.modern-modal\s*\{[^}]*box-sizing:\s*border-box/);
+    expect(DETAIL).toMatch(/@media \(max-width: 600px\)[\s\S]*?\.close-button\s*\{[^}]*flex-shrink:\s*0/);
   });
 
   it("settings previews a theme only after user input", () => {

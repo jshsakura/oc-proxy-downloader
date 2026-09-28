@@ -2,15 +2,20 @@
   import { createEventDispatcher } from "svelte";
   import { t, formatTimestamp } from "./i18n.js";
   import { modalFocus } from "./modal.js";
-  import InfoIcon from "../icons/InfoIcon.svelte";
   import XIcon from "../icons/XIcon.svelte";
   import CopyIcon from "../icons/CopyIcon.svelte";
-  import { toast } from 'svelte-sonner';
+  import { toast } from "svelte-sonner";
 
   export let showModal = false;
   export let download = {};
 
   const dispatch = createEventDispatcher();
+
+  $: status = (download.status || "pending").toLowerCase();
+  $: isFichier = /(?:^|\/\/)1fichier\.com(?:\/|\?)/i.test(download.url || "");
+  $: progress = download.total_size > 0
+    ? Math.min(100, Math.round(((download.downloaded_size || 0) / download.total_size) * 100))
+    : 0;
 
   function closeModal() {
     showModal = false;
@@ -26,30 +31,26 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
   }
 
-  async function copyToClipboard(text) {
+  async function copyToClipboard(value) {
     try {
       if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(value);
       } else {
-        // Fallback for older browsers or non-HTTPS
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-999999px";
-        textArea.style.top = "-999999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
+        const input = document.createElement("textarea");
+        input.value = value;
+        input.style.position = "fixed";
+        input.style.left = "-9999px";
+        document.body.appendChild(input);
+        input.select();
         document.execCommand("copy");
-        textArea.remove();
+        input.remove();
       }
       toast.success($t("copy_success"));
-    } catch (err) {
-      console.error($t("clipboard_copy_failed"), err);
+    } catch (error) {
+      console.error($t("clipboard_copy_failed"), error);
       toast.error($t("copy_failed"));
     }
   }
-
 </script>
 
 {#if showModal}
@@ -62,938 +63,251 @@
       tabindex="-1"
       use:modalFocus={{ onEscape: closeModal }}
     >
-      <!-- Modern header -->
-      <div class="modal-header">
-        <div class="header-content">
-          <div class="title-section">
-            <div class="icon-wrapper">
-              <InfoIcon />
-            </div>
-            <div class="title-text">
-              <h2 id="detail-modal-title">{$t("detail_modal_title")}</h2>
-              <p class="subtitle">
-                {download.filename || $t("detail_not_available")}
-              </p>
-            </div>
-          </div>
-          <button class="close-button" on:click={closeModal} aria-label={$t("close")} title={$t("close")}>
-            <XIcon />
-          </button>
-        </div>
-      </div>
-
-      <!-- Modern body -->
-      <div class="modal-body">
-        <div class="detail-grid">
-          <div class="detail-row">
-            <div class="detail-label">{$t("detail_file_name")}</div>
-            <div class="detail-value">
-              {#if download.filename}
-                <div class="url-container">
-                  <span class="url-text" title={download.filename}>{download.filename}</span>
-                  <button class="copy-button" on:click={() => copyToClipboard(download.filename)} title={$t("copy_filename")}>
-                    <CopyIcon />
-                  </button>
-                </div>
-              {:else}
-                {$t("detail_not_available")}
-              {/if}
-            </div>
-          </div>
-
-          <div class="detail-row">
-            <div class="detail-label">{$t("detail_download_url")}</div>
-            <div class="detail-value">
-              <div class="url-container">
-                <span class="url-text" title={download.url}>{download.url}</span>
-                <button class="copy-button" on:click={() => copyToClipboard(download.url)} title={$t("copy_url")} aria-label={$t("copy_url")}>
-                  <CopyIcon />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {#if download.original_url}
-            <div class="detail-row">
-              <div class="detail-label">{$t("detail_parsed_link")}</div>
-              <div class="detail-value">
-                <div class="url-container">
-                  <span class="url-text" title={download.original_url}>{download.original_url}</span>
-                  <button class="copy-button" on:click={() => copyToClipboard(download.original_url)} title={$t("copy_url")} aria-label={$t("copy_url")}><CopyIcon /></button>
-                </div>
-              </div>
-            </div>
-          {/if}
-
-          <div class="detail-row">
-            <div class="detail-label">{$t("detail_download_path")}</div>
-            <div class="detail-value">
-              {#if download.save_path}
-                <div class="url-container">
-                  <span class="url-text" title={download.save_path}>{download.save_path}</span>
-                  <button class="copy-button" on:click={() => copyToClipboard(download.save_path)} title={$t("copy_path")} aria-label={$t("copy_path")}><CopyIcon /></button>
-                </div>
-              {:else}
-                {$t("detail_not_available")}
-              {/if}
-            </div>
-          </div>
-
-          <div class="detail-row">
-            <div class="detail-label">{$t("detail_requested_at")}</div>
-            <div class="detail-value">{download.created_at ? formatTimestamp(download.created_at) : $t("detail_not_available")}</div>
-          </div>
-
-          <div class="detail-row">
-            <div class="detail-label">{$t("detail_status")}</div>
-            <div class="detail-value">
-              <span class="status status-{download.status?.toLowerCase()}">
-                {$t(`download_${download.status?.toLowerCase()}`)}
-              </span>
-            </div>
-          </div>
-
-          <div class="detail-row">
-            <div class="detail-label">{$t("detail_total_size")}</div>
-            <div class="detail-value">{download.total_size ? formatBytes(download.total_size) : $t("detail_not_available")}</div>
-          </div>
-
-          <div class="detail-row">
-            <div class="detail-label">{$t("detail_finished_at")}</div>
-            <div class="detail-value">{download.finished_at ? formatTimestamp(download.finished_at) : $t("detail_not_available")}</div>
-          </div>
-
-          <div class="detail-row">
-            <div class="detail-label">{$t("detail_error_message")}</div>
-            <div class="detail-value">
-              <div class="error-message-container">
-                <div class="error-text-block" title={download.error_message || ""}>{download.error_message || $t("detail_no_error")}</div>
-                {#if download.error_message}
-                  <button class="copy-button" on:click={() => copyToClipboard(download.error_message)} title={$t("copy_error")} aria-label={$t("copy_error")}><CopyIcon /></button>
-                {/if}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Modern footer -->
-      <div class="modal-footer">
-        <div class="footer-left">
-          <div class="status-info">
-            <span class="status-badge status-{download.status?.toLowerCase()}">
-              {$t(`download_${download.status?.toLowerCase()}`)}
-            </span>
-            {#if download.created_at}
-              <span class="timestamp">
-                {formatTimestamp(download.created_at)}
-              </span>
+      <header class="modal-header">
+        <div class="title-section">
+          <span class="eyebrow">{$t("detail_modal_title")}</span>
+          <div class="file-title-row">
+            <h2 id="detail-modal-title">{download.filename || $t("detail_not_available")}</h2>
+            {#if download.filename}
+              <button
+                type="button"
+                class="copy-button"
+                on:click={() => copyToClipboard(download.filename)}
+                aria-label={$t("copy_filename")}
+                title={$t("copy_filename")}
+              ><CopyIcon /></button>
             {/if}
           </div>
         </div>
-        <div class="footer-right">
-          <button on:click={closeModal} class="button button-primary">
-            {$t("close")}
-          </button>
-        </div>
+        <button type="button" class="close-button" on:click={closeModal} aria-label={$t("close")} title={$t("close")}><XIcon /></button>
+      </header>
+
+      <div class="modal-body">
+        <section class="overview" aria-label={$t("detail_status")}>
+          <div class="overview-line">
+            <span class="status-badge status-{status}">{$t(`download_${status}`)}</span>
+            {#if download.total_size}
+              <span class="file-size">{formatBytes(download.total_size)}</span>
+            {/if}
+          </div>
+          {#if status === "downloading" && download.total_size}
+            <div class="progress-line">
+              <span>{formatBytes(download.downloaded_size || 0)} / {formatBytes(download.total_size)}</span>
+              <strong>{progress}%</strong>
+            </div>
+            <div class="progress-track" role="progressbar" aria-label={$t("download_downloading")} aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100">
+              <span style:width="{progress}%"></span>
+            </div>
+          {/if}
+          {#if status === "pending" && isFichier}
+            <p class="queue-note">{$t("detail_fichier_queue_note")}</p>
+          {/if}
+        </section>
+
+        <section class="detail-section" aria-label={$t("detail_download_url")}>
+          <h3>{$t("detail_download_url")}</h3>
+          <div class="value-line">
+            <span class="long-value">{download.url || $t("detail_not_available")}</span>
+            {#if download.url}
+              <button type="button" class="copy-button" on:click={() => copyToClipboard(download.url)} aria-label={$t("copy_url")} title={$t("copy_url")}><CopyIcon /></button>
+            {/if}
+          </div>
+        </section>
+
+        {#if download.original_url && download.original_url !== download.url}
+          <section class="detail-section" aria-label={$t("detail_parsed_link")}>
+            <h3>{$t("detail_parsed_link")}</h3>
+            <div class="value-line">
+              <span class="long-value">{download.original_url}</span>
+              <button type="button" class="copy-button" on:click={() => copyToClipboard(download.original_url)} aria-label={$t("copy_url")} title={$t("copy_url")}><CopyIcon /></button>
+            </div>
+          </section>
+        {/if}
+
+        {#if download.save_path}
+          <section class="detail-section" aria-label={$t("detail_download_path")}>
+            <h3>{$t("detail_download_path")}</h3>
+            <div class="value-line">
+              <span class="long-value">{download.save_path}</span>
+              <button type="button" class="copy-button" on:click={() => copyToClipboard(download.save_path)} aria-label={$t("copy_path")} title={$t("copy_path")}><CopyIcon /></button>
+            </div>
+          </section>
+        {/if}
+
+        <dl class="time-list">
+          <div>
+            <dt>{$t("detail_requested_at")}</dt>
+            <dd>{download.created_at ? formatTimestamp(download.created_at) : $t("detail_not_available")}</dd>
+          </div>
+          {#if download.finished_at}
+            <div>
+              <dt>{$t("detail_finished_at")}</dt>
+              <dd>{formatTimestamp(download.finished_at)}</dd>
+            </div>
+          {/if}
+        </dl>
+
+        {#if download.error_message}
+          <section class="detail-section error-section" aria-label={$t("detail_error_message")}>
+            <h3>{$t("detail_error_message")}</h3>
+            <div class="value-line">
+              <span class="error-text-block">{download.error_message}</span>
+              <button type="button" class="copy-button" on:click={() => copyToClipboard(download.error_message)} aria-label={$t("copy_error")} title={$t("copy_error")}><CopyIcon /></button>
+            </div>
+          </section>
+        {/if}
       </div>
+
+      <footer class="modal-footer">
+        <button type="button" on:click={closeModal} class="button button-primary">{$t("close")}</button>
+      </footer>
     </div>
   </div>
 {/if}
 
 <style>
-  /* Modern backdrop */
   .modern-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
+    z-index: 1000;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
     padding: 20px;
-    animation: backdropFadeIn 0.3s ease-out;
+    background: rgba(0, 0, 0, 0.68);
+    backdrop-filter: blur(6px);
   }
 
-  @keyframes backdropFadeIn {
-    from {
-      opacity: 0;
-      backdrop-filter: blur(0px);
-    }
-    to {
-      opacity: 1;
-      backdrop-filter: blur(8px);
-    }
-  }
-
-  /* Modern modal container */
   .modern-modal {
-    background: var(--card-background);
-    border-radius: 16px;
-    box-shadow:
-      0 25px 50px -12px rgba(0, 0, 0, 0.25),
-      0 0 0 1px rgba(255, 255, 255, 0.05);
-    width: 95vw;
-    max-width: 800px;
-    max-height: 90vh;
-    min-height: 400px;
-    overflow: hidden;
+    width: min(100%, 720px);
+    max-height: min(88dvh, 760px);
     display: flex;
     flex-direction: column;
-    backdrop-filter: blur(16px);
-    animation: modalSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-    resize: none;
+    overflow: hidden;
+    background: var(--card-background);
+    color: var(--text-primary);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
   }
 
-  @keyframes modalSlideIn {
-    from {
-      opacity: 0;
-      transform: scale(0.95) translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1) translateY(0);
-    }
-  }
+  .modern-modal:focus { outline: none; }
 
-  /* Modern header */
   .modal-header {
-    background: linear-gradient(
-      135deg,
-      var(--primary-color) 0%,
-      var(--primary-hover, #1e40af) 100%
-    );
-    color: white;
-    padding: 1.5rem 2rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    flex-shrink: 0;
-  }
-
-  .header-content {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    min-width: 0;
-    position: relative;
-  }
-
-  .title-section {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .title-text {
-    min-width: 0;
-  }
-
-  .icon-wrapper {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 8px;
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-  }
-
-  .icon-wrapper :global(svg) {
-    width: 1.25rem;
-    height: 1.25rem;
-    color: white;
-  }
-
-  .title-text h2 {
-    margin: 0;
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: white;
-    line-height: 1.2;
-    letter-spacing: 0.05em;
-  }
-
-  .subtitle {
-    margin: 0.25rem 0 0 0;
-    font-size: 0.85rem;
-    color: rgba(255, 255, 255, 0.85);
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 300px;
-  }
-
-  .close-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
-    border: none;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-  }
-
-  .close-button:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
-  .close-button :global(svg) {
-    width: 1.25rem;
-    height: 1.25rem;
-    color: white;
-  }
-
-  /* Modal body - changed scroll behavior */
-
-  .detail-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    border: 1px solid var(--card-border);
-    border-radius: 10px;
-    overflow: hidden;
-    margin: 0;
-    font-size: 0.9rem;
-    background-color: var(--card-background);
-  }
-
-  .detail-row {
-    display: grid;
-    grid-template-columns: 140px minmax(0, 1fr);
+    align-items: flex-start;
+    gap: 20px;
+    padding: 24px 28px 20px;
     border-bottom: 1px solid var(--card-border);
-    min-width: 0;
   }
 
-  .detail-row:last-child {
-    border-bottom: none;
-  }
-
-  .detail-label {
-    padding: 13px 16px;
-    background-color: var(--bg-secondary);
+  .title-section { flex: 1; min-width: 0; }
+  .eyebrow {
+    display: block;
+    margin-bottom: 8px;
     color: var(--text-secondary);
+    font-size: 12px;
     font-weight: 600;
-    border-right: 1px solid var(--card-border);
-    display: flex;
-    align-items: flex-start;
-    line-height: 1.5;
   }
-
-  .detail-value {
-    padding: 13px 16px;
-    color: var(--text-primary);
-    display: flex;
-    align-items: flex-start;
+  .file-title-row { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+  h2 {
     min-width: 0;
-    min-height: 48px;
-    box-sizing: border-box;
-    line-height: 1.5;
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.45;
     overflow-wrap: anywhere;
   }
-
-  .detail-row:hover {
-    background-color: rgba(var(--primary-color-rgb), 0.05);
-  }
-
-  @media (max-width: 540px) {
-    .detail-row {
-      grid-template-columns: 110px 1fr;
-    }
-    .detail-label, .detail-value {
-      padding: 10px 12px;
-      font-size: 0.85rem;
-    }
-  }
-
-  .modal-body {
-    flex: 1;
-    overflow: auto;
-    padding: 1.25rem 2rem;
-    background: var(--card-background);
-    width: 100%;
-    box-sizing: border-box;
-    resize: none;
-    position: relative;
-    /* A thin overlay-style scrollbar. The mismatch between header/footer width
-       and body width is handled by making the scrollbar itself thin and the
-       track transparent so it visually disappears. scrollbar-gutter: stable is
-       not used because it always reserves ~15px of empty space, which actually
-       makes the right-side gap more noticeable. */
-    scrollbar-width: thin;
-    scrollbar-color: var(--card-border) transparent;
-  }
-
-  .modal-body::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  .modal-body::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .modal-body::-webkit-scrollbar-thumb {
-    background: var(--card-border);
-    border-radius: 3px;
-  }
-  .modal-body::-webkit-scrollbar-thumb:hover {
-    background: var(--text-secondary);
-  }
-
-  .modal-body * {
-    resize: none !important;
-  }
-
-  .error-message-container,
-  .url-container {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    width: 100%;
-    min-width: 0;
-  }
-
-  .error-text,
-  .url-text {
-    flex: 1;
-    line-height: 1.4;
-    color: var(--text-primary, #1f2937);
-    font-family: "Courier New", monospace;
-    font-size: 13px;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    white-space: normal;
-    min-width: 0;
-  }
-
-  .error-text-block {
-    flex: 1;
-    color: var(--text-primary, #1f2937);
-    font-size: 13px;
-    line-height: 1.5;
-    min-width: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-  }
-
-  .copy-button {
-    background: var(--card-background);
-    border: 1px solid var(--card-border);
-    border-radius: 6px;
-    padding: 6px;
-    cursor: pointer;
+  h3 {
+    margin: 0 0 9px;
     color: var(--text-secondary);
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-    width: 28px;
-    height: 28px;
-    min-width: 28px;
-    max-width: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    font-size: 12px;
+    font-weight: 600;
   }
 
-  .copy-button:hover {
-    background-color: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-  }
-
-  .copy-button:active {
-    transform: scale(0.95);
-  }
-
-  .copy-button :global(svg) {
-    width: 14px;
-    height: 14px;
-  }
-
-  /* Modern footer */
-  .modal-footer {
-    padding: 1.25rem 2rem;
-    border-top: 1px solid var(--card-border, #e5e7eb);
-    background: linear-gradient(
-      135deg,
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.03) 0%,
-      rgba(var(--primary-color-rgb, 59, 130, 246), 0.01) 100%
-    );
-    backdrop-filter: blur(10px);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: relative;
-    z-index: 10;
-    border-bottom-left-radius: 16px;
-    border-bottom-right-radius: 16px;
-    flex-shrink: 0;
-  }
-
-  .footer-left {
-    flex: 1;
-  }
-
-  .footer-right {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-  }
-
-  .status-info {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  /* Same status styles as the main grid */
-  .status {
+  .close-button, .copy-button {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
-    padding: 0.3rem 0.6rem;
-    border-radius: 20px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
-    min-width: 70px;
     justify-content: center;
-    position: relative;
-  }
-
-  .status::before {
-    content: "";
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .status-pending {
-    color: var(--text-primary);
-    background-color: var(--card-border);
-    border: 1px solid var(--input-border);
-  }
-  .status-pending::before {
-    background-color: #f97316; /* Orange dot */
-    animation: pendingPulse 2s infinite; /* Blink effect */
-  }
-
-  @keyframes pendingPulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.3;
-    }
-  }
-
-  .status-downloading {
-    color: #fff;
-    background-color: var(--primary-color);
-  }
-  .status-downloading::before {
-    background-color: #fff;
-    animation: pulse 2s infinite;
-  }
-
-  .status-done {
-    color: #fff;
-    background-color: var(--success-color);
-  }
-  .status-done::before {
-    background-color: #fff;
-  }
-
-  .status-failed {
-    color: #fff;
-    background-color: var(--danger-color);
-  }
-  .status-failed::before {
-    background-color: #fff;
-  }
-
-  .status-parsing {
-    color: #fff;
-    background-color: var(--warning-color); /* Same as proxying */
-  }
-  .status-parsing::before {
-    background-color: #fff;
-    animation: pulse 2s infinite;
-  }
-
-  .status-proxying {
-    color: #fff;
-    background-color: var(--warning-color);
-  }
-  .status-proxying::before {
-    background-color: #fff;
-    animation: pulse 2s infinite;
-  }
-
-  .status-paused,
-  .status-stopped {
-    color: #fff;
-    background-color: #6b7280;
-  }
-  .status-paused::before,
-  .status-stopped::before {
-    background-color: #fff;
-  }
-
-  @keyframes pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.5;
-    }
-  }
-
-  /* 그리드의 상태 라벨과 같은 공식으로 칠한다 — 예전엔 여기만 상태색을 꽉 채운
-     흰 글씨라, 같은 다운로드의 같은 상태가 표에서와 푸터에서 다르게 보였다. */
-  .status-badge {
-    --status-hue: var(--text-secondary);
-    --status-ink: var(--text-secondary);
-    display: inline-flex;
-    align-items: center;
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-    color: var(--status-ink);
-    background: color-mix(in srgb, var(--status-hue) 15%, transparent);
-    border: 1px solid color-mix(in srgb, var(--status-hue) 38%, transparent);
-  }
-
-  .status-badge.status-done {
-    --status-hue: var(--status-done-border);
-    --status-ink: var(--status-done-text);
-  }
-
-  .status-badge.status-parsing {
-    --status-hue: var(--status-parsing-border);
-    --status-ink: var(--status-parsing-text);
-  }
-
-  .status-badge.status-downloading {
-    --status-hue: var(--status-downloading-border);
-    --status-ink: var(--status-downloading-text);
-  }
-
-  .status-badge.status-failed {
-    --status-hue: var(--status-failed-border);
-    --status-ink: var(--status-failed-text);
-  }
-
-  .status-badge.status-stopped {
-    --status-hue: var(--status-stopped-border);
-    --status-ink: var(--status-stopped-text);
-  }
-
-  .status-badge.status-pending,
-  .status-badge.status-waiting,
-  .status-badge.status-proxying {
-    --status-hue: var(--status-pending-border);
-    --status-ink: var(--status-pending-text);
-  }
-
-  .timestamp {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
-
-  /* Per-theme footer styles */
-  :global(body.dark) .modal-footer {
-    background: #1f2937;
-    border-top-color: #374151;
-  }
-
-  :global(body.dark) .timestamp {
-    color: #9ca3af;
-  }
-
-  :global(body.dracula) .modal-footer {
-    background: #282a36;
-    border-top-color: #44475a;
-  }
-
-  :global(body.dracula) .timestamp {
-    color: #6272a4;
-  }
-
-  /* Mobile responsive styles */
-  @media (max-width: 480px) {
-    .modern-backdrop {
-      padding: 10px;
-    }
-
-    .modern-modal {
-      width: 100%;
-      max-width: 100%;
-      height: 90vh;
-      max-height: 90vh;
-      border-radius: 12px;
-    }
-
-    .modal-header {
-      padding: 1rem;
-    }
-
-    .modal-body {
-      padding: 1rem;
-    }
-
-    .header-content {
-      /* Keep normal flex layout - don't change to column */
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .title-section {
-      /* Keep normal flex layout */
-      flex: 1;
-      gap: 0.5rem;
-    }
-
-    .icon-wrapper {
-      width: 2rem;
-      height: 2rem;
-    }
-
-    .icon-wrapper :global(svg) {
-      width: 1rem;
-      height: 1rem;
-    }
-
-    .title-text h2 {
-      font-size: 1.1rem;
-    }
-
-    .subtitle {
-      max-width: 200px;
-      font-size: 0.75rem;
-    }
-
-    .close-button {
-      /* Keep normal positioning - don't make absolute */
-      width: 2rem;
-      height: 2rem;
-      flex-shrink: 0;
-    }
-
-    .close-button :global(svg) {
-      width: 1rem;
-      height: 1rem;
-    }
-
-    .modal-footer {
-      padding: 1rem;
-      flex-direction: column-reverse;
-      align-items: stretch;
-      gap: 1rem;
-    }
-
-    .footer-left,
-    .footer-right {
-      width: 100%;
-      justify-content: center;
-    }
-
-    .status-info {
-      text-align: center;
-    }
-
-    .button {
-      width: 100%;
-      min-width: unset;
-    }
-  }
-
-  /* Pagination styles */
-  .pagination {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 8px;
-    padding: 16px 20px;
-    border-top: 1px solid var(--card-border);
-    background: var(--bg-primary);
-  }
-
-  .page-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    flex: none;
     width: 32px;
     height: 32px;
+    padding: 0;
     border: 1px solid var(--card-border);
-    background: var(--card-background);
-    color: var(--text-primary);
-    border-radius: 6px;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
     cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.2s ease;
   }
-
-  .page-btn:hover:not(:disabled) {
-    background: var(--primary-color);
-    color: white;
+  .close-button:hover, .copy-button:hover {
+    color: var(--text-primary);
     border-color: var(--primary-color);
   }
-
-  .page-btn.active {
-    background: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
+  .close-button:focus-visible, .copy-button:focus-visible, .modal-footer button:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
   }
+  .close-button :global(svg), .copy-button :global(svg) { width: 16px; height: 16px; }
 
-  .page-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    background: var(--card-border);
+  .modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 28px; }
+  .overview { padding-bottom: 22px; border-bottom: 1px solid var(--card-border); }
+  .overview-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .status-badge {
+    --status-color: var(--status-pending-border);
+    --status-text: var(--status-pending-text);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 10px;
+    border: 1px solid color-mix(in srgb, var(--status-color) 45%, transparent);
+    border-radius: 999px;
+    color: var(--status-text);
+    background: color-mix(in srgb, var(--status-color) 14%, transparent);
+    font-size: 12px;
+    font-weight: 700;
   }
+  .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--status-color); }
+  .status-badge.status-downloading { --status-color: var(--status-downloading-border); --status-text: var(--status-downloading-text); }
+  .status-badge.status-done { --status-color: var(--status-done-border); --status-text: var(--status-done-text); }
+  .status-badge.status-parsing { --status-color: var(--status-parsing-border); --status-text: var(--status-parsing-text); }
+  .status-badge.status-failed { --status-color: var(--status-failed-border); --status-text: var(--status-failed-text); }
+  .status-badge.status-stopped { --status-color: var(--status-stopped-border); --status-text: var(--status-stopped-text); }
+  .file-size { color: var(--text-secondary); font-size: 14px; }
+  .progress-line { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; color: var(--text-secondary); font-size: 12px; }
+  .progress-line strong { color: var(--text-primary); }
+  .progress-track { height: 5px; margin-top: 8px; overflow: hidden; border-radius: 999px; background: var(--bg-secondary); }
+  .progress-track span { display: block; height: 100%; background: var(--primary-color); }
+  .queue-note { margin: 14px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
 
-  /* Per-theme pagination styles */
-  :global(body.dark) .pagination {
-    background: #1f2937;
-    border-top-color: #374151;
+  .detail-section { padding: 18px 0; border-bottom: 1px solid var(--card-border); }
+  .value-line { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+  .long-value, .error-text-block {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
+  .long-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .error-section h3 { color: var(--status-failed-text); }
 
-  :global(body.dark) .page-btn {
-    background: #374151;
-    border-color: #4b5563;
-    color: #f3f4f6;
-  }
+  .time-list { display: flex; flex-wrap: wrap; gap: 14px 36px; margin: 0; padding: 18px 0; }
+  .time-list > div { min-width: 180px; }
+  .time-list dt { margin-bottom: 7px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+  .time-list dd { margin: 0; font-size: 13px; }
 
-  :global(body.dark) .page-btn:disabled {
-    background: #4b5563;
-  }
+  .modal-footer { display: flex; justify-content: flex-end; padding: 16px 28px; border-top: 1px solid var(--card-border); }
 
-  :global(body.dracula) .pagination {
-    background: #282a36;
-    border-top-color: #44475a;
-  }
-
-  :global(body.dracula) .page-btn {
-    background: #44475a;
-    border-color: #6272a4;
-    color: #f8f8f2;
-  }
-
-  :global(body.dracula) .page-btn:disabled {
-    background: #6272a4;
-  }
-
-  /* Cells that have a container display normally */
-
-  /* Mobile responsive styles */
-  @media (max-width: 768px) {
-    .modern-modal {
-      width: 95vw;
-      box-sizing: border-box;
-      height: 85vh;
-      max-height: 500px;
-      min-height: 350px;
-      margin: 10px;
-    }
-
-    .modal-header {
-      padding: 20px 16px;
-    }
-
-    .header-content {
-      flex-direction: row;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-    }
-    .title-section {
-      margin-right: 0;
-      width: auto;
-      min-width: 0;
-    }
-    .close-button {
-      position: relative;
-      right: 0;
-      width: 32px;
-      height: 32px;
-      flex-shrink: 0;
-    }
-
-    .close-button :global(svg) {
-      width: 16px;
-      height: 16px;
-    }
-
-    .icon-wrapper {
-      width: 40px;
-      height: 40px;
-    }
-
-    .icon-wrapper :global(svg) {
-      width: 20px;
-      height: 20px;
-    }
-
-    .title-text h2 {
-      font-size: 1.25rem;
-    }
-
-    .subtitle {
-      max-width: 250px;
-    }
-
-    .copy-button {
-      min-width: 24px;
-      height: 24px;
-      padding: 4px;
-    }
-
-    .copy-button :global(svg) {
-      width: 12px;
-      height: 12px;
-    }
-
-    .modal-footer {
-      padding: 16px;
-    }
-
-    .footer-content {
-      flex-direction: column;
-      gap: 12px;
-      align-items: stretch;
-    }
-
-    .status-info {
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-
-    .footer-actions {
-      justify-content: center;
-    }
-
-    .modern-button {
-      width: 100%;
-      min-width: auto;
-    }
+  @media (max-width: 600px) {
+    .modern-backdrop { padding: 10px; align-items: flex-end; }
+    .modern-modal { width: 100%; max-height: 92dvh; box-sizing: border-box; border-radius: 12px; }
+    .modal-header { padding: 18px; gap: 12px; }
+    .modal-body { padding: 18px; }
+    .modal-footer { padding: 14px 18px; }
+    .modal-footer button { width: 100%; }
+    h2 { font-size: 16px; }
+    .close-button { flex-shrink: 0; }
   }
 </style>
