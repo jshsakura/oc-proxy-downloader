@@ -190,6 +190,7 @@ MIXDROP_FLOW = BrowserFlow(
     # into the final download link after a short countdown.
     action_selector="a.download-btn",
 )
+MIXDROP_DOMAINS = frozenset({"mixdrop.ag", "mixdrop.top", "mxdrop.top"})
 DEFAULT_FLOW = BrowserFlow()
 
 _FLOWS = {
@@ -197,6 +198,7 @@ _FLOWS = {
     "send.now": SEND_NOW_FLOW,
     "mixdrop.ag": MIXDROP_FLOW,
     "mixdrop.top": MIXDROP_FLOW,
+    "mxdrop.top": MIXDROP_FLOW,
 }
 
 # Hosts that have a browser flow at all. Used to route their parses onto the
@@ -208,7 +210,7 @@ BROWSER_FLOW_HOSTS = frozenset(_FLOWS)
 # captcha, so a build without one can refuse the link immediately. Send.now is
 # deliberately absent — it only shows a captcha sometimes, and FlareSolverr still
 # resolves the rest, so gating it up front would break links that do work.
-BROWSER_REQUIRED_HOSTS = frozenset({"datanodes.to", "mixdrop.ag", "mixdrop.top"})
+BROWSER_REQUIRED_HOSTS = frozenset({"datanodes.to", *MIXDROP_DOMAINS})
 
 
 def flow_for_host(host: str) -> BrowserFlow:
@@ -272,6 +274,46 @@ def _is_file_navigation(candidate: str, page_url: str) -> bool:
     return bool(match) and match.group(1).lower() not in _PAGE_EXTENSIONS
 
 
+def _guard_hoster_navigation(route, page: Page, source_url: str,
+                             captured: Optional[Dict[str, str]] = None) -> None:
+    """Keep an external top-level redirect from replacing the download page.
+
+    Some hosts open third-party ads during the free-download clicks. If one
+    replaces the main tab, the old flow keeps clicking on that unrelated page
+    and eventually reports a fictitious captcha success. Subframes, including
+    Turnstile, must still load normally.
+    """
+    request = route.request
+    try:
+        main_navigation = request.is_navigation_request() and request.frame == page.main_frame
+    except Exception:
+        main_navigation = False
+    target_host = (urlparse(request.url).hostname or "").lower()
+    source_host = (urlparse(source_url).hostname or "").lower()
+    current_host = (urlparse(page.url).hostname or "").lower()
+    if (main_navigation and source_host in MIXDROP_DOMAINS
+            and target_host.endswith(".mxcontent.net")
+            and urlparse(request.url).path.startswith("/d/")):
+        # MixDrop's free button goes straight to its delivery domain. Keep the
+        # signed URL before Chromium attempts the large browser download.
+        if captured is not None:
+            captured.setdefault("url", request.url)
+        route.fulfill(status=204, body="")
+        return
+    allowed_host = (
+        _same_site(target_host, source_host)
+        or _same_site(target_host, current_host)
+        or (target_host in MIXDROP_DOMAINS and source_host in MIXDROP_DOMAINS)
+    )
+    if main_navigation and target_host and not allowed_host:
+        print(f"[DEBUG] 호스터 외부 페이지 이동 억제: {target_host}")
+        # A rejected top-level navigation turns Chromium's original tab into
+        # chrome-error://. HTTP 204 cancels the navigation but keeps its page.
+        route.fulfill(status=204, body="")
+    else:
+        route.continue_()
+
+
 def _capture_download_response(response, page_url: str, captured: Dict[str, str]) -> None:
     """Read the host's final ``download2`` JSON response directly.
 
@@ -287,11 +329,22 @@ def _capture_download_response(response, page_url: str, captured: Dict[str, str]
         headers = {str(k).lower(): str(v) for k, v in request.headers.items()}
         if request.method.upper() != "POST" or headers.get("x-dn-dl") != "1":
             return
+        response_host = (urlparse(getattr(response, "url", "") or getattr(request, "url", "")).hostname or "").lower()
+        page_host = (urlparse(page_url).hostname or "").lower()
+        if response_host and not _same_site(response_host, page_host):
+            return
         data = response.json()
         if not isinstance(data, dict):
             return
         candidate = unquote(str(data.get("url") or ""))
-        if candidate and _is_file_navigation(candidate, page_url):
+        parsed = urlparse(candidate)
+        # The host's signed download2 response can point to a storage domain
+        # outside datanodes.to. Unlike arbitrary page navigations, this JSON is
+        # the host's own hand-off, so accept its absolute HTTP(S) link.
+        page_path = (parsed.path or "").rstrip("/")
+        if (parsed.scheme in {"http", "https"} and parsed.hostname
+                and not parsed.username and not parsed.password
+                and (parsed.hostname.lower() != page_host or page_path not in {"", "/download"})):
             captured.setdefault("url", candidate)
         error = str(data.get("error") or "").strip()
         if error:
@@ -530,7 +583,7 @@ def _drive_to_download(
     detail = captured.get("error")
     suffix = f" (호스터 응답: {detail})" if detail else ""
     raise HosterParseError(
-        f"캡차는 통과했지만 다운로드 링크가 발급되지 않았습니다{suffix}"
+        f"다운로드 버튼 처리 후 링크를 받지 못했습니다{suffix}"
     )
 
 
@@ -561,7 +614,7 @@ def solve_download_page(
         download.cancel()
 
     def on_request(request) -> None:
-        if request.is_navigation_request() and _is_file_navigation(request.url, url):
+        if request.is_navigation_request() and _is_file_navigation(request.url, page.url or url):
             captured.setdefault("url", request.url)
 
     def on_response(response) -> None:
@@ -578,6 +631,10 @@ def solve_download_page(
                     proxy=proxy,
                 )
                 page = context.new_page()
+                page.route(
+                    "**/*",
+                    lambda route: _guard_hoster_navigation(route, page, url, captured),
+                )
                 page.on("download", on_download)
                 page.on("request", on_request)
                 page.on("response", on_response)

@@ -63,6 +63,7 @@ def test_datanodes_browser_flow_allows_only_one_download_even_with_default_cap()
     _write_config({"max_concurrent_downloads": 8, "max_per_host_downloads": 3})
     dc = DownloadCore()
     assert dc._resolve_host_limit("https://datanodes.to/file/code") == ("datanodes.to", 1)
+    assert dc._resolve_host_limit("https://multiup.io/download/code/file.rar") == ("multiup.io", 1)
 
 
 @pytest.mark.parametrize("host", ["datanodes.to", "gofile.io", "megaup.net", "send.now"])

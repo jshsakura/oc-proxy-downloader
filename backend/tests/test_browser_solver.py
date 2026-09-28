@@ -362,6 +362,29 @@ def test_download2_json_url_is_captured_before_browser_navigation():
     assert captured["url"] == "https://stor03.datanodes.to:8443/d/x/game.rar"
 
 
+def test_download2_accepts_external_storage_from_datanodes_response():
+    response = _Download2Response({"url": "https%3A%2F%2Fstorage.example%2Fd%2Ffile.rar"})
+    response.url = "https://datanodes.to/download"
+    captured = {}
+
+    bs._capture_download_response(response, "https://datanodes.to/abc", captured)
+
+    assert captured["url"] == "https://storage.example/d/file.rar"
+
+
+def test_download2_ignores_external_response_and_non_http_link():
+    response = _Download2Response({"url": "https://storage.example/d/file.rar"})
+    response.url = "https://ads.example/track"
+    captured = {}
+    bs._capture_download_response(response, "https://datanodes.to/abc", captured)
+    assert captured == {}
+
+    response.url = "https://datanodes.to/download"
+    response.payload = {"url": "javascript:alert(1)"}
+    bs._capture_download_response(response, "https://datanodes.to/abc", captured)
+    assert captured == {}
+
+
 def test_download2_json_error_is_preserved_for_diagnostics():
     captured = {}
 
@@ -384,6 +407,79 @@ def test_unrelated_post_response_is_ignored():
     bs._capture_download_response(response, "https://datanodes.to/abc", captured)
 
     assert captured == {}
+
+
+def test_hoster_ad_navigation_is_blocked_without_blocking_turnstile():
+    from types import SimpleNamespace
+
+    main_frame = object()
+    page = SimpleNamespace(main_frame=main_frame, url="https://datanodes.to/abc")
+
+    def route_for(url, frame, navigation=True):
+        calls = []
+        request = SimpleNamespace(
+            url=url,
+            frame=frame,
+            is_navigation_request=lambda: navigation,
+        )
+        route = SimpleNamespace(
+            request=request,
+            fulfill=lambda **kwargs: calls.append(("fulfill", kwargs)),
+            continue_=lambda: calls.append(("continue",)),
+        )
+        bs._guard_hoster_navigation(route, page, "https://datanodes.to/abc")
+        return calls
+
+    assert route_for("https://trip.com/", main_frame) == [("fulfill", {"status": 204, "body": ""})]
+    assert route_for("https://stor03.datanodes.to/d/file.rar", main_frame) == [("continue",)]
+    assert route_for("https://challenges.cloudflare.com/widget", object()) == [("continue",)]
+    assert route_for("https://trip.com/ad.js", main_frame, False) == [("continue",)]
+
+
+def test_mixdrop_redirect_domain_is_allowed_after_page_load():
+    from types import SimpleNamespace
+
+    frame = object()
+    page = SimpleNamespace(main_frame=frame, url="https://mxdrop.top/f/abc")
+    calls = []
+    request = SimpleNamespace(
+        url="https://mxdrop.top/d/abc/file.rar",
+        frame=frame,
+        is_navigation_request=lambda: True,
+    )
+    route = SimpleNamespace(
+        request=request,
+        fulfill=lambda **kwargs: calls.append("blocked"),
+        continue_=lambda: calls.append("allowed"),
+    )
+
+    bs._guard_hoster_navigation(route, page, "https://mixdrop.ag/f/abc")
+
+    assert calls == ["allowed"]
+    assert bs.flow_for_host("mxdrop.top") is bs.MIXDROP_FLOW
+
+
+def test_mixdrop_delivery_navigation_is_captured_without_starting_browser_transfer():
+    from types import SimpleNamespace
+
+    frame = object()
+    page = SimpleNamespace(main_frame=frame, url="https://mxdrop.top/f/abc")
+    target = "https://a-delivery50.mxcontent.net/d/abc/signed-file"
+    calls = []
+    request = SimpleNamespace(
+        url=target, frame=frame, is_navigation_request=lambda: True,
+    )
+    route = SimpleNamespace(
+        request=request,
+        fulfill=lambda **kwargs: calls.append(kwargs),
+        continue_=lambda: calls.append("continued"),
+    )
+    captured = {}
+
+    bs._guard_hoster_navigation(route, page, "https://mixdrop.ag/f/abc", captured)
+
+    assert captured["url"] == target
+    assert calls == [{"status": 204, "body": ""}]
 
 
 def test_queued_solve_gives_up_when_no_useful_time_remains(monkeypatch):

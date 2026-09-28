@@ -204,7 +204,7 @@ def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Di
 
     gofile_url = next((item for item in mirrors if _host(item).removeprefix("www.") == "gofile.io"), "")
     mixdrop_url = next(
-        (item for item in mirrors if _host(item).removeprefix("www.") in {"mixdrop.ag", "mixdrop.top"}),
+        (item for item in mirrors if _host(item).removeprefix("www.") in {"mixdrop.ag", "mixdrop.top", "mxdrop.top"}),
         "",
     )
     if not gofile_url and not mixdrop_url:

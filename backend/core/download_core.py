@@ -109,6 +109,9 @@ SITE_DOWNLOAD_LIMITS = {
     # The DataNodes Turnstile flow holds one browser per site. Letting three
     # download tasks enter its parser just makes two time out and retry.
     "datanodes.to": 1,
+    # MultiUp often resolves to a MixDrop browser flow. Queue at the source
+    # instead of repeatedly entering a browser lock for its second mirror.
+    "multiup.io": 1,
     "gofile.io": 3,
     "rapidgator.net": 1,
     "send.now": 1,

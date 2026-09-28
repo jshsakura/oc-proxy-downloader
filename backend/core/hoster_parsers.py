@@ -95,7 +95,7 @@ class HosterSpec:
 
 HOSTER_REGISTRY = (
     HosterSpec("MultiUp", ("multiup.io",), "parse_multiup_sync", "_multiup_info_from_page"),
-    HosterSpec("MixDrop", ("mixdrop.ag", "mixdrop.top"), "parse_mixdrop_sync"),
+    HosterSpec("MixDrop", ("mixdrop.ag", "mixdrop.top", "mxdrop.top"), "parse_mixdrop_sync"),
     HosterSpec("MegaUp", ("megaup.net",), "parse_megaup_sync", "_megaup_info_from_page"),
     HosterSpec("DataNodes", ("datanodes.to",), "parse_datanodes_sync", "_extract_datanodes_file_info"),
     HosterSpec("Rapidgator", ("rapidgator.net",), "parse_rapidgator_constraints_sync"),
