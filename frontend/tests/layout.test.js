@@ -391,7 +391,7 @@ describe("settings density", () => {
   it("keeps proxy rows and their footer compact", () => {
     expect(rulesFor(SETTINGS, ".proxy-table th").join(" ")).toMatch(/height:\s*36px/);
     expect(rulesFor(SETTINGS, ".proxy-table td").join(" ")).toMatch(/height:\s*44px/);
-    expect(rulesFor(SETTINGS, ".proxy-action-btn").join(" ")).toMatch(/height:\s*32px/);
+    expect(rulesFor(SETTINGS, ".proxy-action-btn").join(" ")).toMatch(/height:\s*28px/);
     expect(rulesFor(SETTINGS, ".proxy-table-footer").join(" ")).toMatch(/min-height:\s*44px/);
   });
 

@@ -58,6 +58,7 @@ from core.error_messages import (
     KIND_BLOCKED,
     KIND_DAILY_QUOTA,
     KIND_SLOT_BUSY,
+    KIND_BROWSER_PARSE,
     KIND_PROXY_BLOCKED,
     KIND_QUEUED,
     KIND_RATE_LIMITED,
@@ -105,7 +106,9 @@ FICHIER_HOST_BACKOFF_SECONDS = (1800, 3600, 7200, 7200)  # 30m → 1h → 2h (ca
 # (1fichier local has its own dedicated semaphore — max 1 — handled separately.)
 SITE_DOWNLOAD_LIMITS = {
     "megaup.net": 2,
-    "datanodes.to": 3,
+    # The DataNodes Turnstile flow holds one browser per site. Letting three
+    # download tasks enter its parser just makes two time out and retry.
+    "datanodes.to": 1,
     "gofile.io": 3,
     "rapidgator.net": 1,
     "send.now": 1,
@@ -498,6 +501,9 @@ class DownloadCore:
         # into 85 simultaneous page GETs against the same host.
         self.MAX_SPECIAL_PREPARSE = 4
         self.special_preparse_semaphore = asyncio.Semaphore(self.MAX_SPECIAL_PREPARSE)
+        # Name/size lookups may run while the download slot is occupied, but
+        # one at a time so a bulk add does not flood 1fichier with page GETs.
+        self.fichier_metadata_semaphore = asyncio.Semaphore(1)
         # For throttling SSE message frequency
         self.last_sse_time: Dict[int, float] = {}  # Last SSE send time per download
         self.SSE_THROTTLE_INTERVAL = 10.0  # Send SSE only every 10 seconds
@@ -835,8 +841,9 @@ class DownloadCore:
                 "next_retry_at": target.isoformat(),
             })
 
-    async def _stop_fichier_queue_for_busy_slots(self, db: Session, egress: str) -> None:
-        """Stop the rest of a batch after 1fichier refuses its free slots.
+    async def _stop_fichier_queue_for_busy_slots(self, db: Session, egress: str,
+                                                  browser_parse_failed: bool = False) -> None:
+        """Stop the rest of a batch after a refusal shared by the same egress.
 
         A per-file no-retry verdict is ineffective if the next queued file
         immediately makes the same request from the same account and IP.
@@ -857,16 +864,53 @@ class DownloadCore:
             cancel_signal.signal_cancel(item.id)
         await db_async.commit(db)
         language = (get_config().get("language") or "ko")
+        if browser_parse_failed:
+            message = (
+                "1fichier browser parsing failed. The remaining queue is paused; resume it manually."
+                if language == "en" else
+                "1fichier 브라우저 파싱 실패로 나머지 대기열을 중지했습니다. 원인 해결 후 수동으로 재개하세요."
+            )
+        else:
+            message = (
+                "1fichier free slots are busy. The remaining queue is paused; resume it manually."
+                if language == "en" else
+                "1fichier 무료 슬롯이 사용 중이어서 나머지 대기열을 중지했습니다. 나중에 수동으로 재개하세요."
+            )
+        for item in queued:
+            await self.send_download_update(item.id, {
+                "status": "stopped", "message": message, "next_retry_at": None,
+            })
+        reason = "브라우저 파싱 실패" if browser_parse_failed else "무료 슬롯 혼잡"
+        print(f"[LOG] 1fichier {reason}로 대기열 {len(queued)}건 중지 [{egress}]")
+
+    async def _stop_datanodes_queue_after_browser_failure(self, db: Session,
+                                                           use_proxy: bool) -> None:
+        """Do not feed the next DataNodes link into the same failed captcha flow."""
+        queued = await db_async.all_rows(
+            db.query(DownloadRequest).filter(
+                DownloadRequest.status == StatusEnum.pending,
+                DownloadRequest.url.contains("datanodes.to"),
+                DownloadRequest.use_proxy == use_proxy,
+            )
+        )
+        if not queued:
+            return
+        for item in queued:
+            item.status = StatusEnum.stopped
+            item.next_retry_at = None
+            cancel_signal.signal_cancel(item.id)
+        await db_async.commit(db)
+        language = get_config().get("language") or "ko"
         message = (
-            "1fichier free slots are busy. The remaining queue is paused; resume it manually."
+            "DataNodes browser parsing failed. The remaining queue is paused; resume it manually."
             if language == "en" else
-            "1fichier 무료 슬롯이 사용 중이어서 나머지 대기열을 중지했습니다. 나중에 수동으로 재개하세요."
+            "DataNodes 브라우저 파싱 실패로 나머지 대기열을 중지했습니다. 원인 해결 후 수동으로 재개하세요."
         )
         for item in queued:
             await self.send_download_update(item.id, {
                 "status": "stopped", "message": message, "next_retry_at": None,
             })
-        print(f"[LOG] 1fichier 무료 슬롯 혼잡으로 대기열 {len(queued)}건 중지 [{egress}]")
+        print(f"[LOG] DataNodes 브라우저 파싱 실패로 대기열 {len(queued)}건 중지")
 
     async def _await_fichier_cooldown(self, req: DownloadRequest, db: Session,
                                       egress: str = EGRESS_DIRECT):
@@ -1099,13 +1143,14 @@ class DownloadCore:
                 })
 
             # If file info is already present, skip parsing and start downloading right away.
-            # However, for 1fichier, preparsing is needed to check the wait time and obtain a new download link.
+            # 1fichier still needs a fresh download link, but saved metadata
+            # must not trigger another info-only page request on every restart.
             is_1fichier = "1fichier.com" in req.url
             is_special_hoster = is_special_hoster_url(req.url)
             is_mega = is_mega_url(req.url)
             has_file_info = req.file_name and req.file_size and req.total_size and req.total_size > 0
 
-            # On first add (no file name) → preparsing is always required.
+            # On first add (no file name) → preparsing is required.
             # On restart (file name present) → skip only for plain direct links.
             # Hosting pages like 1fichier/MegaUp/DataNodes/MEGA need their expiring
             # final link re-fetched, so a resolve step is required even when file
@@ -1123,12 +1168,13 @@ class DownloadCore:
                     "message": "다운로드 시작 중..."
                 })
             else:
-                # Change the status to parsing
-                req.status = StatusEnum.parsing
+                # Queued 1fichier items have not contacted the host. Only the
+                # slot holder changes to parsing when it resolves its link.
+                req.status = StatusEnum.pending if is_1fichier else StatusEnum.parsing
                 await self.send_download_update(req.id, {
-                    "status": "parsing",
+                    "status": req.status.value,
                     "progress": 0,
-                    "message": "파싱 시작 중..."
+                    "message": "다운로드 순서를 기다리는 중..." if is_1fichier else "파싱 시작 중..."
                 })
 
             # Reset downloaded_size only when this is not a resume
@@ -1170,6 +1216,20 @@ class DownloadCore:
 
             # Proceed with the download - branch based on URL and proxy settings
             is_1fichier = "1fichier.com" in req.url
+
+            # Metadata is safe to collect while this item waits for the file
+            # slot. It is fetched once and never repeated for saved name/size;
+            # link generation remains inside the download semaphore below.
+            if is_1fichier and (
+                _name_needs_resolution(req.file_name) or not req.file_size
+            ):
+                async with slot_without_session(db, self.fichier_metadata_semaphore):
+                    req = await db_async.first(
+                        db.query(DownloadRequest).filter(DownloadRequest.id == req_id)
+                    )
+                    if not req or req.status == StatusEnum.stopped:
+                        return
+                    await self._perform_preparse(req, db)
 
             if is_1fichier and not req.use_proxy:
                 # 1fichier local download (to work around the free-tier limit - max 1)
@@ -1217,16 +1277,6 @@ class DownloadCore:
                             db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
                         if not req or req.status == StatusEnum.stopped:
                             return
-                        # Resolve metadata only after this row owns the host slot.
-                        # Doing it before the semaphore let every queued 1fichier
-                        # task hit the page together.  Returning early when the slot
-                        # was busy was worse: the DB said pending, but no task owned
-                        # the row, so a missed cleanup callback stranded it forever.
-                        if not skip_parsing:
-                            await self._perform_preparse(req, db)
-                        else:
-                            print(f"[LOG] 파일 정보 존재로 사전파싱 건너뜀: {req_id}")
-
                         if skip_parsing:
                             # File info is present, so skip parsing and start downloading immediately
                             await self.send_download_update(req_id, {
@@ -1243,7 +1293,8 @@ class DownloadCore:
                             req.status = StatusEnum.parsing
                         await db_async.commit(db)
 
-                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # Depends on whether parsing is skipped
+                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing,
+                                                              metadata_checked=True)
 
                         # Feed the result into the host backoff: a block/quota signal
                         # extends the cooldown for the whole queue; a success resets it.
@@ -1252,6 +1303,10 @@ class DownloadCore:
                             self._register_fichier_success(fichier_egress)
                         elif getattr(req, "failure_kind", None) == KIND_SLOT_BUSY:
                             await self._stop_fichier_queue_for_busy_slots(db, fichier_egress)
+                        elif getattr(req, "failure_kind", None) == KIND_BROWSER_PARSE:
+                            await self._stop_fichier_queue_for_busy_slots(
+                                db, fichier_egress, browser_parse_failed=True
+                            )
                         elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED, KIND_DAILY_QUOTA):
                             self._register_fichier_block(fichier_egress, req.error)
                             await self._publish_fichier_cooldown(db, fichier_egress)
@@ -1339,9 +1394,16 @@ class DownloadCore:
                     await db_async.commit(db)
 
                     if is_1fichier:
-                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing)  # 1fichier proxy download
+                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing,
+                                                              metadata_checked=True)
                     else:
                         await self._download_local_async(req, db)  # Plain URL download
+                        if host_key == "datanodes.to":
+                            await db_async.refresh(db, req)
+                            if req.status == StatusEnum.failed and req.failure_kind == KIND_BROWSER_PARSE:
+                                await self._stop_datanodes_queue_after_browser_failure(
+                                    db, bool(req.use_proxy)
+                                )
                     print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
 
         except asyncio.CancelledError:
@@ -1373,7 +1435,9 @@ class DownloadCore:
         finally:
             db.close()
 
-    async def _download_with_proxy_async(self, req: DownloadRequest, db: Session, skip_preparse: bool = False):
+    async def _download_with_proxy_async(self, req: DownloadRequest, db: Session,
+                                         skip_preparse: bool = False,
+                                         metadata_checked: bool = False):
         """1fichier proxy download (original function name)"""
         print(f"[DEBUG] _download_with_proxy_async 시작: {req.id}")
         await self.send_download_log(req.id, "1fichier 다운로드 시작")
@@ -1425,7 +1489,8 @@ class DownloadCore:
             is_1fichier = "1fichier.com" in (req.original_url or req.url)
             is_local_1fichier = is_1fichier and not req.use_proxy
 
-            # Local 1fichier always needs parsing; proxy 1fichier can skip it when file info is present
+            # Local 1fichier needs one fresh link resolve for each download.
+            # Metadata is independent and is fetched only when missing.
             should_skip_preparse = skip_preparse
 
             if should_skip_preparse and "1fichier.com" in (req.original_url or req.url):
@@ -1451,56 +1516,18 @@ class DownloadCore:
                     raise Exception("원본 1fichier 파일 페이지 URL을 찾을 수 없음")
                 print(f"[DEBUG] 1fichier 파싱 URL: {parse_url}")
 
-                # Extract the file name/size via immediate preparsing
-                print(f"[LOG] 사전파싱 시작: {req.id}")
-                try:
-                    loop = asyncio.get_event_loop()
-                    preparse_info = await loop.run_in_executor(None, preparse_1fichier_standalone, parse_url)
-
-                    if preparse_info:
-                        if _should_replace_file_name(req.file_name, preparse_info.get('name')):
-                            req.file_name = preparse_info['name']
-                            print(f"[LOG] 사전파싱 파일명: {req.file_name}")
-
-                        if preparse_info.get('size') and not req.file_size:
-                            req.file_size = preparse_info['size']
-                            print(f"[LOG] 사전파싱 파일크기: {req.file_size}")
-
-                            # Convert the file_size string into a total_size integer
-                            try:
-                                size_match = re.search(r'(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)', req.file_size, re.IGNORECASE)
-                                if size_match:
-                                    size_value = float(size_match.group(1))
-                                    size_unit = size_match.group(2).upper()
-                                    multipliers = {'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
-                                    total_bytes = int(size_value * multipliers.get(size_unit, 1))
-                                    print(f"[DEBUG] 크기 변환: {req.file_size} -> {total_bytes} bytes, 현재 total_size={req.total_size}")
-                                    if not req.total_size or req.total_size == 0:
-                                        req.total_size = total_bytes
-                                        print(f"[LOG] 사전파싱에서 total_size 설정: {total_bytes} bytes")
-                                    else:
-                                        print(f"[DEBUG] total_size가 이미 설정됨: {req.total_size}, 변환된 값: {total_bytes}")
-                            except Exception as size_convert_error:
-                                print(f"[WARNING] 파일 크기 변환 실패: {size_convert_error}")
-
-                        await db_async.commit(db)
-
-                        # Check the state after the DB commit
-                        print(f"[DEBUG] DB 커밋 후 상태: req.id={req.id}, file_name='{req.file_name}', file_size='{req.file_size}', total_size={req.total_size}")
-
-                        # Send the file info over SSE immediately
-                        sse_data = {
-                            "id": req.id,
-                            "filename": req.file_name,
-                            "file_size": req.file_size
-                        }
-                        print(f"[LOG] SSE filename_update 전송 시작: {sse_data}")
-                        await sse_manager.broadcast_message("filename_update", sse_data)
-                        print(f"[LOG] 사전파싱 완료 - SSE 전송 완료")
-                except PreparseDeadLinkError:
-                    raise
-                except Exception as preparse_error:
-                    print(f"[WARNING] 사전파싱 실패: {preparse_error}")
+                # The add flow may already have saved name and size. Repeating
+                # an info-only GET here wastes a 1fichier request and can trip
+                # its free-account block, especially after a batch restart.
+                needs_metadata = (
+                    not req.file_name
+                    or _name_needs_resolution(req.file_name)
+                    or not req.file_size
+                )
+                if needs_metadata and not metadata_checked:
+                    await self._perform_preparse(req, db)
+                else:
+                    print(f"[LOG] 저장된 파일 정보 사용, 사전파싱 생략: {req.id}")
             else:
                 parse_url = req.url
                 print(f"[DEBUG] 일반 다운로드 URL: {parse_url}")

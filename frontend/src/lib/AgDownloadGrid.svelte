@@ -901,8 +901,8 @@
         headerName: $t("table_header_speed"),
         field: "download_speed",
         cellRenderer: SpeedGraphCellRenderer,
-        width: 145,
-        minWidth: 125,
+        width: 112,
+        minWidth: 104,
         hide: currentTab === "completed",
         sortable: true,
         resizable: true,
@@ -982,6 +982,27 @@
     gridApi = createGrid(gridContainer, gridOptions);
   }
 
+  function fillFilenameColumn() {
+    if (!gridApi || !gridContainer) return;
+    const columns = gridApi.getAllDisplayedColumns();
+    const filename = columns.find((column) => column.getColId() === "filename");
+    const viewport = gridContainer.querySelector(".ag-center-cols-viewport");
+    if (!filename || !viewport) return;
+
+    const otherWidth = columns.reduce(
+      (sum, column) => sum + (column === filename ? 0 : column.getActualWidth()),
+      0
+    );
+    // Keep the minimum width and horizontal scrolling on narrow screens. When
+    // the other columns fit, give every spare pixel to the filename, including
+    // the space released when the completed tab hides the speed column.
+    const minWidth = isMobileView() ? 180 : 240;
+    const width = Math.max(minWidth, Math.floor(viewport.clientWidth - otherWidth));
+    if (Math.abs(filename.getActualWidth() - width) > 1) {
+      gridApi.setColumnWidths([{ key: "filename", newWidth: width }]);
+    }
+  }
+
   let resizeObserver = null;
   let prevIsMobile = false;
 
@@ -1006,6 +1027,7 @@
             prevIsMobile = curMobile;
             gridApi.setGridOption("columnDefs", createColumnDefs());
           }
+          fillFilenameColumn();
         }
       });
       resizeObserver.observe(gridContainer);
@@ -1035,6 +1057,7 @@
   $: if (gridApi && (currentTab || $t)) {
     const isCompleted = currentTab === "completed";
     gridApi.setColumnsVisible(["speed_graph"], !isCompleted);
+    fillFilenameColumn();
     const msg = isCompleted
       ? $t("no_completed_downloads")
       : $t("no_working_downloads");
@@ -1748,7 +1771,7 @@
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    gap: 6px;
+    gap: 4px;
   }
 
   :global(.ag-speed-text-container) {
@@ -1761,14 +1784,14 @@
   }
 
   :global(.ag-speed-label) {
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 
   :global(.ag-speed-eta) {
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 500;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
@@ -1787,7 +1810,7 @@
   }
 
   :global(.ag-sparkline-svg) {
-    width: 44px;
+    width: 27px;
     height: 18px;
     flex-shrink: 0;
   }

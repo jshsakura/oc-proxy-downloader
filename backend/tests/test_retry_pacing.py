@@ -62,7 +62,35 @@ class TestNothingRetriesTooSoon:
 class TestBeingRefusedBacksOffHarder:
 
     @pytest.mark.asyncio
-    async def test_busy_free_slots_stop_the_rest_of_the_fichier_queue(self, monkeypatch):
+    async def test_datanodes_browser_failure_stops_waiting_links(self, monkeypatch):
+        from core import download_core as core_module
+        from core.models import StatusEnum
+
+        core = core_module.DownloadCore()
+        queued = [
+            SimpleNamespace(id=201, status=StatusEnum.pending, next_retry_at=None),
+            SimpleNamespace(id=202, status=StatusEnum.pending, next_retry_at=datetime.datetime.now()),
+        ]
+        monkeypatch.setattr(core_module.db_async, "all_rows", AsyncMock(return_value=queued))
+        commit = AsyncMock()
+        monkeypatch.setattr(core_module.db_async, "commit", commit)
+        cancelled = []
+        monkeypatch.setattr(core_module.cancel_signal, "signal_cancel", cancelled.append)
+        monkeypatch.setattr(core_module, "get_config", lambda: {"language": "ko"})
+        core.send_download_update = AsyncMock()
+
+        await core._stop_datanodes_queue_after_browser_failure(MagicMock(), False)
+
+        assert all(item.status == StatusEnum.stopped and item.next_retry_at is None for item in queued)
+        assert cancelled == [201, 202]
+        assert core.send_download_update.await_count == 2
+        assert "브라우저 파싱 실패" in core.send_download_update.await_args_list[0].args[1]["message"]
+        commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("browser_parse_failed", [False, True])
+    async def test_host_refusal_stops_the_rest_of_the_fichier_queue(self, monkeypatch,
+                                                                    browser_parse_failed):
         from core import download_core as core_module
         from core.models import StatusEnum
 
@@ -78,11 +106,16 @@ class TestBeingRefusedBacksOffHarder:
         monkeypatch.setattr(core_module, "get_config", lambda: {"language": "ko"})
         core.send_download_update = AsyncMock()
 
-        await core._stop_fichier_queue_for_busy_slots(MagicMock(), core_module.EGRESS_DIRECT)
+        await core._stop_fichier_queue_for_busy_slots(
+            MagicMock(), core_module.EGRESS_DIRECT,
+            browser_parse_failed=browser_parse_failed,
+        )
 
         assert all(item.status == StatusEnum.stopped for item in queued)
         assert all(item.next_retry_at is None for item in queued)
         assert core.send_download_update.await_count == 2
+        if browser_parse_failed:
+            assert "브라우저 파싱 실패" in core.send_download_update.await_args_list[0].args[1]["message"]
         commit.assert_awaited_once()
 
     def test_busy_free_slots_do_not_retry_the_same_link(self):
@@ -295,5 +328,6 @@ class TestAQueueWaitDoesNotLookLikeAFailure:
         worker = inspect.getsource(download_core.DownloadCore._download_task)
         fichier_branch = worker[worker.index('if is_1fichier and not req.use_proxy:'):]
         assert fichier_branch.index("async with slot_without_session") < fichier_branch.index(
-            "await self._perform_preparse"
+            "await self._download_with_proxy_async"
         )
+        assert "await self._perform_preparse" not in fichier_branch

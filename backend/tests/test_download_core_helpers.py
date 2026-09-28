@@ -10,7 +10,8 @@ In particular, it guards against these two regressions:
 """
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -51,6 +52,44 @@ class TestFileNameReplacement:
 
     def test_placeholder_still_needs_preparse_even_when_size_is_known(self):
         assert dc._name_needs_resolution("1fichier:7l0ob90lh7te986slxsq") is True
+
+
+@pytest.mark.asyncio
+async def test_saved_fichier_metadata_does_not_trigger_another_info_request(monkeypatch):
+    """A queued, already identified file needs only its fresh download link."""
+    core = dc.DownloadCore()
+    req = SimpleNamespace(
+        id=42,
+        url="https://1fichier.com/?abcdefghijklmnopqrst",
+        original_url="https://1fichier.com/?abcdefghijklmnopqrst",
+        file_name="archive.rar",
+        file_size="130 MB",
+        total_size=136314880,
+        password=None,
+        use_proxy=False,
+        save_path="/tmp/archive.rar",
+        started_at=object(),
+        status=dc.StatusEnum.pending,
+    )
+    info_request = AsyncMock()
+    link_requests = []
+    monkeypatch.setattr(core, "_perform_preparse", info_request)
+    monkeypatch.setattr(core, "send_download_log", AsyncMock())
+    monkeypatch.setattr(core, "send_download_update", AsyncMock())
+    monkeypatch.setattr(core, "_download_file_directly", AsyncMock())
+    monkeypatch.setattr(dc.db_async, "commit", AsyncMock())
+    monkeypatch.setattr(dc, "get_fichier_account_cookies", lambda: {})
+
+    def resolve_link(*_args, **_kwargs):
+        link_requests.append(True)
+        return {"download_link": "https://a-1.1fichier.com/file", "file_info": None}
+
+    monkeypatch.setattr(dc, "parse_1fichier_simple_sync", resolve_link)
+
+    assert await core._download_with_proxy_async(req, MagicMock(), metadata_checked=True)
+    info_request.assert_not_awaited()
+    assert len(link_requests) == 1
+    core._download_file_directly.assert_awaited_once()
 
 
 class _FakeBody:

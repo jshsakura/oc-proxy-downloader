@@ -3213,6 +3213,13 @@
     max-width: 300px;
   }
 
+  .proxy-table th:last-child,
+  .proxy-table td:last-child {
+    width: 76px;
+    min-width: 76px;
+    max-width: 76px;
+  }
+
   .text-center {
     text-align: center !important;
   }
@@ -3315,8 +3322,9 @@
   }
 
   .proxy-action-btn {
-    height: 32px;
-    padding: 0 0.65rem;
+    width: 28px;
+    height: 28px;
+    padding: 0;
     box-sizing: border-box;
     background: none;
     border: none;
@@ -3324,7 +3332,8 @@
     border-radius: 4px;
     font-size: 0.75rem;
     transition: all 0.2s;
-    min-width: 24px;
+    min-width: 28px;
+    flex: 0 0 28px;
     display: flex !important;
     align-items: center;
     justify-content: center;

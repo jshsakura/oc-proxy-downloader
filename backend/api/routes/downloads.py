@@ -220,8 +220,8 @@ async def _start_download_in_background(download_id: int, url: str) -> None:
             await sse_manager.broadcast_message("download_started", {
                 "id": download_id,
                 "url": req.url,
-                "status": "parsing",
-                "message": "다운로드가 시작되었습니다"
+                "status": req.status.value,
+                "message": "다운로드가 대기열에 추가되었습니다" if req.status == StatusEnum.pending else "다운로드가 시작되었습니다"
             })
         else:
             await sse_manager.broadcast_message("download_added", {
