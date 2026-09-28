@@ -168,6 +168,7 @@
   "copy_path": "Salin Jalur",
   "detail_requested_at": "Diminta Pada",
   "detail_status": "Status",
+  "detail_fichier_queue_note": "1fichier free downloads run one at a time. This file starts when earlier jobs finish.",
   "detail_file_name": "Nama Berkas",
   "copy_filename": "Salin Nama Berkas",
   "detail_total_size": "Ukuran Total",

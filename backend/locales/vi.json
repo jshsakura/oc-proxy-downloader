@@ -168,6 +168,7 @@
   "copy_path": "Sao chép đường dẫn",
   "detail_requested_at": "Yêu cầu lúc",
   "detail_status": "Trạng thái",
+  "detail_fichier_queue_note": "1fichier free downloads run one at a time. This file starts when earlier jobs finish.",
   "detail_file_name": "Tên tệp",
   "copy_filename": "Sao chép tên tệp",
   "detail_total_size": "Tổng kích thước",

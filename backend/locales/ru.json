@@ -168,6 +168,7 @@
   "copy_path": "Копировать путь",
   "detail_requested_at": "Запрошено в",
   "detail_status": "Статус",
+  "detail_fichier_queue_note": "1fichier free downloads run one at a time. This file starts when earlier jobs finish.",
   "detail_file_name": "Имя файла",
   "copy_filename": "Копировать имя файла",
   "detail_total_size": "Общий размер",

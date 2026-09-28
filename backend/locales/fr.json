@@ -168,6 +168,7 @@
   "copy_path": "Copier le chemin",
   "detail_requested_at": "Demandé le",
   "detail_status": "Statut",
+  "detail_fichier_queue_note": "1fichier free downloads run one at a time. This file starts when earlier jobs finish.",
   "detail_file_name": "Nom du fichier",
   "copy_filename": "Copier le nom du fichier",
   "detail_total_size": "Taille totale",

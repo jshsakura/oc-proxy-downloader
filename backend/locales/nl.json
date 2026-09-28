@@ -168,6 +168,7 @@
   "copy_path": "Pad kopiëren",
   "detail_requested_at": "Aangevraagd om",
   "detail_status": "Status",
+  "detail_fichier_queue_note": "1fichier free downloads run one at a time. This file starts when earlier jobs finish.",
   "detail_file_name": "Bestandsnaam",
   "copy_filename": "Bestandsnaam kopiëren",
   "detail_total_size": "Totale grootte",
