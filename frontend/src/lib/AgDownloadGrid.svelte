@@ -34,6 +34,7 @@
   // AG Grid renderers are plain DOM classes. A direct callback avoids routing
   // the details action through a component CustomEvent boundary.
   export let onDetails = null;
+  export let onDelete = null;
 
   const dispatch = createEventDispatcher();
 
@@ -55,6 +56,14 @@
     }
     // Keep the event as a compatibility fallback for other consumers.
     dispatch("details", { download });
+  }
+
+  function requestDelete(id) {
+    if (typeof onDelete === "function") {
+      onDelete(id);
+      return;
+    }
+    dispatch("delete", { id });
   }
 
   function formatBytes(bytes) {
@@ -811,7 +820,7 @@
         this.makeBtn(
           deleteSvg,
           $t("action_delete"),
-          () => dispatch("delete", { id: d.id }),
+          () => requestDelete(d.id),
           "is-delete"
         )
       );

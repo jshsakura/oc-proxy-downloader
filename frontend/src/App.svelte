@@ -204,15 +204,6 @@
   let waitTimeUpdateTimer = null;
   let currentTime = Date.now();
 
-  let showConfirm = false;
-  let confirmMessage = "";
-  let confirmAction = null;
-  let confirmTitle = null;
-  let confirmIcon = null;
-  let confirmButtonText = null;
-  let cancelButtonText = null;
-  let confirmIsDeleteAction = false;
-
   let isDark =
     typeof document !== "undefined" && document.body.classList.contains("dark");
 
@@ -233,27 +224,6 @@
   // Removed dashboardExpanded — the dashboard is always shown.
   let systemStats = null;
   let systemStatsInterval = null;
-
-  function openConfirm({
-    message,
-    onConfirm,
-    title = null,
-    icon = null,
-    confirmText = null,
-    cancelText = null,
-    isDeleteAction = false }) {
-    confirmMessage = message;
-    confirmAction = () => {
-      onConfirm && onConfirm();
-      showConfirm = false;
-    };
-    confirmTitle = title;
-    confirmIcon = icon;
-    confirmButtonText = confirmText;
-    cancelButtonText = cancelText;
-    confirmIsDeleteAction = isDeleteAction;
-    showConfirm = true;
-  }
 
   onMount(async () => {
     itemsPerPage = calculateItemsPerPage();
@@ -1595,19 +1565,30 @@
           const data = await response.json();
           detail = data.detail || detail;
         } catch (_) {}
-        toast.error($t("bulk_delete_failed", { detail }));
+        toast.error(ids.length === 1
+          ? $t("delete_failed_with_detail", { detail })
+          : $t("bulk_delete_failed", { detail }));
         return;
       }
       const data = await response.json();
-      toast.success($t("bulk_delete_success", { count: data.deleted_count }));
-      selectedIds = new Set();
+      if (data.deleted_count === 0) {
+        toast.error($t("delete_error"));
+        fetchGridPage();
+        return;
+      }
+      toast.success(ids.length === 1
+        ? $t("download_deleted_success")
+        : $t("bulk_delete_success", { count: data.deleted_count }));
+      selectedIds = new Set([...selectedIds].filter((id) => !ids.includes(id)));
       // Refresh visible grid + live list + tab counts.
       fetchGridPage();
       fetchActiveDownloads();
       fetchTabCounts();
     } catch (e) {
       console.error("bulk delete error:", e);
-      toast.error(`bulk delete error: ${e.message}`);
+      toast.error(ids.length === 1
+        ? $t("delete_error")
+        : $t("bulk_delete_failed", { detail: e.message }));
     }
   }
 
@@ -1696,43 +1677,14 @@
     // SSE updates the status automatically, so no extra fetch is needed
   }
 
-  async function deleteDownload(id) {
-    // Validate the ID
+  function deleteDownload(id) {
     if (!id || isNaN(parseInt(id))) {
       console.error("❌ 잘못된 다운로드 ID:", id);
       toast.error($t("invalid_download_id"));
       return;
     }
-    
-    openConfirm({
-      message: $t("delete_confirm"),
-      onConfirm: async () => {
-        try {
-          const response = await authenticatedFetch(`/api/delete/${id}`, {
-            method: "DELETE" });
-          if (response.ok) {
-            toast.success($t("download_deleted_success"));
-            // Optimistically drop from both grid and active lists; refresh badge counts.
-            gridDownloads = gridDownloads.filter((d) => d.id !== id);
-            activeDownloads = activeDownloads.filter((d) => d.id !== id);
-            scheduleTabCountsFetch();
-            scheduleGridFetch();
-          } else {
-            const errorData = await response.json();
-            toast.error(
-              $t("delete_failed_with_detail", { detail: errorData.detail })
-            );
-          }
-        } catch (error) {
-          console.error("Error deleting download:", error);
-          toast.error($t("delete_error"));
-        }
-      },
-      title: $t("confirm_delete_title"),
-      icon: '<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>',
-      confirmText: $t("button_delete"),
-      cancelText: $t("button_cancel"),
-      isDeleteAction: true });
+    pendingBulkDelete = [id];
+    showBulkDeleteConfirm = true;
   }
 
   function formatBytes(bytes, decimals = 2) {
@@ -2527,6 +2479,7 @@
         {itemsPerPage}
         totalCount={currentTabTotalCount}
         onDetails={openDetailModal}
+        onDelete={deleteDownload}
         on:pageChange={(e) => goToPage(e.detail.page)}
         on:retryFetch={() => fetchGridPage()}
         on:toggleSelect={(e) => toggleSelect(e.detail.id)}
@@ -2534,7 +2487,6 @@
         on:start={(e) => callApi(`/api/downloads/start/${e.detail.id}`)}
         on:stop={(e) => callApi(`/api/downloads/stop/${e.detail.id}`)}
         on:retry={(e) => callApi(`/api/retry/${e.detail.id}`)}
-        on:delete={(e) => deleteDownload(e.detail.id)}
         on:copyLink={(e) => copyDownloadLink(e.detail.download)}
         on:redownload={(e) => redownload(e.detail.download)}
         on:proxyToggle={(e) => handleProxyToggle(e.detail.download)}
@@ -2599,23 +2551,13 @@
 
   {#if !$isLoading}
     <ConfirmModal
-      bind:showModal={showConfirm}
-      message={confirmMessage}
-      title={confirmTitle}
-      icon={confirmIcon}
-      confirmText={confirmButtonText}
-      cancelText={cancelButtonText}
-      isDeleteAction={confirmIsDeleteAction}
-      on:confirm={confirmAction}
-    />
-
-    <ConfirmModal
       bind:showModal={showBulkDeleteConfirm}
-      title={$t("bulk_action_delete")}
-      message={$t("bulk_delete_confirm", { count: pendingBulkDelete.length })}
-      confirmText={$t("bulk_action_delete")}
+      title={pendingBulkDelete.length === 1 ? $t("confirm_delete_title") : $t("bulk_action_delete")}
+      message={pendingBulkDelete.length === 1 ? $t("delete_confirm") : $t("bulk_delete_confirm", { count: pendingBulkDelete.length })}
+      confirmText={pendingBulkDelete.length === 1 ? $t("button_delete") : $t("bulk_action_delete")}
       isDeleteAction={true}
       on:confirm={performBulkDelete}
+      on:cancel={() => (pendingBulkDelete = [])}
     />
   {/if}
 </main>

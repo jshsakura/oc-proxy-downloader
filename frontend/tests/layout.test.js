@@ -375,7 +375,9 @@ describe("modal and theme contracts", () => {
   it("password input is masked and delete confirms retain danger intent", () => {
     expect(PASSWORD).toContain('type={showPassword ? "text" : "password"}');
     expect(PASSWORD).toContain("aria-pressed={showPassword}");
-    expect(APP).toContain("isDeleteAction={confirmIsDeleteAction}");
+    expect(APP).toContain("onDelete={deleteDownload}");
+    expect(APP).toContain("pendingBulkDelete = [id]");
+    expect(APP).toContain("isDeleteAction={true}");
   });
 });
 
