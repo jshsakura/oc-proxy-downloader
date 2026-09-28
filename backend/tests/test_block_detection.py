@@ -54,13 +54,15 @@ class TestDetectBlockReason:
         assert "Cloudflare" in sp.detect_block_reason(CLOUDFLARE_HTML)
 
     def test_daily_free_quota(self):
-        html = "<div>You already downloaded for free more than 10 files today.</div>"
+        html = "<div>You already downloaded for free more than 5 files today.</div>"
         assert sp.detect_block_reason(html) == "일일 무료 다운로드 한도 초과"
 
         classified = classify_error(
             "파싱", "1fichier 차단: 일일 무료 다운로드 한도 초과"
         )
         assert classified.kind == "daily_quota"
+        assert "10개" not in classified.summary
+        assert "로그인해도" in classified.action
 
     def test_logged_in_free_slots_busy_is_scheduled_not_auth_blocked(self):
         html = "<html><title>1fichier.com: Cloud Storage</title><body>High demand: all free download slots are currently in use.</body></html>"

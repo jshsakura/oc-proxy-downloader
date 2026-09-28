@@ -124,12 +124,12 @@ def _do_login(email: str, password: str) -> cloudscraper.CloudScraper:
     if r0.status_code != 200:
         raise FichierLoginError(f"로그인 페이지 응답 코드 {r0.status_code}")
 
-    # 2) POST the credentials. 1fichier's standard field names: mail / pass / lt / purge / Login
+    # 2) POST the credentials. Do not send "purge": it signs other sessions out,
+    # including the user's browser, whenever this worker refreshes its login.
     form = {
         "mail": email,
         "pass": password,
         "lt": "on",        # long-term: keep the cookie alive for a long time
-        "purge": "on",     # terminate all other sessions
         "Login": "Sign in",
     }
     try:

@@ -127,7 +127,7 @@ class TestFichierHostBackoff:
 
         dc._register_fichier_block(
             EGRESS_DIRECT,
-            "1fichier 일일 무료 다운로드 한도(10개)를 모두 사용했습니다",
+            "1fichier 무료 다운로드의 오늘 허용 횟수를 모두 사용했습니다",
         )
 
         cooldown = dc._fichier_cooldown_until[EGRESS_DIRECT]

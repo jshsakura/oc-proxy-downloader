@@ -53,6 +53,7 @@ class TestLogin:
         s1 = fichier_auth.get_authenticated_scraper("user@x.com", "pw1")
         s2 = fichier_auth.get_authenticated_scraper("user@x.com", "pw1")
         assert s1 is s2  # cache reuse
+        assert "purge" not in scraper.post.call_args.kwargs["data"]
 
     def test_login_invalid_credentials_raises(self, monkeypatch):
         scraper = _scraper_with(
