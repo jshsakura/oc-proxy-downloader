@@ -64,6 +64,17 @@ class TestDetectBlockReason:
         assert "10개" not in classified.summary
         assert "로그인해도" in classified.action
 
+    def test_preparse_daily_quota_stops_before_main_parse(self, monkeypatch):
+        response = MagicMock(status_code=200, text="You already downloaded for free more than 5 files today.")
+        scraper = MagicMock()
+        scraper.get.return_value = response
+        monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
+
+        with pytest.raises(sp.PreparseBlockedError) as excinfo:
+            sp.preparse_1fichier_standalone("https://1fichier.com/?abc")
+        assert classify_error("파싱", str(excinfo.value)).kind == "daily_quota"
+        scraper.get.assert_called_once()
+
     def test_logged_in_free_slots_busy_is_scheduled_not_auth_blocked(self):
         html = "<html><title>1fichier.com: Cloud Storage</title><body>High demand: all free download slots are currently in use.</body></html>"
         assert sp.detect_block_reason(html) == "무료 다운로드 슬롯 혼잡"
@@ -106,7 +117,7 @@ class TestParseRaisesOnBlock:
         assert "1fichier 차단" in str(excinfo.value)
         assert "VPS/VPN" in str(excinfo.value)
 
-    def test_preparse_returns_none_on_block(self, monkeypatch):
+    def test_preparse_stops_on_block(self, monkeypatch):
         response = MagicMock()
         response.status_code = 200
         response.text = VPN_BLOCK_HTML
@@ -117,8 +128,9 @@ class TestParseRaisesOnBlock:
         scraper.get.return_value = response
         monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
 
-        # preparse returns None instead of raising (the main parse raises)
-        assert sp.preparse_1fichier_standalone("https://1fichier.com/?abc") is None
+        with pytest.raises(sp.PreparseBlockedError, match="VPS/VPN"):
+            sp.preparse_1fichier_standalone("https://1fichier.com/?abc")
+        assert scraper.get.call_count == 1
 
 
 class TestErrorMessageClassification:

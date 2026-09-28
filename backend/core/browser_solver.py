@@ -556,6 +556,7 @@ def _drive_to_download(
     deadline: Deadline,
 ) -> str:
     """Press the action button until the browser starts fetching the file."""
+    click_timeouts = 0
     for _ in range(ACTION_ROUNDS):
         deadline.check("다운로드 시작 버튼")
         if captured.get("url"):
@@ -575,8 +576,14 @@ def _drive_to_download(
             # solve — the next round presses the settled button.
             try:
                 action.click(timeout=deadline.budget_ms(CLICK_TIMEOUT_MS))
+                click_timeouts = 0
             except Exception as exc:
                 print(f"[DEBUG] 다운로드 버튼 클릭 재시도: {type(exc).__name__}")
+                click_timeouts += 1
+                if click_timeouts >= 3:
+                    raise HosterParseError(
+                        "다운로드 버튼 처리 후 링크를 받지 못했습니다 (버튼 클릭 3회 연속 시간 초과)"
+                    ) from exc
         page.wait_for_timeout(min(ACTION_ROUND_WAIT_MS, deadline.budget_ms(ACTION_ROUND_WAIT_MS)))
         if captured.get("url"):
             return captured["url"]

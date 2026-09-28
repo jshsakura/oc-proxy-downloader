@@ -338,6 +338,10 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("다운로드 폼", "호스터 응답에서 다운로드 폼을 찾지 못했습니다 (페이지 구조/응답 원인 미확인)",
      "페이지 구조 변경, 불완전 응답, 보안 검증 중 어느 원인인지 확인되지 않았습니다. 반복되면 원문 응답과 함께 issue 를 등록해주세요.",
      KIND_UNKNOWN, False),
+    ("send.now 다운로드 링크를 찾을 수 없음",
+     "Send.now 페이지에서 다운로드 링크를 확인하지 못했습니다",
+     "호스터 화면이나 응답이 바뀌었을 수 있습니다. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
     # Every hoster raises "<Host> 다운로드 링크를 찾을 수 없음", so the summary must stay
     # host-agnostic — the raw message already names the host in parentheses.
     ("다운로드 링크를 찾을 수 없음", "호스터 응답에서 다운로드 링크를 추출하지 못했습니다 (원인 미확인)",

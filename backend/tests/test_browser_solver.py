@@ -49,6 +49,35 @@ def test_download_navigation_keeps_captured_link():
     assert bs._drive_to_download(Page(), bs.DATANODES_FLOW, captured, bs.Deadline(5)) == captured["url"]
 
 
+def test_download_button_stops_after_three_click_timeouts():
+    calls = 0
+
+    class Locator:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        def count(self):
+            return 1
+
+        def click(self, **_kwargs):
+            nonlocal calls
+            calls += 1
+            raise TimeoutError("button did not become ready")
+
+    class Page:
+        def locator(self, _selector):
+            return Locator()
+
+        def wait_for_timeout(self, _ms):
+            pass
+
+    with pytest.raises(HosterParseError, match="3회 연속 시간 초과"):
+        bs._drive_to_download(Page(), bs.DATANODES_FLOW, {}, bs.Deadline(90))
+    assert calls == 3
+
+
 # --- flow registry ---
 
 

@@ -81,6 +81,7 @@ class TestClassify:
     @pytest.mark.parametrize("raw", [
         "캡차는 통과했지만 다운로드 링크가 발급되지 않았습니다",
         "다운로드 버튼 처리 후 링크를 받지 못했습니다",
+        "Send.now 다운로드 링크를 찾을 수 없음",
         "Locator.count: Execution context was destroyed, most likely because of a navigation.",
         "브라우저 캡차 우회 제한시간(270초)을 초과했습니다",
     ])

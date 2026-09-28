@@ -603,6 +603,10 @@ class PreparseDeadLinkError(Exception):
     """
 
 
+class PreparseBlockedError(Exception):
+    """The metadata response already identified a host block; do not parse again."""
+
+
 def preparse_1fichier_standalone(url):
     """Preparse a 1fichier URL — uses cloudscraper, runs standalone."""
 
@@ -645,11 +649,12 @@ def preparse_1fichier_standalone(url):
             print(f"[ERROR] 사전파싱 실패: HTTP {response.status_code}")
             return None
 
-        # If the body contains a block reason, mark preparse as failed (the main parse will raise the same way)
+        # A confirmed block must stop here. Fetching the same page again in the
+        # main parser only increases the number of refused requests.
         block_reason = detect_block_reason(response.text)
         if block_reason:
             print(f"[WARNING] 사전파싱: 차단 감지 - {block_reason}")
-            return None
+            raise PreparseBlockedError(f"1fichier 차단: {block_reason}")
 
         # Extract file info
         file_info = extract_file_info_simple(response.text)
@@ -661,7 +666,7 @@ def preparse_1fichier_standalone(url):
             print(f"[WARNING] 사전파싱: 파일 정보 추출 실패")
             return None
 
-    except PreparseDeadLinkError:
+    except (PreparseDeadLinkError, PreparseBlockedError):
         raise
     except Exception as e:
         print(f"[ERROR] 사전파싱 실패: {e}")

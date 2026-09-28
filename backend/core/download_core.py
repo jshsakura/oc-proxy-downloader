@@ -46,6 +46,7 @@ from core.simple_parser import (
     choose_1fichier_parse_url,
     is_1fichier_placeholder_name,
     PreparseDeadLinkError,
+    PreparseBlockedError,
 )
 from core.hoster_parsers import (
     fetch_special_hoster_file_info_sync,
@@ -1049,6 +1050,11 @@ class DownloadCore:
                     print(f"[LOG] SSE filename_update 전송 시작: {sse_data}")
                     await sse_manager.broadcast_message("filename_update", sse_data)
                     print(f"[LOG] 사전파싱 완료 - SSE 전송 완료")
+            except PreparseBlockedError as preparse_error:
+                # Set the egress cooldown before releasing the metadata slot;
+                # otherwise the next queued item can race into another GET.
+                self._register_fichier_block(egress_of(req.use_proxy), str(preparse_error))
+                raise
             except PreparseDeadLinkError:
                 raise
             except Exception as preparse_error:
@@ -1232,7 +1238,12 @@ class DownloadCore:
                     )
                     if not req or req.status == StatusEnum.stopped:
                         return
-                    await self._perform_preparse(req, db)
+                    egress = egress_of(req.use_proxy)
+                    cooldown = self._fichier_cooldown_until.get(egress)
+                    if cooldown and cooldown > datetime.datetime.now():
+                        print(f"[LOG] 1fichier 차단 대기 중, 메타데이터 요청 생략: {req_id}")
+                    else:
+                        await self._perform_preparse(req, db)
 
             if is_1fichier and not req.use_proxy:
                 # 1fichier local download (to work around the free-tier limit - max 1)
@@ -1423,13 +1434,22 @@ class DownloadCore:
             print(f"[ERROR] 다운로드 태스크 오류: {e}")
             req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
             if req:
-                verdict = apply_failure_to_request(req, "다운로드", str(e))
+                failure_stage = "파싱" if isinstance(e, (PreparseDeadLinkError, PreparseBlockedError)) else "다운로드"
+                verdict = apply_failure_to_request(
+                    req, failure_stage, str(e)
+                )
                 req.status = _status_after_failure(verdict)
                 await db_async.commit(db)
+                if is_1fichier and isinstance(e, PreparseBlockedError):
+                    fichier_egress = egress_of(req.use_proxy)
+                    if verdict.kind == KIND_SLOT_BUSY:
+                        await self._stop_fichier_queue_for_busy_slots(db, fichier_egress)
+                    else:
+                        await self._publish_fichier_cooldown(db, fichier_egress)
                 await self.send_download_update(req_id, {
                     "status": "failed",
                     "message": verdict.user_message,
-                    "stage": "다운로드",
+                    "stage": failure_stage,
                     "raw_error": str(e),
                     "failure_kind": verdict.kind,
                     "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
