@@ -418,7 +418,7 @@
         this.pill.innerHTML = `${$t("download_retry_pending")}${attemptLabel ? ` ${attemptLabel}` : ""} <span class="wait-countdown">(${formatWaitTime(
           remSec
         )})</span>`;
-      } else if (st === "failed" && d.failure_kind) {
+      } else if (st === "failed") {
         if (d.attempt_count) {
           this.pill.innerHTML = `<span class="status-exhausted">${$t(failureStatusKey(d))}</span>`;
         } else {
@@ -798,7 +798,7 @@
             this.eGui.appendChild(
               this.makeBtn(
                 retrySvg,
-                d.failure_kind ? $t(failureStatusKey(d)) : $t("action_retry"),
+                $t("action_retry"),
                 () => dispatch("retry", { id: d.id })
               )
             );

@@ -28,18 +28,18 @@ describe("stable grid page size", () => {
 });
 
 describe("failed status wording", () => {
-  it("shows the saved download-link failure instead of a generic browser label", () => {
+  it("keeps a parser failure in the single failed status", () => {
     expect(failureStatusKey({
       failure_kind: "browser_parse",
       error_message: "[파싱 실패] 다운로드 버튼 처리 후 링크를 받지 못했습니다",
-    })).toBe("kind_browser_link_missing");
+    })).toBe("download_failed");
   });
 
-  it("keeps other browser failures distinct", () => {
+  it("keeps a host block in the same failed status", () => {
     expect(failureStatusKey({
-      failure_kind: "browser_parse",
-      error_message: "Turnstile 캡차를 통과하지 못했습니다",
-    })).toBe("kind_browser_parse");
+      failure_kind: "blocked",
+      error_message: "호스팅 서버가 접근을 거부했습니다",
+    })).toBe("download_failed");
   });
 });
 
