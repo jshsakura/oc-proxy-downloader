@@ -2307,6 +2307,14 @@ class DownloadCore:
                             print(f"[DEBUG] 이어받기: {initial_size} bytes")
 
                         async with session.get(current_url, headers=headers) as response:
+                            # AkiraBox can issue a valid-looking signed URL even
+                            # when the assigned storage node has no file. Its
+                            # plain-text 403 says so explicitly; asking
+                            # FlareSolverr for cookies cannot restore that file.
+                            if response.status == 403 and (urlparse(req.original_url or req.url).hostname or "").lower().removeprefix("www.") in {"akirabox.com", "akirabox.to"}:
+                                preview = await response.content.read(256)
+                                if b"the link is not available at this time" in preview.lower():
+                                    raise Exception("akirabox storage unavailable")
                             if (
                                 response.status == 403
                                 and is_special_hoster_url(req.original_url or req.url)

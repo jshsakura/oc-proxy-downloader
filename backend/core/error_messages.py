@@ -117,6 +117,11 @@ class ClassifiedError:
     retry_after_seconds: Optional[int] = None
 
     def to_user_message(self, language: str = "ko") -> str:
+        if "akirabox storage unavailable" in self.raw.lower() and language == "en":
+            return (
+                "[Download failed] AkiraBox's file server says this file is currently unavailable.\n"
+                "Action: Try another mirror or retry manually after the host restores the file."
+            )
         if self.kind == KIND_SLOT_BUSY:
             if language == "en":
                 stage = {"파싱": "Parsing", "다운로드": "Download"}.get(self.stage, self.stage)
@@ -330,6 +335,10 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      KIND_CLOUDFLARE, False),
 
     # --- blocked: other blocks ---
+    ("akirabox storage unavailable",
+     "AkiraBox 파일 서버가 이 파일을 현재 제공하지 않습니다",
+     "다른 미러를 사용하거나 파일 서버가 복구된 뒤 수동으로 다시 받으세요. 자동 재시도하지 않습니다.",
+     KIND_BLOCKED, True),
     ("1fichier 폼 제출 거부",
      "1fichier 가 폼 제출을 거부하고 홈페이지를 반환했습니다",
      "통신사 CGNAT/공유 IP 가 비주거용으로 분류된 경우가 많습니다. "
@@ -750,10 +759,13 @@ def apply_failure_to_request(
     elif next_retry_at is None and kind == KIND_BROWSER_PARSE:
         user_message += "\n차단을 피하기 위해 같은 브라우저 파싱을 자동 반복하지 않습니다."
     elif next_retry_at is None and kind in _NO_AUTOMATIC_RETRY_KINDS and kind != KIND_SLOT_BUSY:
-        user_message += (
-            "\n이 차단 유형은 추가 요청이 차단을 악화시킬 수 있어 자동 재시도하지 않습니다. "
-            "원인이 해소되었거나 회선을 바꾼 뒤 '다시 받기'를 누르세요."
-        )
+        if language == "en" and "akirabox storage unavailable" in (raw_error or "").lower():
+            user_message += "\nAutomatic retry is disabled for this unavailable file."
+        else:
+            user_message += (
+                "\n이 차단 유형은 추가 요청이 차단을 악화시킬 수 있어 자동 재시도하지 않습니다. "
+                "원인이 해소되었거나 회선을 바꾼 뒤 '다시 받기'를 누르세요."
+            )
     elif next_retry_at is None and kind not in TERMINAL_KINDS:
         user_message += (
             f"\n자동 재시도 {attempt_count}회를 모두 사용했습니다. "

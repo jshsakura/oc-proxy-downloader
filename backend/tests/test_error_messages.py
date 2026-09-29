@@ -65,6 +65,18 @@ def test_failure_kind_labels_exist_in_korean_and_english():
 # ---------------------------------------------------------------------------
 
 class TestClassify:
+    @pytest.mark.parametrize("language,expected", [
+        ("ko", "AkiraBox 파일 서버가 이 파일을 현재 제공하지 않습니다"),
+        ("en", "AkiraBox's file server says this file is currently unavailable"),
+    ])
+    def test_akirabox_storage_unavailable_does_not_retry_or_blame_cloudflare(self, language, expected):
+        req = _FakeReq()
+        verdict = apply_failure_to_request(req, "다운로드", "akirabox storage unavailable", language=language)
+        assert verdict.kind == KIND_BLOCKED
+        assert verdict.next_retry_at is None
+        assert expected in req.error
+        assert "Cloudflare" not in req.error
+
     @pytest.mark.parametrize("language,expected,excluded", [
         ("ko", "자동 재시도하지 않습니다", "자동으로 다시 시도"),
         ("en", "Automatic retry is disabled", "조치:"),

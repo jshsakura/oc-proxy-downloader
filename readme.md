@@ -58,6 +58,8 @@ marked ❌ below are unsupported there, and adding such a link reports that righ
 | **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **Browser and Turnstile captcha** | ❌ **Docker only** |
 | **Rootz** (`rootz.so`) | **Browser to verify metadata and resolve the file URL** | ❌ **Docker only** |
 | DataVaults | reCAPTCHA v2 on the free-download step | ❌ Automated downloads unsupported |
+| FileCrypt | Human verification before its multi-link container | ❌ Automated downloads unsupported |
+| MomeryBox / TeraBox | Redirects to TeraBox; the example link prompts for login on download | ❌ Automated downloads unsupported |
 
 Browser-based link resolution runs **one link at a time per site**. Waiting for a
 turn does not consume a failure retry. AkiraBox, VikingFile, and Rootz resolve
@@ -72,6 +74,11 @@ MultiUp are limited to one per host.
 
 > Turnstile and free-download limits vary by host and egress address. A resolved
 > link can still be refused by the file server when the transfer begins.
+
+For some AkiraBox files, the storage server refuses a freshly issued signed URL
+with `The link is not available at this time.` The downloader reports that
+storage refusal and stops automatic retries. Other files on AkiraBox may still
+work; use another mirror or wait for the host to restore the file.
 
 ---
 
