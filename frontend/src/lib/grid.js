@@ -68,6 +68,17 @@ export function retryAttemptLabel(download) {
   return count > 0 && limit ? `${count}/${limit}` : "";
 }
 
+/** Show the known failure instead of a broad parser category in the status cell. */
+export function failureStatusKey(download) {
+  if (
+    download?.failure_kind === "browser_parse" &&
+    String(download.error_message || "").includes("다운로드 버튼 처리 후 링크를 받지 못했습니다")
+  ) {
+    return "kind_browser_link_missing";
+  }
+  return `kind_${download?.failure_kind}`;
+}
+
 /**
  * Stable server page size for each responsive layout.
  *

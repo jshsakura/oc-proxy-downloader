@@ -37,6 +37,7 @@
   "kind_daily_quota": "Daily free quota",
   "kind_slot_busy": "Free slots busy",
   "kind_browser_parse": "Browser parsing failed",
+  "kind_browser_link_missing": "Download link not received",
   "kind_cloudflare": "Cloudflare block",
   "kind_proxy_blocked": "Network blocked (use a proxy)",
   "kind_blocked": "Temporarily blocked",

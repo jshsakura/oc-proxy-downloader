@@ -8,6 +8,7 @@ const translationFallback = {
     kind_daily_quota: 'Daily free quota',
     kind_slot_busy: 'Free slots busy',
     kind_browser_parse: 'Browser parsing failed',
+    kind_browser_link_missing: 'Download link not received',
     detail_fichier_queue_note: '1fichier free downloads run one at a time. This file starts when earlier jobs finish.',
 };
 

@@ -8,7 +8,7 @@
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-quartz.css";
   import { t } from "./i18n.js";
-  import { hasScheduledRetry, retryAttemptLabel, truncateMiddle } from "./grid.js";
+  import { failureStatusKey, hasScheduledRetry, retryAttemptLabel, truncateMiddle } from "./grid.js";
   import { theme } from "./theme.js";
 
   import ChevronLeftIcon from "../icons/ChevronLeftIcon.svelte";
@@ -420,9 +420,9 @@
         )})</span>`;
       } else if (st === "failed" && d.failure_kind) {
         if (d.attempt_count) {
-          this.pill.innerHTML = `<span class="status-exhausted">${$t("kind_" + d.failure_kind)}</span>`;
+          this.pill.innerHTML = `<span class="status-exhausted">${$t(failureStatusKey(d))}</span>`;
         } else {
-          this.pill.textContent = $t("kind_" + d.failure_kind);
+          this.pill.textContent = $t(failureStatusKey(d));
         }
       } else {
         const label = $t(`download_${st}`) || st;
@@ -798,7 +798,7 @@
             this.eGui.appendChild(
               this.makeBtn(
                 retrySvg,
-                d.failure_kind ? $t("kind_" + d.failure_kind) : $t("action_retry"),
+                d.failure_kind ? $t(failureStatusKey(d)) : $t("action_retry"),
                 () => dispatch("retry", { id: d.id })
               )
             );

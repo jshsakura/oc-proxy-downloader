@@ -4,6 +4,7 @@ import {
   ACTIVE_STATUSES,
   countActiveByStatus,
   countLive,
+  failureStatusKey,
   hasScheduledRetry,
   itemsPerPageForWidth,
   isLiveStatus,
@@ -23,6 +24,22 @@ describe("stable grid page size", () => {
     expect(itemsPerPageForWidth(768)).toBe(10);
     expect(itemsPerPageForWidth(1023)).toBe(10);
     expect(itemsPerPageForWidth(1024)).toBe(15);
+  });
+});
+
+describe("failed status wording", () => {
+  it("shows the saved download-link failure instead of a generic browser label", () => {
+    expect(failureStatusKey({
+      failure_kind: "browser_parse",
+      error_message: "[파싱 실패] 다운로드 버튼 처리 후 링크를 받지 못했습니다",
+    })).toBe("kind_browser_link_missing");
+  });
+
+  it("keeps other browser failures distinct", () => {
+    expect(failureStatusKey({
+      failure_kind: "browser_parse",
+      error_message: "Turnstile 캡차를 통과하지 못했습니다",
+    })).toBe("kind_browser_parse");
   });
 });
 

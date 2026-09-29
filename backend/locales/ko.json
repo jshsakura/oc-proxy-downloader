@@ -37,6 +37,7 @@
   "kind_daily_quota": "일일 무료 한도",
   "kind_slot_busy": "무료 슬롯 사용 중",
   "kind_browser_parse": "브라우저 파싱 실패",
+  "kind_browser_link_missing": "링크 획득 실패",
   "kind_cloudflare": "Cloudflare 차단",
   "kind_proxy_blocked": "네트워크 차단 (프록시 필요)",
   "kind_blocked": "차단됨",
