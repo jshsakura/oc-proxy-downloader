@@ -22,8 +22,8 @@ services:
       # 사람 로그인과 별개. oc-scraper 의 OC_PROXY_DOWNLOADER_TOKEN 에 같은 값 사용.
       # - API_TOKEN=change-me-long-random-token
 
-      # 성능 최적화 (선택사항)
-      # - MAX_TOTAL_DOWNLOADS=5
+      # 동시 다운로드 수는 /config/config.json 또는 웹 설정에서 조정
+      # max_concurrent_downloads 기본 8, max_per_host_downloads 기본 3
     volumes:
       - ./downloads:/downloads       # 다운로드 파일 저장소
       - ./backend/config:/config     # 설정 파일 및 데이터베이스

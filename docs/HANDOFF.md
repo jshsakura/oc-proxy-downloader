@@ -1,5 +1,15 @@
 # Handoff — 2026-08-12 (updated)
 
+> **Historical incident record.** The queue counts, deployment commands and
+> host behavior below describe the August 2026 investigation; they are not
+> current operating instructions. As of v2.16.52 (2026-09-29), the running
+> downloader supports AkiraBox, VikingFile and Rootz in Docker. Each has up to
+> three transfer slots, with one browser resolution at a time per site. Their
+> aliases share a queue, and a failed link issue is not repeatedly reparsed.
+> DataVaults still requires reCAPTCHA v2 and is not supported for automatic
+> downloads. Use the current [README](../README_KR.md) and source configuration
+> for active limits, then inspect live status before restarting the service.
+
 Written so the next session can pick up without re-deriving any of it. Facts
 here were measured against the running system, not assumed.
 

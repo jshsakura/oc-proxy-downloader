@@ -2,21 +2,21 @@
 
 ![Project Banner](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docs/banner.png)
 
-**1fichier · MEGA · DataNodes · MegaUp download manager — proxy-based, runs as a Docker container or a Windows app**
+**1fichier · MEGA · file-host download manager — proxy-based, runs as a Docker container or a Windows app**
 
-A FastAPI + Svelte web app for stable downloads from 1fichier, MEGA, DataNodes, and MegaUp (Docker), with proxy support.
+A FastAPI + Svelte web app that resolves file-host links, queues downloads, and shows their status.
 
 ## ✨ Key Features
 
 - 🚀 **1fichier Optimized**: Automatic wait time detection and cooldown management (up to 24-hour wait), with a visible quota-recovery countdown
 - 🔐 **MEGA Support**: Public-link download with client-side AES decryption (filename, size, progress)
-- 🧩 **DataNodes / MegaUp / MediaFire / Pixeldrain / Bunkr**: Automatic link resolution and download (MegaUp needs FlareSolverr — see below)
+- 🧩 **Host-specific link resolution**: DataNodes, MegaUp, MediaFire, Pixeldrain, Bunkr, AkiraBox, VikingFile, Rootz, and more (see limits below)
 - 🔄 **Smart Proxy**: Auto-rotation, failure detection, mixed local/proxy downloads
 - 📊 **Real-time Monitoring**: SSE-based real-time status updates and progress display
-- 🎯 **Concurrent Download Limits**: Semaphore-based limits for system stability
+- 🎯 **Concurrent Download Limits**: 8 global and 3 per host by default; one free 1fichier transfer per egress
 - 📱 **Telegram Notifications**: Download completion/failure notification support
 - 🌙 **Theme Support**: Dark/Light/Dracula themes
-- 🌐 **Multilingual**: Full Korean/English support
+- 🌐 **Multilingual**: 18 bundled UI languages
 - 📱 **Responsive UI**: Mobile/Desktop optimized
 - 🛡️ **Optional Authentication**: JWT-based security (optional)
 
@@ -54,13 +54,24 @@ marked ❌ below are unsupported there, and adding such a link reports that righ
 | Bunkr | FlareSolverr when challenged | 🟡 Encrypted-CDN links may not resolve |
 | **DataNodes** | **a browser (Turnstile captcha)** | ❌ **Docker only** |
 | Send.now | FlareSolverr, or a browser when captcha-gated | 🟡 Fails if a captcha appears |
+| **AkiraBox** (`akirabox.com`, `akirabox.to`) | **Browser to issue a short-lived download URL** | ❌ **Docker only** |
+| **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **Browser and Turnstile captcha** | ❌ **Docker only** |
+| **Rootz** (`rootz.so`) | **Browser to verify metadata and resolve the file URL** | ❌ **Docker only** |
+| DataVaults | reCAPTCHA v2 on the free-download step | ❌ Automated downloads unsupported |
 
-Captcha solving runs **one link at a time per site**. Queue up as many as you like —
-they are worked through in order, and waiting for a turn never costs a link its
-retry budget.
+Browser-based link resolution runs **one link at a time per site**. Waiting for a
+turn does not consume a failure retry. AkiraBox, VikingFile, and Rootz resolve
+their file URL once when the download slot is available; a failed resolution does
+not cycle through multiple proxies. Each of these hosts allows up to three
+concurrent transfers. Their domain aliases share the same limit.
 
-> Turnstile does not issue tokens to datacenter/VPS addresses. Verified working from
-> a residential connection (NAS).
+The defaults are 8 global transfers and 3 per host. Set `max_concurrent_downloads`
+and `max_per_host_downloads` in `/config/config.json` or the web settings to lower
+them. Free 1fichier transfers are limited to one per egress; DataNodes and
+MultiUp are limited to one per host.
+
+> Turnstile and free-download limits vary by host and egress address. A resolved
+> link can still be refused by the file server when the transfer begins.
 
 ---
 
@@ -102,7 +113,7 @@ curl -O https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/doc
 mkdir -p downloads backend/config
 
 # 3. Run
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 🪟 Windows Executable
@@ -113,7 +124,7 @@ We provide a standalone executable for Windows users:
 2. Run `oc-proxy-downloader-windows.exe`
 3. Access **http://localhost:8000** to use
 
-> **Note**: The Windows version is a standalone executable with all features included. No Docker installation required.
+> **Note**: The Windows executable runs without Docker, but does not include Chromium or Xvfb. Docker-only hosts in the table above are unavailable there.
 
 ### 🔧 Docker Compose Configuration Examples
 
@@ -174,7 +185,7 @@ services:
 ### Basic Configuration
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TZ` | `UTC` | System timezone setting |
+| `TZ` | `Asia/Seoul` (Docker image) | System timezone setting |
 | `PUID` | `1000` | File owner ID (permission management) |
 | `PGID` | `1000` | File group ID (permission management) |
 
@@ -190,8 +201,12 @@ services:
 ### Advanced Settings (Optional)
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MAX_TOTAL_DOWNLOADS` | `5` | Maximum total concurrent downloads |
-| `MAX_LOCAL_DOWNLOADS` | `1` | Maximum concurrent 1fichier local downloads |
+| `API_TOKEN` | generated if unset | Server-to-server `/api/*` token (`X-API-Key`) |
+| `FLARESOLVERR_URL` | `http://flaresolverr:8191` (Compose) | FlareSolverr endpoint |
+
+Download concurrency is configured in `/config/config.json` or the web settings,
+not through environment variables. Defaults: `max_concurrent_downloads=8`,
+`max_per_host_downloads=3`.
 
 ## 📁 Directory Structure
 
@@ -200,16 +215,15 @@ oc-proxy-downloader/
 ├── downloads/           # Downloaded files storage
 ├── backend/config/      # Configuration files and database
 │   ├── downloads.db    # SQLite database
-│   ├── config.json     # App configuration file
-│   └── proxies.txt     # Proxy list
+│   └── config.json     # App configuration file
 └── docker-compose.yml  # Docker Compose configuration
 ```
 
 ## 🚀 Usage
 
 1. Access **http://localhost:8000**
-2. **Settings** → **Proxy Management** to add proxies
-3. Enter **1fichier URL** and start download
+2. Add proxies in **Settings** → **Proxy Management** if needed
+3. Enter a supported host URL and start the download
 4. Monitor **real-time progress** and **proxy status**
 
 ## 🔧 Development Environment
@@ -220,10 +234,10 @@ git clone https://github.com/jshsakura/oc-proxy-downloader.git
 cd oc-proxy-downloader
 
 # Run development environment
-docker-compose -f docker-compose.dev.yml up -d --build
+docker compose up -d --build
 
 # Check logs
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ### Backend Development
@@ -252,10 +266,10 @@ docker ps
 docker stats oc-proxy-downloader
 
 # Real-time logs
-docker-compose logs -f
+docker compose logs -f
 
 # Health check
-curl http://localhost:8000/api/settings
+curl http://localhost:8000/api/auth/status
 ```
 
 ## 🆘 Troubleshooting
@@ -263,7 +277,7 @@ curl http://localhost:8000/api/settings
 ### Container Startup Failure
 ```bash
 # Check logs
-docker-compose logs oc-proxy-downloader
+docker compose logs oc-proxy-downloader
 
 # Permission issues (Linux/macOS)
 sudo chown -R 1000:1000 downloads backend/config
@@ -271,15 +285,15 @@ sudo chown -R 1000:1000 downloads backend/config
 
 ### Port Conflicts
 ```bash
-# Use different port (e.g., 8080)
-docker-compose up -d -p 8080:8000
+# Change the Compose ports mapping to "8080:8000", then restart
+docker compose up -d
 ```
 
 ### Cache Issues
 ```bash
 # Rebuild without cache
-docker-compose build --no-cache
-docker-compose up -d
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ## 📞 Support

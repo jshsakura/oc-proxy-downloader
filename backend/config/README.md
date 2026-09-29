@@ -19,9 +19,9 @@ volumes:
 ## 환경 변수
 
 - `CONFIG_PATH=/config` - 설정 및 DB 파일 경로
-- `DOWNLOAD_PATH=/app/backend/downloads` - 다운로드 파일 저장 경로
+- `DOWNLOAD_PATH=/downloads` - Docker 다운로드 파일 저장 경로
 
 ## 주의사항
 
 - 이 폴더의 파일들은 `.gitignore`에 포함되어 있어 Git에 커밋되지 않습니다
-- 설정 파일이 없으면 기본값으로 자동 생성됩니다
+- 설정 파일이 없으면 기본값으로 자동 생성됩니다. 동시 다운로드 기본값은 전체 8개·호스트당 3개이며 `config.json` 또는 웹 설정에서 조정합니다.

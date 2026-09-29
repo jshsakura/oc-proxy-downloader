@@ -25,14 +25,8 @@ services:
       - JWT_SECRET_KEY=your-random-secret-key  # 랜덤한 문자열로 변경
       - JWT_EXPIRATION_HOURS=24                # JWT 토큰 만료 시간
       
-      # 시스템 최적화 설정
-      - LOG_LEVEL=WARNING                      # 로그 레벨 (DEBUG, INFO, WARNING, ERROR)
-      - PARENT_CHECK_INTERVAL=5                # 부모 프로세스 체크 간격(초)
-      - MAX_WEBSOCKET_CONNECTIONS=10           # WebSocket 최대 연결 수
-      - MAX_TOTAL_DOWNLOADS=5                  # 최대 동시 다운로드 수 (Synology 성능에 맞게 조정)
-      
-      # 1fichier 쿨다운 설정 (필요시)
-      - FICHIER_COOLDOWN=300                   # 1fichier 쿨다운 시간(초) - 기본 5분
+      # 동시 다운로드 수는 /config/config.json 또는 웹 설정에서 조정
+      # max_concurrent_downloads 기본 8, max_per_host_downloads 기본 3
       
     volumes:
       # Synology 경로 예시 - 실제 환경에 맞게 수정 필요
@@ -64,12 +58,12 @@ services:
       resources:
         limits:
           cpus: '2.0'      # CPU 제한
-          memory: 1G       # 메모리 제한
+          memory: 2G       # 브라우저 호스트 파싱을 고려한 예시
         reservations:
           cpus: '0.5'      # CPU 예약
           memory: 256M     # 메모리 예약
 
-  # Cloudflare 챌린지 우회용 헤드리스 브라우저.
+  # Cloudflare 챌린지 처리용 FlareSolverr. 호스트별 다운로드 브라우저는 앱 이미지에 포함.
   # 앱과 같은 네트워크에 두어야 cf_clearance 쿠키의 egress IP 가 일치한다.
   # 8191 포트는 앱만 쓰므로 호스트로 노출하지 않는다.
   flaresolverr:

@@ -2,18 +2,18 @@
 
 ![Project Banner](https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/docs/banner.png)
 
-**1fichier · MEGA · DataNodes · MegaUp 다운로드 관리자 — 프록시 기반, Docker 컨테이너 / Windows 앱으로 실행**
+**1fichier · MEGA · 파일 호스팅 사이트 다운로드 관리자 — 프록시 기반, Docker 컨테이너 / Windows 앱으로 실행**
 
-FastAPI + Svelte 웹 앱으로, 1fichier·MEGA·DataNodes·MegaUp(Docker) 안정적 다운로드 + 프록시 지원.
+FastAPI + Svelte 웹 앱으로, 파일 호스팅 링크를 해석해 다운로드 대기열에 넣고 상태를 보여줍니다.
 
 ## ✨ 주요 기능
 
 - 🚀 **1fichier 최적화**: 자동 대기시간 감지 및 쿨다운 관리 (최대 24시간 대기), 한도 복구 시각 카운트다운 표시
 - 🔐 **MEGA 지원**: 공개 링크 다운로드 + 클라이언트 측 AES 복호화 (파일명/크기/진행률)
-- 🧩 **DataNodes / MegaUp / MediaFire / Pixeldrain / Bunkr**: 링크 자동 해석 및 다운로드 (MegaUp은 FlareSolverr 필요 — 아래 참고)
+- 🧩 **호스트별 링크 해석**: DataNodes, MegaUp, MediaFire, Pixeldrain, Bunkr, AkiraBox, VikingFile, Rootz 등 (제약은 아래 표 참고)
 - 🔄 **스마트 프록시**: 자동 순환, 실패 감지, 로컬/프록시 혼합 다운로드
 - 📊 **실시간 모니터링**: SSE 기반 실시간 상태 업데이트 및 진행률 표시
-- 🎯 **동시 다운로드 제한**: 시스템 안정성을 위한 세마포어 기반 제한
+- 🎯 **동시 다운로드 제한**: 기본 전체 8개·호스트당 3개, 1fichier 무료 회선당 1개
 - 📱 **텔레그램 알림**: 다운로드 완료/실패 알림 지원
 - 🌙 **테마 지원**: 다크/라이트/드라큘라 테마
 - 🌐 **다국어**: 18개 언어 지원 (한국어·영어·일본어·중국어 간체/번체·스페인어·프랑스어·독일어·러시아어·포르투갈어(BR)·이탈리아어·베트남어·인도네시아어·태국어·터키어·폴란드어·아랍어(RTL)·네덜란드어). 언어 파일(`backend/locales/*.json`)만 추가하면 자동 인식
@@ -53,12 +53,23 @@ Windows 실행 파일은 **단일 파일 유지를 위해 브라우저를 번들
 | Bunkr | Cloudflare 챌린지 때 FlareSolverr | 🟡 암호화 CDN 링크는 해석 못 할 수 있음 |
 | **DataNodes** | **브라우저 (Turnstile 캡차)** | ❌ **Docker 전용** |
 | Send.now | 보통 FlareSolverr, 캡차 시 브라우저 | 🟡 캡차가 뜨면 실패 |
+| **AkiraBox** (`akirabox.com`, `akirabox.to`) | **브라우저에서 유효기간 있는 다운로드 주소 발급** | ❌ **Docker 전용** |
+| **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **브라우저와 Turnstile 캡차** | ❌ **Docker 전용** |
+| **Rootz** (`rootz.so`) | **브라우저에서 파일 정보와 다운로드 주소 확인** | ❌ **Docker 전용** |
+| DataVaults | 무료 다운로드 단계에 reCAPTCHA v2 | ❌ 자동 다운로드 미지원 |
 
-캡차 우회는 **사이트별로 한 번에 하나씩** 처리됩니다. 링크를 많이 걸어두어도 순서대로
-진행되며, 순서를 기다리는 동안에는 재시도 횟수가 소모되지 않습니다.
+브라우저가 필요한 링크 해석은 **사이트별로 한 번에 하나씩** 처리됩니다. 차례를 기다리는
+동안에는 실패 재시도 횟수가 소모되지 않습니다. AkiraBox·VikingFile·Rootz는 다운로드
+차례가 왔을 때 주소를 한 번 발급하며, 주소 발급에 실패해도 자동으로 여러 프록시를 돌며
+반복 파싱하지 않습니다. 세 호스트의 다운로드 전송은 각각 최대 3개까지 가능합니다.
 
-> 데이터센터/VPS IP에서는 Turnstile이 토큰을 내주지 않습니다. 가정용 회선(NAS 등)에서
-> 동작을 확인했습니다.
+전체 동시 다운로드 기본값은 8개, 기본 호스트당 한도는 3개입니다. 설정의
+`max_concurrent_downloads`와 `max_per_host_downloads`로 낮출 수 있습니다. 1fichier 무료
+다운로드는 회선당 1개, DataNodes와 MultiUp은 호스트당 1개입니다. 동일 사이트의 도메인
+별칭은 같은 한도를 공유합니다.
+
+> Turnstile과 무료 다운로드 제한은 호스트와 접속 회선에 따라 달라집니다. 링크 해석에
+> 성공해도 파일 서버가 실제 전송을 거부할 수 있습니다.
 
 ---
 
@@ -75,7 +86,7 @@ Windows 실행 파일은 **단일 파일 유지를 위해 브라우저를 번들
 ### Backend
 - **FastAPI**: 고성능 비동기 웹 프레임워크
 - **SQLAlchemy**: ORM 및 데이터베이스 관리
-- **PostgreSQL**: 메인 데이터베이스
+- **SQLite**: 다운로드 이력 및 설정 데이터베이스
 - **aiohttp**: 비동기 HTTP 클라이언트 (다운로드/프록시)
 - **SSE**: Server-Sent Events로 실시간 통신
 
@@ -100,7 +111,7 @@ curl -O https://raw.githubusercontent.com/jshsakura/oc-proxy-downloader/main/doc
 mkdir -p downloads backend/config
 
 # 3. 실행
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 🪟 Windows 실행 파일
@@ -111,7 +122,7 @@ Windows 사용자를 위한 독립 실행 파일을 제공합니다:
 2. `oc-proxy-downloader-windows.exe` 실행
 3. **http://localhost:8000** 접속하여 사용
 
-> **참고**: Windows 버전은 모든 기능을 포함한 독립 실행 파일입니다. Docker 설치가 불필요합니다.
+> **참고**: Windows 버전은 Docker 없이 실행되지만 Chromium·Xvfb가 없어 위 표의 Docker 전용 호스트는 사용할 수 없습니다.
 
 ### 🔧 Docker Compose 설정 예시
 
@@ -172,7 +183,7 @@ services:
 ### 기본 설정
 | 변수명 | 기본값 | 설명 |
 |--------|--------|------|
-| `TZ` | `UTC` | 시스템 타임존 설정 |
+| `TZ` | `Asia/Seoul` (Docker 이미지) | 시스템 타임존 설정 |
 | `PUID` | `1000` | 파일 소유자 ID (권한 관리) |
 | `PGID` | `1000` | 파일 그룹 ID (권한 관리) |
 
@@ -188,8 +199,11 @@ services:
 ### 고급 설정 (선택사항)
 | 변수명 | 기본값 | 설명 |
 |--------|--------|------|
-| `MAX_TOTAL_DOWNLOADS` | `5` | 전체 최대 동시 다운로드 |
-| `MAX_LOCAL_DOWNLOADS` | `1` | 1fichier 로컬 최대 동시 다운로드 |
+| `API_TOKEN` | 자동 생성 가능 | 서버 간 `/api/*` 호출용 토큰 (`X-API-Key`) |
+| `FLARESOLVERR_URL` | `http://flaresolverr:8191` (Compose) | FlareSolverr 주소 |
+
+동시 다운로드 수는 환경 변수 대신 `/config/config.json`의 `max_concurrent_downloads`(기본 8),
+`max_per_host_downloads`(기본 3) 또는 웹 설정에서 조정합니다.
 
 ## 📁 디렉토리 구조
 
@@ -197,17 +211,16 @@ services:
 oc-proxy-downloader/
 ├── downloads/           # 다운로드된 파일 저장소
 ├── backend/config/      # 설정 파일 및 데이터베이스
-│   ├── app.db          # SQLite 데이터베이스
-│   ├── config.json     # 앱 설정 파일
-│   └── proxies.txt     # 프록시 목록
+│   ├── downloads.db    # SQLite 데이터베이스
+│   └── config.json     # 앱 설정 파일
 └── docker-compose.yml  # Docker Compose 설정
 ```
 
 ## 🚀 사용법
 
 1. **http://localhost:8000** 접속
-2. **설정** → **프록시 관리**에서 프록시 추가
-3. **1fichier URL** 입력 후 다운로드 시작
+2. 프록시가 필요한 경우 **설정** → **프록시 관리**에서 추가
+3. 지원 호스트의 URL을 입력하고 다운로드 시작
 4. **실시간 진행률** 및 **프록시 상태** 모니터링
 
 ## 🔧 개발 환경
@@ -218,10 +231,10 @@ git clone https://github.com/jshsakura/oc-proxy-downloader.git
 cd oc-proxy-downloader
 
 # 개발 환경 실행
-docker-compose -f docker-compose.dev.yml up -d --build
+docker compose up -d --build
 
 # 로그 확인
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ### 백엔드 개발
@@ -250,10 +263,10 @@ docker ps
 docker stats oc-proxy-downloader
 
 # 실시간 로그
-docker-compose logs -f
+docker compose logs -f
 
 # 헬스체크 확인
-curl http://localhost:8000/api/settings
+curl http://localhost:8000/api/auth/status
 ```
 
 ## 🆘 문제 해결
@@ -261,7 +274,7 @@ curl http://localhost:8000/api/settings
 ### 컨테이너 시작 실패
 ```bash
 # 로그 확인
-docker-compose logs oc-proxy-downloader
+docker compose logs oc-proxy-downloader
 
 # 권한 문제 (Linux/macOS)
 sudo chown -R 1000:1000 downloads backend/config
@@ -269,15 +282,15 @@ sudo chown -R 1000:1000 downloads backend/config
 
 ### 포트 충돌
 ```bash
-# 다른 포트 사용 (예: 8080)
-docker-compose up -d -p 8080:8000
+# Compose 파일의 ports를 "8080:8000"으로 수정한 뒤 재기동
+docker compose up -d
 ```
 
 ### 캐시 문제
 ```bash
 # 캐시 없이 재빌드
-docker-compose build --no-cache
-docker-compose up -d
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ## 📞 지원
