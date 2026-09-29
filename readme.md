@@ -44,6 +44,8 @@ marked ❌ below are unsupported there, and adding such a link reports that righ
 
 ## 🌩️ Host support
 
+The [host parsing and failure matrix](docs/HOSTER_CASES.md) lists the current cases and retry policy.
+
 | Host | Requires | Windows app |
 |------|----------|-------------|
 | 1fichier, MEGA | nothing | ✅ Works |

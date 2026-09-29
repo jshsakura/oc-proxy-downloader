@@ -56,6 +56,7 @@ from core.hoster_parsers import (
 )
 from core.error_messages import (
     apply_failure_to_request,
+    classify_error,
     KIND_BLOCKED,
     KIND_DAILY_QUOTA,
     KIND_SLOT_BUSY,
@@ -63,6 +64,7 @@ from core.error_messages import (
     KIND_PROXY_BLOCKED,
     KIND_QUEUED,
     KIND_RATE_LIMITED,
+    KIND_TRANSIENT,
     next_fichier_quota_reset,
 )
 from core.executors import parse_executor_for
@@ -93,6 +95,24 @@ DEFAULT_DOWNLOAD_USER_AGENT = (
 MAX_PROXY_PARSE_RETRIES_CAP = 3
 MAX_DOWNLOAD_RETRIES_PROXY_CAP = 3
 MAX_DOWNLOAD_RETRIES_LOCAL = 3
+
+
+def _retry_special_parse_on_next_proxy(raw_error: str) -> bool:
+    """Only a transport failure can justify another proxy during one parse.
+
+    A host saying 404, rate limited, captcha, no file, or an unexpected page
+    will say the same thing to the next proxy. Rotating for those errors makes
+    one queued item contact the host several times before its first failure is
+    even recorded.
+    """
+    if classify_error("파싱", raw_error).kind != KIND_TRANSIENT:
+        return False
+    lowered = raw_error.lower()
+    return any(marker in lowered for marker in (
+        "timeout", "timed out", "connection reset", "connection refused",
+        "name or service not known", "temporary failure in name resolution",
+        "proxyerror", "proxy error",
+    ))
 
 # 1fichier free-tier host backoff. When 1fichier rejects the download form or
 # signals a quota block, the server IP is flagged — hammering it just cascades
@@ -3001,11 +3021,14 @@ class DownloadCore:
                         if parse_result:
                             break
                     except asyncio.TimeoutError:
-                        await proxy_manager.mark_proxy_failed(db, proxy_addr)
-                        retry_count += 1
-                        continue
+                        # asyncio.wait_for cannot stop the running executor
+                        # thread. A second proxy here would start another parse
+                        # while the first browser/request may still be active.
+                        raise Exception("호스팅 페이지 파싱 시간 초과 (기존 파서 종료 대기)")
                     except Exception as e:
                         print(f"[LOG] 프록시 파싱 실패 {proxy_addr}: {e}")
+                        if not _retry_special_parse_on_next_proxy(str(e)):
+                            raise
                         await proxy_manager.mark_proxy_failed(db, proxy_addr)
                         retry_count += 1
                         if retry_count >= MAX_RETRIES:

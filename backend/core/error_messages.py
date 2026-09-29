@@ -33,10 +33,53 @@ Classification (kind) values:
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
 import json
+from pathlib import Path
 import random
 import re
 from typing import List, Optional, Tuple
+
+
+@lru_cache(maxsize=24)
+def _failure_locale(language: str) -> dict:
+    """Read the UI locale without depending on startup's translation cache."""
+    if not re.fullmatch(r"[A-Za-z]{2,3}(?:-[A-Za-z]{2,3})?", language or ""):
+        language = "en"
+    path = Path(__file__).resolve().parents[1] / "locales" / f"{language}.json"
+    if not path.is_file():
+        path = path.with_name("en.json")
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _failure_phrase(language: str, key: str) -> str:
+    return _failure_locale(language).get(key) or _failure_locale("en").get(key) or key
+
+
+def _failure_host(raw: str) -> str:
+    for label in ("1fichier", "DataVaults", "MultiUp", "GoFile", "Gofile", "Rootz", "AkiraBox", "MixDrop", "MegaUp", "DataNodes", "Rapidgator", "Send.now", "Pixeldrain", "MediaFire", "Bunkr", "VikingFile"):
+        if raw.lower().startswith(label.lower()):
+            return "GoFile" if label == "Gofile" else label
+    return ""
+
+
+def _multiup_mirror_reasons(raw: str, language: str) -> str:
+    """Summarize nested failures without exposing raw parser responses."""
+    if not raw.lower().startswith("multiup 모든 지원 미러 실패 ("):
+        return ""
+    body = raw.partition("(")[2].removesuffix(")")
+    lines = []
+    allowed = {"gofile": "GoFile", "megaup": "MegaUp", "mixdrop": "MixDrop"}
+    for part in body.split("; ")[:3]:
+        label, separator, detail = part.partition(": ")
+        canonical = allowed.get(label.strip().lower())
+        if not separator or not canonical:
+            continue
+        classified = classify_error("파싱", detail)
+        reason = classified.summary if language == "ko" else _failure_phrase(language, f"kind_{classified.kind}")
+        lines.append(f"{canonical}: {reason}")
+    return "\n" + "\n".join(lines) if lines else ""
 
 
 # kind constants
@@ -124,7 +167,8 @@ class ClassifiedError:
             )
         if language == "en" and self.raw.lower().startswith("multiup 모든 지원 미러 실패"):
             return (
-                f"[Parsing failed] All supported MultiUp mirrors failed ({self.raw}).\n"
+                "[Parsing failed] All supported MultiUp mirrors failed."
+                + _multiup_mirror_reasons(self.raw, language) + "\n"
                 "Action: Check each mirror's reason. Automatic retry is disabled."
             )
         if language == "en" and self.raw.lower().startswith("gofile 웹 인증 토큰 거부"):
@@ -144,8 +188,7 @@ class ClassifiedError:
             )
         if self.raw.lower().startswith("rootz:") and language == "en":
             return (
-                "[Parsing failed] Rootz refused to provide this file's download link "
-                f"({self.raw}).\n"
+                "[Parsing failed] Rootz refused to provide this file's download link.\n"
                 "Action: Automatic retry is disabled. Check the link in a browser "
                 "or use another mirror."
             )
@@ -154,7 +197,7 @@ class ClassifiedError:
                 "[Download failed] AkiraBox's file server says this file is currently unavailable.\n"
                 "Action: Try another mirror or retry manually after the host restores the file."
             )
-        if self.kind == KIND_SLOT_BUSY:
+        if self.kind == KIND_SLOT_BUSY and language in {"ko", "en"}:
             if language == "en":
                 stage = {"파싱": "Parsing", "다운로드": "Download"}.get(self.stage, self.stage)
                 return (
@@ -167,7 +210,34 @@ class ClassifiedError:
                 "조치: 자동 재시도하지 않습니다. 슬롯이 비거나 회선 상태가 바뀐 뒤 "
                 "'다시 받기'를 누르세요."
             )
-        return f"[{self.stage} 실패] {self.summary} ({self.raw})\n조치: {self.action}"
+        if language == "ko":
+            return f"[{self.stage} 실패] {self.summary}" + _multiup_mirror_reasons(self.raw, language) + f"\n조치: {self.action}"
+
+        # Existing locale files already translate every failure kind. Additional
+        # cause/action keys below cover cases where a kind alone is misleading
+        # (human captcha, multi-file folder, unsupported host). Never expose the
+        # internal exception text or parser tokens in a user-facing message.
+        lowered = self.raw.lower()
+        if "recaptcha" in lowered or "turnstile" in lowered:
+            cause_key = "failure_cause_human"
+        elif "폴더에 파일이 여러 개" in lowered:
+            cause_key = "failure_cause_multiple"
+        elif "지원하지" in lowered or "미지원" in lowered:
+            cause_key = "failure_cause_unsupported"
+        else:
+            cause_key = f"kind_{self.kind}"
+        cause = _failure_phrase(language, cause_key)
+        host = _failure_host(self.raw)
+        if host:
+            cause = f"{host}: {cause}"
+        action_key = (
+            "failure_action_wait" if self.kind in {KIND_DAILY_QUOTA, KIND_RATE_LIMITED, KIND_QUEUED}
+            else "failure_action_retry" if self.kind in {KIND_TRANSIENT, KIND_UNKNOWN}
+            else "failure_action_manual"
+        )
+        title = _failure_phrase(language, "download_failed")
+        action = _failure_phrase(language, action_key)
+        return f"{title}: {cause}" + _multiup_mirror_reasons(self.raw, language) + f"\n{action}"
 
 
 # Classification rules — the first matching entry from the top is used. Keywords
@@ -191,6 +261,68 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "DataVaults가 무료 다운로드에 사람 확인을 요구합니다",
      "자동 재시도하지 않습니다. 사이트에서 직접 확인을 마치거나 다른 미러를 사용하세요.",
      KIND_AUTH_REQUIRED, True),
+    ("rapidgator는 대기시간/captcha/계정 제약",
+     "Rapidgator 무료 다운로드 절차를 현재 처리할 수 없습니다",
+     "같은 링크를 자동 재시도하지 않습니다. 다른 미러를 사용하세요.",
+     KIND_AUTH_REQUIRED, True),
+    ("pixeldrain 파일 없음 또는 삭제됨",
+     "Pixeldrain에서 파일이 삭제되었거나 존재하지 않습니다",
+     "다른 파일 링크를 사용하세요.", KIND_DEAD, True),
+    ("호스터 페이지 http 404 (삭제 여부 미확인)",
+     "호스터 페이지가 404를 반환했지만 파일 삭제는 확인되지 않았습니다",
+     "자동 재시도하지 않습니다. 브라우저에서 링크를 확인한 뒤 수동으로 다시 시도하세요.",
+     KIND_BROWSER_PARSE, False),
+    ("gofile 폴더에 다운로드할 파일이 없음",
+     "GoFile 폴더에 다운로드할 파일이 없습니다",
+     "폴더 내용을 확인하세요. 자동 재시도하지 않습니다.", KIND_DEAD, True),
+    ("multiup에 자동 다운로드 가능한 미러가 없음",
+     "MultiUp에 현재 처리할 수 있는 미러가 없습니다",
+     "표시된 미러를 확인하거나 다른 링크를 사용하세요. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
+    ("multiup 미러 목록 폼을 찾을 수 없음",
+     "MultiUp 미러 목록을 읽지 못했습니다",
+     "사이트 화면이 바뀌었을 수 있습니다. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
+    ("gofile 폴더에 파일이 여러 개",
+     "GoFile 폴더에 파일이 여러 개라 대상을 고를 수 없습니다",
+     "개별 파일 링크를 사용하세요. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
+    ("pixeldrain 리스트(앨범) 링크는 지원하지 않음",
+     "Pixeldrain 앨범은 단일 파일 다운로드 대상이 아닙니다",
+     "앨범 안의 개별 파일 링크(/u/)를 사용하세요.", KIND_BROWSER_PARSE, False),
+    ("gofile 콘텐츠 조회 실패",
+     "GoFile API가 알 수 없는 상태를 반환했습니다",
+     "응답 상태를 확인하세요. 자동 재시도하지 않습니다.", KIND_BROWSER_PARSE, False),
+    ("gofile 게스트 토큰 발급 실패",
+     "GoFile 게스트 토큰을 받지 못했습니다",
+     "GoFile 상태를 확인하세요. 자동 재시도하지 않습니다.", KIND_BROWSER_PARSE, False),
+    ("호스팅 페이지 파싱 시간 초과",
+     "호스팅 페이지 파싱 시간이 초과되었습니다",
+     "실행 중인 파서가 끝나기 전 새 요청을 시작하지 않습니다. 수동으로 다시 시도하세요.",
+     KIND_BROWSER_PARSE, False),
+    ("다운로드 주소가 발급되지 않았습니다",
+     "호스터가 다운로드 주소를 발급하지 않았습니다",
+     "캡차나 호스트 제한을 확인하세요. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
+    ("링크에서 콘텐츠 id를 찾을 수 없음",
+     "다운로드 링크에서 파일 ID를 찾지 못했습니다",
+     "URL을 확인하세요. 자동 재시도하지 않습니다.", KIND_BROWSER_PARSE, False),
+    ("링크에서 파일 id를 찾을 수 없음",
+     "다운로드 링크에서 파일 ID를 찾지 못했습니다",
+     "URL을 확인하세요. 자동 재시도하지 않습니다.", KIND_BROWSER_PARSE, False),
+    ("파일 코드를 찾을 수 없음",
+     "다운로드 링크에서 파일 코드를 찾지 못했습니다",
+     "URL을 확인하세요. 자동 재시도하지 않습니다.", KIND_BROWSER_PARSE, False),
+    ("rootz 링크 형식이 올바르지 않습니다",
+     "Rootz 링크 형식이 올바르지 않습니다",
+     "URL을 확인하세요. 자동 재시도하지 않습니다.", KIND_BROWSER_PARSE, False),
+    ("지원하지 않는 호스팅 사이트",
+     "이 호스팅 사이트는 다운로드 파서가 없습니다",
+     "지원 사이트 목록을 확인하거나 다른 링크를 사용하세요.", KIND_BROWSER_PARSE, False),
+    ("api가 json이 아닌 응답 반환",
+     "호스터 API가 파일 정보 대신 웹 페이지를 반환했습니다",
+     "응답 원인을 확인하세요. Cloudflare 차단으로 단정하지 않고 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
     # --- definitive dead: 1fichier body marker ---
     ("1fichier 차단: 파일 삭제됨", "1fichier 측에서 파일이 삭제되었습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
@@ -222,6 +354,10 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      KIND_DEAD, True),
     ("mega 파일 없음", "MEGA 측에서 파일이 삭제되었거나 존재하지 않습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
+     KIND_DEAD, True),
+    ("파일 없음 또는 삭제됨",
+     "호스터가 파일이 없거나 삭제됐다고 확인했습니다",
+     "다른 미러를 사용하세요. 자동 재시도하지 않습니다.",
      KIND_DEAD, True),
     ("파일명(확장자)을 확인할 수 없",
      "서버가 파일명을 제공하지 않아 다운로드를 중단했습니다",
@@ -409,7 +545,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("rootz: 파일이 비활성 상태입니다",
      "Rootz 파일이 비활성 상태입니다",
      "다른 미러를 사용하세요. 이 링크는 자동으로 재시도하지 않습니다.",
-     KIND_DEAD, True),
+     KIND_BLOCKED, True),
     ("rootz: 비밀번호가 필요한 파일입니다",
      "Rootz 파일에 비밀번호가 필요합니다",
      "현재 Rootz 비밀번호 링크를 처리할 수 없습니다. 다른 미러를 사용하세요.",
@@ -437,8 +573,8 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     # Every hoster raises "<Host> 다운로드 링크를 찾을 수 없음", so the summary must stay
     # host-agnostic — the raw message already names the host in parentheses.
     ("다운로드 링크를 찾을 수 없음", "호스터 응답에서 다운로드 링크를 추출하지 못했습니다 (원인 미확인)",
-     "차단으로 확인된 것은 아닙니다. 반복되면 원문 응답과 함께 issue 를 등록해주세요.",
-     KIND_UNKNOWN, False),
+     "페이지 구조 또는 응답이 바뀌었을 수 있습니다. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
     # A page-load failure that carries an explicit HTTP status must defer to the
     # status code: 404/410 are link-expiry/session-loss (transient), NOT a dead
     # URL. These specific rules precede the generic "페이지 로드 실패" catch below
@@ -465,8 +601,8 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "호스팅 사이트가 파일 대신 HTML/보안 확인 페이지를 반환했습니다",
      "브라우저 확인 또는 Cloudflare 챌린지가 걸린 상태입니다. 다른 미러를 사용하거나 브라우저 세션 지원이 필요합니다.",
      KIND_CLOUDFLARE, False),
-    ("http 403", "호스팅 서버가 접근을 거부했습니다 (Cloudflare 차단 가능)",
-     "잠시 후 다시 시도하거나 다른 네트워크/프록시로 시도하세요.",
+    ("http 403", "호스팅 서버가 접근을 거부했습니다",
+     "파일 권한 또는 서버 제한을 확인하세요. 원인을 확인하기 전 자동 재시도하지 않습니다.",
      KIND_BLOCKED, False),
 
     # --- transient: one-off HTTP/network (a lone observation cannot confirm dead) ---
@@ -528,6 +664,14 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("ssl", "SSL/TLS 핸드셰이크에 실패했습니다",
      "시스템 시간과 인증서 설정을 확인하세요.",
      KIND_TRANSIENT, False),
+    ("multiup 페이지 조회 실패",
+     "MultiUp 페이지를 읽지 못했습니다",
+     "네트워크와 사이트 상태를 확인한 뒤 수동으로 다시 시도하세요.",
+     KIND_BROWSER_PARSE, False),
+    ("multiup 미러 목록 조회 실패",
+     "MultiUp 미러 목록을 읽지 못했습니다",
+     "네트워크와 사이트 상태를 확인한 뒤 수동으로 다시 시도하세요.",
+     KIND_BROWSER_PARSE, False),
 )
 
 
@@ -834,31 +978,20 @@ def apply_failure_to_request(
     # When a recoverable failure has used up its auto-retry budget, the action
     # text above still implies "auto-retry soon" — append a note so the user
     # knows the loop has stopped and a manual retry is now required.
-    if next_retry_at is None and kind == KIND_DAILY_QUOTA:
-        user_message += (
-            "\n일일 한도가 반복되어 자동 재시도를 중단했습니다. "
-            "한도가 풀렸거나 계정/회선을 바꾼 뒤 '다시 받기'를 누르세요."
-        )
-    elif next_retry_at is None and kind == KIND_BROWSER_PARSE:
-        if language == "en":
-            if "Automatic retry is disabled" not in user_message:
-                user_message += "\nAutomatic retry is disabled to avoid repeated browser parsing."
+    if next_retry_at is None and kind in {KIND_DAILY_QUOTA, KIND_RATE_LIMITED, KIND_TRANSIENT, KIND_UNKNOWN, "unknown_terminal"}:
+        # The normal message for these kinds can mention waiting/automatic
+        # retries. Once the budget is gone, add a locale-specific manual action.
+        user_message += "\n" + _failure_phrase(language, "failure_action_manual")
+    elif next_retry_at is None and kind in {KIND_BROWSER_PARSE, *_NO_AUTOMATIC_RETRY_KINDS}:
+        manual = _failure_phrase(language, "failure_action_manual")
+        if language == "ko":
+            already_explained = "자동 재시도하지 않습니다" in user_message or "자동 반복하지 않습니다" in user_message
+        elif language == "en":
+            already_explained = "Automatic retry is disabled" in user_message
         else:
-            user_message += "\n차단을 피하기 위해 같은 브라우저 파싱을 자동 반복하지 않습니다."
-    elif next_retry_at is None and kind in _NO_AUTOMATIC_RETRY_KINDS and kind != KIND_SLOT_BUSY:
-        if language == "en":
-            if "Automatic retry is disabled" not in user_message:
-                user_message += "\nAutomatic retry is disabled for this refusal."
-        else:
-            user_message += (
-                "\n이 차단 유형은 추가 요청이 차단을 악화시킬 수 있어 자동 재시도하지 않습니다. "
-                "원인이 해소되었거나 회선을 바꾼 뒤 '다시 받기'를 누르세요."
-            )
-    elif next_retry_at is None and kind not in TERMINAL_KINDS:
-        user_message += (
-            f"\n자동 재시도 {attempt_count}회를 모두 사용했습니다. "
-            "원인이 해소되었다면 '다시 받기'로 수동 재시도하세요."
-        )
+            already_explained = manual in user_message
+        if not already_explained:
+            user_message += "\n" + manual
 
     # Reflect to columns (compat: setattr stays safe even where new columns are absent from the model)
     req.error = user_message
@@ -892,6 +1025,11 @@ def is_retry_blocked_now(req, has_credentials: bool) -> Optional[str]:
     """
     kind = getattr(req, "failure_kind", None)
     next_retry = getattr(req, "next_retry_at", None)
+    # ``has_credentials`` describes only the configured 1fichier account. It
+    # cannot clear a DataVault human captcha, Rootz password, GoFile permission,
+    # or a Rapidgator premium requirement.
+    fichier_link = "1fichier.com" in (getattr(req, "original_url", None) or getattr(req, "url", None) or "").lower()
+    auth_available = has_credentials and fichier_link
 
     if not kind:
         # Pre-migration record — fall back to text
@@ -899,13 +1037,13 @@ def is_retry_blocked_now(req, has_credentials: bool) -> Optional[str]:
         text_kind = classify_failure_text(err)
         if text_kind == KIND_DEAD:
             return "dead"
-        if text_kind == KIND_AUTH_REQUIRED and not has_credentials:
+        if text_kind == KIND_AUTH_REQUIRED and not auth_available:
             return "auth_required"
         return None
 
     if kind == KIND_DEAD or kind == "unknown_terminal":
         return "dead"
-    if kind == KIND_AUTH_REQUIRED and not has_credentials:
+    if kind == KIND_AUTH_REQUIRED and not auth_available:
         return "auth_required"
     if next_retry and next_retry > datetime.now():
         return "cooldown"

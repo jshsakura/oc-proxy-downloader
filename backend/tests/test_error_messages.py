@@ -11,6 +11,7 @@ Core contracts:
 """
 
 import datetime
+import ast
 import json
 from pathlib import Path
 
@@ -60,11 +61,81 @@ def test_failure_kind_labels_exist_in_korean_and_english():
             assert labels[key] and labels[key] != key
 
 
+def test_all_locales_have_safe_failure_messages():
+    locales = Path(__file__).resolve().parents[1] / "locales"
+    needed = {
+        "failure_action_manual", "failure_action_retry", "failure_action_wait",
+        "failure_cause_human", "failure_cause_multiple", "failure_cause_unsupported",
+    }
+    for path in locales.glob("*.json"):
+        labels = json.loads(path.read_text(encoding="utf-8"))
+        assert needed <= labels.keys(), path.name
+        error = classify_error("파싱", "DataVaults 무료 다운로드에 reCAPTCHA v2 사람 확인이 필요합니다")
+        rendered = error.to_user_message(path.stem)
+        if path.stem not in {"ko", "en"}:
+            assert labels["failure_cause_human"] in rendered
+        assert "DataVaults 무료 다운로드" not in rendered
+        assert "status=" not in rendered
+
+
+def test_all_explicit_hoster_parse_errors_have_a_classification():
+    """A new parser error must not silently enter the unknown retry loop."""
+    core = Path(__file__).resolve().parents[1] / "core"
+    uncovered = []
+    for filename in ("hoster_sites.py", "browser_solver.py", "hoster_common.py"):
+        tree = ast.parse((core / filename).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
+                continue
+            call = node.exc
+            if not isinstance(call.func, ast.Name) or call.func.id != "HosterParseError" or not call.args:
+                continue
+            arg = call.args[0]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                message = arg.value
+            elif isinstance(arg, ast.JoinedStr):
+                message = "".join(
+                    part.value if isinstance(part, ast.Constant) and isinstance(part.value, str) else "X"
+                    for part in arg.values
+                )
+            else:
+                continue
+            if classify_error("파싱", message).kind == KIND_UNKNOWN:
+                uncovered.append(f"{filename}:{node.lineno}: {message}")
+    assert not uncovered, "\n".join(uncovered)
+
+
 # ---------------------------------------------------------------------------
 # classify_error / format_error — stage / summary / action messages
 # ---------------------------------------------------------------------------
 
 class TestClassify:
+    @pytest.mark.parametrize("raw,kind", [
+        ("Rapidgator는 대기시간/captcha/계정 제약이 있어 현재 자동 다운로드를 지원하지 않음", KIND_AUTH_REQUIRED),
+        ("MultiUp에 자동 다운로드 가능한 미러가 없음 (현재 미러: example.com)", KIND_BROWSER_PARSE),
+        ("MultiUp 미러 목록 폼을 찾을 수 없음", KIND_BROWSER_PARSE),
+        ("Gofile 폴더에 파일이 여러 개(3개) 있어 자동 다운로드 대상을 특정할 수 없음", KIND_BROWSER_PARSE),
+        ("Gofile 폴더에 다운로드할 파일이 없음", KIND_DEAD),
+        ("Gofile 게스트 토큰 발급 실패", KIND_BROWSER_PARSE),
+        ("Gofile 콘텐츠 조회 실패 (status=error-unexpected)", KIND_BROWSER_PARSE),
+        ("Pixeldrain 리스트(앨범) 링크는 지원하지 않음", KIND_BROWSER_PARSE),
+        ("Pixeldrain 파일 없음 또는 삭제됨", KIND_DEAD),
+        ("MediaFire 파일 없음 또는 삭제됨", KIND_DEAD),
+        ("MultiUp 페이지 조회 실패: unexpected response", KIND_BROWSER_PARSE),
+        ("MultiUp 미러 목록 조회 실패: unexpected response", KIND_BROWSER_PARSE),
+        ("MediaFire 호스터 페이지 HTTP 404 (삭제 여부 미확인)", KIND_BROWSER_PARSE),
+        ("Rootz: 파일이 비활성 상태입니다 (processing)", KIND_BLOCKED),
+        ("다운로드 주소가 발급되지 않았습니다 (캡차 또는 호스트 제한)", KIND_BROWSER_PARSE),
+        ("DataNodes 다운로드 링크를 찾을 수 없음", KIND_BROWSER_PARSE),
+        ("호스팅 페이지 파싱 시간 초과 (기존 파서 종료 대기)", KIND_BROWSER_PARSE),
+        ("Example API가 JSON이 아닌 응답 반환 (Cloudflare 차단/오류 페이지 가능성)", KIND_BROWSER_PARSE),
+    ])
+    def test_hoster_parse_cases_do_not_repeat(self, raw, kind):
+        req = _FakeReq()
+        verdict = apply_failure_to_request(req, "파싱", raw, language="ko")
+        assert verdict.kind == kind
+        assert verdict.next_retry_at is None
+
     def test_datavaults_captcha_is_explicit_and_never_retried(self):
         req = _FakeReq()
         verdict = apply_failure_to_request(req, "파싱", "DataVaults 무료 다운로드에 reCAPTCHA v2 사람 확인이 필요합니다")
@@ -94,6 +165,8 @@ class TestClassify:
         assert verdict.kind == KIND_BROWSER_PARSE
         assert verdict.next_retry_at is None
         assert "MultiUp의 지원 미러" in req.error
+        assert "GoFile:" in req.error and "MegaUp:" in req.error
+        assert "파일 없음 또는 삭제됨" not in req.error
 
     def test_multiup_mirror_error_is_english_when_selected(self):
         req = _FakeReq()
@@ -108,7 +181,7 @@ class TestClassify:
         ("Rootz: HTTP 403", KIND_BLOCKED),
         ("Rootz: 다운로드 주소 확인 실패 (403)", KIND_BLOCKED),
         ("Rootz: 무료 다운로드 대기 또는 제한 중입니다", KIND_BLOCKED),
-        ("Rootz: 파일이 비활성 상태입니다", KIND_DEAD),
+        ("Rootz: 파일이 비활성 상태입니다", KIND_BLOCKED),
         ("Rootz: 파일이 비활성 상태입니다 (deleted)", KIND_DEAD),
         ("Rootz: 비밀번호가 필요한 파일입니다", KIND_AUTH_REQUIRED),
         ("Rootz: 직접 다운로드 주소를 받지 못했습니다", KIND_BROWSER_PARSE),
@@ -164,7 +237,7 @@ class TestClassify:
         verdict = apply_failure_to_request(req, "파싱", raw)
         assert verdict.kind == KIND_BROWSER_PARSE
         assert verdict.next_retry_at is None
-        assert "자동 반복하지 않습니다" in req.error
+        assert "자동 재시도하지 않습니다" in req.error or "자동 반복하지 않습니다" in req.error
 
     @pytest.mark.parametrize(
         "raw,expected_kw_in_summary",
@@ -203,11 +276,12 @@ class TestClassify:
         assert result.summary == "원인을 자동으로 분류하지 못했습니다"
         assert "재시도" in result.action
 
-    def test_format_error_includes_stage_summary_action_and_raw(self):
+    def test_format_error_shows_cause_and_action_without_internal_raw(self):
         formatted = format_error("다운로드", "HTTP 404: Not Found")
         assert "[다운로드 실패]" in formatted
-        assert "HTTP 404" in formatted
         assert "조치:" in formatted
+        assert "Not Found" not in formatted
+        assert "HTTP 404:" not in formatted
 
     def test_format_error_with_none_raw(self):
         formatted = format_error("파싱", None)
@@ -386,7 +460,7 @@ class TestApplyFailure:
         assert req.failure_kind == KIND_TRANSIENT
         assert req.attempt_count == 6
         assert req.next_retry_at is None  # auto-retry exhausted
-        assert "수동 재시도" in req.error
+        assert "수동으로 다시 시도" in req.error
 
     def test_proxy_blocked_never_auto_retries(self):
         """A known infrastructure rejection must not be hammered automatically."""
@@ -449,9 +523,13 @@ class TestRetryGate:
         assert is_retry_blocked_now(req, has_credentials=True) == "dead"
 
     def test_auth_required_blocks_only_without_credentials(self):
-        req = _FakeReq(failure_kind=KIND_AUTH_REQUIRED)
+        req = _FakeReq(failure_kind=KIND_AUTH_REQUIRED, url="https://1fichier.com/?abc")
         assert is_retry_blocked_now(req, has_credentials=False) == "auth_required"
         assert is_retry_blocked_now(req, has_credentials=True) is None
+
+    def test_other_host_auth_is_not_unblocked_by_fichier_login(self):
+        req = _FakeReq(failure_kind=KIND_AUTH_REQUIRED, url="https://datavaults.co/abc")
+        assert is_retry_blocked_now(req, has_credentials=True) == "auth_required"
 
     def test_cooldown_blocks_until_time(self):
         future = datetime.datetime.now() + datetime.timedelta(seconds=120)
@@ -525,7 +603,7 @@ class TestDailyQuotaRecovery:
         assert third.kind == KIND_DAILY_QUOTA
         assert third.next_retry_at is None
         assert req.next_retry_at is None
-        assert "자동 재시도를 중단" in req.error
+        assert "수동으로 다시 시도" in req.error
 
 
 class TestBrowserFallbackCookieHandoff:

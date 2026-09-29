@@ -6,6 +6,14 @@ import pytest
 from core import hoster_parsers as hp
 from core import hoster_sites as hs
 from core.browser_solver import BrowserSolveResult
+from core.hoster_common import HosterParseError, _raise_for_dead_page
+
+
+def test_hoster_404_is_not_mislabeled_as_deleted():
+    with pytest.raises(HosterParseError, match="HTTP 404"):
+        _raise_for_dead_page("MediaFire", "Temporary link expired", 404)
+    with pytest.raises(HosterParseError, match="파일 없음 또는 삭제됨"):
+        _raise_for_dead_page("MediaFire", "This file has been deleted", 404)
 
 
 @pytest.mark.parametrize("url", [

@@ -321,8 +321,12 @@ def _raise_for_dead_page(host_label: str, text: str, status_code: int) -> None:
         "deleted by",
         "no longer available",
     )
-    if status_code == 404 or any(marker in lowered for marker in dead_markers):
+    if any(marker in lowered for marker in dead_markers):
         raise HosterParseError(f"{host_label} 파일 없음 또는 삭제됨")
+    if status_code == 404:
+        # A status alone can be an expired share/session URL or a temporary
+        # host response. Do not permanently pin the file as deleted.
+        raise HosterParseError(f"{host_label} 호스터 페이지 HTTP 404 (삭제 여부 미확인)")
 
 
 # Real download filenames end in one of these. A bare "." (e.g. the version tag
