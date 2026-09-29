@@ -117,6 +117,21 @@ class ClassifiedError:
     retry_after_seconds: Optional[int] = None
 
     def to_user_message(self, language: str = "ko") -> str:
+        if language == "en" and self.raw.lower().startswith("multiup 모든 지원 미러 실패"):
+            return (
+                f"[Parsing failed] All supported MultiUp mirrors failed ({self.raw}).\n"
+                "Action: Check each mirror's reason. Automatic retry is disabled."
+            )
+        if language == "en" and self.raw.lower().startswith("gofile 웹 인증 토큰 거부"):
+            return (
+                "[Parsing failed] GoFile rejected the website token.\n"
+                "Action: GoFile may have changed its token. Update the downloader; automatic retry is disabled."
+            )
+        if language == "en" and self.raw.lower().startswith("gofile 무료 조회 속도 제한"):
+            return (
+                "[Parsing failed] GoFile has limited free metadata requests.\n"
+                "Action: Wait before a manual retry. Automatic retry is disabled."
+            )
         if self.raw.lower().startswith("rootz: 파일이 비활성 상태입니다 (deleted)") and language == "en":
             return (
                 "[Parsing failed] Rootz reports that this file was deleted.\n"
@@ -402,6 +417,10 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("send.now 다운로드 링크를 찾을 수 없음",
      "Send.now 페이지에서 다운로드 링크를 확인하지 못했습니다",
      "호스터 화면이나 응답이 바뀌었을 수 있습니다. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
+    ("multiup 모든 지원 미러 실패",
+     "MultiUp의 지원 미러에서 다운로드 주소를 얻지 못했습니다",
+     "표시된 미러별 원인을 확인하세요. 같은 미러들을 자동으로 다시 조회하지 않습니다.",
      KIND_BROWSER_PARSE, False),
     # Every hoster raises "<Host> 다운로드 링크를 찾을 수 없음", so the summary must stay
     # host-agnostic — the raw message already names the host in parentheses.

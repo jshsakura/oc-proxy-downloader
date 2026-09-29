@@ -464,6 +464,51 @@ def test_multiup_falls_back_to_mixdrop_when_gofile_blocks_the_egress(monkeypatch
     assert result["download_link"] == "https://mixdrop-cdn.example/file.rar"
 
 
+def test_multiup_tries_megaup_once_before_mixdrop(monkeypatch):
+    class Response:
+        status_code = 200
+        url = "https://multiup.io/download/id/file.rar"
+
+        def __init__(self, text):
+            self.text = text
+
+        def raise_for_status(self):
+            pass
+
+    class Session:
+        headers = {}
+        proxies = {}
+
+        def get(self, url, timeout):
+            return Response('<form action="/mirror/id"><input name="token" value="x"></form>')
+
+        def post(self, url, data, headers, timeout):
+            return Response('''
+                <a nameHost="gofile.io" link="https://gofile.io/d/x"></a>
+                <a nameHost="megaup.net" link="https://megaup.net/f/x"></a>
+                <a nameHost="mixdrop.ag" link="https://mixdrop.ag/f/x"></a>
+            ''')
+
+    calls = []
+
+    def fail_gofile(*_args, **_kwargs):
+        calls.append("gofile")
+        raise hp.HosterParseError("파일 없음")
+
+    def resolve_megaup(*_args, **_kwargs):
+        calls.append("megaup")
+        return {"download_link": "https://megaup.net/direct/file.rar", "file_info": None}
+
+    monkeypatch.setattr(hs.requests, "Session", Session)
+    monkeypatch.setattr(hs, "parse_gofile_sync", fail_gofile)
+    monkeypatch.setattr(hs, "parse_megaup_sync", resolve_megaup)
+    monkeypatch.setattr(hs, "parse_mixdrop_sync", lambda *_a, **_k: pytest.fail("must stop after MegaUp succeeds"))
+
+    result = hp.parse_special_hoster_sync("https://multiup.io/download/id/file.rar")
+    assert result["download_link"] == "https://megaup.net/direct/file.rar"
+    assert calls == ["gofile", "megaup"]
+
+
 def test_multiup_reports_when_only_unsupported_mirrors_exist(monkeypatch):
     class Response:
         status_code = 200

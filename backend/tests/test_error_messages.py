@@ -75,6 +75,22 @@ class TestClassify:
         assert verdict.kind == KIND_BLOCKED
         assert verdict.next_retry_at is None
 
+    def test_multiup_all_mirrors_failed_does_not_auto_retry(self):
+        req = _FakeReq()
+        verdict = apply_failure_to_request(
+            req, "파싱", "MultiUp 모든 지원 미러 실패 (Gofile: 파일 없음; MegaUp: 파일 없음)"
+        )
+        assert verdict.kind == KIND_BROWSER_PARSE
+        assert verdict.next_retry_at is None
+
+    def test_multiup_mirror_error_is_english_when_selected(self):
+        req = _FakeReq()
+        apply_failure_to_request(
+            req, "파싱", "MultiUp 모든 지원 미러 실패 (Gofile: file missing)", language="en"
+        )
+        assert "All supported MultiUp mirrors failed" in req.error
+        assert "조치:" not in req.error
+
     @pytest.mark.parametrize("raw,kind", [
         ("Rootz: Forbidden", KIND_BLOCKED),
         ("Rootz: HTTP 403", KIND_BLOCKED),

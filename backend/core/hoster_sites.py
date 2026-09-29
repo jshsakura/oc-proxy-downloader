@@ -219,7 +219,7 @@ def parse_mixdrop_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Di
 
 
 def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
-    """Resolve MultiUp's two-step mirror list, preferring its supported GoFile mirror."""
+    """Resolve MultiUp's mirror list, trying each supported mirror once."""
     session = requests.Session()
     session.headers.update({"User-Agent": DEFAULT_HOSTER_USER_AGENT})
     if proxies:
@@ -262,25 +262,28 @@ def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Di
         if mirror_url.startswith("http"):
             mirrors.append(mirror_url)
 
-    gofile_url = next((item for item in mirrors if _host(item).removeprefix("www.") == "gofile.io"), "")
-    mixdrop_url = next(
-        (item for item in mirrors if _host(item).removeprefix("www.") in {"mixdrop.ag", "mixdrop.top", "mxdrop.top"}),
-        "",
+    mirror_candidates = (
+        ("Gofile", next((item for item in mirrors if _host(item).removeprefix("www.") == "gofile.io"), ""), parse_gofile_sync),
+        ("MegaUp", next((item for item in mirrors if _host(item).removeprefix("www.") == "megaup.net"), ""), parse_megaup_sync),
+        ("MixDrop", next((item for item in mirrors if _host(item).removeprefix("www.") in {"mixdrop.ag", "mixdrop.top", "mxdrop.top"}), ""), parse_mixdrop_sync),
     )
-    if not gofile_url and not mixdrop_url:
+    if not any(candidate for _, candidate, _ in mirror_candidates):
         available = ", ".join(sorted({_host(item) for item in mirrors if _host(item)}))
         detail = f" (현재 미러: {available})" if available else ""
         raise HosterParseError(f"MultiUp에 자동 다운로드 가능한 미러가 없음{detail}")
 
-    if gofile_url:
+    failures = []
+    result = None
+    for name, mirror_url, resolver in mirror_candidates:
+        if not mirror_url:
+            continue
         try:
-            result = parse_gofile_sync(gofile_url, proxies=proxies)
-        except HosterParseError:
-            if not mixdrop_url:
-                raise
-            result = parse_mixdrop_sync(mixdrop_url, proxies=proxies)
-    else:
-        result = parse_mixdrop_sync(mixdrop_url, proxies=proxies)
+            result = resolver(mirror_url, proxies=proxies)
+            break
+        except HosterParseError as exc:
+            failures.append(f"{name}: {exc}")
+    if result is None:
+        raise HosterParseError(f"MultiUp 모든 지원 미러 실패 ({'; '.join(failures)})")
     resolved_info = dict(result.get("file_info") or {})
     for key, value in file_info.items():
         resolved_info.setdefault(key, value)
