@@ -117,6 +117,11 @@ class ClassifiedError:
     retry_after_seconds: Optional[int] = None
 
     def to_user_message(self, language: str = "ko") -> str:
+        if self.raw.lower().startswith("rootz: 파일이 비활성 상태입니다 (deleted)") and language == "en":
+            return (
+                "[Parsing failed] Rootz reports that this file was deleted.\n"
+                "Action: Use another mirror; retrying this link cannot restore the file."
+            )
         if self.raw.lower().startswith("rootz:") and language == "en":
             return (
                 "[Parsing failed] Rootz refused to provide this file's download link "
@@ -354,6 +359,10 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "Rootz가 다운로드 주소 요청을 거부했습니다",
      "같은 링크를 자동으로 다시 조회하지 않습니다. 브라우저에서 링크 상태를 확인하거나 다른 미러를 사용하세요.",
      KIND_BLOCKED, True),
+    ("rootz: 파일이 비활성 상태입니다 (deleted)",
+     "Rootz에서 파일이 삭제되었습니다",
+     "다른 미러를 사용하세요. 삭제된 파일은 재시도해도 복구되지 않습니다.",
+     KIND_DEAD, True),
     ("rootz: 파일이 비활성 상태입니다",
      "Rootz 파일이 비활성 상태입니다",
      "다른 미러를 사용하세요. 이 링크는 자동으로 재시도하지 않습니다.",

@@ -70,6 +70,7 @@ class TestClassify:
         ("Rootz: 다운로드 주소 확인 실패 (403)", KIND_BLOCKED),
         ("Rootz: 무료 다운로드 대기 또는 제한 중입니다", KIND_BLOCKED),
         ("Rootz: 파일이 비활성 상태입니다", KIND_DEAD),
+        ("Rootz: 파일이 비활성 상태입니다 (deleted)", KIND_DEAD),
         ("Rootz: 비밀번호가 필요한 파일입니다", KIND_AUTH_REQUIRED),
         ("Rootz: 직접 다운로드 주소를 받지 못했습니다", KIND_BROWSER_PARSE),
     ])

@@ -2,11 +2,82 @@
 """Tests for the headful-browser Turnstile fallback and its wiring."""
 
 import pytest
+from contextlib import nullcontext
 
 from core import browser_solver as bs
 from core import hoster_sites as hs
 from core.browser_solver import BrowserSolveResult
 from core.hoster_common import HosterParseError
+
+
+@pytest.mark.parametrize("state,expected", [
+    ("active", "https://cdn-files.alcyone.so/test.nsp"),
+    ("deleted", "deleted"),
+])
+def test_rootz_reuses_page_metadata_without_fetching_it_again(monkeypatch, state, expected):
+    """Rootz refuses a second metadata fetch; only its page-load response is safe."""
+    evaluations = []
+
+    class Response:
+        url = "https://www.rootz.so/api/files/download-by-short?shortId=abc123"
+        status = 200
+
+        def json(self):
+            return {"success": True, "data": {
+                "status": state, "fileName": "test.nsp", "size": 1024,
+                "downloadAllowed": state == "active", "passwordProtected": False,
+            }}
+
+    class Page:
+        def on(self, event, callback):
+            assert event == "response"
+            self.callback = callback
+
+        def goto(self, *_args, **_kwargs):
+            self.callback(Response())
+
+        def wait_for_timeout(self, _ms):
+            pass
+
+        def evaluate(self, script, *_args):
+            evaluations.append(script)
+            if "proxy-download" in script:
+                return {"url": "https://cdn-files.alcyone.so/test.nsp"}
+            return "test-agent"
+
+    class Browser:
+        def new_context(self, **_kwargs):
+            return self
+
+        def new_page(self):
+            return Page()
+
+        def close(self):
+            pass
+
+    class Playwright:
+        chromium = None
+
+        def __init__(self):
+            self.chromium = self
+
+        def launch(self, **_kwargs):
+            return Browser()
+
+    monkeypatch.setattr(bs, "_require_display", lambda: None)
+    monkeypatch.setattr(bs, "_queued_browser_slot", lambda *_args: nullcontext())
+    monkeypatch.setattr(bs, "sync_playwright", lambda: nullcontext(Playwright()))
+
+    if state == "active":
+        direct, info, agent = bs.resolve_rootz_page("https://www.rootz.so/d/abc123")
+        assert direct == expected
+        assert info == {"name": "test.nsp", "size": "1.00 KB"}
+        assert agent == "test-agent"
+        assert len(evaluations) == 2  # one HEAD, one user-agent read
+    else:
+        with pytest.raises(HosterParseError, match=expected):
+            bs.resolve_rootz_page("https://www.rootz.so/d/abc123")
+        assert not evaluations  # a deleted file must not request a link
 
 
 def test_navigation_during_locator_probe_is_retried():

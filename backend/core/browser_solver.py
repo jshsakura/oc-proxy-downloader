@@ -21,7 +21,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from patchright.sync_api import Page, sync_playwright
 
@@ -705,7 +705,13 @@ def solve_download_page(
 
 
 def resolve_rootz_page(url: str, proxies: Optional[Dict[str, str]] = None) -> tuple[str, Dict[str, str], str]:
-    """Read Rootz metadata and resolve its proxy endpoint without fetching file bytes."""
+    """Reuse Rootz's page-load metadata and resolve its proxy endpoint.
+
+    The page itself calls download-by-short during hydration. A second fetch
+    from our parser is refused with 403 even when the first response correctly
+    says the file was deleted. Capture that first response instead of asking
+    the host twice for the same metadata.
+    """
     _require_display()
     parsed = urlparse(url)
     short_id = parsed.path.rstrip("/").rsplit("/", 1)[-1]
@@ -718,30 +724,54 @@ def resolve_rootz_page(url: str, proxies: Optional[Dict[str, str]] = None) -> tu
             try:
                 context = browser.new_context(viewport=VIEWPORT, proxy=_proxy_settings(proxies))
                 page = context.new_page()
+                metadata: Dict[str, object] = {}
+
+                def capture_metadata(response) -> None:
+                    if metadata:
+                        return
+                    parsed_response = urlparse(response.url)
+                    if (parsed_response.path != "/api/files/download-by-short"
+                            or parse_qs(parsed_response.query).get("shortId") != [short_id]):
+                        return
+                    try:
+                        metadata["status"] = response.status
+                        metadata["body"] = response.json()
+                    except Exception:
+                        metadata["error"] = "파일 정보 응답을 읽지 못했습니다"
+
+                page.on("response", capture_metadata)
                 page.goto(url, wait_until="domcontentloaded", timeout=deadline.budget_ms(PAGE_LOAD_TIMEOUT_MS))
-                # Rootz sets its page token during hydration; querying the API
-                # before that finishes returns 403 even for a public file.
-                page.wait_for_timeout(4000)
+                # Hydration normally fires within a second. Give it a bounded
+                # wait; a missing response is a real parse failure, not a reason
+                # to send another metadata request that can trigger a block.
+                until = time.monotonic() + min(10, deadline.remaining())
+                while not metadata and time.monotonic() < until:
+                    page.wait_for_timeout(250)
+                if metadata.get("error"):
+                    raise HosterParseError(f"Rootz: {metadata['error']}")
+                meta = metadata.get("body")
+                if not isinstance(meta, dict) or not meta.get("success") or not isinstance(meta.get("data"), dict):
+                    reason = meta.get("error") if isinstance(meta, dict) else None
+                    raise HosterParseError(f"Rootz: {reason or '파일 정보 조회 실패'}")
+                file = meta["data"]
+                if file.get("status") != "active":
+                    raise HosterParseError(f"Rootz: 파일이 비활성 상태입니다 ({file.get('status') or 'unknown'})")
+                if file.get("passwordProtected"):
+                    raise HosterParseError("Rootz: 비밀번호가 필요한 파일입니다")
+                if not file.get("downloadAllowed") or (file.get("cooldownRemaining") or 0) > 0 or (file.get("waitSeconds") or 0) > 0:
+                    raise HosterParseError("Rootz: 무료 다운로드 대기 또는 제한 중입니다")
                 result = page.evaluate("""async (id) => {
-                    const metaResponse = await fetch(`/api/files/download-by-short?shortId=${encodeURIComponent(id)}`);
-                    const meta = await metaResponse.json();
-                    if (!meta.success || !meta.data) return {error: meta.error || '파일 정보 조회 실패'};
-                    const file = meta.data;
-                    if (file.status !== 'active') return {error: '파일이 비활성 상태입니다'};
-                    if (file.passwordProtected) return {error: '비밀번호가 필요한 파일입니다'};
-                    if (!file.downloadAllowed || file.cooldownRemaining > 0 || file.waitSeconds > 0)
-                        return {error: '무료 다운로드 대기 또는 제한 중입니다'};
                     const response = await fetch(`/api/files/proxy-download/${encodeURIComponent(id)}`, {method: 'HEAD'});
                     const type = response.headers.get('content-type') || '';
                     if (!response.ok || type.includes('text/html') || type.includes('application/json'))
                         return {error: `다운로드 주소 확인 실패 (${response.status})`};
-                    return {url: response.url, name: file.fileName, size: file.size};
+                    return {url: response.url};
                 }""", short_id)
                 if result.get("error"):
                     raise HosterParseError(f"Rootz: {result['error']}")
                 direct = str(result.get("url") or "")
                 if not direct.startswith(("https://", "http://")) or _same_site(urlparse(direct).hostname or "", "rootz.so"):
                     raise HosterParseError("Rootz: 직접 다운로드 주소를 받지 못했습니다")
-                return direct, {"name": str(result.get("name") or ""), "size": _format_size_bytes(result.get("size") or 0)}, str(page.evaluate(USER_AGENT_JS))
+                return direct, {"name": str(file.get("fileName") or ""), "size": _format_size_bytes(file.get("size") or 0)}, str(page.evaluate(USER_AGENT_JS))
             finally:
                 browser.close()
