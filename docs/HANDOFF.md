@@ -2,7 +2,7 @@
 
 > **Historical incident record.** The queue counts, deployment commands and
 > host behavior below describe the August 2026 investigation; they are not
-> current operating instructions. As of v2.16.60 (2026-09-29), the running
+> current operating instructions. As of v2.16.61 (2026-09-29), the running
 > downloader supports AkiraBox, VikingFile and Rootz in Docker. Each has up to
 > three transfer slots, with one browser resolution at a time per site. Their
 > aliases share a queue, and a failed link issue is not repeatedly reparsed.

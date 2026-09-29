@@ -123,7 +123,7 @@ def _parse_browser_link_hoster(url: str, info_extract, proxies=None) -> Dict[str
         file_info=file_info or None,
         cookies=solved.cookies,
         user_agent=solved.user_agent,
-        referer=url,
+        referer=solved.page_url or url,
     ).as_parse_result()
 
 

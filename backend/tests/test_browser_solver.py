@@ -215,6 +215,18 @@ def test_cookie_without_a_domain_is_dropped():
     assert bs._usable_cookies(raw, "https://datanodes.to/abc") == {}
 
 
+def test_redirected_akirabox_page_keeps_both_hoster_domains_cookies():
+    raw = [
+        _cookie("original", ".akirabox.com"),
+        _cookie("session", ".akirabox.to"),
+        _cookie("ad", "ads.example"),
+    ]
+
+    assert bs._download_page_cookies(
+        raw, "https://akirabox.com/abc/file", "https://akirabox.to/abc/file"
+    ) == {"original": "v", "session": "v"}
+
+
 # --- proxy translation ---
 
 

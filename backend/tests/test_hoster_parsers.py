@@ -54,6 +54,19 @@ def test_viking_parser_reuses_browser_page_for_metadata(monkeypatch):
     assert result["download_link"] == "https://vikingfile.com/d/abc/game.nsp"
 
 
+def test_akirabox_parser_uses_redirected_page_as_referer(monkeypatch):
+    monkeypatch.setattr(hs, "solve_download_page", lambda url, flow, proxies=None: BrowserSolveResult(
+        "https://akirabox.com/download/signed/file.nsp", {"session": "v"}, "Chrome",
+        '<meta property="og:title" content="file.nsp">',
+        "https://akirabox.to/abc/file",
+    ))
+
+    result = hs.parse_akirabox_sync("https://akirabox.com/abc/file")
+
+    assert result["referer"] == "https://akirabox.to/abc/file"
+    assert result["cookies"] == {"session": "v"}
+
+
 class _FakeCookies:
     def get_dict(self):
         return {"sid": "cookie"}

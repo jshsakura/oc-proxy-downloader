@@ -170,6 +170,7 @@ class BrowserSolveResult:
     cookies: Dict[str, str]
     user_agent: str
     page_html: str = ""
+    page_url: str = ""
 
 
 # The 2026-08 redesign dropped the "File Ready" pre-check banner: step 1 now
@@ -256,6 +257,18 @@ def _usable_cookies(raw_cookies, url: str) -> Dict[str, str]:
         if host == domain or host.endswith(f".{domain}"):
             usable[name] = cookie.get("value") or ""
     return usable
+
+
+def _download_page_cookies(raw_cookies, requested_url: str, page_url: str) -> Dict[str, str]:
+    """Keep host cookies after a page redirects to another hoster domain.
+
+    AkiraBox redirects its .com file page to .to, then issues a .com signed URL.
+    Filtering only against the requested .com URL drops the live .to session.
+    """
+    cookies = _usable_cookies(raw_cookies, requested_url)
+    if page_url and page_url != requested_url:
+        cookies.update(_usable_cookies(raw_cookies, page_url))
+    return cookies
 
 
 def _same_site(candidate_host: str, page_host: str) -> bool:
@@ -677,7 +690,7 @@ def solve_download_page(
 
                 link = direct_link()
                 if link:
-                    return BrowserSolveResult(link, _usable_cookies(context.cookies(), url), str(page.evaluate(USER_AGENT_JS)), page.content())
+                    return BrowserSolveResult(link, _download_page_cookies(context.cookies(), url, page.url), str(page.evaluate(USER_AGENT_JS)), page.content(), page.url)
 
                 box = _reach_captcha(page, flow, deadline)
                 if box:
@@ -690,15 +703,16 @@ def solve_download_page(
                     link = _poll(page, direct_link, TOKEN_TIMEOUT_S, deadline)
                     if not link:
                         raise HosterParseError("다운로드 주소가 발급되지 않았습니다 (캡차 또는 호스트 제한)")
-                    return BrowserSolveResult(link, _usable_cookies(context.cookies(), url), str(page.evaluate(USER_AGENT_JS)), page.content())
+                    return BrowserSolveResult(link, _download_page_cookies(context.cookies(), url, page.url), str(page.evaluate(USER_AGENT_JS)), page.content(), page.url)
 
                 link = _drive_to_download(page, flow, captured, deadline)
-                cookies = _usable_cookies(context.cookies(), url)
+                cookies = _download_page_cookies(context.cookies(), url, page.url)
                 user_agent = str(page.evaluate(USER_AGENT_JS))
                 return BrowserSolveResult(
                     download_link=link,
                     cookies=cookies,
                     user_agent=user_agent,
+                    page_url=page.url,
                 )
             finally:
                 browser.close()
