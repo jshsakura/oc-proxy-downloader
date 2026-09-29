@@ -8,6 +8,37 @@ from core import hoster_sites as hs
 from core.browser_solver import BrowserSolveResult
 
 
+@pytest.mark.parametrize("url", [
+    "https://vikingfile.com/f/abc", "https://vik1ngfile.site/f/abc",
+    "https://akirabox.com/abc/file", "https://akirabox.to/abc/file",
+    "https://www.rootz.so/d/abc",
+])
+def test_new_hoster_urls_route_to_parser(url):
+    assert hp.is_special_hoster_url(url)
+
+
+def test_new_hoster_metadata_extractors():
+    assert hs._extract_vikingfile_info("https://vikingfile.com/f/x", '<h2 id="filename">game.nsp</h2><p id="size">103.64 kB</p>') == {"name": "game.nsp", "size": "103.64 kB"}
+    assert hs._extract_akirabox_info("https://akirabox.to/x/file", '<meta property="og:title" content="game.nsp"><meta name="description" content="NSP file · 13.08 GB — download it free.">') == {"name": "game.nsp", "size": "13.08 GB"}
+
+
+def test_rootz_parser_returns_direct_link_and_metadata(monkeypatch):
+    monkeypatch.setattr(hs, "resolve_rootz_page", lambda url, proxies=None: ("https://cdn.example/game.nsp", {"name": "game.nsp", "size": "1 GB"}, "Chrome"))
+    result = hs.parse_rootz_sync("https://www.rootz.so/d/abc")
+    assert result["download_link"] == "https://cdn.example/game.nsp"
+    assert result["file_info"] == {"name": "game.nsp", "size": "1 GB"}
+
+
+def test_viking_parser_reuses_browser_page_for_metadata(monkeypatch):
+    monkeypatch.setattr(hs, "solve_download_page", lambda url, flow, proxies=None: BrowserSolveResult(
+        "https://vikingfile.com/d/abc/game.nsp", {}, "Chrome",
+        '<h2 id="filename">game.nsp</h2><p id="size">103.64 kB</p>',
+    ))
+    result = hs.parse_vikingfile_sync("https://vikingfile.com/f/abc")
+    assert result["file_info"] == {"name": "game.nsp", "size": "103.64 kB"}
+    assert result["download_link"] == "https://vikingfile.com/d/abc/game.nsp"
+
+
 class _FakeCookies:
     def get_dict(self):
         return {"sid": "cookie"}

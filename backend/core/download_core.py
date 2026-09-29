@@ -116,6 +116,9 @@ SITE_DOWNLOAD_LIMITS = {
     "gofile.io": 3,
     "rapidgator.net": 1,
     "send.now": 1,
+    "vikingfile.com": 3,
+    "akirabox.com": 3,
+    "rootz.so": 3,
 }
 
 # Smart-download concurrency defaults (overridable via config.json).
@@ -551,6 +554,8 @@ class DownloadCore:
         semaphore, so one host's queue never blocks another's.
         """
         host = (urlparse(url or "").hostname or "").lower()
+        host = host.removeprefix("www.")
+        host = {"vik1ngfile.site": "vikingfile.com", "akirabox.to": "akirabox.com"}.get(host, host)
         site_key = next((k for k in SITE_DOWNLOAD_LIMITS if k in host), None)
         if site_key is not None:
             # The operator's per-host setting is a ceiling even for hosts with
@@ -2907,6 +2912,9 @@ class DownloadCore:
 
     async def _download_special_hoster_async(self, req: DownloadRequest, db: Session):
         """Resolve a file hosting page (MegaUp/DataNodes, etc.) to a final link, then download."""
+        host = (urlparse(req.url or "").hostname or "").lower().removeprefix("www.")
+        one_shot_hosts = {"vikingfile.com", "vik1ngfile.site", "akirabox.com", "akirabox.to", "rootz.so"}
+        one_shot_parse = host in one_shot_hosts
         print(f"[DEBUG] 특수 호스팅 파싱 시작: {req.id} - {req.url}")
         await self.send_download_update(req.id, {
             "status": "parsing",
@@ -2942,6 +2950,8 @@ class DownloadCore:
                 total_proxy_list = await proxy_manager.get_user_proxy_list(db)
                 total_proxies = len(total_proxy_list) if total_proxy_list else 0
                 MAX_RETRIES = min(MAX_DOWNLOAD_RETRIES_PROXY_CAP, total_proxies)
+                if one_shot_parse:
+                    MAX_RETRIES = min(MAX_RETRIES, 1)
 
                 retry_count = 0
                 parse_result = None
@@ -3049,7 +3059,7 @@ class DownloadCore:
                 # node42.datanodes.to) is dead/unreachable and the download fails
                 # (connect timeout, expiry, ...), re-parse once so the host hands
                 # out a fresh node URL instead of retrying the same dead node.
-                max_reparse=1,
+                max_reparse=0 if one_shot_parse else 1,
             )
         except Exception as e:
             print(f"[ERROR] 특수 호스팅 처리 실패: {e}")

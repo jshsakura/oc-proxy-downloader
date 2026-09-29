@@ -25,7 +25,7 @@ from urllib.parse import unquote, urlparse
 
 from patchright.sync_api import Page, sync_playwright
 
-from core.hoster_common import HosterParseError
+from core.hoster_common import HosterParseError, _format_size_bytes
 
 
 __all__ = [
@@ -37,6 +37,7 @@ __all__ = [
     'flow_for_host',
     'is_browser_supported',
     'solve_download_page',
+    'resolve_rootz_page',
 ]
 
 
@@ -131,6 +132,7 @@ BROWSER_UNSUPPORTED_MESSAGE = (
 
 def _host_lock(host: str) -> threading.Lock:
     """The queue for one site, created on first use."""
+    host = {"vik1ngfile.site": "vikingfile.com", "akirabox.to": "akirabox.com"}.get(host.removeprefix("www."), host.removeprefix("www."))
     with _HOST_LOCKS_GUARD:
         lock = _HOST_LOCKS.get(host)
         if lock is None:
@@ -157,6 +159,9 @@ class BrowserFlow:
     ready_text: Optional[str] = None
     submit_selector: Optional[str] = None
     action_selector: str = 'button:has-text("Download"), button:has-text("Start")'
+    direct_link_selector: Optional[str] = None
+    widget_selector: str = TURNSTILE_CONTAINER
+    token_required: bool = True
 
 
 @dataclass(frozen=True)
@@ -164,6 +169,7 @@ class BrowserSolveResult:
     download_link: str
     cookies: Dict[str, str]
     user_agent: str
+    page_html: str = ""
 
 
 # The 2026-08 redesign dropped the "File Ready" pre-check banner: step 1 now
@@ -191,6 +197,12 @@ MIXDROP_FLOW = BrowserFlow(
     action_selector="a.download-btn",
 )
 MIXDROP_DOMAINS = frozenset({"mixdrop.ag", "mixdrop.top", "mxdrop.top"})
+VIKING_FLOW = BrowserFlow(
+    direct_link_selector='a#download-link[href^="http"]',
+    widget_selector="#captcha",
+    token_required=False,
+)
+AKIRABOX_FLOW = BrowserFlow(direct_link_selector='a#download[href^="http"]')
 DEFAULT_FLOW = BrowserFlow()
 
 _FLOWS = {
@@ -199,18 +211,22 @@ _FLOWS = {
     "mixdrop.ag": MIXDROP_FLOW,
     "mixdrop.top": MIXDROP_FLOW,
     "mxdrop.top": MIXDROP_FLOW,
+    "vikingfile.com": VIKING_FLOW,
+    "vik1ngfile.site": VIKING_FLOW,
+    "akirabox.com": AKIRABOX_FLOW,
+    "akirabox.to": AKIRABOX_FLOW,
 }
 
 # Hosts that have a browser flow at all. Used to route their parses onto the
 # dedicated pool in core.executors, so a minutes-long solve never occupies a
 # shared worker.
-BROWSER_FLOW_HOSTS = frozenset(_FLOWS)
+BROWSER_FLOW_HOSTS = frozenset({*_FLOWS, "rootz.so"})
 
 # The subset where the browser is unavoidable: every free download ends at a
 # captcha, so a build without one can refuse the link immediately. Send.now is
 # deliberately absent — it only shows a captcha sometimes, and FlareSolverr still
 # resolves the rest, so gating it up front would break links that do work.
-BROWSER_REQUIRED_HOSTS = frozenset({"datanodes.to", *MIXDROP_DOMAINS})
+BROWSER_REQUIRED_HOSTS = frozenset({"datanodes.to", *MIXDROP_DOMAINS, "vikingfile.com", "vik1ngfile.site", "akirabox.com", "akirabox.to", "rootz.so"})
 
 
 def flow_for_host(host: str) -> BrowserFlow:
@@ -480,11 +496,11 @@ def _is_navigation_race(exc: Exception) -> bool:
     return "execution context was destroyed" in message and "navigation" in message
 
 
-def _turnstile_box(page: Page) -> Optional[dict]:
+def _turnstile_box(page: Page, selector: str = TURNSTILE_CONTAINER) -> Optional[dict]:
     """Bounding box of the Turnstile widget once it has actually been laid out."""
-    if not page.locator(TURNSTILE_CONTAINER).count():
+    if not page.locator(selector).count():
         return None
-    box = page.locator(TURNSTILE_CONTAINER).first.bounding_box()
+    box = page.locator(selector).first.bounding_box()
     if box and box["height"] > MIN_WIDGET_HEIGHT:
         return box
     return None
@@ -502,7 +518,7 @@ def _await_page_ready(page: Page, flow: BrowserFlow, deadline: Deadline) -> None
 def _reach_captcha(page: Page, flow: BrowserFlow, deadline: Deadline) -> Optional[dict]:
     """Advance to the captcha step, re-clicking when a popunder eats the click."""
     if not flow.submit_selector:
-        return _poll(page, lambda: _turnstile_box(page), WIDGET_TIMEOUT_S, deadline)
+        return _poll(page, lambda: _turnstile_box(page, flow.widget_selector), WIDGET_TIMEOUT_S, deadline)
 
     submit = page.locator(flow.submit_selector).first
     # The step-1 button is rendered by the page's own script, so it is not in the
@@ -531,7 +547,7 @@ def _reach_captcha(page: Page, flow: BrowserFlow, deadline: Deadline) -> Optiona
             print(f"[DEBUG] 1단계 버튼 클릭 재시도: {type(exc).__name__}")
             continue
         page.wait_for_timeout(SUBMIT_SETTLE_MS)
-        box = _poll(page, lambda: _turnstile_box(page), WIDGET_TIMEOUT_S, deadline)
+        box = _poll(page, lambda: _turnstile_box(page, flow.widget_selector), WIDGET_TIMEOUT_S, deadline)
         if box:
             return box
     return None
@@ -653,9 +669,28 @@ def solve_download_page(
                 )
                 _await_page_ready(page, flow, deadline)
 
+                def direct_link() -> Optional[str]:
+                    if not flow.direct_link_selector:
+                        return None
+                    anchor = page.locator(flow.direct_link_selector).first
+                    return anchor.get_attribute("href") if anchor.count() else None
+
+                link = direct_link()
+                if link:
+                    return BrowserSolveResult(link, _usable_cookies(context.cookies(), url), str(page.evaluate(USER_AGENT_JS)), page.content())
+
                 box = _reach_captcha(page, flow, deadline)
                 if box:
-                    _solve_turnstile(page, box, deadline)
+                    if flow.token_required:
+                        _solve_turnstile(page, box, deadline)
+                    else:
+                        page.mouse.click(box["x"] + CHECKBOX_OFFSET_X, box["y"] + box["height"] / 2)
+
+                if flow.direct_link_selector:
+                    link = _poll(page, direct_link, TOKEN_TIMEOUT_S, deadline)
+                    if not link:
+                        raise HosterParseError("다운로드 주소가 발급되지 않았습니다 (캡차 또는 호스트 제한)")
+                    return BrowserSolveResult(link, _usable_cookies(context.cookies(), url), str(page.evaluate(USER_AGENT_JS)), page.content())
 
                 link = _drive_to_download(page, flow, captured, deadline)
                 cookies = _usable_cookies(context.cookies(), url)
@@ -665,5 +700,48 @@ def solve_download_page(
                     cookies=cookies,
                     user_agent=user_agent,
                 )
+            finally:
+                browser.close()
+
+
+def resolve_rootz_page(url: str, proxies: Optional[Dict[str, str]] = None) -> tuple[str, Dict[str, str], str]:
+    """Read Rootz metadata and resolve its proxy endpoint without fetching file bytes."""
+    _require_display()
+    parsed = urlparse(url)
+    short_id = parsed.path.rstrip("/").rsplit("/", 1)[-1]
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", short_id):
+        raise HosterParseError("Rootz 링크 형식이 올바르지 않습니다")
+    deadline = Deadline(SOLVE_BUDGET_SEC)
+    with _queued_browser_slot("rootz.so", deadline):
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=False)
+            try:
+                context = browser.new_context(viewport=VIEWPORT, proxy=_proxy_settings(proxies))
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=deadline.budget_ms(PAGE_LOAD_TIMEOUT_MS))
+                # Rootz sets its page token during hydration; querying the API
+                # before that finishes returns 403 even for a public file.
+                page.wait_for_timeout(4000)
+                result = page.evaluate("""async (id) => {
+                    const metaResponse = await fetch(`/api/files/download-by-short?shortId=${encodeURIComponent(id)}`);
+                    const meta = await metaResponse.json();
+                    if (!meta.success || !meta.data) return {error: meta.error || '파일 정보 조회 실패'};
+                    const file = meta.data;
+                    if (file.status !== 'active') return {error: '파일이 비활성 상태입니다'};
+                    if (file.passwordProtected) return {error: '비밀번호가 필요한 파일입니다'};
+                    if (!file.downloadAllowed || file.cooldownRemaining > 0 || file.waitSeconds > 0)
+                        return {error: '무료 다운로드 대기 또는 제한 중입니다'};
+                    const response = await fetch(`/api/files/proxy-download/${encodeURIComponent(id)}`, {method: 'HEAD'});
+                    const type = response.headers.get('content-type') || '';
+                    if (!response.ok || type.includes('text/html') || type.includes('application/json'))
+                        return {error: `다운로드 주소 확인 실패 (${response.status})`};
+                    return {url: response.url, name: file.fileName, size: file.size};
+                }""", short_id)
+                if result.get("error"):
+                    raise HosterParseError(f"Rootz: {result['error']}")
+                direct = str(result.get("url") or "")
+                if not direct.startswith(("https://", "http://")) or _same_site(urlparse(direct).hostname or "", "rootz.so"):
+                    raise HosterParseError("Rootz: 직접 다운로드 주소를 받지 못했습니다")
+                return direct, {"name": str(result.get("name") or ""), "size": _format_size_bytes(result.get("size") or 0)}, str(page.evaluate(USER_AGENT_JS))
             finally:
                 browser.close()

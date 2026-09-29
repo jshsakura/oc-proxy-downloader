@@ -19,7 +19,7 @@ from urllib.parse import unquote, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from core.browser_solver import flow_for_host, solve_download_page
+from core.browser_solver import flow_for_host, solve_download_page, resolve_rootz_page
 from core.hoster_common import (
     DEFAULT_HOSTER_USER_AGENT,
     HosterParseError,
@@ -56,7 +56,66 @@ __all__ = [
     'parse_pixeldrain_sync',
     'parse_mediafire_sync',
     'parse_bunkr_sync',
+    'parse_vikingfile_sync',
+    'parse_akirabox_sync',
+    'parse_rootz_sync',
 ]
+
+
+def _extract_vikingfile_info(url: str, html_text: str) -> Dict[str, str]:
+    soup = BeautifulSoup(html_text or "", "html.parser")
+    name = soup.select_one("#filename")
+    size = soup.select_one("#size")
+    info: Dict[str, str] = {}
+    if name:
+        info["name"] = name.get_text(" ", strip=True)
+    if size:
+        info["size"] = size.get_text(" ", strip=True)
+    return info
+
+
+def _extract_akirabox_info(url: str, html_text: str) -> Dict[str, str]:
+    soup = BeautifulSoup(html_text or "", "html.parser")
+    info: Dict[str, str] = {}
+    title = soup.select_one('meta[property="og:title"]')
+    description = soup.select_one('meta[name="description"]')
+    if title and title.get("content"):
+        info["name"] = html.unescape(title["content"]).strip()
+    if description and description.get("content"):
+        size = _extract_size_from_text(description["content"])
+        if size:
+            info["size"] = size
+    return info
+
+
+def _parse_browser_link_hoster(url: str, info_extract, proxies=None) -> Dict[str, object]:
+    solved = solve_download_page(url, flow_for_host(_host(url)), proxies=proxies)
+    file_info = info_extract(url, solved.page_html)
+    return HosterParseResult(
+        download_link=solved.download_link,
+        file_info=file_info or None,
+        cookies=solved.cookies,
+        user_agent=solved.user_agent,
+        referer=url,
+    ).as_parse_result()
+
+
+def parse_vikingfile_sync(url: str, proxies=None) -> Dict[str, object]:
+    return _parse_browser_link_hoster(url, _extract_vikingfile_info, proxies)
+
+
+def parse_akirabox_sync(url: str, proxies=None) -> Dict[str, object]:
+    return _parse_browser_link_hoster(url, _extract_akirabox_info, proxies)
+
+
+def parse_rootz_sync(url: str, proxies=None) -> Dict[str, object]:
+    direct, file_info, user_agent = resolve_rootz_page(url, proxies=proxies)
+    return HosterParseResult(
+        download_link=direct,
+        file_info=file_info,
+        user_agent=user_agent,
+        referer=url,
+    ).as_parse_result()
 
 
 # MegaUp arms its ``?pt=`` hop behind a countdown (6s in the page's own script,

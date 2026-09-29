@@ -41,9 +41,11 @@ from core.browser_solver import (
     is_browser_supported,
 )
 from core.hoster_sites import (  # noqa: F401
+    _extract_akirabox_info,
     _extract_datanodes_file_info,
     _extract_mediafire_file_info,
     _extract_multiup_file_info,
+    _extract_vikingfile_info,
 )
 
 
@@ -104,6 +106,9 @@ HOSTER_REGISTRY = (
     HosterSpec("MediaFire", ("mediafire.com",), "parse_mediafire_sync", "_extract_mediafire_file_info"),
     HosterSpec("Pixeldrain", ("pixeldrain.com",), "parse_pixeldrain_sync"),
     HosterSpec("Bunkr", BUNKR_HOSTS, "parse_bunkr_sync"),
+    HosterSpec("VikingFile", ("vikingfile.com", "vik1ngfile.site"), "parse_vikingfile_sync", "_extract_vikingfile_info"),
+    HosterSpec("AkiraBox", ("akirabox.com", "akirabox.to"), "parse_akirabox_sync", "_extract_akirabox_info"),
+    HosterSpec("Rootz", ("rootz.so",), "parse_rootz_sync"),
 )
 
 

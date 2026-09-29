@@ -66,6 +66,16 @@ def test_datanodes_browser_flow_allows_only_one_download_even_with_default_cap()
     assert dc._resolve_host_limit("https://multiup.io/download/code/file.rar") == ("multiup.io", 1)
 
 
+def test_new_host_aliases_share_three_download_slots():
+    _write_config({"max_concurrent_downloads": 8, "max_per_host_downloads": 3})
+    dc = DownloadCore()
+    assert dc._resolve_host_limit("https://vikingfile.com/f/a") == ("vikingfile.com", 3)
+    assert dc._resolve_host_limit("https://vik1ngfile.site/f/b") == ("vikingfile.com", 3)
+    assert dc._resolve_host_limit("https://akirabox.com/a/file") == ("akirabox.com", 3)
+    assert dc._resolve_host_limit("https://akirabox.to/b/file") == ("akirabox.com", 3)
+    assert dc._resolve_host_limit("https://www.rootz.so/d/a") == ("rootz.so", 3)
+
+
 @pytest.mark.parametrize("host", ["datanodes.to", "gofile.io", "megaup.net", "send.now"])
 def test_operator_one_per_host_caps_listed_hosts_too(host):
     _write_config({"max_concurrent_downloads": 8, "max_per_host_downloads": 1})

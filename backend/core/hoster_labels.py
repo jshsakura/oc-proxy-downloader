@@ -36,6 +36,10 @@ _SLUGS = {
     "pixeldrain.com": "pixeldrain",
     "multiup.io": "multiup",
     "vikingfile.com": "vikingfile",
+    "vik1ngfile.site": "vikingfile",
+    "akirabox.com": "akirabox",
+    "akirabox.to": "akirabox",
+    "rootz.so": "rootz",
 }
 
 
