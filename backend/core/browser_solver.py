@@ -752,7 +752,8 @@ def resolve_rootz_page(url: str, proxies: Optional[Dict[str, str]] = None) -> tu
                 meta = metadata.get("body")
                 if not isinstance(meta, dict) or not meta.get("success") or not isinstance(meta.get("data"), dict):
                     reason = meta.get("error") if isinstance(meta, dict) else None
-                    raise HosterParseError(f"Rootz: {reason or '파일 정보 조회 실패'}")
+                    status = metadata.get("status")
+                    raise HosterParseError(f"Rootz: {reason or (f'HTTP {status}' if status else '파일 정보 조회 실패')}")
                 file = meta["data"]
                 if file.get("status") != "active":
                     raise HosterParseError(f"Rootz: 파일이 비활성 상태입니다 ({file.get('status') or 'unknown'})")

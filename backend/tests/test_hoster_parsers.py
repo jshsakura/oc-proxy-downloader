@@ -348,7 +348,7 @@ def test_blocked_hosts_are_identified():
 def _patch_gofile_tokens(monkeypatch):
     monkeypatch.setattr(hs, "_gofile_session", lambda proxies=None: object())
     monkeypatch.setattr(hs, "_gofile_guest_token", lambda session: "guest-tok")
-    monkeypatch.setattr(hs, "_gofile_website_token", lambda session: "test-wt")
+    monkeypatch.setattr(hs, "_gofile_website_token", lambda session, token: "test-wt")
 
 
 def test_gofile_content_id_extraction():
@@ -535,14 +535,14 @@ def test_gofile_top_level_file_resolves_direct_link(monkeypatch):
     assert result["file_info"]["name"] == "single.zip"
 
 
-def test_gofile_datacenter_ip_block_is_reported(monkeypatch):
+def test_gofile_rejected_website_token_is_reported(monkeypatch):
     _patch_gofile_tokens(monkeypatch)
     monkeypatch.setattr(
         hs, "_gofile_fetch_contents",
         lambda *a, **k: {"status": "error-notPremium", "data": {}},
     )
 
-    with pytest.raises(hp.HosterParseError, match="목록 조회 차단"):
+    with pytest.raises(hp.HosterParseError, match="웹 인증 토큰 거부"):
         hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
 
 
@@ -565,32 +565,24 @@ def test_gofile_contents_call_includes_wt_and_web_params(monkeypatch):
 
     monkeypatch.setattr(hs, "_gofile_session", lambda proxies=None: _Sess())
     monkeypatch.setattr(hs, "_gofile_guest_token", lambda session: "guest-tok")
-    monkeypatch.setattr(hs, "_gofile_website_token", lambda session: "wt-123")
+    monkeypatch.setattr(hs, "_gofile_website_token", lambda session, token: "wt-123")
 
     hp.parse_special_hoster_sync("https://gofile.io/d/abc")
 
-    # wt is now required by GoFile's listing API and must be sent.
-    assert captured["params"]["wt"] == "wt-123"
+    assert captured["headers"]["X-Website-Token"] == "wt-123"
+    assert captured["headers"]["X-BL"] == "en-US"
     assert captured["params"]["pageSize"] == "1000"
     assert captured["headers"]["Authorization"] == "Bearer guest-tok"
 
 
-def test_gofile_website_token_extracted_with_fallback(monkeypatch):
-    class _Resp:
-        def __init__(self, text):
-            self.text = text
-
-    class _Sess:
-        def __init__(self, text):
-            self._text = text
-
-        def get(self, url, timeout=None):
-            return _Resp(self._text)
-
-    # Extracted from config.js
-    assert hs._gofile_website_token(_Sess('const x = {wt: "abc123def"};')) == "abc123def"
-    # Falls back to the last-known value when the pattern is absent
-    assert hs._gofile_website_token(_Sess("no token here")) == hs.GOFILE_FALLBACK_WT
+def test_gofile_website_token_is_time_bound_and_needs_no_page_request(monkeypatch):
+    import hashlib
+    monkeypatch.setattr(hs.time, "time", lambda: 14400 * 123)
+    session = type("Session", (), {"headers": {"User-Agent": "test-agent"}})()
+    expected = hashlib.sha256(
+        f"test-agent::en-US::guest-tok::123::{hs.GOFILE_WT_SALT}".encode()
+    ).hexdigest()
+    assert hs._gofile_website_token(session, "guest-tok") == expected
 
 
 def test_gofile_missing_content_is_reported_as_dead(monkeypatch):

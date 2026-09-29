@@ -65,8 +65,19 @@ def test_failure_kind_labels_exist_in_korean_and_english():
 # ---------------------------------------------------------------------------
 
 class TestClassify:
+    @pytest.mark.parametrize("raw", [
+        "Gofile 웹 인증 토큰 거부 — 사이트 토큰 방식이 변경되었을 수 있습니다",
+        "Gofile 무료 조회 속도 제한 — 자동 재시도하지 않습니다",
+    ])
+    def test_gofile_refusals_do_not_auto_retry(self, raw):
+        req = _FakeReq()
+        verdict = apply_failure_to_request(req, "파싱", raw)
+        assert verdict.kind == KIND_BLOCKED
+        assert verdict.next_retry_at is None
+
     @pytest.mark.parametrize("raw,kind", [
         ("Rootz: Forbidden", KIND_BLOCKED),
+        ("Rootz: HTTP 403", KIND_BLOCKED),
         ("Rootz: 다운로드 주소 확인 실패 (403)", KIND_BLOCKED),
         ("Rootz: 무료 다운로드 대기 또는 제한 중입니다", KIND_BLOCKED),
         ("Rootz: 파일이 비활성 상태입니다", KIND_DEAD),

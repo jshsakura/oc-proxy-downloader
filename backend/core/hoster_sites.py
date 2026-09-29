@@ -9,8 +9,10 @@ the registry that routes to these parsers lives in ``core.hoster_parsers``.
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import json
+import os
 import re
 import time
 from typing import Dict, Optional
@@ -127,22 +129,21 @@ MEGAUP_CONTINUE_ATTEMPTS = 3
 
 GOFILE_API_BASE = "https://api.gofile.io"
 _GOFILE_ID_RE = re.compile(r"/(?:d/)?([A-Za-z0-9]+)/?$")
-# The listing API requires the site's "website token" (wt). The web client reads
-# it from /dist/js/config.js; we fetch it live and fall back to the last-known
-# value if the format changes. Without wt the API returns error-notPremium even
-# from a residential IP — which previously looked like a datacenter-IP block.
-GOFILE_CONFIG_JS_URL = "https://gofile.io/dist/js/config.js"
-GOFILE_FALLBACK_WT = "4fd6sg89d7s6"
-_GOFILE_WT_RE = re.compile(r"""wt\s*[:=]\s*["']([A-Za-z0-9_\-]{6,})["']""")
-# Query params the GoFile web client sends for a folder listing (captured live).
-# Note: even with wt, the listing API is also gated by datacenter IP — it returns
-# error-notPremium from cloud/VPS IPs but works from residential IPs (home NAS).
+# GoFile's config.js now contains a decoy website token. The web app computes
+# X-Website-Token from the guest token and a four-hour window. Keep the salt
+# overridable because GoFile can rotate its obfuscated client script.
+GOFILE_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+GOFILE_LANGUAGE = "en-US"
+GOFILE_WT_SALT = os.environ.get("GOFILE_WT_SALT", "12af056dacea0b")
 _GOFILE_CONTENTS_PARAMS = {
     "contentFilter": "",
     "page": "1",
     "pageSize": "1000",
-    "sortField": "name",
-    "sortDirection": "1",
+    "sortField": "createTime",
+    "sortDirection": "-1",
 }
 
 _MULTIUP_META_RE = re.compile(
@@ -725,7 +726,7 @@ def _gofile_content_id(url: str) -> str:
 
 def _gofile_session(proxies: Optional[Dict[str, str]] = None) -> requests.Session:
     session = requests.Session()
-    session.headers.update({"User-Agent": DEFAULT_HOSTER_USER_AGENT})
+    session.headers.update({"User-Agent": GOFILE_USER_AGENT})
     if proxies:
         session.proxies.update(proxies)
     return session
@@ -739,11 +740,12 @@ def _gofile_guest_token(session: requests.Session) -> str:
     return (payload.get("data") or {}).get("token") or ""
 
 
-def _gofile_website_token(session: requests.Session) -> str:
-    """Read the site's website token (wt) from config.js, with a static fallback."""
-    response = session.get(GOFILE_CONFIG_JS_URL, timeout=30)
-    match = _GOFILE_WT_RE.search(response.text or "")
-    return match.group(1) if match else GOFILE_FALLBACK_WT
+def _gofile_website_token(session: requests.Session, account_token: str) -> str:
+    """Compute the current four-hour website token without another page GET."""
+    agent = session.headers.get("User-Agent", GOFILE_USER_AGENT)
+    window = int(time.time() // 14400)
+    raw = f"{agent}::{GOFILE_LANGUAGE}::{account_token}::{window}::{GOFILE_WT_SALT}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _gofile_fetch_contents(
@@ -751,8 +753,14 @@ def _gofile_fetch_contents(
 ) -> Dict[str, object]:
     response = session.get(
         f"{GOFILE_API_BASE}/contents/{content_id}",
-        params={**_GOFILE_CONTENTS_PARAMS, "wt": wt},
-        headers={"Authorization": f"Bearer {token}"},
+        params=_GOFILE_CONTENTS_PARAMS,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Website-Token": wt,
+            "X-BL": GOFILE_LANGUAGE,
+            "Origin": "https://gofile.io",
+            "Referer": "https://gofile.io/",
+        },
         timeout=30,
     )
     return _json_or_raise(response, "Gofile")
@@ -792,7 +800,7 @@ def _gofile_result(node: Dict[str, object], token: str) -> Dict[str, object]:
         download_link=str(link),
         file_info=file_info or None,
         cookies={"accountToken": token},
-        user_agent=DEFAULT_HOSTER_USER_AGENT,
+        user_agent=GOFILE_USER_AGENT,
         referer="https://gofile.io/",
     ).as_parse_result()
 
@@ -807,13 +815,15 @@ def parse_gofile_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dic
     if not token:
         raise HosterParseError("Gofile 게스트 토큰 발급 실패")
 
-    wt = _gofile_website_token(session)
+    wt = _gofile_website_token(session, token)
     payload = _gofile_fetch_contents(session, content_id, token, wt)
     status = str(payload.get("status") or "")
     if status == "error-notPremium":
         raise HosterParseError(
-            "Gofile 목록 조회 차단 (데이터센터 IP) — 가정용 IP/NAS에서 실행 시 정상 동작"
+            "Gofile 웹 인증 토큰 거부 — 사이트 토큰 방식이 변경되었을 수 있습니다"
         )
+    if status == "error-rateLimit":
+        raise HosterParseError("Gofile 무료 조회 속도 제한 — 자동 재시도하지 않습니다")
     if status in {"error-notFound", "error-notExist"}:
         raise HosterParseError("Gofile 파일 없음 또는 삭제됨")
     if status != "ok":
