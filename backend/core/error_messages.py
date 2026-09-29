@@ -117,6 +117,13 @@ class ClassifiedError:
     retry_after_seconds: Optional[int] = None
 
     def to_user_message(self, language: str = "ko") -> str:
+        if self.raw.lower().startswith("rootz:") and language == "en":
+            return (
+                "[Parsing failed] Rootz refused to provide this file's download link "
+                f"({self.raw}).\n"
+                "Action: Automatic retry is disabled. Check the link in a browser "
+                "or use another mirror."
+            )
         if "akirabox storage unavailable" in self.raw.lower() and language == "en":
             return (
                 "[Download failed] AkiraBox's file server says this file is currently unavailable.\n"
@@ -339,6 +346,30 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "AkiraBox 파일 서버가 이 파일을 현재 제공하지 않습니다",
      "다른 미러를 사용하거나 파일 서버가 복구된 뒤 수동으로 다시 받으세요. 자동 재시도하지 않습니다.",
      KIND_BLOCKED, True),
+    ("rootz: forbidden",
+     "Rootz가 파일 정보 요청을 거부했습니다",
+     "같은 링크를 자동으로 다시 조회하지 않습니다. 브라우저에서 링크 상태를 확인하거나 다른 미러를 사용하세요.",
+     KIND_BLOCKED, True),
+    ("rootz: 다운로드 주소 확인 실패 (403)",
+     "Rootz가 다운로드 주소 요청을 거부했습니다",
+     "같은 링크를 자동으로 다시 조회하지 않습니다. 브라우저에서 링크 상태를 확인하거나 다른 미러를 사용하세요.",
+     KIND_BLOCKED, True),
+    ("rootz: 파일이 비활성 상태입니다",
+     "Rootz 파일이 비활성 상태입니다",
+     "다른 미러를 사용하세요. 이 링크는 자동으로 재시도하지 않습니다.",
+     KIND_DEAD, True),
+    ("rootz: 비밀번호가 필요한 파일입니다",
+     "Rootz 파일에 비밀번호가 필요합니다",
+     "현재 Rootz 비밀번호 링크를 처리할 수 없습니다. 다른 미러를 사용하세요.",
+     KIND_AUTH_REQUIRED, True),
+    ("rootz: 무료 다운로드 대기 또는 제한 중입니다",
+     "Rootz가 무료 다운로드를 제한하고 있습니다",
+     "반복 요청을 멈췄습니다. 제한이 해제된 뒤 수동으로 다시 받으세요.",
+     KIND_BLOCKED, True),
+    ("rootz:",
+     "Rootz에서 다운로드 주소를 확인하지 못했습니다",
+     "같은 파싱을 자동 반복하지 않습니다. 브라우저에서 링크 상태를 확인하거나 다른 미러를 사용하세요.",
+     KIND_BROWSER_PARSE, False),
     ("1fichier 폼 제출 거부",
      "1fichier 가 폼 제출을 거부하고 홈페이지를 반환했습니다",
      "통신사 CGNAT/공유 IP 가 비주거용으로 분류된 경우가 많습니다. "
@@ -757,10 +788,15 @@ def apply_failure_to_request(
             "한도가 풀렸거나 계정/회선을 바꾼 뒤 '다시 받기'를 누르세요."
         )
     elif next_retry_at is None and kind == KIND_BROWSER_PARSE:
-        user_message += "\n차단을 피하기 위해 같은 브라우저 파싱을 자동 반복하지 않습니다."
+        if language == "en":
+            if "Automatic retry is disabled" not in user_message:
+                user_message += "\nAutomatic retry is disabled to avoid repeated browser parsing."
+        else:
+            user_message += "\n차단을 피하기 위해 같은 브라우저 파싱을 자동 반복하지 않습니다."
     elif next_retry_at is None and kind in _NO_AUTOMATIC_RETRY_KINDS and kind != KIND_SLOT_BUSY:
-        if language == "en" and "akirabox storage unavailable" in (raw_error or "").lower():
-            user_message += "\nAutomatic retry is disabled for this unavailable file."
+        if language == "en":
+            if "Automatic retry is disabled" not in user_message:
+                user_message += "\nAutomatic retry is disabled for this refusal."
         else:
             user_message += (
                 "\n이 차단 유형은 추가 요청이 차단을 악화시킬 수 있어 자동 재시도하지 않습니다. "

@@ -65,6 +65,28 @@ def test_failure_kind_labels_exist_in_korean_and_english():
 # ---------------------------------------------------------------------------
 
 class TestClassify:
+    @pytest.mark.parametrize("raw,kind", [
+        ("Rootz: Forbidden", KIND_BLOCKED),
+        ("Rootz: 다운로드 주소 확인 실패 (403)", KIND_BLOCKED),
+        ("Rootz: 무료 다운로드 대기 또는 제한 중입니다", KIND_BLOCKED),
+        ("Rootz: 파일이 비활성 상태입니다", KIND_DEAD),
+        ("Rootz: 비밀번호가 필요한 파일입니다", KIND_AUTH_REQUIRED),
+        ("Rootz: 직접 다운로드 주소를 받지 못했습니다", KIND_BROWSER_PARSE),
+    ])
+    def test_rootz_refusals_are_not_automatically_retried(self, raw, kind):
+        req = _FakeReq()
+        verdict = apply_failure_to_request(req, "파싱", raw)
+        assert verdict.kind == kind
+        assert verdict.next_retry_at is None
+        assert "Rootz" in req.error
+
+    def test_rootz_refusal_has_english_message(self):
+        req = _FakeReq()
+        verdict = apply_failure_to_request(req, "파싱", "Rootz: Forbidden", language="en")
+        assert verdict.next_retry_at is None
+        assert "Automatic retry is disabled" in req.error
+        assert "조치:" not in req.error
+
     @pytest.mark.parametrize("language,expected", [
         ("ko", "AkiraBox 파일 서버가 이 파일을 현재 제공하지 않습니다"),
         ("en", "AkiraBox's file server says this file is currently unavailable"),
