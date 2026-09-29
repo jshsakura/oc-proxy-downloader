@@ -65,6 +65,13 @@ def test_failure_kind_labels_exist_in_korean_and_english():
 # ---------------------------------------------------------------------------
 
 class TestClassify:
+    def test_datavaults_captcha_is_explicit_and_never_retried(self):
+        req = _FakeReq()
+        verdict = apply_failure_to_request(req, "파싱", "DataVaults 무료 다운로드에 reCAPTCHA v2 사람 확인이 필요합니다")
+        assert verdict.kind == KIND_AUTH_REQUIRED
+        assert verdict.next_retry_at is None
+        assert "reCAPTCHA v2" in classify_error("파싱", "DataVaults 무료 다운로드에 reCAPTCHA v2 사람 확인이 필요합니다").to_user_message("en")
+
     @pytest.mark.parametrize("raw", [
         "Gofile 웹 인증 토큰 거부 — 사이트 토큰 방식이 변경되었을 수 있습니다",
         "Gofile 무료 조회 속도 제한 — 자동 재시도하지 않습니다",
@@ -78,10 +85,15 @@ class TestClassify:
     def test_multiup_all_mirrors_failed_does_not_auto_retry(self):
         req = _FakeReq()
         verdict = apply_failure_to_request(
-            req, "파싱", "MultiUp 모든 지원 미러 실패 (Gofile: 파일 없음; MegaUp: 파일 없음)"
+            req, "파싱", (
+                "MultiUp 모든 지원 미러 실패 (Gofile: Gofile 파일 없음 또는 삭제됨; "
+                "MegaUp: MegaUp 파일 없음 또는 삭제됨; "
+                "MixDrop: 다운로드 버튼 처리 후 링크를 받지 못했습니다)"
+            )
         )
         assert verdict.kind == KIND_BROWSER_PARSE
         assert verdict.next_retry_at is None
+        assert "MultiUp의 지원 미러" in req.error
 
     def test_multiup_mirror_error_is_english_when_selected(self):
         req = _FakeReq()

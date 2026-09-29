@@ -12,6 +12,7 @@ from core.browser_solver import BrowserSolveResult
     "https://vikingfile.com/f/abc", "https://vik1ngfile.site/f/abc",
     "https://akirabox.com/abc/file", "https://akirabox.to/abc/file",
     "https://www.rootz.so/d/abc",
+    "https://datavaults.co/abc/file.nsp",
 ])
 def test_new_hoster_urls_route_to_parser(url):
     assert hp.is_special_hoster_url(url)
@@ -20,6 +21,12 @@ def test_new_hoster_urls_route_to_parser(url):
 def test_new_hoster_metadata_extractors():
     assert hs._extract_vikingfile_info("https://vikingfile.com/f/x", '<h2 id="filename">game.nsp</h2><p id="size">103.64 kB</p>') == {"name": "game.nsp", "size": "103.64 kB"}
     assert hs._extract_akirabox_info("https://akirabox.to/x/file", '<meta property="og:title" content="game.nsp"><meta name="description" content="NSP file · 13.08 GB — download it free.">') == {"name": "game.nsp", "size": "13.08 GB"}
+    assert hs._extract_datavaults_info("https://datavaults.co/x/file.nsp", '<form><input name="fname" value="file.nsp"><p>Size: 374.3 MB</p></form>') == {"name": "file.nsp", "size": "374.3 MB"}
+
+
+def test_datavaults_download_stops_at_human_verification():
+    with pytest.raises(hp.HosterParseError, match="reCAPTCHA v2"):
+        hp.parse_special_hoster_sync("https://datavaults.co/x/file.nsp")
 
 
 def test_rootz_parser_returns_direct_link_and_metadata(monkeypatch):

@@ -42,6 +42,7 @@ from core.browser_solver import (
 )
 from core.hoster_sites import (  # noqa: F401
     _extract_akirabox_info,
+    _extract_datavaults_info,
     _extract_datanodes_file_info,
     _extract_mediafire_file_info,
     _extract_multiup_file_info,
@@ -109,6 +110,7 @@ HOSTER_REGISTRY = (
     HosterSpec("VikingFile", ("vikingfile.com", "vik1ngfile.site"), "parse_vikingfile_sync", "_extract_vikingfile_info"),
     HosterSpec("AkiraBox", ("akirabox.com", "akirabox.to"), "parse_akirabox_sync", "_extract_akirabox_info"),
     HosterSpec("Rootz", ("rootz.so",), "parse_rootz_sync"),
+    HosterSpec("DataVaults", ("datavaults.co",), "parse_datavaults_sync", "_extract_datavaults_info"),
 )
 
 

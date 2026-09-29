@@ -117,6 +117,11 @@ class ClassifiedError:
     retry_after_seconds: Optional[int] = None
 
     def to_user_message(self, language: str = "ko") -> str:
+        if language == "en" and self.raw.lower().startswith("datavaults 무료 다운로드에 recaptcha v2"):
+            return (
+                "[Parsing failed] DataVaults requires human reCAPTCHA v2 verification for free downloads.\n"
+                "Action: Automatic retry is disabled. Complete verification on the site or use another mirror."
+            )
         if language == "en" and self.raw.lower().startswith("multiup 모든 지원 미러 실패"):
             return (
                 f"[Parsing failed] All supported MultiUp mirrors failed ({self.raw}).\n"
@@ -175,6 +180,17 @@ class ClassifiedError:
 #   2. Then 1fichier's own block messages (the Korean prefix the parser raises).
 #   3. Finally, generic HTTP/network patterns.
 _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
+    # Composite mirror errors must be classified before their nested host
+    # messages. A dead GoFile/MegaUp mirror does not make every MultiUp mirror
+    # dead, and the user needs the full per-mirror explanation.
+    ("multiup 모든 지원 미러 실패",
+     "MultiUp의 지원 미러에서 다운로드 주소를 얻지 못했습니다",
+     "표시된 미러별 원인을 확인하세요. 같은 미러들을 자동으로 다시 조회하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
+    ("datavaults 무료 다운로드에 recaptcha v2",
+     "DataVaults가 무료 다운로드에 사람 확인을 요구합니다",
+     "자동 재시도하지 않습니다. 사이트에서 직접 확인을 마치거나 다른 미러를 사용하세요.",
+     KIND_AUTH_REQUIRED, True),
     # --- definitive dead: 1fichier body marker ---
     ("1fichier 차단: 파일 삭제됨", "1fichier 측에서 파일이 삭제되었습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
@@ -417,10 +433,6 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("send.now 다운로드 링크를 찾을 수 없음",
      "Send.now 페이지에서 다운로드 링크를 확인하지 못했습니다",
      "호스터 화면이나 응답이 바뀌었을 수 있습니다. 자동 재시도하지 않습니다.",
-     KIND_BROWSER_PARSE, False),
-    ("multiup 모든 지원 미러 실패",
-     "MultiUp의 지원 미러에서 다운로드 주소를 얻지 못했습니다",
-     "표시된 미러별 원인을 확인하세요. 같은 미러들을 자동으로 다시 조회하지 않습니다.",
      KIND_BROWSER_PARSE, False),
     # Every hoster raises "<Host> 다운로드 링크를 찾을 수 없음", so the summary must stay
     # host-agnostic — the raw message already names the host in parentheses.

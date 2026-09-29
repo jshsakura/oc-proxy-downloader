@@ -48,7 +48,7 @@ marked ❌ below are unsupported there, and adding such a link reports that righ
 |------|----------|-------------|
 | 1fichier, MEGA | nothing | ✅ Works |
 | Pixeldrain | nothing (public API) | ✅ Works |
-| GoFile | a residential IP (datacenter IPs are blocked) | ✅ Works from a home IP/NAS |
+| GoFile | Time-based website token and free metadata rate limits | ✅ For public files |
 | MediaFire | FlareSolverr when Cloudflare-challenged | 🟡 Works unless challenged |
 | MegaUp | FlareSolverr (always) | ❌ Needs an external FlareSolverr |
 | Bunkr | FlareSolverr when challenged | 🟡 Encrypted-CDN links may not resolve |
@@ -57,7 +57,7 @@ marked ❌ below are unsupported there, and adding such a link reports that righ
 | **AkiraBox** (`akirabox.com`, `akirabox.to`) | **Browser to issue a short-lived download URL** | ❌ **Docker only** |
 | **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **Browser and Turnstile captcha** | ❌ **Docker only** |
 | **Rootz** (`rootz.so`) | **Browser to verify metadata and resolve the file URL** | ❌ **Docker only** |
-| DataVaults | reCAPTCHA v2 on the free-download step | ❌ Automated downloads unsupported |
+| DataVaults | Name/size metadata available; free download requires reCAPTCHA v2 | ❌ No automatic download without human verification; no repeated requests |
 | FileCrypt | Human verification before its multi-link container | ❌ Automated downloads unsupported |
 | MomeryBox / TeraBox | Redirects to TeraBox; the example link prompts for login on download | ❌ Automated downloads unsupported |
 

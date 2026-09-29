@@ -47,7 +47,7 @@ Windows 실행 파일은 **단일 파일 유지를 위해 브라우저를 번들
 |--------|-----------|------------|
 | 1fichier, MEGA | 없음 | ✅ 됨 |
 | Pixeldrain | 없음 (공개 API) | ✅ 됨 |
-| GoFile | 가정용 IP (데이터센터 IP 차단) | ✅ 가정용 IP/NAS에서 됨 |
+| GoFile | 시간 기반 웹 인증 토큰, 무료 조회 속도 제한 | ✅ 공개 파일이면 됨 |
 | MediaFire | Cloudflare 챌린지 때 FlareSolverr | 🟡 챌린지 안 뜨면 됨 |
 | MegaUp | FlareSolverr (항상) | ❌ 외부 FlareSolverr 필요 |
 | Bunkr | Cloudflare 챌린지 때 FlareSolverr | 🟡 암호화 CDN 링크는 해석 못 할 수 있음 |
@@ -56,7 +56,7 @@ Windows 실행 파일은 **단일 파일 유지를 위해 브라우저를 번들
 | **AkiraBox** (`akirabox.com`, `akirabox.to`) | **브라우저에서 유효기간 있는 다운로드 주소 발급** | ❌ **Docker 전용** |
 | **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **브라우저와 Turnstile 캡차** | ❌ **Docker 전용** |
 | **Rootz** (`rootz.so`) | **브라우저에서 파일 정보와 다운로드 주소 확인** | ❌ **Docker 전용** |
-| DataVaults | 무료 다운로드 단계에 reCAPTCHA v2 | ❌ 자동 다운로드 미지원 |
+| DataVaults | 파일명·크기 조회 가능, 무료 다운로드 단계에 reCAPTCHA v2 | ❌ 사람 확인 없이는 자동 다운로드 불가; 반복 요청 없음 |
 | FileCrypt | 링크 컨테이너 앞에 사람 확인 단계, 여러 미러로 분기 | ❌ 자동 다운로드 미지원 |
 | MomeryBox / TeraBox | TeraBox 공유 페이지로 이동, 예시 링크의 다운로드 버튼은 로그인 요구 | ❌ 자동 다운로드 미지원 |
 

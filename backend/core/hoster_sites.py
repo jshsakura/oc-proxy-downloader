@@ -61,6 +61,8 @@ __all__ = [
     'parse_vikingfile_sync',
     'parse_akirabox_sync',
     'parse_rootz_sync',
+    'parse_datavaults_sync',
+    '_extract_datavaults_info',
 ]
 
 
@@ -88,6 +90,29 @@ def _extract_akirabox_info(url: str, html_text: str) -> Dict[str, str]:
         if size:
             info["size"] = size
     return info
+
+
+def _extract_datavaults_info(url: str, html_text: str) -> Dict[str, str]:
+    """Read public file metadata without entering the protected download flow."""
+    soup = BeautifulSoup(html_text or "", "html.parser")
+    name = soup.select_one('input[name="fname"]')
+    info: Dict[str, str] = {}
+    if name and name.get("value"):
+        info["name"] = html.unescape(str(name["value"])).strip()
+    # The header advertises plan quotas (e.g. 1 GB), so search only the
+    # file's own form; document-wide size extraction would report the ad.
+    form = name.find_parent("form") if name else None
+    size = _extract_size_from_text(form.get_text(" ", strip=True)) if form else None
+    if size:
+        info["size"] = size
+    return info
+
+
+def parse_datavaults_sync(url: str, proxies=None) -> Dict[str, object]:
+    # The public page gives metadata, but its download2 POST requires a live
+    # Google reCAPTCHA v2 token. Do not POST the same form or rotate proxies:
+    # neither can mint that token, and both just increase the site's request rate.
+    raise HosterParseError("DataVaults 무료 다운로드에 reCAPTCHA v2 사람 확인이 필요합니다")
 
 
 def _parse_browser_link_hoster(url: str, info_extract, proxies=None) -> Dict[str, object]:
