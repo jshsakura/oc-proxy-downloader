@@ -336,6 +336,7 @@ def _looks_like_html(head: bytes) -> bool:
 def assert_downloaded_a_real_file(req, downloaded_size: int, content_type: str = "") -> None:
     """완료 처리 직전에 실제 파일을 받았는지 확인한다. 아니면 예외를 던져
     실패 경로로 보낸다 — 실패는 실패로 남아야 재시도·미러 교체가 가능하다."""
+    assert_resolved_file_url(getattr(req, "url", ""))
     mime = (content_type or "").lower()
     if "text/html" in mime or "application/xhtml+xml" in mime:
         raise Exception("호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함")
@@ -363,6 +364,12 @@ def assert_downloaded_a_real_file(req, downloaded_size: int, content_type: str =
         raise Exception(
             f"전송이 중간에 끊겼습니다 ({downloaded_size}/{total} bytes)"
         )
+
+
+def assert_resolved_file_url(url: str) -> None:
+    """A container must never reach file I/O, even with saved metadata."""
+    if is_container_url(url):
+        raise HosterParseError("링크 컨테이너에서 실제 파일 주소를 추출하지 못했습니다. 컨테이너 HTML은 파일로 저장하지 않습니다.")
 
 
 def _clear_failure_metadata(req) -> None:
@@ -1365,6 +1372,7 @@ class DownloadCore:
             # info is present.
             skip_parsing = (
                 has_file_info and not is_1fichier and not is_special_hoster and not is_mega
+                and not is_container_url(req.url)
             )
 
             if skip_parsing:
@@ -1642,7 +1650,7 @@ class DownloadCore:
             print(f"[ERROR] 다운로드 태스크 오류: {e}")
             req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
             if req:
-                failure_stage = "파싱" if isinstance(e, (PreparseDeadLinkError, PreparseBlockedError)) else "다운로드"
+                failure_stage = "파싱" if isinstance(e, (PreparseDeadLinkError, PreparseBlockedError, HosterParseError)) else "다운로드"
                 verdict = apply_failure_to_request(
                     req, failure_stage, str(e)
                 )
@@ -2487,6 +2495,7 @@ class DownloadCore:
         download_url/session and retry. (1fichier download links often expire
         soon after issuance or 404 due to session loss.)
         """
+        assert_resolved_file_url(download_url)
         try:
             print(f"[LOG] 직접 다운로드 시작: {download_url}")
 
@@ -2756,6 +2765,7 @@ class DownloadCore:
 
     async def _download_local_async(self, req: DownloadRequest, db: Session):
         """Pure local download async implementation (excluding 1fichier)"""
+        assert_resolved_file_url(req.url)
         print(f"[DEBUG] _download_local_async 시작: {req.id}")
         await self.send_download_log(req.id, "로컬 다운로드 시작")
 
@@ -2791,6 +2801,7 @@ class DownloadCore:
         referer: Optional[str] = None,
     ):
         """Perform the actual file download (including the parsing session context)."""
+        assert_resolved_file_url(download_url or req.url)
         try:
             print(f"[DEBUG] 파일 다운로드 시작: {req.id}")
 
