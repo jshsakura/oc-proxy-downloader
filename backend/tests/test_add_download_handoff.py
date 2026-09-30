@@ -100,6 +100,18 @@ async def test_the_row_is_committed_before_the_response(db, started):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["filename", "file_name"])
+async def test_collected_name_survives_enqueue_before_any_host_request(db, started, field):
+    result = await downloads_route.add_download({
+        "url": PLAIN_URL, field: "Game — BASE Part 3 | Viking",
+    }, db)
+    stored = db.get(DownloadRequest, result["id"])
+    assert stored.file_name == "Game — BASE Part 3 | Viking"
+    assert started == []
+    await drain_background_starts()
+
+
+@pytest.mark.asyncio
 async def test_ouo_shortlinks_are_not_resolved_inside_the_request(db, started, monkeypatch):
     """Resolving a shortlink drives a browser and can take minutes. The request
     stores it as-is; the background start is what unwraps it."""
@@ -120,16 +132,15 @@ async def test_ouo_shortlinks_are_not_resolved_inside_the_request(db, started, m
 
     await drain_background_starts()
 
-    assert unwrap_calls == [OUO_URL]
+    assert unwrap_calls == [], "OUO must resolve under DownloadCore host admission"
     db.expire_all()
-    assert stored.url == "https://pixeldrain.com/u/unwrapped"
+    assert stored.url == OUO_URL
     assert started == [result["id"]]
 
 
 @pytest.mark.asyncio
-async def test_a_failed_unwrap_leaves_a_retryable_row(db, started, monkeypatch):
-    """A shortlink that cannot be resolved is a transient failure on a real row,
-    not a 502 that loses the URL the caller sent."""
+async def test_ouo_handoff_does_not_run_legacy_retry_backends(db, started, monkeypatch):
+    """The API preserves the row; admitted DownloadCore owns the only resolve."""
     monkeypatch.setattr(downloads_route, "unwrap_if_ouo", lambda url: None)
 
     result = await downloads_route.add_download({"url": OUO_URL}, db)
@@ -137,21 +148,22 @@ async def test_a_failed_unwrap_leaves_a_retryable_row(db, started, monkeypatch):
 
     db.expire_all()
     stored = db.query(DownloadRequest).filter(DownloadRequest.id == result["id"]).first()
-    assert stored.status == StatusEnum.failed
-    assert stored.failure_kind == downloads_route.KIND_TRANSIENT
-    assert started == []
+    assert stored.url == OUO_URL and stored.original_url == OUO_URL
+    assert stored.status == StatusEnum.pending
+    assert started == [stored.id]
 
 
 @pytest.mark.asyncio
-async def test_a_re_added_shortlink_matches_the_completed_download(db, started, monkeypatch):
+async def test_a_re_added_shortlink_matches_the_completed_download(db, started, monkeypatch, tmp_path):
     """Dedup keys on the URL that was sent. For an ouo link the stored url is
     the resolved one, so the match has to come off original_url."""
-    monkeypatch.setattr(downloads_route.os.path, "exists", lambda path: True)
+    completed = tmp_path / "already-there.nsp"
+    completed.write_bytes(b"PFS0" + b"\x00" * 100)
     done = DownloadRequest(
         url="https://pixeldrain.com/u/unwrapped",
         original_url=OUO_URL,
         status=StatusEnum.done,
-        save_path="/downloads/already-there.nsp",
+        save_path=str(completed),
         file_name="already-there.nsp",
     )
     db.add(done)

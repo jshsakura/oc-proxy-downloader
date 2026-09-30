@@ -416,11 +416,11 @@ describe("download grid alignment", () => {
     expect(rulesFor(GRID, ".ag-cell-center").join(" ")).toMatch(/text-align:\s*center/);
   });
 
-  it("renders a dead-source skull as a status icon, not a fake button", () => {
-    expect(GRID).toContain("skullSvg");
-    expect(GRID).toContain("makeIndicator(skullSvg");
-    expect(GRID).toContain('setAttribute("role", "img")');
-    expect(GRID).not.toContain('makeBtn(\n                skullSvg');
+  it("keeps manual retry available after an unconfirmed missing-source observation", () => {
+    expect(GRID).not.toContain('if (d.failure_kind === "dead")');
+    expect(GRID).not.toContain('if (d.failure_kind === "unknown_terminal")');
+    expect(GRID).toContain('$t("action_retry")');
+    expect(GRID).toContain('dispatch("retry", { id: d.id })');
   });
 
   it("keeps enough footer height for the pagination controls", () => {

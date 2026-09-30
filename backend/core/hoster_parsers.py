@@ -9,6 +9,7 @@ primitives live in ``core.hoster_common``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Dict, Optional
 
 import cloudscraper  # noqa: F401 -- re-exported so tests can patch hp.cloudscraper
@@ -34,6 +35,9 @@ from core.hoster_common import (
 # to them by name (late binding); the __all__ in hoster_sites limits the star.
 from core.hoster_sites import *  # noqa: F403
 from core.hoster_sites import BUNKR_HOSTS, _extract_megaup_file_info
+from core import hoster_legacy_sites as legacy
+from core.generic_links import parse_google_drive_sync
+from core.host_policy import http_failure_message
 # info_extract targets are also resolved via globals() by HOSTER_REGISTRY:
 from core.browser_solver import (
     BROWSER_REQUIRED_HOSTS,
@@ -57,12 +61,22 @@ def _multiup_info_from_page(url: str, html_text: str) -> Dict[str, str]:
 def is_special_hoster_url(url: str) -> bool:
     # SPECIAL_HOSTS is derived from HOSTER_REGISTRY near the bottom of this module;
     # resolved at call time, so the forward reference is fine.
-    return _host(url) in SPECIAL_HOSTS
+    return _spec_for_url(url) is not None
 
 
 def should_preserve_original_url(url: str) -> bool:
     """Whether retry/debug flows should keep the original page URL."""
     return is_special_hoster_url(url)
+
+
+def requires_direct_hoster_session(url: str) -> bool:
+    """Special host tokens must use the same route as their file transport.
+
+    The special-host streaming method uses direct egress. Proxying only the
+    parser can issue an IP-bound address which the subsequent GET cannot use.
+    """
+    spec = _spec_for_url(url)
+    return spec is not None
 
 
 # ---------------------------------------------------------------------------
@@ -97,13 +111,13 @@ class HosterSpec:
 
 
 HOSTER_REGISTRY = (
+    HosterSpec("Google Drive", ("drive.google.com", "drive.usercontent.google.com"), "parse_google_drive_sync"),
     HosterSpec("MultiUp", ("multiup.io",), "parse_multiup_sync", "_multiup_info_from_page"),
     HosterSpec("MixDrop", ("mixdrop.ag", "mixdrop.top", "mxdrop.top"), "parse_mixdrop_sync"),
     HosterSpec("MegaUp", ("megaup.net",), "parse_megaup_sync", "_megaup_info_from_page"),
     HosterSpec("DataNodes", ("datanodes.to",), "parse_datanodes_sync", "_extract_datanodes_file_info"),
-    HosterSpec("Rapidgator", ("rapidgator.net",), "parse_rapidgator_constraints_sync"),
     HosterSpec("GoFile", ("gofile.io",), "parse_gofile_sync"),
-    HosterSpec("Send.now", ("send.now",), "parse_blocked_hoster_sync"),
+    HosterSpec("Send.now", ("send.now",), "legacy.parse_sendnow_sync"),
     HosterSpec("MediaFire", ("mediafire.com",), "parse_mediafire_sync", "_extract_mediafire_file_info"),
     HosterSpec("Pixeldrain", ("pixeldrain.com",), "parse_pixeldrain_sync"),
     HosterSpec("Bunkr", BUNKR_HOSTS, "parse_bunkr_sync"),
@@ -111,6 +125,8 @@ HOSTER_REGISTRY = (
     HosterSpec("AkiraBox", ("akirabox.com", "akirabox.to"), "parse_akirabox_sync", "_extract_akirabox_info"),
     HosterSpec("Rootz", ("rootz.so",), "parse_rootz_sync"),
     HosterSpec("DataVaults", ("datavaults.co",), "parse_datavaults_sync", "_extract_datavaults_info"),
+    *(HosterSpec(site.name, site.domains[:2] if key == "tusfiles" else site.domains[:1] if key == "clickndownload" else tuple(h for h in site.domains if h != "clickndownload.org") if key == "clicknupload" else site.domains,
+                f"legacy.parse_{key}_sync") for key, site in legacy.SITES.items() if key != "sendnow"),
 )
 
 
@@ -133,11 +149,19 @@ _INFO_ONLY_HOSTS = frozenset(
 )
 
 
+def _spec_for_url(url):
+    host = _host(url)
+    spec = _HOST_TO_SPEC.get(host)
+    if spec is None and re.fullmatch(r"www\d+\.zippyshare\.com", host):
+        spec = _HOST_TO_SPEC.get("zippyshare.com")
+    return spec
+
+
 def parse_special_hoster_sync(
     url: str, password: Optional[str] = None, proxies: Optional[Dict[str, str]] = None
 ) -> Dict[str, object]:
     """Resolve a special host page into the download-core parse_result shape."""
-    spec = _HOST_TO_SPEC.get(_host(url))
+    spec = _spec_for_url(url)
     if spec is None:
         raise HosterParseError("지원하지 않는 호스팅 사이트")
     # Hosts that always end at a captcha are refused up front on builds without a
@@ -145,7 +169,8 @@ def parse_special_hoster_sync(
     # and a form POST that could never lead anywhere.
     if _host(url).removeprefix("www.") in BROWSER_REQUIRED_HOSTS and not is_browser_supported():
         raise HosterParseError(BROWSER_UNSUPPORTED_MESSAGE)
-    return globals()[spec.parse](url, proxies=proxies)
+    resolver = getattr(legacy, spec.parse.split(".", 1)[1]) if spec.parse.startswith("legacy.") else globals()[spec.parse]
+    return resolver(url, proxies=proxies)
 
 
 def fetch_special_hoster_file_info_sync(
@@ -153,23 +178,28 @@ def fetch_special_hoster_file_info_sync(
 ) -> Dict[str, str]:
     """Fetch only the filename/size of a special-host page (no link resolution).
 
-    A lightweight, idempotent GET used to fill in a queued item's name/size
-    while it waits for a download slot. Returns ``{}`` (never raises) when the
-    host is unsupported for info-only reads or anything goes wrong — the full
-    parser still runs at download time and is the source of truth.
+    A lightweight GET after host admission. Returns ``{}`` for unsupported
+    info reads or extraction failures. An explicit HTTP 429 propagates so the
+    caller pauses the host queue instead of immediately making a full parse.
     """
-    spec = _HOST_TO_SPEC.get(_host(url))
+    spec = _spec_for_url(url)
     if spec is None or spec.info_extract is None:
         return {}
     try:
         scraper = _scraper(proxies)
         response = scraper.get(url, timeout=30)
+        if response.status_code == 429:
+            raise HosterParseError(http_failure_message(
+                response.status_code, response.reason, response.headers
+            ))
         text = _response_text(response)
         if _cloudflare_challenge_seen(response, text):
             fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
             if fs_page:
                 text, _, url = fs_page
         return globals()[spec.info_extract](url, text)
+    except HosterParseError:
+        raise
     except Exception as exc:
         print(f"[WARNING] 특수 호스터 정보 사전조회 실패({_host(url)}): {exc}")
         return {}

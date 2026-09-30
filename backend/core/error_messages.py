@@ -84,6 +84,7 @@ def _multiup_mirror_reasons(raw: str, language: str) -> str:
 
 # kind constants
 KIND_DEAD = "dead"
+KIND_SOURCE_UNCONFIRMED = "source_unconfirmed"
 KIND_AUTH_REQUIRED = "auth_required"
 KIND_RATE_LIMITED = "rate_limited"
 KIND_DAILY_QUOTA = "daily_quota"
@@ -100,17 +101,16 @@ KIND_UNKNOWN = "unknown"
 
 # Retry policy — referenced by `_compute_next_retry_at`.
 # (Simple constants for dict comparison: KIND → backoff seconds)
-# 2m→8m→30m→1h, capped. The first step used to be 30s: a host that had just
-# refused us was asked again almost immediately, which is the behaviour that
-# gets an IP blocked rather than the failure that caused it.
-_TRANSIENT_BACKOFF = (120, 480, 1800, 3600, 3600, 3600)
+# A transport failure gets one delayed automatic attempt. Host refusals get
+# none; their queue cooldown is tracked separately from retry scheduling.
+_TRANSIENT_BACKOFF = (1800,)
 
 # Every wait is spread by up to this fraction of itself. Without it a batch of
 # downloads that failed together — a host hiccup, a bulk restart — wakes at the
 # same instant and arrives as one synchronised burst, which reads exactly like
 # an attack from the host's side.
 _JITTER_RATIO = 0.25
-_UNKNOWN_MAX_ATTEMPTS = 3  # beyond this many accumulated attempts, quarantine as 'unknown_terminal'
+_UNKNOWN_MAX_ATTEMPTS = 1  # unknown responses are quarantined on first observation
 _TRANSIENT_MAX_ATTEMPTS = len(_TRANSIENT_BACKOFF)
 _ATTEMPTS_RING_SIZE = 5  # attempts_json ring-buffer length
 
@@ -123,12 +123,13 @@ _ATTEMPTS_RING_SIZE = 5  # attempts_json ring-buffer length
 # `_UNKNOWN_MAX_ATTEMPTS` (quarantine → unknown_terminal).
 # A known refusal is never probed automatically again. Retrying a block page,
 # proxy rejection, or Cloudflare challenge from the same machine is more likely
-# to extend the block than clear it. Genuine transport failures get two retries;
-# an explicit rate-limit gets one deliberately delayed retry.
+# to extend the block than clear it. Genuine transport failures get one retry
+# after at least thirty minutes; an explicit rate-limit gets no auto retry.
 _MAX_AUTO_RETRY_ATTEMPTS = {
-    KIND_TRANSIENT: 3,
-    KIND_RATE_LIMITED: 2,
-    KIND_DAILY_QUOTA: 3,  # initial failure + at most two daily retries
+    KIND_SOURCE_UNCONFIRMED: 1,
+    KIND_TRANSIENT: 2,  # initial request + one retry after at least 30 minutes
+    KIND_RATE_LIMITED: 1,  # wait for manual retry; host cooldown is persisted separately
+    KIND_DAILY_QUOTA: 2,  # at most one retry after the next daily reset
     KIND_SLOT_BUSY: 1,  # another automatic request cannot create a free slot
     KIND_BROWSER_PARSE: 1,  # repeated captcha solves can trigger a host block
     KIND_CLOUDFLARE: 1,
@@ -183,8 +184,8 @@ class ClassifiedError:
             )
         if self.raw.lower().startswith("rootz: 파일이 비활성 상태입니다 (deleted)") and language == "en":
             return (
-                "[Parsing failed] Rootz reports that this file was deleted.\n"
-                "Action: Use another mirror; retrying this link cannot restore the file."
+                "[Parsing failed] Rootz returned an unavailable-file signal; deletion is unconfirmed.\n"
+                "Action: The link remains selectable. Automatic retry is disabled."
             )
         if self.raw.lower().startswith("rootz:") and language == "en":
             return (
@@ -194,8 +195,9 @@ class ClassifiedError:
             )
         if "akirabox storage unavailable" in self.raw.lower() and language == "en":
             return (
-                "[Download failed] AkiraBox's file server says this file is currently unavailable.\n"
-                "Action: Try another mirror or retry manually after the host restores the file."
+                "[Download failed] AkiraBox issued a link, but its file server refused the download (403). "
+                "File deletion and the reason for refusal are unconfirmed.\n"
+                "Action: Automatic retry is disabled. Use a mirror of the same file; the original link is preserved."
             )
         if self.kind == KIND_SLOT_BUSY and language in {"ko", "en"}:
             if language == "en":
@@ -271,7 +273,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("호스터 페이지 http 404 (삭제 여부 미확인)",
      "호스터 페이지가 404를 반환했지만 파일 삭제는 확인되지 않았습니다",
      "자동 재시도하지 않습니다. 브라우저에서 링크를 확인한 뒤 수동으로 다시 시도하세요.",
-     KIND_BROWSER_PARSE, False),
+     KIND_SOURCE_UNCONFIRMED, False),
     ("gofile 폴더에 다운로드할 파일이 없음",
      "GoFile 폴더에 다운로드할 파일이 없습니다",
      "폴더 내용을 확인하세요. 자동 재시도하지 않습니다.", KIND_DEAD, True),
@@ -360,9 +362,9 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "다른 미러를 사용하세요. 자동 재시도하지 않습니다.",
      KIND_DEAD, True),
     ("파일명(확장자)을 확인할 수 없",
-     "서버가 파일명을 제공하지 않아 다운로드를 중단했습니다",
-     "이 링크는 파일명/확장자를 알 수 없습니다. 다른 미러를 사용하세요.",
-     KIND_DEAD, True),
+     "다운로드 응답에서 파일명을 확인하지 못했습니다",
+     "파서와 응답 정보를 확인해야 합니다. 원본을 보존하며 자동 반복하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
 
     # --- this network breaks only TLS to this host (SNI filter) ---
     # :443 TLS handshake is cut (WRONG_VERSION_NUMBER) while :80 answers the
@@ -400,6 +402,38 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      KIND_PROXY_BLOCKED, True),
 
     # --- auth_required: guest slots / registered-user only ---
+    ("zippyshare 서비스가 종료",
+     "Zippyshare 서비스가 종료되었습니다",
+     "무료 다운로드를 제공하지 않는 서비스입니다. 다른 미러를 사용하세요. 원본 링크는 보존합니다.",
+     KIND_BLOCKED, False),
+    ("letsupload 현재 도메인이",
+     "LetsUpload 도메인이 현재 파일 서비스를 제공하지 않습니다",
+     "도메인 판매 페이지로 이동하므로 다운로드할 수 없습니다. 다른 미러를 사용하세요. 원본은 보존합니다.",
+     KIND_BLOCKED, False),
+    ("gofile 웹 세션과 파일 전송은",
+     "GoFile 파싱과 전송의 연결 경로가 일치하지 않습니다",
+     "같은 직접 연결로 처리해야 합니다. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
+    ("gofile 웹 페이지가",
+     "GoFile 웹 페이지의 다운로드 처리가 완료되지 않았습니다",
+     "수신한 페이지를 확인해 파서를 수정해야 합니다. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
+    ("google drive 다운로드 한도 초과",
+     "Google Drive 다운로드 한도에 걸렸습니다",
+     "해당 호스트 요청을 멈췄습니다. 다른 미러를 사용하세요. 자동 재시도하지 않습니다.",
+     KIND_RATE_LIMITED, False),
+    ("google drive 파일 접근 권한 또는 로그인",
+     "Google Drive 파일에 접근 권한이 필요합니다",
+     "공개 파일 링크 또는 다른 미러를 사용하세요. 자동 재시도하지 않습니다.",
+     KIND_AUTH_REQUIRED, False),
+    ("gofile 웹 경로에서 프리미엄 권한",
+     "GoFile 웹 다운로드가 프리미엄 권한을 요구했습니다",
+     "무료 경로로 진행할 수 없습니다. 다른 미러를 사용하세요. 자동 재시도하지 않습니다.",
+     KIND_AUTH_REQUIRED, False),
+    ("gofile 웹 경로에서 파일 접근 권한",
+     "GoFile 파일 접근 권한이 필요합니다",
+     "공개 접근이 허용된 다른 미러를 사용하세요. 자동 재시도하지 않습니다.",
+     KIND_AUTH_REQUIRED, False),
     ("rapidgator 무료 모드는 500 mb 초과",
      "Rapidgator 무료 모드 제한으로 이 파일을 받을 수 없습니다",
      "Rapidgator 프리미엄 계정/쿠키 지원이 추가되기 전에는 다른 미러를 사용하세요.",
@@ -465,8 +499,8 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
     ("limit", "1fichier 무료 다운로드 한도에 걸렸습니다",
      "프록시 모드를 켜거나 한도가 풀릴 때까지 기다리세요.",
      KIND_RATE_LIMITED, False),
-    ("http 429", "요청 한도 초과 (1fichier 무료 다운로드 제한)",
-     "최소 5~10 분 기다린 뒤 다시 시도하거나 프록시 모드를 켜세요.",
+    ("http 429", "호스트의 요청 한도를 초과했습니다",
+     "호스트가 안내한 대기시간이 지난 뒤 다시 시도하세요.",
      KIND_RATE_LIMITED, True),
     ("you must wait", "1fichier 가 명시적으로 대기를 요구했습니다",
      "잠시 후 다시 시도하세요.",
@@ -522,10 +556,19 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      KIND_CLOUDFLARE, False),
 
     # --- blocked: other blocks ---
+    ("akirabox 버튼의 발급 주소 형식",
+     "AkiraBox 다운로드 버튼의 주소 형식을 확인하지 못했습니다",
+     "자동 재시도하지 않습니다. 원본 링크는 보존합니다.", KIND_BROWSER_PARSE, False),
+    ("akirabox 다운로드가 확인되지 않은 저장 서버",
+     "AkiraBox가 보낸 저장 서버 주소를 확인하지 못했습니다",
+     "자동 재시도하지 않습니다. 원본 링크는 보존합니다.", KIND_BROWSER_PARSE, False),
+    ("akirabox 발급 주소 http",
+     "AkiraBox 발급 주소에서 정상적인 저장 서버 이동을 받지 못했습니다",
+     "자동 재시도하지 않습니다. 파일 삭제나 영구 차단을 확정하지 않습니다.", KIND_BLOCKED, False),
     ("akirabox storage unavailable",
-     "AkiraBox 파일 서버가 이 파일을 현재 제공하지 않습니다",
-     "다른 미러를 사용하거나 파일 서버가 복구된 뒤 수동으로 다시 받으세요. 자동 재시도하지 않습니다.",
-     KIND_BLOCKED, True),
+     "AkiraBox가 주소를 발급했지만 파일 서버가 다운로드를 거부했습니다 (403). 삭제 여부와 거부 원인은 미확인입니다",
+     "자동 재시도하지 않습니다. 정확히 같은 파일의 다른 미러를 사용하세요. 원본 링크는 보존합니다.",
+     KIND_BLOCKED, False),
     ("rootz: forbidden",
      "Rootz가 파일 정보 요청을 거부했습니다",
      "같은 링크를 자동으로 다시 조회하지 않습니다. 브라우저에서 링크 상태를 확인하거나 다른 미러를 사용하세요.",
@@ -709,14 +752,53 @@ def classify_error(stage: str, raw_message: str) -> ClassifiedError:
     """Classify a raw error message into a user-friendly form."""
     text = (raw_message or "").lower()
     retry_after = _extract_retry_after(raw_message or "")
+    if "삭제 여부 미확인" in text:
+        return ClassifiedError(stage=stage, summary="파일 접근 불가 응답을 받았습니다 (삭제 여부 미확인)",
+                               action="원본 링크를 보존합니다. 확인 후 수동으로 다시 시도하세요.",
+                               raw=raw_message, kind=KIND_SOURCE_UNCONFIRMED, definitive=False)
+    if ("다운로드에 사람 확인" in text or "컨테이너의 사람 확인" in text
+            or "terabox 공유 파일 다운로드에 로그인" in text):
+        return ClassifiedError(stage=stage, summary="다운로드에 사람 확인 또는 로그인이 필요합니다",
+                               action="사이트에서 확인 후 다시 시도하세요. 자동 반복하지 않습니다.",
+                               raw=raw_message, kind=KIND_AUTH_REQUIRED, definitive=True)
+    if text.startswith("전용 파서:") or text.startswith("datavaults 파일 다운로드 주소") or text.startswith("datavaults 다운로드 폼") or "링크 컨테이너" in text:
+        return ClassifiedError(stage=stage, summary="중간 페이지에서 파일 주소를 확인하지 못했습니다",
+                               action="링크와 페이지 구조를 확인하세요. 자동 반복하지 않습니다.",
+                               raw=raw_message, kind=KIND_BROWSER_PARSE, definitive=True)
+    from core.host_policy import is_single_download_refusal
+    if is_single_download_refusal(raw_message):
+        return ClassifiedError(
+            stage=stage, summary="이 호스트는 한 번에 파일 하나만 다운로드할 수 있습니다",
+            action="진행 중인 다운로드가 끝나고 대기시간이 지난 뒤 다시 시도하세요.",
+            raw=raw_message, kind=KIND_RATE_LIMITED, definitive=True,
+            retry_after_seconds=retry_after,
+        )
     for keyword, summary, action, kind, definitive in _RULES:
         if keyword in text:
+            # A page marker or one API state is an observation, not authority
+            # to remove a user's link or prohibit their manual selection.
+            if kind == KIND_DEAD:
+                return ClassifiedError(
+                    stage=stage, summary=("Rootz " if "rootz" in text else "") + "파일 접근 불가 신호를 받았습니다 (삭제 여부 미확인)",
+                    action="링크를 제외하지 않습니다. 원인을 확인한 뒤 수동으로 선택하거나 다른 다운로드 링크를 사용하세요. 자동 반복하지 않습니다.",
+                    raw=raw_message, kind=KIND_SOURCE_UNCONFIRMED, definitive=False,
+                )
             return ClassifiedError(
                 stage=stage, summary=summary, action=action,
                 raw=raw_message, kind=kind, definitive=definitive,
                 retry_after_seconds=retry_after,
             )
 
+    if "google drive 다운로드 한도 초과" in text:
+        return ClassifiedError(stage=stage, summary="Google Drive 다운로드 한도를 초과했습니다",
+                               action="호스트 대기시간을 존중합니다. 원본을 보존하며 즉시 반복하지 않습니다.",
+                               raw=raw_message, kind=KIND_RATE_LIMITED, definitive=False)
+    if (text.startswith("google drive ") or "호스터 페이지 http" in text or "자동 반복 없음" in text
+            or "자동 재제출 없음" in text or "자동 반복하지 않습니다" in text
+            or "원본 보존" in text):
+        return ClassifiedError(stage=stage, summary="호스터 페이지 요청을 완료하지 못했습니다",
+                               action="응답을 확인하세요. 자동 반복하지 않습니다.",
+                               raw=raw_message, kind=KIND_BROWSER_PARSE, definitive=False)
     return ClassifiedError(
         stage=stage,
         summary="원인을 자동으로 분류하지 못했습니다",
@@ -1041,8 +1123,10 @@ def is_retry_blocked_now(req, has_credentials: bool) -> Optional[str]:
             return "auth_required"
         return None
 
+    # Historical dead/unknown pins can be mistaken deletion diagnoses. Keep
+    # automatic retries off, but permit an explicit user-selected request.
     if kind == KIND_DEAD or kind == "unknown_terminal":
-        return "dead"
+        return None
     if kind == KIND_AUTH_REQUIRED and not auth_available:
         return "auth_required"
     if next_retry and next_retry > datetime.now():

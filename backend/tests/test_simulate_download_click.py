@@ -571,7 +571,7 @@ def test_preparse_404_raises_dead_link(monkeypatch):
 
 
 def test_preparse_dead_link_message_matches_dead_rule(monkeypatch):
-    # The raised text must hit the existing KIND_DEAD rule ("1fichier 차단:
+    # The raised text must hit the existing KIND_SOURCE_UNCONFIRMED rule ("1fichier 차단:
     # 파일 없음") so the outer failure handler pins it terminal without retry.
     response = MagicMock()
     response.status_code = 404
@@ -581,12 +581,12 @@ def test_preparse_dead_link_message_matches_dead_rule(monkeypatch):
     scraper.get.return_value = response
     monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
 
-    from core.error_messages import classify_failure_text, KIND_DEAD
+    from core.error_messages import classify_failure_text, KIND_SOURCE_UNCONFIRMED
     try:
         sp.preparse_1fichier_standalone("https://1fichier.com/?abc")
         pytest.fail("PreparseDeadLinkError not raised")
     except sp.PreparseDeadLinkError as e:
-        assert classify_failure_text(str(e)) == KIND_DEAD
+        assert classify_failure_text(str(e)) == KIND_SOURCE_UNCONFIRMED
 
 
 def test_preparse_returns_none_when_status_not_200(monkeypatch):

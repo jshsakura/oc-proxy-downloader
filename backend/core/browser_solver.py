@@ -14,10 +14,14 @@ the container provides through Xvfb.
 from __future__ import annotations
 
 import os
+import json
+from pathlib import Path
 import re
 import string
 import threading
 import time
+
+import requests
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
@@ -26,6 +30,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from patchright.sync_api import Page, sync_playwright
 
 from core.hoster_common import HosterParseError, _format_size_bytes
+from core.config import CONFIG_DIR
 
 
 __all__ = [
@@ -132,7 +137,8 @@ BROWSER_UNSUPPORTED_MESSAGE = (
 
 def _host_lock(host: str) -> threading.Lock:
     """The queue for one site, created on first use."""
-    host = {"vik1ngfile.site": "vikingfile.com", "akirabox.to": "akirabox.com"}.get(host.removeprefix("www."), host.removeprefix("www."))
+    from core.host_policy import canonical_host
+    host = canonical_host(host)
     with _HOST_LOCKS_GUARD:
         lock = _HOST_LOCKS.get(host)
         if lock is None:
@@ -162,6 +168,7 @@ class BrowserFlow:
     direct_link_selector: Optional[str] = None
     widget_selector: str = TURNSTILE_CONTAINER
     token_required: bool = True
+    follow_issued_redirect: bool = False
 
 
 @dataclass(frozen=True)
@@ -188,8 +195,8 @@ SEND_NOW_FLOW = BrowserFlow(
     # opens the real file page.  Keep the ordinary selectors too because the
     # next page still uses a Download button/link.
     action_selector=(
-        'input[type="submit"][name="download_a"], '
-        'button:has-text("Download"), a:has-text("Download")'
+        'input[type="submit"][name="download_a"]:visible, '
+        'button#downloadbtn:visible'
     ),
 )
 MIXDROP_FLOW = BrowserFlow(
@@ -203,7 +210,13 @@ VIKING_FLOW = BrowserFlow(
     widget_selector="#captcha",
     token_required=False,
 )
-AKIRABOX_FLOW = BrowserFlow(direct_link_selector='a#download[href^="http"]')
+AKIRABOX_FLOW = BrowserFlow(
+    direct_link_selector='a#download[href^="http"], a#download-button[href^="http"]',
+    # Current Akira renders Turnstile programmatically inside its download
+    # card. There is no .cf-turnstile class on the actual widget container.
+    widget_selector='#download-button div:has(> input[name="cf-turnstile-response"]), .cf-turnstile',
+    follow_issued_redirect=True,
+)
 DEFAULT_FLOW = BrowserFlow()
 
 _FLOWS = {
@@ -221,13 +234,13 @@ _FLOWS = {
 # Hosts that have a browser flow at all. Used to route their parses onto the
 # dedicated pool in core.executors, so a minutes-long solve never occupies a
 # shared worker.
-BROWSER_FLOW_HOSTS = frozenset({*_FLOWS, "rootz.so"})
+BROWSER_FLOW_HOSTS = frozenset({*_FLOWS, "ouo.io", "ouo.press", "gofile.io", "rapidgator.net", "teraboxapp.com", "terabox.app", "1024terabox.com", "rootz.so", "filecrypt.cc", "filecrypt.co", "filecrypt.to", "linkcuy.com", "momerybox.com"})
 
 # The subset where the browser is unavoidable: every free download ends at a
 # captcha, so a build without one can refuse the link immediately. Send.now is
 # deliberately absent — it only shows a captcha sometimes, and FlareSolverr still
 # resolves the rest, so gating it up front would break links that do work.
-BROWSER_REQUIRED_HOSTS = frozenset({"datanodes.to", *MIXDROP_DOMAINS, "vikingfile.com", "vik1ngfile.site", "akirabox.com", "akirabox.to", "rootz.so"})
+BROWSER_REQUIRED_HOSTS = frozenset({"gofile.io", "datanodes.to", *MIXDROP_DOMAINS, "vikingfile.com", "vik1ngfile.site", "akirabox.com", "akirabox.to", "rootz.so"})
 
 
 def flow_for_host(host: str) -> BrowserFlow:
@@ -320,6 +333,21 @@ def _guard_hoster_navigation(route, page: Page, source_url: str,
     target_host = (urlparse(request.url).hostname or "").lower()
     source_host = (urlparse(source_url).hostname or "").lower()
     current_host = (urlparse(page.url).hostname or "").lower()
+    if (getattr(request, 'method', 'GET') == 'POST'
+            and captured is not None and _same_site(target_host, source_host)):
+        fields = parse_qs(getattr(request, 'post_data', '') or '', keep_blank_values=True)
+        if fields.get('op', [''])[0] in {'download1', 'download2'}:
+            # Captcha confirmation and file issuance may both use download2,
+            # but have different controls. A changed nonce alone does not
+            # authorize replaying the same submitted stage.
+            controls = tuple(sorted(k for k in fields if k not in {'rand', 'g-recaptcha-response', 'cf-turnstile-response'}))
+            fingerprint = (request.url, fields['op'][0], tuple(fields.get('id', [])), controls)
+            submitted = captured.setdefault('_submitted_stages', set())
+            if fingerprint in submitted:
+                captured['error'] = '동일 다운로드 단계 재제출을 중단했습니다'
+                route.fulfill(status=204, body='')
+                return
+            submitted.add(fingerprint)
     if (main_navigation and source_host in MIXDROP_DOMAINS
             and target_host.endswith(".mxcontent.net")
             and urlparse(request.url).path.startswith("/d/")):
@@ -332,6 +360,8 @@ def _guard_hoster_navigation(route, page: Page, source_url: str,
     allowed_host = (
         _same_site(target_host, source_host)
         or _same_site(target_host, current_host)
+        or (source_host in {'akirabox.com', 'www.akirabox.com', 'akirabox.to', 'www.akirabox.to'}
+            and target_host in {'akirabox.com', 'www.akirabox.com', 'akirabox.to', 'www.akirabox.to'})
         or (target_host in MIXDROP_DOMAINS and source_host in MIXDROP_DOMAINS)
     )
     if main_navigation and target_host and not allowed_host:
@@ -590,6 +620,8 @@ def _drive_to_download(
         deadline.check("다운로드 시작 버튼")
         if captured.get("url"):
             return captured["url"]
+        if captured.get("error"):
+            raise HosterParseError(f"다운로드 요청 거부 (자동 재제출 없음): {captured['error']}")
         action = page.locator(flow.action_selector).first
         try:
             present = bool(action.count())
@@ -616,11 +648,52 @@ def _drive_to_download(
         page.wait_for_timeout(min(ACTION_ROUND_WAIT_MS, deadline.budget_ms(ACTION_ROUND_WAIT_MS)))
         if captured.get("url"):
             return captured["url"]
+        if captured.get("error"):
+            raise HosterParseError(f"다운로드 요청 거부 (자동 재제출 없음): {captured['error']}")
     detail = captured.get("error")
     suffix = f" (호스터 응답: {detail})" if detail else ""
     raise HosterParseError(
         f"다운로드 버튼 처리 후 링크를 받지 못했습니다{suffix}"
     )
+
+
+def _follow_akira_issued_redirect(page: Page, context, issued: str,
+                                proxies=None, deadline=None) -> str:
+    """Resolve the issued redirect once, without fetching the storage file.
+
+    Requests does not follow redirects here and reads only response headers.
+    Keeping a streaming response prevents a changed endpoint from buffering an
+    entire file during parsing. The core receives the unchanged storage URL.
+    """
+    parsed = urlparse(issued)
+    if (parsed.scheme != 'https'
+            or parsed.netloc.lower() not in {'akirabox.com', 'www.akirabox.com', 'akirabox.to', 'www.akirabox.to',
+                                            'akirabox.com:443', 'akirabox.to:443'}
+            or not parsed.path.startswith('/download/')):
+        raise HosterParseError('AkiraBox 버튼의 발급 주소 형식을 확인하지 못했습니다')
+    timeout = (20, 30)
+    if deadline is not None:
+        deadline.check('AkiraBox 저장 서버 연결')
+        half_budget = max(0.001, deadline.remaining() / 2)
+        timeout = (min(20, half_budget), min(30, half_budget))
+    with requests.Session() as session:
+        # Match the browser route explicitly, including the absence of a proxy.
+        session.trust_env = False
+        session.proxies.update(proxies or {})
+        session.cookies.update(_usable_cookies(context.cookies(), issued))
+        headers = {'User-Agent': str(page.evaluate(USER_AGENT_JS)),
+                   'Referer': page.url, 'Accept': '*/*', 'Accept-Encoding': 'identity'}
+        with session.get(issued, headers=headers, stream=True, allow_redirects=False,
+                         timeout=timeout) as response:
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                raise HosterParseError(f'AkiraBox 발급 주소 HTTP {response.status_code}; 저장 서버 이동 미확인, 자동 반복 없음')
+            candidate = response.headers.get('Location', '')
+            target = urlparse(candidate)
+            if (target.scheme != 'https' or not (target.hostname or '').endswith('.akirabox.xyz')
+                    or target.username or target.password
+                    or target.netloc.lower() != target.hostname.lower()):
+                raise HosterParseError('AkiraBox 다운로드가 확인되지 않은 저장 서버로 이동했습니다')
+            return candidate
 
 
 def solve_download_page(
@@ -660,6 +733,7 @@ def solve_download_page(
     with _queued_browser_slot(host, deadline):
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=False)
+            page = None
             try:
                 context = browser.new_context(
                     viewport=VIEWPORT,
@@ -675,12 +749,14 @@ def solve_download_page(
                 page.on("request", on_request)
                 page.on("response", on_response)
 
-                page.goto(
+                initial_response = page.goto(
                     url,
                     wait_until="networkidle",
                     timeout=deadline.budget_ms(PAGE_LOAD_TIMEOUT_MS),
                 )
                 _await_page_ready(page, flow, deadline)
+                from core.hoster_common import _raise_for_dead_page
+                _raise_for_dead_page(host, page.content(), initial_response.status if initial_response else 200)
 
                 def direct_link() -> Optional[str]:
                     if not flow.direct_link_selector:
@@ -690,6 +766,9 @@ def solve_download_page(
 
                 link = direct_link()
                 if link:
+                    if flow.follow_issued_redirect:
+                        link = _follow_akira_issued_redirect(page, context, link, proxies, deadline)
+                        return BrowserSolveResult(link, _usable_cookies(context.cookies(), link), str(page.evaluate(USER_AGENT_JS)), page.content(), page.url)
                     return BrowserSolveResult(link, _download_page_cookies(context.cookies(), url, page.url), str(page.evaluate(USER_AGENT_JS)), page.content(), page.url)
 
                 box = _reach_captcha(page, flow, deadline)
@@ -703,6 +782,9 @@ def solve_download_page(
                     link = _poll(page, direct_link, TOKEN_TIMEOUT_S, deadline)
                     if not link:
                         raise HosterParseError("다운로드 주소가 발급되지 않았습니다 (캡차 또는 호스트 제한)")
+                    if flow.follow_issued_redirect:
+                        link = _follow_akira_issued_redirect(page, context, link, proxies, deadline)
+                        return BrowserSolveResult(link, _usable_cookies(context.cookies(), link), str(page.evaluate(USER_AGENT_JS)), page.content(), page.url)
                     return BrowserSolveResult(link, _download_page_cookies(context.cookies(), url, page.url), str(page.evaluate(USER_AGENT_JS)), page.content(), page.url)
 
                 link = _drive_to_download(page, flow, captured, deadline)
@@ -712,13 +794,34 @@ def solve_download_page(
                     download_link=link,
                     cookies=cookies,
                     user_agent=user_agent,
+                    page_html=page.content(),
                     page_url=page.url,
                 )
+            except Exception as original:
+                exc = original if isinstance(original, HosterParseError) else HosterParseError(str(original))
+                if page is not None:
+                    try:
+                        exc.page_html = page.content()
+                    except Exception:
+                        pass
+                raise exc
             finally:
+                if page is not None:
+                    try:
+                        import hashlib
+                        key = hashlib.sha256(url.encode()).hexdigest()[:16]
+                        path = CONFIG_DIR / f'host_browser_{key}.html'
+                        path.write_text(page.content()); path.chmod(0o600)
+                        page.screenshot(path=str(CONFIG_DIR / f'host_browser_{key}.png'), timeout=3000)
+                        context.storage_state(path=str(CONFIG_DIR / f'host_browser_{key}_session-private.json'))
+                        meta = CONFIG_DIR / f'host_browser_{key}_context-private.json'
+                        meta.write_text(json.dumps({'url':page.url,'user_agent':page.evaluate(USER_AGENT_JS)})); meta.chmod(0o600)
+                    except Exception:
+                        pass
                 browser.close()
 
 
-def resolve_rootz_page(url: str, proxies: Optional[Dict[str, str]] = None) -> tuple[str, Dict[str, str], str]:
+def resolve_rootz_page(url: str, proxies: Optional[Dict[str, str]] = None) -> tuple[str, Dict[str, object], str]:
     """Reuse Rootz's page-load metadata and resolve its proxy endpoint.
 
     The page itself calls download-by-short during hydration. A second fetch
@@ -750,6 +853,25 @@ def resolve_rootz_page(url: str, proxies: Optional[Dict[str, str]] = None) -> tu
                     try:
                         metadata["status"] = response.status
                         metadata["body"] = response.json()
+                        body = metadata["body"]
+                        data = body.get("data") if isinstance(body, dict) else None
+                        # Preserve enough evidence to audit an unavailable
+                        # signal without another request; omit signed URLs and
+                        # cookies. A captured response must match this short ID.
+                        evidence = {
+                            "source_short_id": short_id, "http_status": response.status,
+                            "response_url": response.url, "api_success": body.get("success") if isinstance(body, dict) else None,
+                            "api_error": body.get("error") if isinstance(body, dict) else None,
+                            "file": {key: data.get(key) for key in ("id", "_id", "fileId", "status", "fileName", "size", "downloadAllowed") if key in data} if isinstance(data, dict) else None,
+                            "deletion_confirmed": False,
+                        }
+                        destination = Path(CONFIG_DIR) / f"rootz_{short_id}_response.json"
+                        temporary = destination.with_suffix(".tmp")
+                        try:
+                            temporary.write_text(json.dumps(evidence, ensure_ascii=False, indent=2))
+                            temporary.replace(destination)
+                        except OSError:
+                            pass  # failure to archive must not invalidate parsed metadata
                     except Exception:
                         metadata["error"] = "파일 정보 응답을 읽지 못했습니다"
 
@@ -769,24 +891,42 @@ def resolve_rootz_page(url: str, proxies: Optional[Dict[str, str]] = None) -> tu
                     status = metadata.get("status")
                     raise HosterParseError(f"Rootz: {reason or (f'HTTP {status}' if status else '파일 정보 조회 실패')}")
                 file = meta["data"]
+                file_info = {
+                    "name": str(file.get("fileName") or ""),
+                    "size": _format_size_bytes(file.get("size") or 0),
+                    "size_bytes": file.get("size"),
+                }
                 if file.get("status") != "active":
-                    raise HosterParseError(f"Rootz: 파일이 비활성 상태입니다 ({file.get('status') or 'unknown'})")
+                    raise HosterParseError(f"Rootz: 파일이 비활성 상태입니다 ({file.get('status') or 'unknown'})", file_info=file_info)
                 if file.get("passwordProtected"):
-                    raise HosterParseError("Rootz: 비밀번호가 필요한 파일입니다")
+                    raise HosterParseError("Rootz: 비밀번호가 필요한 파일입니다", file_info=file_info)
                 if not file.get("downloadAllowed") or (file.get("cooldownRemaining") or 0) > 0 or (file.get("waitSeconds") or 0) > 0:
-                    raise HosterParseError("Rootz: 무료 다운로드 대기 또는 제한 중입니다")
+                    raise HosterParseError("Rootz: 무료 다운로드 대기 또는 제한 중입니다", file_info=file_info)
+                # The site's own button uses its internal fileId, falling back
+                # to the short ID only when that field is absent.
+                download_id = str(file.get("fileId") or short_id)
                 result = page.evaluate("""async (id) => {
-                    const response = await fetch(`/api/files/proxy-download/${encodeURIComponent(id)}`, {method: 'HEAD'});
-                    const type = response.headers.get('content-type') || '';
-                    if (!response.ok || type.includes('text/html') || type.includes('application/json'))
-                        return {error: `다운로드 주소 확인 실패 (${response.status})`};
-                    return {url: response.url};
-                }""", short_id)
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 60000);
+                    try {
+                        const response = await fetch(`/api/files/proxy-download/${encodeURIComponent(id)}`, {
+                            method: 'HEAD', signal: controller.signal
+                        });
+                        const type = response.headers.get('content-type') || '';
+                        if (!response.ok || type.includes('text/html') || type.includes('application/json'))
+                            return {error: `다운로드 주소 확인 실패 (${response.status})`};
+                        return {url: response.url};
+                    } catch (error) {
+                        return {error: error.name === 'AbortError' ? '다운로드 주소 확인 시간 초과' : error.message};
+                    } finally {
+                        clearTimeout(timer);
+                    }
+                }""", download_id)
                 if result.get("error"):
-                    raise HosterParseError(f"Rootz: {result['error']}")
+                    raise HosterParseError(f"Rootz: {result['error']}", file_info=file_info)
                 direct = str(result.get("url") or "")
                 if not direct.startswith(("https://", "http://")) or _same_site(urlparse(direct).hostname or "", "rootz.so"):
-                    raise HosterParseError("Rootz: 직접 다운로드 주소를 받지 못했습니다")
-                return direct, {"name": str(file.get("fileName") or ""), "size": _format_size_bytes(file.get("size") or 0)}, str(page.evaluate(USER_AGENT_JS))
+                    raise HosterParseError("Rootz: 직접 다운로드 주소를 받지 못했습니다", file_info=file_info)
+                return direct, file_info, str(page.evaluate(USER_AGENT_JS))
             finally:
                 browser.close()

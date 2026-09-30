@@ -784,18 +784,7 @@
         // that retry. Rendering the manual retry beside it produced five
         // controls and offered two contradictory actions at the same time.
         if (st === "failed" && !retryIsScheduled) {
-          if (d.failure_kind === "dead") {
-            // A deleted/reported/missing source has no valid retry action. Keep
-            // the skull as a non-button status marker so it cannot be focused
-            // or mistaken for an action.
-            this.eGui.appendChild(
-              this.makeIndicator(skullSvg, $t("retry_blocked_dead"), "is-terminal")
-            );
-          } else if (d.failure_kind === "unknown_terminal") {
-            this.eGui.appendChild(
-              this.makeIndicator(retrySvg, $t("retry_blocked_dead"), "is-terminal")
-            );
-          } else if (d.failure_kind === "auth_required") {
+          if (d.failure_kind === "auth_required") {
             this.eGui.appendChild(
               this.makeBtn(
                 retrySvg,

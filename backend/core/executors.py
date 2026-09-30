@@ -16,6 +16,7 @@ browser cap, so the queue forms here instead of inside the shared pool.
 from __future__ import annotations
 
 from concurrent.futures import Executor, ThreadPoolExecutor
+from threading import local
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -40,3 +41,24 @@ def parse_executor_for(url: str) -> Optional[Executor]:
     """
     host = (urlparse(url or "").hostname or "").lower().removeprefix("www.")
     return CAPTCHA_PARSE_EXECUTOR if host in BROWSER_FLOW_HOSTS else None
+
+
+_PARSE_START = local()
+
+
+def signal_parse_started():
+    """Start the caller's execution clock after browser admission, if deferred."""
+    notify = getattr(_PARSE_START, "notify", None)
+    if notify:
+        _PARSE_START.notify = None
+        notify()
+
+
+def run_parser_with_start_notification(parse_call, notify, defer_until_browser_slot=False):
+    _PARSE_START.notify = notify
+    try:
+        if not defer_until_browser_slot:
+            signal_parse_started()
+        return parse_call()
+    finally:
+        _PARSE_START.notify = None

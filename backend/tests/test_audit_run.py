@@ -21,7 +21,7 @@ from sqlalchemy.pool import StaticPool
 from api.routes import audit as audit_route
 from core.models import Base, DownloadRequest, StatusEnum
 from services.link_probe import KIND_ALIVE, KIND_UNSUPPORTED, ProbeResult
-from core.error_messages import KIND_DEAD
+from core.error_messages import KIND_SOURCE_UNCONFIRMED
 
 
 DEAD_URL = "https://datanodes.to/gone"
@@ -31,7 +31,7 @@ OFF_SCOPE_URL = "https://discord.gg/x"
 
 def _probe_for(url):
     if url == DEAD_URL:
-        return ProbeResult(kind=KIND_DEAD, summary="파일 없음", raw_status=404,
+        return ProbeResult(kind=KIND_SOURCE_UNCONFIRMED, summary="파일 없음", raw_status=404,
                            body_marker="file not found", retry_after_seconds=None,
                            definitive=True)
     if url == ALIVE_URL:
@@ -104,7 +104,7 @@ class TestTheLoopActuallyRuns:
         _run_audit([dead.id, alive.id])
 
         db.expire_all()
-        assert db.get(DownloadRequest, dead.id).failure_kind == KIND_DEAD
+        assert db.get(DownloadRequest, dead.id).failure_kind == KIND_SOURCE_UNCONFIRMED
         assert db.get(DownloadRequest, alive.id).failure_kind is None
 
     def test_the_verdict_is_committed_not_just_computed(self, db, session_factory):
@@ -116,7 +116,7 @@ class TestTheLoopActuallyRuns:
 
         other = session_factory()
         try:
-            assert other.get(DownloadRequest, dead.id).failure_kind == KIND_DEAD
+            assert other.get(DownloadRequest, dead.id).failure_kind == KIND_SOURCE_UNCONFIRMED
         finally:
             other.close()
 

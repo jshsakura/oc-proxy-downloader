@@ -32,9 +32,14 @@ def test_new_hoster_metadata_extractors():
     assert hs._extract_datavaults_info("https://datavaults.co/x/file.nsp", '<form><input name="fname" value="file.nsp"><p>Size: 374.3 MB</p></form>') == {"name": "file.nsp", "size": "374.3 MB"}
 
 
-def test_datavaults_download_stops_at_human_verification():
-    with pytest.raises(hp.HosterParseError, match="reCAPTCHA v2"):
+def test_datavaults_download_stops_at_actual_human_verification(monkeypatch):
+    from types import SimpleNamespace
+    page = SimpleNamespace(status_code=200, url="https://datavaults.co/x/file.nsp",
+                           text='<form><input name="fname" value="game.nsp"><p>Size: 374.3 MB</p><div class="g-recaptcha"></div></form>', headers={})
+    monkeypatch.setattr(hs, "_scraper", lambda p: SimpleNamespace(get=lambda *a, **k: page))
+    with pytest.raises(hp.HosterParseError, match="reCAPTCHA v2") as failure:
         hp.parse_special_hoster_sync("https://datavaults.co/x/file.nsp")
+    assert failure.value.file_info == {"name": "game.nsp", "size": "374.3 MB"}
 
 
 def test_rootz_parser_returns_direct_link_and_metadata(monkeypatch):
@@ -373,10 +378,12 @@ def test_blocked_hosts_are_identified():
     assert hp.is_special_hoster_url("https://send.now/abc") is True
 
 
-def _patch_gofile_tokens(monkeypatch):
-    monkeypatch.setattr(hs, "_gofile_session", lambda proxies=None: object())
-    monkeypatch.setattr(hs, "_gofile_guest_token", lambda session: "guest-tok")
-    monkeypatch.setattr(hs, "_gofile_website_token", lambda session, token: "test-wt")
+def _patch_gofile_website(monkeypatch, contents):
+    from core import hoster_web
+    monkeypatch.setattr(hp, "is_browser_supported", lambda: True)
+    monkeypatch.setattr(hoster_web, "resolve_gofile_website", lambda *a: {
+        "data": contents["data"], "cookies": {"accountToken": "guest-tok"},
+        "user_agent": "real-browser-agent", "referer": "https://gofile.io/d/6uARDV"})
 
 
 def test_gofile_content_id_extraction():
@@ -565,7 +572,6 @@ def test_multiup_reports_when_only_unsupported_mirrors_exist(monkeypatch):
 
 
 def test_gofile_single_file_resolves_direct_link(monkeypatch):
-    _patch_gofile_tokens(monkeypatch)
     contents = {
         "status": "ok",
         "data": {
@@ -580,7 +586,7 @@ def test_gofile_single_file_resolves_direct_link(monkeypatch):
             },
         },
     }
-    monkeypatch.setattr(hs, "_gofile_fetch_contents", lambda *a, **k: contents)
+    _patch_gofile_website(monkeypatch, contents)
 
     result = hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
 
@@ -591,7 +597,6 @@ def test_gofile_single_file_resolves_direct_link(monkeypatch):
 
 
 def test_gofile_top_level_file_resolves_direct_link(monkeypatch):
-    _patch_gofile_tokens(monkeypatch)
     contents = {
         "status": "ok",
         "data": {
@@ -600,7 +605,7 @@ def test_gofile_top_level_file_resolves_direct_link(monkeypatch):
             "link": "https://store2.gofile.io/download/xyz/single.zip",
         },
     }
-    monkeypatch.setattr(hs, "_gofile_fetch_contents", lambda *a, **k: contents)
+    _patch_gofile_website(monkeypatch, contents)
 
     result = hp.parse_special_hoster_sync("https://gofile.io/d/abc")
 
@@ -608,69 +613,24 @@ def test_gofile_top_level_file_resolves_direct_link(monkeypatch):
     assert result["file_info"]["name"] == "single.zip"
 
 
-def test_gofile_rejected_website_token_is_reported(monkeypatch):
-    _patch_gofile_tokens(monkeypatch)
-    monkeypatch.setattr(
-        hs, "_gofile_fetch_contents",
-        lambda *a, **k: {"status": "error-notPremium", "data": {}},
-    )
-
-    with pytest.raises(hp.HosterParseError, match="웹 인증 토큰 거부"):
-        hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
-
-
-def test_gofile_contents_call_includes_wt_and_web_params(monkeypatch):
-    captured = {}
-
-    class _Resp:
-        def json(self):
-            return {"status": "ok", "data": {"type": "file", "name": "f.bin",
-                                             "link": "https://store.gofile.io/download/web/x/f.bin"}}
-
-    class _Sess:
-        headers = {}
-
-        def get(self, url, params=None, headers=None, timeout=None):
-            captured["url"] = url
-            captured["params"] = params
-            captured["headers"] = headers
-            return _Resp()
-
-    monkeypatch.setattr(hs, "_gofile_session", lambda proxies=None: _Sess())
-    monkeypatch.setattr(hs, "_gofile_guest_token", lambda session: "guest-tok")
-    monkeypatch.setattr(hs, "_gofile_website_token", lambda session, token: "wt-123")
-
-    hp.parse_special_hoster_sync("https://gofile.io/d/abc")
-
-    assert captured["headers"]["X-Website-Token"] == "wt-123"
-    assert captured["headers"]["X-BL"] == "en-US"
-    assert captured["params"]["pageSize"] == "1000"
-    assert captured["headers"]["Authorization"] == "Bearer guest-tok"
+def test_gofile_keeps_real_browser_session_without_paid_api_calls(monkeypatch):
+    contents = {"data": {"type": "file", "link": "https://store.gofile.io/download/web/id/f.rar"}}
+    _patch_gofile_website(monkeypatch, contents)
+    monkeypatch.setattr(hs.requests.Session, "request", lambda *a, **k: pytest.fail("Do not fabricate paid API requests"))
+    result = hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
+    assert result["user_agent"] == "real-browser-agent"
+    assert result["referer"] == "https://gofile.io/d/6uARDV"
+    assert result["cookies"] == {"accountToken": "guest-tok"}
 
 
-def test_gofile_website_token_is_time_bound_and_needs_no_page_request(monkeypatch):
-    import hashlib
-    monkeypatch.setattr(hs.time, "time", lambda: 14400 * 123)
-    session = type("Session", (), {"headers": {"User-Agent": "test-agent"}})()
-    expected = hashlib.sha256(
-        f"test-agent::en-US::guest-tok::123::{hs.GOFILE_WT_SALT}".encode()
-    ).hexdigest()
-    assert hs._gofile_website_token(session, "guest-tok") == expected
-
-
-def test_gofile_missing_content_is_reported_as_dead(monkeypatch):
-    _patch_gofile_tokens(monkeypatch)
-    monkeypatch.setattr(
-        hs, "_gofile_fetch_contents",
-        lambda *a, **k: {"status": "error-notFound", "data": {}},
-    )
-
-    with pytest.raises(hp.HosterParseError, match="없음 또는 삭제"):
-        hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
+@pytest.mark.parametrize("link", ["https://gofile.io.evil.test/download/web/f", "https://advert.test/f.rar", "https://store.gofile.io/login"])
+def test_gofile_refuses_non_storage_address(monkeypatch, link):
+    _patch_gofile_website(monkeypatch, {"data": {"type": "file", "link": link}})
+    with pytest.raises(hp.HosterParseError, match="파일 서버 주소"):
+        hp.parse_special_hoster_sync("https://gofile.io/d/abc")
 
 
 def test_gofile_multi_file_folder_is_reported(monkeypatch):
-    _patch_gofile_tokens(monkeypatch)
     contents = {
         "status": "ok",
         "data": {
@@ -681,7 +641,7 @@ def test_gofile_multi_file_folder_is_reported(monkeypatch):
             },
         },
     }
-    monkeypatch.setattr(hs, "_gofile_fetch_contents", lambda *a, **k: contents)
+    _patch_gofile_website(monkeypatch, contents)
 
     with pytest.raises(hp.HosterParseError, match="여러 개"):
         hp.parse_special_hoster_sync("https://gofile.io/d/6uARDV")
@@ -720,74 +680,48 @@ def test_flaresolverr_cookie_bootstrap_uses_origin_not_file_url(monkeypatch):
     assert "large-file-token" not in captured["payload"]["url"]
 
 
-def test_sendnow_uses_flaresolverr_page_when_available(monkeypatch):
-    html = """
-    <html>
-      <h1>movie.rar</h1>
-      <a href="https://cdn.send.now/movie.rar">Download now</a>
-    </html>
-    """
-
-    monkeypatch.setattr(
-        hs,
-        "_get_page_with_flaresolverr",
-        lambda url, referer="", proxies=None: (html, {"cf_clearance": "ok"}, url),
-    )
-
-    result = hp.parse_special_hoster_sync("https://send.now/abc")
-
-    assert result["download_link"] == "https://cdn.send.now/movie.rar"
-    assert result["cookies"] == {"cf_clearance": "ok"}
-    assert result["file_info"]["name"] == "movie.rar"
-
-
-def test_sendnow_turnstile_falls_back_to_browser(monkeypatch):
-    """FlareSolverr clears Cloudflare but not the site's own Turnstile widget,
-    so the parse has to hand the page to the headful browser solver."""
-    html = """
-    <html>
-      <title>Download Challenge</title>
-      <form><input name="cf-turnstile-response"></form>
-    </html>
-    """
+def test_sendnow_observes_real_browser_form_with_one_session(monkeypatch):
+    from core import browser_solver as browser
+    html = '<html><h1 class="node-name">movie.rar</h1></html>'
     calls = []
+    monkeypatch.setattr(hp, "is_browser_supported", lambda: True)
+    monkeypatch.setattr(browser, "solve_download_page", lambda url, flow, proxies=None:
+        calls.append((url, flow, proxies)) or BrowserSolveResult(
+            "https://u1112.send.now/download/movie.rar", {"session":"actual"}, "UA/1.0", html, url))
+    monkeypatch.setattr(hs, "_get_page_with_flaresolverr", lambda *a, **kw: pytest.fail("separate preliminary browser request"))
+    result = hp.parse_special_hoster_sync("https://send.now/abcdefghijkl")
+    assert result["download_link"] == "https://u1112.send.now/download/movie.rar"
+    assert result["cookies"] == {"session":"actual"}
+    assert result["user_agent"] == "UA/1.0"
+    assert len(calls) == 1 and calls[0][1] is browser.SEND_NOW_FLOW
 
-    monkeypatch.setattr(
-        hs,
-        "_get_page_with_flaresolverr",
-        lambda url, referer="", proxies=None: (html, {"cf_clearance": "ok"}, url),
-    )
-    monkeypatch.setattr(
-        hs,
-        "solve_download_page",
-        lambda url, flow, proxies=None: calls.append((url, flow, proxies))
-        or BrowserSolveResult(
-            download_link="https://cdn.send.now/file.bin",
-            cookies={"session": "x"},
-            user_agent="UA/1.0",
-        ),
-    )
 
-    result = hp.parse_special_hoster_sync("https://send.now/abc")
-
-    assert result["download_link"] == "https://cdn.send.now/file.bin"
-    assert result["cookies"] == {"session": "x"}
-    assert calls and calls[0][0] == "https://send.now/abc"
+def test_mediafire_browser_fallback_uses_new_status_and_real_user_agent(monkeypatch):
+    from core.hoster_common import FlaresolverrPage
+    from requests.cookies import RequestsCookieJar
+    from types import SimpleNamespace
+    jar = RequestsCookieJar()
+    scraper = SimpleNamespace(cookies=jar, headers={}, get=lambda *a, **kw:
+        SimpleNamespace(status_code=403, text='<html>Just a moment challenge-platform</html>', headers={}))
+    monkeypatch.setattr(hs, '_scraper', lambda proxies: scraper)
+    monkeypatch.setattr(hs, '_get_page_with_flaresolverr', lambda *a, **kw: FlaresolverrPage({
+        'status':200, 'url':'https://www.mediafire.com/file/source/file.rar',
+        'userAgent':'actual-browser-UA', 'cookies':[{'name':'cf_clearance','value':'actual-cookie'}],
+        'response':'<div class="filename">file.rar</div><a id="downloadButton" href="https://download1.mediafire.com/token/file.rar">Download</a>'}, a[0]))
+    result = hs.parse_mediafire_sync('https://www.mediafire.com/file/source/file.rar')
+    assert result['user_agent'] == 'actual-browser-UA'
+    assert result['cookies']['cf_clearance'] == 'actual-cookie'
+    assert result['download_link'] == 'https://download1.mediafire.com/token/file.rar'
 
 
 # --- proxy threading (use_proxy parses through a user proxy) ---
 
 
-def test_gofile_session_applies_proxies():
-    proxies = {"http": "http://1.2.3.4:8080", "https": "http://1.2.3.4:8080"}
-    session = hs._gofile_session(proxies)
-    assert session.proxies.get("https") == "http://1.2.3.4:8080"
-    assert session.proxies.get("http") == "http://1.2.3.4:8080"
-
-
-def test_gofile_session_without_proxies_is_unset():
-    session = hs._gofile_session()
-    assert not session.proxies
+def test_gofile_web_route_uses_direct_egress(monkeypatch):
+    monkeypatch.setattr(hp, "is_browser_supported", lambda: True)
+    assert hp.requires_direct_hoster_session("https://gofile.io/d/abc")
+    with pytest.raises(hp.HosterParseError, match="같은 직접 연결"):
+        hp.parse_special_hoster_sync("https://gofile.io/d/abc", proxies={"https":"http://proxy:8080"})
 
 
 def test_flaresolverr_payload_includes_proxy(monkeypatch):
@@ -834,6 +768,7 @@ def test_flaresolverr_payload_omits_proxy_when_none(monkeypatch):
 
 
 def test_special_hoster_forwards_proxies_to_gofile(monkeypatch):
+    monkeypatch.setattr(hp, "is_browser_supported", lambda: True)
     seen = {}
 
     def fake_gofile(url, proxies=None):
@@ -901,3 +836,27 @@ def test_fetch_info_only_swallows_errors(monkeypatch):
 
     monkeypatch.setattr(hp.cloudscraper, "create_scraper", lambda: _boom())
     assert hp.fetch_special_hoster_file_info_sync("https://datanodes.to/x/y.rar") == {}
+
+
+def test_datavaults_does_not_resubmit_a_form_that_did_not_advance(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    page = SimpleNamespace(status_code=200, text='<form><input type="hidden" name="op" value="download1"><input type="hidden" name="id" value="same"></form>', url='https://datavaults.co/same', reason='OK', headers={})
+    session = SimpleNamespace(get=Mock(return_value=page), post=Mock(return_value=page), headers={}, cookies={})
+    monkeypatch.setattr(hs, '_scraper', lambda *args: session)
+    with pytest.raises(HosterParseError, match='진행되지 않았습니다'):
+        hs.parse_datavaults_sync(page.url)
+    session.get.assert_called_once()
+    session.post.assert_called_once()
+
+
+def test_datavaults_stops_before_post_when_access_is_refused(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    page = SimpleNamespace(status_code=403, text='file deleted', url='https://datavaults.co/same', reason='Forbidden', headers={})
+    session = SimpleNamespace(get=Mock(return_value=page), post=Mock(), headers={}, cookies={})
+    monkeypatch.setattr(hs, '_scraper', lambda *args: session)
+    with pytest.raises(HosterParseError, match='HTTP 403'):
+        hs.parse_datavaults_sync(page.url)
+    session.get.assert_called_once()
+    session.post.assert_not_called()

@@ -206,7 +206,10 @@ def detect_block_reason(html_content):
     if not html_content:
         return None
 
-    text = html_content.lower()
+    soup = BeautifulSoup(html_content, "html.parser")
+    for node in soup.select("script, style, template"):
+        node.decompose()
+    text = soup.get_text(" ", strip=True).lower()
 
     block_rules = (
         # VPS/VPN/proxy block
@@ -643,8 +646,7 @@ def preparse_1fichier_standalone(url):
         response = scraper.get(url, headers=headers, timeout=(10, 30))
 
         if response.status_code == 404:
-            print(f"[ERROR] 사전파싱 실패(파일 없음): HTTP 404")
-            raise PreparseDeadLinkError("1fichier 차단: 파일 없음")
+            raise PreparseDeadLinkError("1fichier 호스터 페이지 HTTP 404 (삭제 여부 미확인)")
         if response.status_code != 200:
             print(f"[ERROR] 사전파싱 실패: HTTP {response.status_code}")
             return None

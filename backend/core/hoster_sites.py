@@ -9,10 +9,8 @@ the registry that routes to these parsers lives in ``core.hoster_parsers``.
 from __future__ import annotations
 
 import base64
-import hashlib
 import html
 import json
-import os
 import re
 import time
 from typing import Dict, Optional
@@ -22,6 +20,8 @@ import requests
 from bs4 import BeautifulSoup
 
 from core.browser_solver import flow_for_host, solve_download_page, resolve_rootz_page
+from core.host_policy import BUNKR_HOSTS
+from core.host_policy import http_failure_message
 from core.hoster_common import (
     DEFAULT_HOSTER_USER_AGENT,
     HosterParseError,
@@ -36,6 +36,7 @@ from core.hoster_common import (
     _extract_title_filename,
     _format_size_bytes,
     _get_page_with_flaresolverr,
+    apply_flaresolverr_session,
     _host,
     _json_or_raise,
     _raise_for_dead_page,
@@ -71,7 +72,9 @@ def _extract_vikingfile_info(url: str, html_text: str) -> Dict[str, str]:
     name = soup.select_one("#filename")
     size = soup.select_one("#size")
     info: Dict[str, str] = {}
-    if name:
+    if name and name.get_text(" ", strip=True).lower() not in {
+        "file not found", "file deleted", "not found", "access denied", "error",
+    }:
         info["name"] = name.get_text(" ", strip=True)
     if size:
         info["size"] = size.get_text(" ", strip=True)
@@ -109,14 +112,84 @@ def _extract_datavaults_info(url: str, html_text: str) -> Dict[str, str]:
 
 
 def parse_datavaults_sync(url: str, proxies=None) -> Dict[str, object]:
-    # The public page gives metadata, but its download2 POST requires a live
-    # Google reCAPTCHA v2 token. Do not POST the same form or rotate proxies:
-    # neither can mint that token, and both just increase the site's request rate.
-    raise HosterParseError("DataVaults 무료 다운로드에 reCAPTCHA v2 사람 확인이 필요합니다")
+    """Follow the advertised free forms once; decide from the actual page.
 
+    XFileSharing exposes download1 then download2. Some files need a human
+    captcha on the second page; others expose a public link. Never presume all
+    files are protected, and never submit a form with an unsolved captcha.
+    """
+    scraper = _scraper(proxies)
+    response = scraper.get(url, timeout=45)
+    file_info = {}
+    submitted_ops = set()
+    for step in range(3):
+        if response.status_code not in (200,):
+            raise HosterParseError(http_failure_message(
+                response.status_code, response.reason, response.headers
+            ), file_info=file_info)
+        text = _response_text(response)
+        _raise_for_dead_page("DataVaults", text, response.status_code)
+        if _cloudflare_challenge_seen(response, text):
+            raise HosterParseError("DataVaults Cloudflare 보안 확인이 필요합니다", file_info=file_info)
+        soup = BeautifulSoup(text, "html.parser")
+        file_info.update(_extract_datavaults_info(url, text))
+        # Navigation includes "Latest Downloads" and adverts. Accept only a
+        # file-named link on a storage subdomain, never those navigation links.
+        link = ""
+        for anchor in soup.select("a[href]"):
+            candidate = urljoin(response.url or url, anchor["href"])
+            parsed = urlparse(candidate)
+            if (parsed.scheme in {"http", "https"}
+                    and (parsed.hostname or "").endswith(".datavaults.co")
+                    and re.search(r"\.(?:nsp|nsz|xci|xcz|rar|zip|7z|bin|iso|pdf|mp4)(?:$|[/?])", unquote(parsed.path), re.I)):
+                link = candidate
+                break
+        if link:
+            return HosterParseResult(
+                download_link=link, file_info=file_info or None,
+                cookies=_cookies_dict(scraper),
+                user_agent=scraper.headers.get("User-Agent"), referer=response.url or url,
+            ).as_parse_result()
+        if soup.select_one('.g-recaptcha, [name="g-recaptcha-response"], iframe[src*="recaptcha"]'):
+            raise HosterParseError("DataVaults 무료 다운로드에 reCAPTCHA v2 사람 확인이 필요합니다", file_info=file_info)
+        if soup.select_one('input[name*="captcha"], .cf-turnstile, [name="cf-turnstile-response"]'):
+            raise HosterParseError("DataVaults 다운로드에 사람 확인 캡차가 필요합니다", file_info=file_info)
+        form = next((f for f in soup.select("form")
+                     if f.select_one('input[name="op"][value="download1"], input[name="op"][value="download2"]')), None)
+        if form is None or step == 2:
+            raise HosterParseError("DataVaults 파일 다운로드 주소를 찾지 못했습니다", file_info=file_info)
+        action = urljoin(response.url or url, form.get("action") or "")
+        if _host(action) != _host(url):
+            raise HosterParseError("DataVaults 다운로드 폼이 다른 사이트를 가리킵니다", file_info=file_info)
+        data = {node["name"]: node.get("value", "") for node in form.select('input[name][type="hidden"]')}
+        operation = data.get("op")
+        if operation in submitted_ops:
+            raise HosterParseError("DataVaults 다운로드 폼이 진행되지 않았습니다; 자동 반복하지 않습니다", file_info=file_info)
+        submitted_ops.add(operation)
+        if operation == "download1":
+            button = form.select_one('input[name="method_free"], button[name="method_free"]')
+            if button:
+                data["method_free"] = button.get("value") or "Free Download"
+        # The server's free countdown is part of the flow, not a retry. Wait
+        # once, never poll the page or re-submit a refused form.
+        countdown = soup.select_one("#countdown_str, #countdown")
+        if countdown:
+            match = re.search(r"\b(\d+)\b", countdown.get_text(" ", strip=True))
+            if match:
+                seconds = int(match.group(1))
+                if seconds > 120:
+                    raise HosterParseError(f"DataVaults 무료 대기 제한: you must wait {seconds} seconds", file_info=file_info)
+                time.sleep(seconds + 1)
+        response = scraper.post(action, data=data, headers={"Referer": response.url or url}, timeout=45)
 
 def _parse_browser_link_hoster(url: str, info_extract, proxies=None) -> Dict[str, object]:
-    solved = solve_download_page(url, flow_for_host(_host(url)), proxies=proxies)
+    try:
+        solved = solve_download_page(url, flow_for_host(_host(url)), proxies=proxies)
+    except HosterParseError as exc:
+        if exc.page_html:
+            info = info_extract(url, exc.page_html)
+            exc.file_info = {**info, **exc.file_info}
+        raise
     file_info = info_extract(url, solved.page_html)
     return HosterParseResult(
         download_link=solved.download_link,
@@ -152,24 +225,7 @@ def parse_rootz_sync(url: str, proxies=None) -> Dict[str, object]:
 MEGAUP_CONTINUE_DELAY_SEC = 2
 MEGAUP_CONTINUE_ATTEMPTS = 3
 
-GOFILE_API_BASE = "https://api.gofile.io"
 _GOFILE_ID_RE = re.compile(r"/(?:d/)?([A-Za-z0-9]+)/?$")
-# GoFile's config.js now contains a decoy website token. The web app computes
-# X-Website-Token from the guest token and a four-hour window. Keep the salt
-# overridable because GoFile can rotate its obfuscated client script.
-GOFILE_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-)
-GOFILE_LANGUAGE = "en-US"
-GOFILE_WT_SALT = os.environ.get("GOFILE_WT_SALT", "12af056dacea0b")
-_GOFILE_CONTENTS_PARAMS = {
-    "contentFilter": "",
-    "page": "1",
-    "pageSize": "1000",
-    "sortField": "createTime",
-    "sortDirection": "-1",
-}
 
 _MULTIUP_META_RE = re.compile(
     r"^(?:Download|Mirror list)\s+(.+?)\s+\(([\d.,]+\s*[KMGTPE]?B)\)\s+on\b",
@@ -243,7 +299,7 @@ def parse_mixdrop_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Di
     ).as_parse_result()
 
 
-def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
+def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mirror_only=False) -> Dict[str, object]:
     """Resolve MultiUp's mirror list, trying each supported mirror once."""
     session = requests.Session()
     session.headers.update({"User-Agent": DEFAULT_HOSTER_USER_AGENT})
@@ -296,6 +352,10 @@ def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Di
         available = ", ".join(sorted({_host(item) for item in mirrors if _host(item)}))
         detail = f" (현재 미러: {available})" if available else ""
         raise HosterParseError(f"MultiUp에 자동 다운로드 가능한 미러가 없음{detail}")
+    if mirror_only:
+        # Production admits the chosen mirror before its parser touches that
+        # host. Resolving all mirrors here would bypass their session caps.
+        return next(candidate for _, candidate, _ in mirror_candidates if candidate)
 
     failures = []
     result = None
@@ -314,6 +374,10 @@ def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Di
         resolved_info.setdefault(key, value)
     result["file_info"] = resolved_info or None
     return result
+
+
+def resolve_multiup_mirror_sync(url):
+    return parse_multiup_sync(url, mirror_only=True)
 
 
 def _extract_megaup_file_info(soup: BeautifulSoup, url: str, html_text: str) -> Dict[str, str]:
@@ -494,11 +558,14 @@ def parse_megaup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dic
     response = scraper.get(url, timeout=30)
     text = _response_text(response)
     fs_cookies: Dict[str, str] = {}
+    page_status = getattr(response, "status_code", 0)
+    parse_ua = DEFAULT_HOSTER_USER_AGENT
     if _cloudflare_challenge_seen(response, text):
         fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
         if fs_page:
             text, fs_cookies, url = fs_page
-    _raise_for_dead_page("MegaUp", text, getattr(response, "status_code", 0))
+            page_status, parse_ua = apply_flaresolverr_session(scraper, fs_page)
+    _raise_for_dead_page("MegaUp", text, page_status)
 
     soup = BeautifulSoup(text, "html.parser")
     file_info = _extract_megaup_file_info(soup, url, text)
@@ -506,7 +573,7 @@ def parse_megaup_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dic
     if not download_link:
         raise HosterParseError("MegaUp 다운로드 링크를 찾을 수 없음")
     cookies = {**_cookies_dict(scraper), **fs_cookies}
-    user_agent = DEFAULT_HOSTER_USER_AGENT
+    user_agent = parse_ua
     referer = url
     download_link, cookies, user_agent, referer = _resolve_megaup_final_link(
         download_link,
@@ -643,11 +710,14 @@ def parse_datanodes_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> 
     page_response = scraper.get(url, timeout=30, allow_redirects=True)
     page_text = _response_text(page_response)
     fs_cookies: Dict[str, str] = {}
+    page_status = getattr(page_response, "status_code", 0)
+    parse_ua = DEFAULT_HOSTER_USER_AGENT
     if _cloudflare_challenge_seen(page_response, page_text):
         fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
         if fs_page:
             page_text, fs_cookies, url = fs_page
-    _raise_for_dead_page("DataNodes", page_text, getattr(page_response, "status_code", 0))
+            page_status, parse_ua = apply_flaresolverr_session(scraper, fs_page)
+    _raise_for_dead_page("DataNodes", page_text, page_status)
     file_info = _extract_datanodes_file_info(url, page_text)
 
     hidden_values = _extract_hidden_inputs(page_text)
@@ -655,7 +725,7 @@ def parse_datanodes_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> 
         "Host": "datanodes.to",
         "Origin": "https://datanodes.to",
         "Referer": "https://datanodes.to/download",
-        "User-Agent": DEFAULT_HOSTER_USER_AGENT,
+        "User-Agent": parse_ua,
         "Cookie": f"lang=english; file_name={filename}; file_code={file_code};",
     }
     if hidden_values.get("op") == "download1":
@@ -714,7 +784,7 @@ def parse_datanodes_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> 
         download_link=download_link,
         file_info=file_info or None,
         cookies={**_cookies_dict(scraper), **fs_cookies},
-        user_agent=DEFAULT_HOSTER_USER_AGENT,
+        user_agent=parse_ua,
         referer="https://datanodes.to/download",
     ).as_parse_result()
 
@@ -752,48 +822,6 @@ def _gofile_content_id(url: str) -> str:
     return match.group(1) if match else ""
 
 
-def _gofile_session(proxies: Optional[Dict[str, str]] = None) -> requests.Session:
-    session = requests.Session()
-    session.headers.update({"User-Agent": GOFILE_USER_AGENT})
-    if proxies:
-        session.proxies.update(proxies)
-    return session
-
-
-def _gofile_guest_token(session: requests.Session) -> str:
-    response = session.post(f"{GOFILE_API_BASE}/accounts", timeout=30)
-    payload = _json_or_raise(response, "Gofile")
-    if payload.get("status") != "ok":
-        return ""
-    return (payload.get("data") or {}).get("token") or ""
-
-
-def _gofile_website_token(session: requests.Session, account_token: str) -> str:
-    """Compute the current four-hour website token without another page GET."""
-    agent = session.headers.get("User-Agent", GOFILE_USER_AGENT)
-    window = int(time.time() // 14400)
-    raw = f"{agent}::{GOFILE_LANGUAGE}::{account_token}::{window}::{GOFILE_WT_SALT}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _gofile_fetch_contents(
-    session: requests.Session, content_id: str, token: str, wt: str
-) -> Dict[str, object]:
-    response = session.get(
-        f"{GOFILE_API_BASE}/contents/{content_id}",
-        params=_GOFILE_CONTENTS_PARAMS,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Website-Token": wt,
-            "X-BL": GOFILE_LANGUAGE,
-            "Origin": "https://gofile.io",
-            "Referer": "https://gofile.io/",
-        },
-        timeout=30,
-    )
-    return _json_or_raise(response, "Gofile")
-
-
 def _gofile_pick_file_node(data: Dict[str, object]) -> Dict[str, object]:
     if data.get("type") == "file":
         return data
@@ -811,54 +839,27 @@ def _gofile_pick_file_node(data: Dict[str, object]) -> Dict[str, object]:
     return files[0]
 
 
-def _gofile_result(node: Dict[str, object], token: str) -> Dict[str, object]:
-    link = node.get("link") or ""
-    if not link:
-        raise HosterParseError("Gofile 다운로드 링크를 찾을 수 없음")
-
-    file_info: Dict[str, str] = {}
-    name = node.get("name")
-    if name:
-        file_info["name"] = str(name)
-    size = node.get("size")
-    if isinstance(size, (int, float)) and size > 0:
-        file_info["size"] = _format_size_bytes(int(size))
-
-    return HosterParseResult(
-        download_link=str(link),
-        file_info=file_info or None,
-        cookies={"accountToken": token},
-        user_agent=GOFILE_USER_AGENT,
-        referer="https://gofile.io/",
-    ).as_parse_result()
-
-
 def parse_gofile_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
+    from core.hoster_web import resolve_gofile_website, is_gofile_storage_url
     content_id = _gofile_content_id(url)
-    if not content_id:
-        raise HosterParseError("Gofile 링크에서 콘텐츠 ID를 찾을 수 없음")
-
-    session = _gofile_session(proxies)
-    token = _gofile_guest_token(session)
-    if not token:
-        raise HosterParseError("Gofile 게스트 토큰 발급 실패")
-
-    wt = _gofile_website_token(session, token)
-    payload = _gofile_fetch_contents(session, content_id, token, wt)
-    status = str(payload.get("status") or "")
-    if status == "error-notPremium":
-        raise HosterParseError(
-            "Gofile 웹 인증 토큰 거부 — 사이트 토큰 방식이 변경되었을 수 있습니다"
-        )
-    if status == "error-rateLimit":
-        raise HosterParseError("Gofile 무료 조회 속도 제한 — 자동 재시도하지 않습니다")
-    if status in {"error-notFound", "error-notExist"}:
-        raise HosterParseError("Gofile 파일 없음 또는 삭제됨")
-    if status != "ok":
-        raise HosterParseError(f"Gofile 콘텐츠 조회 실패 (status={status or 'unknown'})")
-
-    node = _gofile_pick_file_node(payload.get("data") or {})
-    return _gofile_result(node, token)
+    if not content_id or _host(url) not in {"gofile.io", "www.gofile.io"}:
+        raise HosterParseError("GoFile 링크에서 콘텐츠 ID를 찾을 수 없음")
+    if proxies:
+        raise HosterParseError("GoFile 웹 세션과 파일 전송은 같은 직접 연결을 사용해야 합니다")
+    context = resolve_gofile_website(url, content_id)
+    node = _gofile_pick_file_node(context["data"])
+    link = node.get("link") or ""
+    if node.get("canAccess") is False:
+        raise HosterParseError("GoFile 웹 경로에서 파일 접근 권한을 요구했습니다; 무료 다운로드 진행 불가")
+    if not is_gofile_storage_url(link):
+        raise HosterParseError("GoFile 웹 페이지가 유효한 파일 서버 주소를 제공하지 않았습니다")
+    info = {}
+    if node.get("name"):
+        info["name"] = str(node["name"])
+    if isinstance(node.get("size"), (int, float)) and node["size"] > 0:
+        info["size"] = _format_size_bytes(int(node["size"]))
+    return HosterParseResult(link, info or None, cookies=context["cookies"],
+                             user_agent=context["user_agent"], referer=context["referer"]).as_parse_result()
 
 
 def parse_blocked_hoster_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
@@ -990,11 +991,14 @@ def parse_mediafire_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> 
     response = scraper.get(url, timeout=30, allow_redirects=True)
     text = _response_text(response)
     fs_cookies: Dict[str, str] = {}
+    page_status = getattr(response, "status_code", 0)
+    parse_ua = DEFAULT_HOSTER_USER_AGENT
     if _cloudflare_challenge_seen(response, text):
         fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
         if fs_page:
             text, fs_cookies, url = fs_page
-    _raise_for_dead_page("MediaFire", text, getattr(response, "status_code", 0))
+            page_status, parse_ua = apply_flaresolverr_session(scraper, fs_page)
+    _raise_for_dead_page("MediaFire", text, page_status)
 
     download_link = _extract_mediafire_link(text)
     if not download_link:
@@ -1004,7 +1008,7 @@ def parse_mediafire_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> 
         download_link=download_link,
         file_info=_extract_mediafire_file_info(url, text) or None,
         cookies={**_cookies_dict(scraper), **fs_cookies},
-        user_agent=DEFAULT_HOSTER_USER_AGENT,
+        user_agent=parse_ua,
         referer="https://www.mediafire.com/",
     ).as_parse_result()
 
@@ -1015,11 +1019,6 @@ def parse_mediafire_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> 
 # loudly (per this module's contract) instead of saving a wrong asset.
 # ---------------------------------------------------------------------------
 
-BUNKR_HOSTS = (
-    "bunkr.si", "bunkr.ru", "bunkr.la", "bunkr.is", "bunkr.to", "bunkr.ax",
-    "bunkr.black", "bunkr.cr", "bunkr.fi", "bunkr.pk", "bunkr.ph", "bunkr.sk",
-    "bunkr.ci", "bunkr.ws", "bunkr.site", "bunkr.media", "bunkrr.su", "bunkrr.ru",
-)
 _BUNKR_ASSET_EXT = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp", ".woff", ".woff2")
 _BUNKR_CDN_RE = re.compile(r'https?://[^\s"\'<>]+', re.IGNORECASE)
 # Bunkr *page* routes (the HTML album/file/video pages) — never the actual file,
@@ -1091,11 +1090,14 @@ def parse_bunkr_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict
     response = scraper.get(url, timeout=30, allow_redirects=True)
     text = _response_text(response)
     fs_cookies: Dict[str, str] = {}
+    page_status = getattr(response, "status_code", 0)
+    parse_ua = DEFAULT_HOSTER_USER_AGENT
     if _cloudflare_challenge_seen(response, text):
         fs_page = _get_page_with_flaresolverr(url, proxies=proxies)
         if fs_page:
             text, fs_cookies, url = fs_page
-    _raise_for_dead_page("Bunkr", text, getattr(response, "status_code", 0))
+            page_status, parse_ua = apply_flaresolverr_session(scraper, fs_page)
+    _raise_for_dead_page("Bunkr", text, page_status)
 
     download_link = _extract_bunkr_link(text, url)
     if not download_link:
@@ -1116,6 +1118,6 @@ def parse_bunkr_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict
         download_link=download_link,
         file_info=file_info or None,
         cookies={**_cookies_dict(scraper), **fs_cookies},
-        user_agent=DEFAULT_HOSTER_USER_AGENT,
+        user_agent=parse_ua,
         referer=url,
     ).as_parse_result()

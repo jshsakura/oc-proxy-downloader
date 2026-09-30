@@ -25,7 +25,7 @@ from core.error_messages import (
     is_auth_required_failure,
     is_retry_blocked_now,
     apply_failure_to_request,
-    KIND_DEAD,
+    KIND_SOURCE_UNCONFIRMED,
     KIND_AUTH_REQUIRED,
     KIND_RATE_LIMITED,
     KIND_DAILY_QUOTA,
@@ -82,7 +82,7 @@ def test_all_explicit_hoster_parse_errors_have_a_classification():
     """A new parser error must not silently enter the unknown retry loop."""
     core = Path(__file__).resolve().parents[1] / "core"
     uncovered = []
-    for filename in ("hoster_sites.py", "browser_solver.py", "hoster_common.py"):
+    for filename in ("hoster_sites.py", "browser_solver.py", "hoster_common.py", "hoster_web.py", "hoster_legacy_sites.py", "generic_links.py", "link_containers.py"):
         tree = ast.parse((core / filename).read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
@@ -115,15 +115,15 @@ class TestClassify:
         ("MultiUp에 자동 다운로드 가능한 미러가 없음 (현재 미러: example.com)", KIND_BROWSER_PARSE),
         ("MultiUp 미러 목록 폼을 찾을 수 없음", KIND_BROWSER_PARSE),
         ("Gofile 폴더에 파일이 여러 개(3개) 있어 자동 다운로드 대상을 특정할 수 없음", KIND_BROWSER_PARSE),
-        ("Gofile 폴더에 다운로드할 파일이 없음", KIND_DEAD),
+        ("Gofile 폴더에 다운로드할 파일이 없음", KIND_SOURCE_UNCONFIRMED),
         ("Gofile 게스트 토큰 발급 실패", KIND_BROWSER_PARSE),
         ("Gofile 콘텐츠 조회 실패 (status=error-unexpected)", KIND_BROWSER_PARSE),
         ("Pixeldrain 리스트(앨범) 링크는 지원하지 않음", KIND_BROWSER_PARSE),
-        ("Pixeldrain 파일 없음 또는 삭제됨", KIND_DEAD),
-        ("MediaFire 파일 없음 또는 삭제됨", KIND_DEAD),
+        ("Pixeldrain 파일 없음 또는 삭제됨", KIND_SOURCE_UNCONFIRMED),
+        ("MediaFire 파일 없음 또는 삭제됨", KIND_SOURCE_UNCONFIRMED),
         ("MultiUp 페이지 조회 실패: unexpected response", KIND_BROWSER_PARSE),
         ("MultiUp 미러 목록 조회 실패: unexpected response", KIND_BROWSER_PARSE),
-        ("MediaFire 호스터 페이지 HTTP 404 (삭제 여부 미확인)", KIND_BROWSER_PARSE),
+        ("MediaFire 호스터 페이지 HTTP 404 (삭제 여부 미확인)", KIND_SOURCE_UNCONFIRMED),
         ("Rootz: 파일이 비활성 상태입니다 (processing)", KIND_BLOCKED),
         ("다운로드 주소가 발급되지 않았습니다 (캡차 또는 호스트 제한)", KIND_BROWSER_PARSE),
         ("DataNodes 다운로드 링크를 찾을 수 없음", KIND_BROWSER_PARSE),
@@ -182,7 +182,7 @@ class TestClassify:
         ("Rootz: 다운로드 주소 확인 실패 (403)", KIND_BLOCKED),
         ("Rootz: 무료 다운로드 대기 또는 제한 중입니다", KIND_BLOCKED),
         ("Rootz: 파일이 비활성 상태입니다", KIND_BLOCKED),
-        ("Rootz: 파일이 비활성 상태입니다 (deleted)", KIND_DEAD),
+        ("Rootz: 파일이 비활성 상태입니다 (deleted)", KIND_SOURCE_UNCONFIRMED),
         ("Rootz: 비밀번호가 필요한 파일입니다", KIND_AUTH_REQUIRED),
         ("Rootz: 직접 다운로드 주소를 받지 못했습니다", KIND_BROWSER_PARSE),
     ])
@@ -201,8 +201,8 @@ class TestClassify:
         assert "조치:" not in req.error
 
     @pytest.mark.parametrize("language,expected", [
-        ("ko", "AkiraBox 파일 서버가 이 파일을 현재 제공하지 않습니다"),
-        ("en", "AkiraBox's file server says this file is currently unavailable"),
+        ("ko", "파일 서버가 다운로드를 거부했습니다 (403)"),
+        ("en", "its file server refused the download (403)"),
     ])
     def test_akirabox_storage_unavailable_does_not_retry_or_blame_cloudflare(self, language, expected):
         req = _FakeReq()
@@ -211,6 +211,9 @@ class TestClassify:
         assert verdict.next_retry_at is None
         assert expected in req.error
         assert "Cloudflare" not in req.error
+        assert classify_error("다운로드", "akirabox storage unavailable").definitive is False
+        assert ("원본 링크는 보존" if language == "ko" else "original link is preserved") in req.error
+        assert ("거부 원인은 미확인" if language == "ko" else "reason for refusal are unconfirmed") in req.error
 
     @pytest.mark.parametrize("language,expected,excluded", [
         ("ko", "자동 재시도하지 않습니다", "자동으로 다시 시도"),
@@ -307,8 +310,8 @@ class TestKindClassification:
         "File not found on server",
     ])
     def test_body_marker_dead_kept(self, raw):
-        assert classify_failure_text(raw) == KIND_DEAD
-        assert is_terminal_failure(raw) is True
+        assert classify_failure_text(raw) == KIND_SOURCE_UNCONFIRMED
+        assert is_terminal_failure(raw) is False
 
     @pytest.mark.parametrize("raw", [
         "HTTP 404: Not Found",
@@ -318,7 +321,7 @@ class TestKindClassification:
     def test_http_404_410_downgraded_to_non_dead(self, raw):
         # Core regression guard: a one-off 404/410 alone must not pin as dead.
         kind = classify_failure_text(raw)
-        assert kind != KIND_DEAD
+        assert kind != KIND_SOURCE_UNCONFIRMED
         assert is_terminal_failure(raw) is False
 
     def test_auth_required_classification(self):
@@ -328,12 +331,12 @@ class TestKindClassification:
         assert is_terminal_failure(msg) is False
 
     @pytest.mark.parametrize("raw,expected_kind", [
-        ("MegaUp 파일 없음 또는 삭제됨", KIND_DEAD),
-        ("DataNodes 파일 없음 또는 삭제됨", KIND_DEAD),
+        ("MegaUp 파일 없음 또는 삭제됨", KIND_SOURCE_UNCONFIRMED),
+        ("DataNodes 파일 없음 또는 삭제됨", KIND_SOURCE_UNCONFIRMED),
         ("Rapidgator 무료 모드는 500 MB 초과 파일 다운로드 불가", KIND_AUTH_REQUIRED),
         ("Gofile은 콘텐츠 권한 또는 프리미엄 정책에 따라 API 토큰이 필요", KIND_AUTH_REQUIRED),
         ("Gofile 목록 조회 차단 (데이터센터 IP) — 가정용 IP/NAS에서 실행 시 정상 동작", KIND_PROXY_BLOCKED),
-        ("Gofile 파일 없음 또는 삭제됨", KIND_DEAD),
+        ("Gofile 파일 없음 또는 삭제됨", KIND_SOURCE_UNCONFIRMED),
         ("Send.now는 Cloudflare 챌린지로 인해 브라우저 세션 없이 자동 다운로드를 지원하지 않음", KIND_CLOUDFLARE),
         ("Send.now Turnstile 검증 필요", KIND_CLOUDFLARE),
         ("호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함", KIND_CLOUDFLARE),
@@ -384,16 +387,16 @@ class TestApplyFailure:
         # 30s — asking a host that just refused us to try again almost
         # immediately is what gets an IP blocked.
         delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
-        assert 120 <= delta <= 150
+        assert 1800 <= delta <= 2250
 
     def test_body_marker_dead_immediately_terminal(self):
         req = _FakeReq()
         verdict = apply_failure_to_request(
             req, "파싱", "1fichier 차단: 파일 삭제됨 (admin removed)"
         )
-        assert verdict.kind == KIND_DEAD
-        assert verdict.definitive is True
-        assert req.failure_kind == KIND_DEAD
+        assert verdict.kind == KIND_SOURCE_UNCONFIRMED
+        assert verdict.definitive is False
+        assert req.failure_kind == KIND_SOURCE_UNCONFIRMED
         assert req.next_retry_at is None  # permanently pinned
 
     def test_attempts_ringbuffer_truncates_to_5(self):
@@ -407,19 +410,13 @@ class TestApplyFailure:
         # The most recent attempt is last
         assert "#6" in parsed[-1]["raw"]
 
-    def test_transient_backoff_grows_with_attempts(self):
+    def test_transient_has_one_delayed_retry(self):
         req = _FakeReq()
-        deltas = []
-        # Vary raw slightly so each attempt is a distinct observation — avoids colliding with the dedup guard.
-        # The budget is three attempts, so two waits are scheduled: 2m then 8m.
-        for i in range(2):
-            apply_failure_to_request(req, "다운로드", f"Read timeout (attempt {i})")
-            deltas.append(
-                (req.next_retry_at - datetime.datetime.now()).total_seconds()
-            )
-        assert deltas[0] < deltas[1]
-        assert deltas[0] >= 120
-        assert deltas[1] >= 480
+        apply_failure_to_request(req, "다운로드", "Read timeout (attempt 1)")
+        delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
+        assert 1800 <= delta <= 2250
+        apply_failure_to_request(req, "다운로드", "Read timeout (attempt 2)")
+        assert req.next_retry_at is None
 
     def test_the_retry_budget_runs_out_after_three_attempts(self):
         """More knocking does not find a door that opens; it keeps a refusal
@@ -438,9 +435,8 @@ class TestApplyFailure:
             req, "파싱", "You must wait 7 minutes before next download"
         )
         assert req.failure_kind == KIND_RATE_LIMITED
-        delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
-        # 420s + 60s margin, plus up to 25% jitter
-        assert 470 <= delta <= 610
+        assert req.next_retry_at is None
+        assert classify_error("", "You must wait 7 minutes before next download").retry_after_seconds == 420
 
     def test_unknown_three_attempts_promotes_to_unknown_terminal(self):
         req = _FakeReq()
@@ -510,7 +506,7 @@ class TestApplyFailure:
         apply_failure_to_request(req, "파싱", "1fichier 차단: 파일 삭제됨")
         apply_failure_to_request(req, "파싱", "1fichier 차단: 파일 삭제됨")
         assert req.attempt_count == 1
-        assert req.failure_kind == KIND_DEAD
+        assert req.failure_kind == KIND_SOURCE_UNCONFIRMED
 
 
 # ---------------------------------------------------------------------------
@@ -519,8 +515,8 @@ class TestApplyFailure:
 
 class TestRetryGate:
     def test_dead_column_blocks(self):
-        req = _FakeReq(failure_kind=KIND_DEAD)
-        assert is_retry_blocked_now(req, has_credentials=True) == "dead"
+        req = _FakeReq(failure_kind=KIND_SOURCE_UNCONFIRMED)
+        assert is_retry_blocked_now(req, has_credentials=True) is None
 
     def test_auth_required_blocks_only_without_credentials(self):
         req = _FakeReq(failure_kind=KIND_AUTH_REQUIRED, url="https://1fichier.com/?abc")
@@ -544,7 +540,7 @@ class TestRetryGate:
     def test_legacy_text_fallback_when_column_null(self):
         # Pre-migration record — failure_kind is empty. Fall back to the error text.
         req = _FakeReq(error="1fichier 차단: 파일 삭제됨")
-        assert is_retry_blocked_now(req, has_credentials=True) == "dead"
+        assert is_retry_blocked_now(req, has_credentials=True) is None
 
     def test_legacy_text_fallback_no_404_dead(self):
         # Core regression: a pre-migration record's one-off 404 message must no
@@ -573,11 +569,8 @@ class TestRateLimitRealWait:
             "1fichier 대기시간이 너무 깁니다 — 무료 다운로드 한도 (you must wait 240 minutes)",
         )
         assert verdict.kind == KIND_RATE_LIMITED
-        # next_retry_at ~ now + 240min (+60s margin), well beyond the old 10-min default
-        assert req.next_retry_at is not None
-        delta = (req.next_retry_at - datetime.datetime.now()).total_seconds()
-        base = 240 * 60 + 60
-        assert base - 10 <= delta <= base * 1.25 + 10
+        assert req.next_retry_at is None
+        assert classify_error("", "you must wait 240 minutes").retry_after_seconds == 14400
 
 
 class TestDailyQuotaRecovery:
@@ -597,7 +590,7 @@ class TestDailyQuotaRecovery:
         req.attempts_json = None
         second = apply_failure_to_request(req, "파싱", raw)
         assert second.kind == KIND_DAILY_QUOTA
-        assert second.next_retry_at is not None
+        assert second.next_retry_at is None
         req.attempts_json = None
         third = apply_failure_to_request(req, "파싱", raw)
         assert third.kind == KIND_DAILY_QUOTA
@@ -644,3 +637,9 @@ class TestQueuedIsNotAFailure:
 
         assert req.attempt_count == 1
         assert req.next_retry_at is not None
+
+
+def test_missing_filename_is_parser_failure_not_file_missing():
+    verdict = classify_error('다운로드', '파일명(확장자)을 확인할 수 없어 다운로드를 중단했습니다')
+    assert verdict.kind == KIND_BROWSER_PARSE
+    assert verdict.definitive is False

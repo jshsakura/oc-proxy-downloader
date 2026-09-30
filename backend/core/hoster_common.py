@@ -85,11 +85,18 @@ FLARESOLVERR_REQUEST_TIMEOUT_S = int(os.environ.get("FLARESOLVERR_REQUEST_TIMEOU
 class HosterParseError(Exception):
     """A host page could not be resolved into a downloadable file URL."""
 
+    def __init__(self, message: str, *, file_info=None):
+        super().__init__(message)
+        # Metadata already observed on the failed attempt must survive failure.
+        # No extra request is needed to identify a refused/captcha-protected file.
+        self.file_info = dict(file_info or {})
+        self.page_html = ""
+
 
 @dataclass
 class HosterParseResult:
     download_link: str
-    file_info: Optional[Dict[str, str]] = None
+    file_info: Optional[Dict[str, object]] = None
     wait_time: Optional[int] = None
     cookies: Optional[Dict[str, str]] = None
     user_agent: Optional[str] = None
@@ -175,13 +182,12 @@ def _cloudflare_challenge_seen(response=None, text: str = "") -> bool:
         return True
     status = getattr(response, "status_code", None)
     return bool(
-        status in (403, 503)
+        status in (None, 403, 503)
         and (
             "just a moment" in body
             or "checking your browser" in body
             or "challenge-platform" in body
             or "cf_chl" in body
-            or "cloudflare" in body
         )
     )
 
@@ -285,17 +291,36 @@ def _json_or_raise(response, host_label: str) -> dict:
         )
 
 
+class FlaresolverrPage(tuple):
+    """Legacy three-value page result carrying its real response context."""
+    def __new__(cls, solution, source):
+        item = super().__new__(cls, (solution.get('response') or '', _solution_cookies(solution), solution.get('url') or source))
+        item.status_code = int(solution.get('status') or 0)
+        item.user_agent = solution.get('userAgent') or None
+        return item
+
+
+def apply_flaresolverr_session(scraper, page):
+    status = getattr(page, 'status_code', 200)
+    if status != 200:
+        raise HosterParseError(f'Cloudflare 브라우저 페이지 HTTP {status}; 자동 반복 없음')
+    cookies = page[1]
+    ua = getattr(page, 'user_agent', None) or DEFAULT_HOSTER_USER_AGENT
+    try:
+        scraper.cookies.update(cookies)
+        scraper.headers['User-Agent'] = ua
+    except (AttributeError, TypeError):
+        pass
+    return status, ua
+
+
 def _get_page_with_flaresolverr(
     url: str, referer: str = "", proxies: Optional[Dict[str, str]] = None
 ) -> Optional[tuple[str, Dict[str, str], str]]:
     solution = _flaresolverr_request_get(url, referer=referer, proxies=proxies)
     if not solution:
         return None
-    return (
-        solution.get("response") or "",
-        _solution_cookies(solution),
-        solution.get("url") or url,
-    )
+    return FlaresolverrPage(solution, url)
 
 
 def _requires_turnstile(html_text: str) -> bool:
@@ -308,7 +333,12 @@ def _requires_turnstile(html_text: str) -> bool:
 
 
 def _raise_for_dead_page(host_label: str, text: str, status_code: int) -> None:
-    lowered = (text or "").lower()
+    if status_code in (401, 403, 429) or status_code >= 500:
+        raise HosterParseError(f"{host_label} 호스터 페이지 HTTP {status_code}")
+    soup = BeautifulSoup(text or "", "html.parser")
+    for node in soup.select("script, style, template"):
+        node.decompose()
+    lowered = soup.get_text(" ", strip=True).lower()
     # Specific phrases only. A bare "not found" is too broad — it appears in i18n
     # strings and inline JS bundles (MediaFire/Bunkr ship them), which would flag a
     # live page as deleted and hand it to the retry sweeper as a dead file.
@@ -322,7 +352,7 @@ def _raise_for_dead_page(host_label: str, text: str, status_code: int) -> None:
         "no longer available",
     )
     if any(marker in lowered for marker in dead_markers):
-        raise HosterParseError(f"{host_label} 파일 없음 또는 삭제됨")
+        raise HosterParseError(f"{host_label} 파일 없음 또는 삭제됨 (삭제 여부 미확인)")
     if status_code == 404:
         # A status alone can be an expired share/session URL or a temporary
         # host response. Do not permanently pin the file as deleted.

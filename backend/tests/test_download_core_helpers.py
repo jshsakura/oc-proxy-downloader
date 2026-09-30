@@ -1,3 +1,4 @@
+from pathlib import Path
 # -*- coding: utf-8 -*-
 """Verifies the pure helpers and download-context behavior of ``core.download_core``.
 
@@ -50,6 +51,10 @@ class TestFileNameReplacement:
     def test_keeps_existing_real_name(self):
         assert dc._should_replace_file_name("movie.mkv", "other.mkv") is False
 
+    @pytest.mark.parametrize('label', ['drive.google.com', 'send.now', '[UPDATE] Update v1.0.3 — (149MB) | GoFile'])
+    def test_site_name_and_version_in_display_label_are_not_file_extensions(self, label):
+        assert dc._should_replace_file_name(label, 'actual-file.rar')
+
     def test_placeholder_still_needs_preparse_even_when_size_is_known(self):
         assert dc._name_needs_resolution("1fichier:7l0ob90lh7te986slxsq") is True
 
@@ -100,6 +105,11 @@ class _FakeBody:
 
     async def read(self, size=-1):
         return self._data if size < 0 else self._data[:size]
+
+    async def iter_chunked(self, size):
+        # Network reads may split a confirmation form in the middle of a tag.
+        for start in range(0, len(self._data), 7):
+            yield self._data[start:start + 7]
 
 
 class _FakeAioResponse:
@@ -181,12 +191,17 @@ class _FakeDb:
 
 
 @pytest.mark.asyncio
-async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypatch):
+async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypatch, tmp_path):
     """The cookies/UA/Referer passed by the parser must reach both the aiohttp session and the GET request."""
 
     core = dc.DownloadCore()
     req = _FakeDownloadRequest()
     db = _FakeDb()
+    req.save_path = str(tmp_path / "movie.mkv.part")
+    payload = b"\x1a\x45\xdf\xa3" + b"x" * 128
+    async def write_download(*args, **kwargs):
+        Path(req.save_path).write_bytes(payload)
+        return len(payload)
 
     monkeypatch.setattr(dc, "send_telegram_start_notification", lambda *a, **kw: None)
     monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
@@ -195,8 +210,8 @@ async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypa
     # Avoid real file IO
     import utils.file_helpers as fh
 
-    monkeypatch.setattr(fh, "download_file_content", AsyncMock(return_value=0))
-    monkeypatch.setattr(dc, "download_file_content", AsyncMock(return_value=0))
+    monkeypatch.setattr(fh, "download_file_content", write_download)
+    monkeypatch.setattr(dc, "download_file_content", write_download)
     monkeypatch.setattr(fh, "get_final_file_path", lambda p: p)
     monkeypatch.setattr(dc, "get_final_file_path", lambda p: p)
     monkeypatch.setattr(dc.shutil, "move", lambda *a, **kw: None)
@@ -204,7 +219,7 @@ async def test_direct_download_passes_cookies_and_headers(fake_aiohttp, monkeypa
     # Set the fake response to 200
     def session_factory(*args, **kwargs):
         s = _FakeAioSession(*args, **kwargs)
-        s.response = _FakeAioResponse(200, "OK", headers={"Content-Length": "0"})
+        s.response = _FakeAioResponse(200, "OK", headers={"Content-Length": str(len(payload))})
         return s
 
     monkeypatch.setattr(dc.aiohttp, "ClientSession", session_factory)
@@ -343,7 +358,7 @@ async def test_direct_download_names_a_router_block_page_for_what_it_is(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_special_hoster_403_uses_flaresolverr_cookies_then_retries(monkeypatch):
+async def test_special_hoster_403_uses_flaresolverr_cookies_then_retries(monkeypatch, tmp_path):
     """A 403 on a special hoster's final link is retried once after obtaining FlareSolverr cookies."""
 
     core = dc.DownloadCore()
@@ -351,6 +366,11 @@ async def test_special_hoster_403_uses_flaresolverr_cookies_then_retries(monkeyp
     req.url = "https://megaup.net/code/movie.rar"
     req.original_url = req.url
     db = _FakeDb()
+    req.save_path = str(tmp_path / "movie.mkv.part")
+    payload = b"\x1a\x45\xdf\xa3" + b"x" * 128
+    async def write_download(*args, **kwargs):
+        Path(req.save_path).write_bytes(payload)
+        return len(payload)
 
     monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
     monkeypatch.setattr(dc, "send_telegram_start_notification", lambda *a, **kw: None)
@@ -362,8 +382,8 @@ async def test_special_hoster_403_uses_flaresolverr_cookies_then_retries(monkeyp
     core.send_download_update = AsyncMock()
 
     import utils.file_helpers as fh
-    monkeypatch.setattr(fh, "download_file_content", AsyncMock(return_value=0))
-    monkeypatch.setattr(dc, "download_file_content", AsyncMock(return_value=0))
+    monkeypatch.setattr(fh, "download_file_content", write_download)
+    monkeypatch.setattr(dc, "download_file_content", write_download)
     monkeypatch.setattr(fh, "get_final_file_path", lambda p: p)
     monkeypatch.setattr(dc, "get_final_file_path", lambda p: p)
     monkeypatch.setattr(dc.shutil, "move", lambda *a, **kw: None)
@@ -375,9 +395,9 @@ async def test_special_hoster_403_uses_flaresolverr_cookies_then_retries(monkeyp
             super().__init__(*args, **kwargs)
             SequenceSession.instances.append(self)
             self.response = (
-                _FakeAioResponse(403, "Forbidden")
+                _FakeAioResponse(403, "Forbidden", body=b"<html>cf-chl-challenge-platform</html>")
                 if len(SequenceSession.instances) == 1
-                else _FakeAioResponse(200, "OK", headers={"Content-Length": "0"})
+                else _FakeAioResponse(200, "OK", headers={"Content-Length": str(len(payload))})
             )
 
     monkeypatch.setattr(dc.aiohttp, "ClientSession", SequenceSession)
@@ -398,12 +418,17 @@ async def test_special_hoster_403_uses_flaresolverr_cookies_then_retries(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_direct_download_auto_reparses_on_404(monkeypatch):
+async def test_direct_download_auto_reparses_on_404(monkeypatch, tmp_path):
     """On a 404, if parse_url is given, automatically re-parse and retry with the new link."""
 
     core = dc.DownloadCore()
     req = _FakeDownloadRequest()
     db = _FakeDb()
+    req.save_path = str(tmp_path / "movie.mkv.part")
+    payload = b"\x1a\x45\xdf\xa3" + b"x" * 128
+    async def write_download(*args, **kwargs):
+        Path(req.save_path).write_bytes(payload)
+        return len(payload)
 
     monkeypatch.setattr(dc, "send_telegram_notification", lambda *a, **kw: None)
     monkeypatch.setattr(dc, "send_telegram_start_notification", lambda *a, **kw: None)
@@ -411,8 +436,8 @@ async def test_direct_download_auto_reparses_on_404(monkeypatch):
 
     # File IO mocking
     import utils.file_helpers as fh
-    monkeypatch.setattr(fh, "download_file_content", AsyncMock(return_value=0))
-    monkeypatch.setattr(dc, "download_file_content", AsyncMock(return_value=0))
+    monkeypatch.setattr(fh, "download_file_content", write_download)
+    monkeypatch.setattr(dc, "download_file_content", write_download)
     monkeypatch.setattr(fh, "get_final_file_path", lambda p: p)
     monkeypatch.setattr(dc, "get_final_file_path", lambda p: p)
     monkeypatch.setattr(dc.shutil, "move", lambda *a, **kw: None)
@@ -425,7 +450,7 @@ async def test_direct_download_auto_reparses_on_404(monkeypatch):
         if call_seq["i"] == 0:
             s.response = _FakeAioResponse(404, "Not Found")
         else:
-            s.response = _FakeAioResponse(200, "OK", headers={"Content-Length": "0"})
+            s.response = _FakeAioResponse(200, "OK", headers={"Content-Length": str(len(payload))})
         call_seq["i"] += 1
         return s
 
@@ -450,6 +475,7 @@ async def test_direct_download_auto_reparses_on_404(monkeypatch):
         user_agent="UA-old",
         referer="https://1fichier.com/?abc123",
         parse_url="https://1fichier.com/?abc123",
+        max_reparse=1,  # explicitly opted in; normal production calls never reparse
     )
 
     # Should have attempted twice (first failed, second succeeded)
@@ -509,3 +535,86 @@ async def test_reparse_for_retry_rejects_download_host(monkeypatch):
 
     assert result is None
     assert called is False
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('second_html', [False, True])
+async def test_drive_confirmation_preserves_session_and_never_replays(monkeypatch, tmp_path, second_html):
+    core, req, db = dc.DownloadCore(), _FakeDownloadRequest(), _FakeDb()
+    req.url = req.original_url = 'https://drive.google.com/file/d/file-id/view'
+    req.save_path = str(tmp_path / 'movie.mkv.part')
+    core.send_download_update = AsyncMock()
+    core._consume_response_and_finish = AsyncMock()
+    monkeypatch.setattr(dc, 'send_telegram_notification', lambda *a, **kw: None)
+    form = b'<form id="download-form" action="https://drive.usercontent.google.com/download" method="GET"><input type="hidden" name="id" value="file-id"><input type="hidden" name="confirm" value="t"></form>'
+    calls = []
+    class Session(_FakeAioSession):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.cookie_jar = [SimpleNamespace(key='download_warning', value='server-cookie')]
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs, dict(self.kwargs.get('cookies', {}))))
+            html = len(calls) == 1 or second_html
+            response = _FakeAioResponse(200, headers={'Content-Type': 'text/html' if html else 'application/octet-stream'}, body=form if html else b'PFS0')
+            response.url = url
+            return response
+    monkeypatch.setattr(dc.aiohttp, 'ClientSession', Session)
+    url = 'https://drive.usercontent.google.com/download?id=file-id&export=download'
+    if second_html:
+        with pytest.raises(Exception, match='자동 반복 없음'):
+            await core._download_file_directly(req, db, url, user_agent='UA-preserved', referer=req.url)
+        core._consume_response_and_finish.assert_not_awaited()
+        assert req.status == dc.StatusEnum.failed
+    else:
+        await core._download_file_directly(req, db, url, user_agent='UA-preserved', referer=req.url)
+        core._consume_response_and_finish.assert_awaited_once()
+    assert len(calls) == 2
+    assert 'confirm=t' in calls[1][0]
+    assert calls[1][2]['download_warning'] == 'server-cookie'
+    assert calls[1][1]['headers']['User-Agent'] == 'UA-preserved'
+    assert req.original_url == 'https://drive.google.com/file/d/file-id/view'
+
+
+@pytest.mark.asyncio
+async def test_ordinary_download_gets_filename_in_single_get_and_rejects_html(monkeypatch, tmp_path):
+    from aiohttp import web
+    core, db = dc.DownloadCore(), _FakeDb()
+    core.send_download_update = AsyncMock()
+    monkeypatch.setattr(dc, 'send_telegram_start_notification', lambda *a, **kw: None)
+    monkeypatch.setattr(dc, 'send_telegram_notification', lambda *a, **kw: None)
+    monkeypatch.setattr(dc, 'generate_file_path', lambda name, **kw: str(tmp_path / (name + '.part')))
+    monkeypatch.setattr(dc.sse_manager, 'broadcast_message', AsyncMock())
+    requests = []
+    payload = b'PFS0' + b'\x00' * 256
+    async def respond(request):
+        requests.append((request.method, request.path))
+        if request.path == '/page':
+            return web.Response(text='<html>advertisement</html>', content_type='text/html')
+        return web.Response(body=payload, headers={'Content-Disposition': "attachment; filename*=UTF-8''%EA%B2%8C%EC%9E%84.nsp"}, content_type='application/octet-stream')
+    app = web.Application()
+    app.router.add_route('*', '/{path}', respond)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    server = web.TCPSite(runner, '127.0.0.1', 0)
+    await server.start()
+    port = server._server.sockets[0].getsockname()[1]
+    try:
+        req = _FakeDownloadRequest()
+        req.url = req.original_url = f'http://127.0.0.1:{port}/file'
+        req.save_path = None
+        req.file_name = None
+        req.status = dc.StatusEnum.downloading
+        await core._perform_local_download_async(req, db)
+        assert req.status == dc.StatusEnum.done
+        assert req.file_name == '게임.nsp'
+        assert Path(req.save_path).read_bytes() == payload
+        assert requests == [('GET', '/file')]
+        page = _FakeDownloadRequest()
+        page.url = page.original_url = f'http://127.0.0.1:{port}/page'
+        page.save_path = str(tmp_path / 'page.nsp.part')
+        page.status = dc.StatusEnum.downloading
+        await core._perform_file_download_async(page, db)
+        assert page.status == dc.StatusEnum.failed
+        assert not Path(page.save_path).exists()
+        assert requests == [('GET', '/file'), ('GET', '/page')]
+    finally:
+        await runner.cleanup()

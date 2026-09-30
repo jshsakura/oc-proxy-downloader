@@ -25,6 +25,7 @@ def test_rootz_reuses_page_metadata_without_fetching_it_again(monkeypatch, state
         def json(self):
             return {"success": True, "data": {
                 "status": state, "fileName": "test.nsp", "size": 1024,
+                "fileId": "internal-file-id",
                 "downloadAllowed": state == "active", "passwordProtected": False,
             }}
 
@@ -42,6 +43,7 @@ def test_rootz_reuses_page_metadata_without_fetching_it_again(monkeypatch, state
         def evaluate(self, script, *_args):
             evaluations.append(script)
             if "proxy-download" in script:
+                assert _args == ("internal-file-id",)
                 return {"url": "https://cdn-files.alcyone.so/test.nsp"}
             return "test-agent"
 
@@ -71,12 +73,13 @@ def test_rootz_reuses_page_metadata_without_fetching_it_again(monkeypatch, state
     if state == "active":
         direct, info, agent = bs.resolve_rootz_page("https://www.rootz.so/d/abc123")
         assert direct == expected
-        assert info == {"name": "test.nsp", "size": "1.00 KB"}
+        assert info == {"name": "test.nsp", "size": "1.00 KB", "size_bytes": 1024}
         assert agent == "test-agent"
         assert len(evaluations) == 2  # one HEAD, one user-agent read
     else:
-        with pytest.raises(HosterParseError, match=expected):
+        with pytest.raises(HosterParseError, match=expected) as failure:
             bs.resolve_rootz_page("https://www.rootz.so/d/abc123")
+        assert failure.value.file_info == {"name": "test.nsp", "size": "1.00 KB", "size_bytes": 1024}
         assert not evaluations  # a deleted file must not request a link
 
 
@@ -594,6 +597,25 @@ def test_mixdrop_delivery_navigation_is_captured_without_starting_browser_transf
     assert calls == [{"status": 204, "body": ""}]
 
 
+@pytest.mark.parametrize('navigation', [True, False])
+def test_download_form_does_not_repeat_stage_when_nonce_changes(navigation):
+    from types import SimpleNamespace
+    frame = object()
+    page = SimpleNamespace(main_frame=frame, url='https://send.now/abcdefghijkl')
+    captured, calls = {}, []
+    def post(body):
+        request = SimpleNamespace(url=page.url, frame=frame, method='POST',
+            post_data=body, is_navigation_request=lambda: navigation)
+        route = SimpleNamespace(request=request, continue_=lambda: calls.append('sent'),
+            fulfill=lambda **kw: calls.append('stopped'))
+        bs._guard_hoster_navigation(route, page, page.url, captured)
+    post('op=download1&id=abcdefghijkl&rand=first')
+    post('op=download2&id=abcdefghijkl&rand=next&download_a=1')
+    post('op=download2&id=abcdefghijkl&rand=changed&download_a=1')
+    assert calls == ['sent', 'sent', 'stopped']
+    assert captured['error']
+
+
 def test_queued_solve_gives_up_when_no_useful_time_remains(monkeypatch):
     """Rather than start a browser it cannot finish, a link that waited too long
     fails as transient so the retry logic picks it up later."""
@@ -693,3 +715,87 @@ def test_browser_support_follows_the_display(monkeypatch):
     assert bs.is_browser_supported()
     monkeypatch.delenv("DISPLAY", raising=False)
     assert not bs.is_browser_supported()
+
+
+def test_akira_programmatic_widget_is_found_without_cf_turnstile_class():
+    from bs4 import BeautifulSoup
+    html = '''<div id="download-button"><a id="download">Confirm below</a>
+    <div class="mt-4"><div class="flex"><div><div></div>
+    <input type="hidden" name="cf-turnstile-response"></div></div></div></div>'''
+    soup = BeautifulSoup(html, 'html.parser')
+    assert not soup.select('.cf-turnstile')
+    assert len(soup.select(bs.AKIRABOX_FLOW.widget_selector)) == 1
+
+    class Locator:
+        @property
+        def first(self): return self
+        def count(self): return len(soup.select(bs.AKIRABOX_FLOW.widget_selector))
+        def bounding_box(self): return {'x': 480, 'y': 470, 'width': 300, 'height': 65}
+    class Page:
+        def locator(self, selector):
+            assert selector == bs.AKIRABOX_FLOW.widget_selector
+            return Locator()
+    assert bs._turnstile_box(Page(), bs.AKIRABOX_FLOW.widget_selector)['height'] == 65
+
+
+def test_akira_normal_domain_migration_is_not_blocked_as_an_ad():
+    from types import SimpleNamespace
+    page = SimpleNamespace(url='https://akirabox.com/abc/file', main_frame=object())
+    calls = []
+    request = SimpleNamespace(url='https://akirabox.to/abc/file', frame=page.main_frame,
+                              method='GET', is_navigation_request=lambda: True)
+    route = SimpleNamespace(request=request, continue_=lambda: calls.append('continue'),
+                            fulfill=lambda **kw: calls.append('blocked'))
+    bs._guard_hoster_navigation(route, page, page.url, {})
+    assert calls == ['continue']
+
+
+@pytest.mark.parametrize('button_id', ['download', 'download-button'])
+def test_akira_current_and_legacy_issued_buttons(button_id):
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(f'<a id="{button_id}" href="https://akirabox.com/download/token/file.nsp">Download</a>', 'html.parser')
+    assert len(soup.select(bs.AKIRABOX_FLOW.direct_link_selector)) == 1
+
+
+@pytest.mark.parametrize('status,location,success', [
+    (302, 'https://eufb.akirabox.xyz/file.nsp?access=keep%2Bexact', True),
+    (302, 'https://eufb.akirabox.xyz.evil.example/file.nsp', False),
+    (302, 'https://user@eufb.akirabox.xyz/file.nsp', False),
+    (302, '', False),
+    (403, '', False),
+    (200, '', False),
+])
+def test_akira_header_only_storage_handoff_never_repeats_or_downloads_a_probe(monkeypatch, status, location, success):
+    from types import SimpleNamespace
+    from contextlib import nullcontext
+    calls = []
+    response = SimpleNamespace(status_code=status, headers={'Location': location})
+    class Session:
+        proxies = {}
+        cookies = {}
+        trust_env = True
+        def __enter__(self): return self
+        def __exit__(self, *_args): pass
+        def get(self, url, **kwargs):
+            assert self.trust_env is False
+            calls.append((url, kwargs))
+            return nullcontext(response)
+    monkeypatch.setattr(bs.requests, 'Session', Session)
+    page = SimpleNamespace(url='https://akirabox.to/id/file', evaluate=lambda _: 'browser-UA')
+    context = SimpleNamespace(cookies=lambda: [_cookie('com', '.akirabox.com'), _cookie('to', '.akirabox.to')])
+    issued = 'https://akirabox.com/download/token/file.nsp?signature=keep%2Bexact'
+    if success:
+        assert bs._follow_akira_issued_redirect(page, context, issued) == location
+    else:
+        with pytest.raises(HosterParseError):bs._follow_akira_issued_redirect(page, context, issued)
+    assert len(calls) == 1
+    assert calls[0][0] == issued
+    assert calls[0][1]['stream'] is True
+    assert calls[0][1]['allow_redirects'] is False
+    assert calls[0][1]['headers']['User-Agent'] == 'browser-UA'
+    assert Session.cookies == {'com': 'v'}
+
+
+def test_akira_page_cookie_is_not_sent_to_storage():
+    raw = [_cookie('page_session', '.akirabox.to'), _cookie('storage_session', '.akirabox.xyz')]
+    assert bs._usable_cookies(raw, 'https://eufb.akirabox.xyz/file.nsp') == {'storage_session': 'v'}

@@ -18,7 +18,7 @@ import asyncio
 
 import pytest
 
-from core.error_messages import KIND_DEAD, KIND_TRANSIENT, KIND_UNKNOWN
+from core.error_messages import KIND_SOURCE_UNCONFIRMED, KIND_TRANSIENT, KIND_UNKNOWN
 from services import link_probe
 from services.host_probe_rules import find_dead_marker, looks_like_a_file_page
 from services.link_probe import KIND_ALIVE, probe_url
@@ -96,13 +96,13 @@ def _no_throttle(monkeypatch):
 class TestDeadPages:
 
     @pytest.mark.parametrize("url", list(DEAD_PAGES))
-    def test_a_gone_file_is_pinned_dead(self, url, monkeypatch):
+    def test_a_missing_page_stays_unconfirmed(self, url, monkeypatch):
         monkeypatch.setattr(link_probe.httpx, "AsyncClient", _serve(DEAD_PAGES))
 
         probe = asyncio.run(probe_url(url))
 
-        assert probe.kind == KIND_DEAD
-        assert probe.definitive is True
+        assert probe.kind == KIND_SOURCE_UNCONFIRMED
+        assert probe.definitive is False
 
     def test_send_now_is_caught_despite_answering_200(self, monkeypatch):
         """The capture that rules out judging by status code alone."""
@@ -112,7 +112,7 @@ class TestDeadPages:
         probe = asyncio.run(probe_url(url))
 
         assert probe.raw_status == 200
-        assert probe.kind == KIND_DEAD
+        assert probe.kind == KIND_SOURCE_UNCONFIRMED
 
 
 class TestLivePages:

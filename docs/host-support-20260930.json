@@ -1,0 +1,2207 @@
+{
+  "generated_at": "2026-09-30T03:45:16.758799+00:00",
+  "count_basis": "exported snapshot; excludes later collector changes",
+  "snapshot_urls": 29985,
+  "raw_domains": 140,
+  "group_count": 35,
+  "deployment_image": "oc-proxy-downloader:akira-storage-handoff-20260930",
+  "deployment_image_id": "sha256:c70c2f763598bb59db7de49cfe51d6b99d8961c29224f0f5a4de5a231ac2614b",
+  "backend_tests_passed": 1265,
+  "backend_tests_skipped": 1,
+  "registration_does_not_prove_live_support": true,
+  "grouped": [
+    {
+      "host": "1fichier.com",
+      "snapshot_url_count": 11732,
+      "domain_count": 1,
+      "domains": [
+        "1fichier.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "whole_file",
+      "observed": "운영 2598 전체 1,666,813,160B 완료. 무료 대기시간 동안 다음 요청 없음.",
+      "contract": "무료 회선당 1개 고정",
+      "evidence_path": null
+    },
+    {
+      "host": "multiup.io",
+      "snapshot_url_count": 4140,
+      "domain_count": 1,
+      "domains": [
+        "multiup.io"
+      ],
+      "max_transfers": 1,
+      "outcome": "container_to_whole_file",
+      "observed": "145512 미러 목록 → GoFile → 실제 DownloadCore done 363,144,192B.",
+      "contract": "목록 1개 조회; 실제 미러 호스트 슬롯으로 인계",
+      "evidence_path": "/tmp/oc-host-audit-20260930/core-145512/result.json"
+    },
+    {
+      "host": "datanodes.to",
+      "snapshot_url_count": 3636,
+      "domain_count": 1,
+      "domains": [
+        "datanodes.to"
+      ],
+      "max_transfers": 1,
+      "outcome": "whole_file",
+      "observed": "145910 전체 119,053B; 운영 2602/2603도 전체 완료.",
+      "contract": "다중 전송 한도는 보수적으로 1",
+      "evidence_path": "/tmp/oc-host-audit-20260930/datanodes-145910/145910.json"
+    },
+    {
+      "host": "send.now",
+      "snapshot_url_count": 2499,
+      "domain_count": 1,
+      "domains": [
+        "send.now"
+      ],
+      "max_transfers": 1,
+      "outcome": "whole_file",
+      "observed": "145126 전체 156,440,480B. 실패2605/원본135738도 정확 같은 발급 주소 재사용하여 44,273,222B/RAR/SHA256 전체 완료·운영 done; 페이지 재접속 없음.",
+      "contract": "정상 download1/download2 폼; 전용 파일 카드와 Download 크기 확인. 광고 업로드 한도·파일 ID 제목은 파일 메타데이터로 사용하지 않음.",
+      "evidence_path": "/tmp/oc-host-audit-20260930/sendnow-145126-parser/145126.json"
+    },
+    {
+      "host": "megaup.net",
+      "snapshot_url_count": 1832,
+      "domain_count": 1,
+      "domains": [
+        "megaup.net"
+      ],
+      "max_transfers": 1,
+      "outcome": "whole_file",
+      "observed": "145125 실제 DownloadCore done 156,440,480B.",
+      "contract": "FS 200 이후 기존 403 오판 및 UA 불일치 교정",
+      "evidence_path": "/tmp/oc-host-audit-20260930/core-145125/result.json"
+    },
+    {
+      "host": "rapidgator.net",
+      "snapshot_url_count": 1782,
+      "domain_count": 1,
+      "domains": [
+        "rapidgator.net"
+      ],
+      "max_transfers": 1,
+      "outcome": "free_flow_incomplete",
+      "observed": "145915 무료 500MB 이하/1개/120분당 1파일 안내 확인. 145127 149MB 무료 흐름은 캡차 제출 폼에서 멈춤; 저장 DOM으로 정상 제출 단계 교정, 이후 실파일 발급 성공 근거 없음.",
+      "contract": "무료 1개 고정; 시간 제한 준수; 자동 재방문 없음",
+      "evidence_path": "/tmp/oc-host-audit-20260930/rapidgator-145127-parser/"
+    },
+    {
+      "host": "gofile.io",
+      "snapshot_url_count": 1347,
+      "domain_count": 1,
+      "domains": [
+        "gofile.io"
+      ],
+      "max_transfers": 3,
+      "outcome": "three_overlapping_whole_files",
+      "observed": "무료 웹 세션으로 145129 전체 156,440,480B. 143992/138587/143980 세 파일 동시 GET, 전부 전체 완료.",
+      "contract": "API 키·등록 없이 정상 웹 경로; 전송 3개 실증",
+      "evidence_path": "/tmp/oc-host-audit-20260930/gofile-parallel/"
+    },
+    {
+      "host": "mega.nz",
+      "snapshot_url_count": 888,
+      "domain_count": 1,
+      "domains": [
+        "mega.nz"
+      ],
+      "max_transfers": 1,
+      "outcome": "source_unconfirmed",
+      "observed": "102638 원로그: 공개 메타데이터 API -16(EBLOCKED), 파일 GET 0. 이전 -9 기록을 정정함. 이 링크의 차단 응답이며 서비스 전체 미지원·삭제 확정과 구분. 과거 done 4개는 현재 전송 성공 근거와 분리.",
+      "contract": "익명 공개 링크 복호화; MAC 불일치는 완료 금지",
+      "evidence_path": "/tmp/oc-host-audit-20260930/core-102638/result.json",
+      "actual_api_error_code": -16
+    },
+    {
+      "host": "filekeeper.net",
+      "snapshot_url_count": 314,
+      "domain_count": 1,
+      "domains": [
+        "filekeeper.net"
+      ],
+      "max_transfers": 1,
+      "outcome": "whole_file",
+      "observed": "145507 전체 446,871,418B; 수정 파서 145511 전체 363,144,192B.",
+      "contract": "게시된 5초 대기·download2·dlproxy 저장 서버",
+      "evidence_path": "/tmp/oc-host-audit-20260930/filekeeper-145511-parser/145511.json"
+    },
+    {
+      "host": "zippyshare.com",
+      "snapshot_url_count": 238,
+      "domain_count": 102,
+      "domains": [
+        "www62.zippyshare.com",
+        "www53.zippyshare.com",
+        "www96.zippyshare.com",
+        "www16.zippyshare.com",
+        "www6.zippyshare.com",
+        "www9.zippyshare.com",
+        "www63.zippyshare.com",
+        "www119.zippyshare.com",
+        "www93.zippyshare.com",
+        "www75.zippyshare.com",
+        "www91.zippyshare.com",
+        "www94.zippyshare.com",
+        "www18.zippyshare.com",
+        "www2.zippyshare.com",
+        "www84.zippyshare.com",
+        "www23.zippyshare.com",
+        "www106.zippyshare.com",
+        "www40.zippyshare.com",
+        "www35.zippyshare.com",
+        "www92.zippyshare.com",
+        "www99.zippyshare.com",
+        "www34.zippyshare.com",
+        "www48.zippyshare.com",
+        "www38.zippyshare.com",
+        "www30.zippyshare.com",
+        "www17.zippyshare.com",
+        "www41.zippyshare.com",
+        "www64.zippyshare.com",
+        "www10.zippyshare.com",
+        "www88.zippyshare.com",
+        "www28.zippyshare.com",
+        "www11.zippyshare.com",
+        "www110.zippyshare.com",
+        "www61.zippyshare.com",
+        "www87.zippyshare.com",
+        "www57.zippyshare.com",
+        "www102.zippyshare.com",
+        "www120.zippyshare.com",
+        "www112.zippyshare.com",
+        "www36.zippyshare.com",
+        "www111.zippyshare.com",
+        "www90.zippyshare.com",
+        "www100.zippyshare.com",
+        "www46.zippyshare.com",
+        "www78.zippyshare.com",
+        "www50.zippyshare.com",
+        "www21.zippyshare.com",
+        "www108.zippyshare.com",
+        "www5.zippyshare.com",
+        "www26.zippyshare.com",
+        "www79.zippyshare.com",
+        "www113.zippyshare.com",
+        "www72.zippyshare.com",
+        "www43.zippyshare.com",
+        "www27.zippyshare.com",
+        "www25.zippyshare.com",
+        "www104.zippyshare.com",
+        "www33.zippyshare.com",
+        "www37.zippyshare.com",
+        "www83.zippyshare.com",
+        "www95.zippyshare.com",
+        "www76.zippyshare.com",
+        "www42.zippyshare.com",
+        "www19.zippyshare.com",
+        "www65.zippyshare.com",
+        "www8.zippyshare.com",
+        "www45.zippyshare.com",
+        "www56.zippyshare.com",
+        "www118.zippyshare.com",
+        "www81.zippyshare.com",
+        "www4.zippyshare.com",
+        "www70.zippyshare.com",
+        "www80.zippyshare.com",
+        "www1.zippyshare.com",
+        "www54.zippyshare.com",
+        "www51.zippyshare.com",
+        "www97.zippyshare.com",
+        "www77.zippyshare.com",
+        "www3.zippyshare.com",
+        "www32.zippyshare.com",
+        "www14.zippyshare.com",
+        "www115.zippyshare.com",
+        "www117.zippyshare.com",
+        "www39.zippyshare.com",
+        "www68.zippyshare.com",
+        "www73.zippyshare.com",
+        "www74.zippyshare.com",
+        "www22.zippyshare.com",
+        "www82.zippyshare.com",
+        "www103.zippyshare.com",
+        "www44.zippyshare.com",
+        "www109.zippyshare.com",
+        "www12.zippyshare.com",
+        "www89.zippyshare.com",
+        "www49.zippyshare.com",
+        "www47.zippyshare.com",
+        "www114.zippyshare.com",
+        "www107.zippyshare.com",
+        "www52.zippyshare.com",
+        "www29.zippyshare.com",
+        "www24.zippyshare.com",
+        "www60.zippyshare.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "service_ended",
+      "observed": "104920 HTTP200 공식 종료 안내 Herelies Zippyshare [2006-2023]. 서버 102개 같은 서비스.",
+      "contract": "이후 자동 접속 없음; 수집 원본 보존",
+      "evidence_path": "/tmp/oc-host-audit-20260930/zippyshare-104920/"
+    },
+    {
+      "host": "tusfiles.com",
+      "snapshot_url_count": 222,
+      "domain_count": 1,
+      "domains": [
+        "tusfiles.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "redirect_lost_file_id",
+      "observed": "104231/104225 실제 리다이렉트가 Send.cm 루트로 파일 ID를 잃음. 이 링크로 파일 발급 불가.",
+      "contract": "원래 ID 유지한 정상 이동만 Send.now 인계; ID 임의 생성 금지",
+      "evidence_path": "/tmp/oc-host-audit-20260930/tusfiles-104225-parser/"
+    },
+    {
+      "host": "uptobox.com",
+      "snapshot_url_count": 220,
+      "domain_count": 1,
+      "domains": [
+        "uptobox.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "host_unreachable",
+      "observed": "104887 HTTP522, 파일 GET 0.",
+      "contract": "사이트 폼 파서 유지; 삭제 확정 및 반복 요청 없음",
+      "evidence_path": "/tmp/oc-host-audit-20260930/uptobox-104887/"
+    },
+    {
+      "host": "vikingfile.com / vik1ngfile.site",
+      "snapshot_url_count": 124,
+      "domain_count": 2,
+      "domains": [
+        "vikingfile.com",
+        "vik1ngfile.site"
+      ],
+      "max_transfers": 3,
+      "outcome": "three_overlapping_whole_files",
+      "observed": "운영 2592/2593/2595 전송 겹침 및 완료; 1,310,705,430/685,944,085/520,156,512B.",
+      "contract": "이 회선에서 3개 실증; 거부 응답이면 한도 축소",
+      "evidence_path": null
+    },
+    {
+      "host": "rootz.so",
+      "snapshot_url_count": 114,
+      "domain_count": 1,
+      "domains": [
+        "rootz.so"
+      ],
+      "max_transfers": 1,
+      "outcome": "whole_file",
+      "observed": "144576 전체 720,235,344B; 2596 정확 BASE B 미러 11,303,142,167B 완료.",
+      "contract": "원본 및 실패 이력 보존; 구조화 삭제 응답도 관찰 상태",
+      "evidence_path": null
+    },
+    {
+      "host": "akirabox.com",
+      "snapshot_url_count": 112,
+      "domain_count": 1,
+      "domains": [
+        "akirabox.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "file_server_refused",
+      "observed": "145105에서 확인 위젯 누락 확인·교정. 수정 후145075/145090 정상 확인 및 서명URL 발급 성공. 실제 Python GET과 Chrome GET 모두 저장 서버403/39B The link is not available at this time. 전체 전송0. 새145052도 기존 고정 VPN으로 파싱과 전송 회선을 일치시킨 단회 GET403. API키/계정등록 없이 전체 전송은 아직 실패 상태. 공개 구현 비교 후 새145044 정상 버튼302→403. 새145035 최종 파서 저장URL 추출 성공, 저장 서버 GET1회403/39B/전체0.",
+      "contract": "현재·구형 버튼/위젯 지원, 동일 브라우저 세션과 회선으로 발급 URL GET1회 후 저장 Location 원문 전달. 사전 파일본문/HEAD/자동반복 없음. 저장 쿠키만 전달, 원본 보존. 운영 반영 완료.",
+      "evidence_path": ".omo/artifacts/downloader-akira-public-research-20260930.json"
+    },
+    {
+      "host": "datavaults.co",
+      "snapshot_url_count": 111,
+      "domain_count": 1,
+      "domains": [
+        "datavaults.co"
+      ],
+      "max_transfers": 1,
+      "outcome": "human_verification_required",
+      "observed": "144755 무료 폼 단회 제출 뒤 reCAPTCHA v2. 파일 URL·전송 없음.",
+      "contract": "기존 무조건 실패 stub 교정; 사람 확인 없이 성공 표시 금지",
+      "evidence_path": null
+    },
+    {
+      "host": "mediafire.com",
+      "snapshot_url_count": 101,
+      "domain_count": 1,
+      "domains": [
+        "mediafire.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "whole_file",
+      "observed": "102586 전체 362,641,878B/RAR/SHA256.",
+      "contract": "페이지의 정상 저장 서버 링크",
+      "evidence_path": "/tmp/oc-host-audit-20260930/mediafire-102586/102586.json"
+    },
+    {
+      "host": "clicknupload (to/cc/red/co)",
+      "snapshot_url_count": 86,
+      "domain_count": 4,
+      "domains": [
+        "clicknupload.to",
+        "clicknupload.cc",
+        "clicknupload.red",
+        "clicknupload.co"
+      ],
+      "max_transfers": 1,
+      "outcome": "source_unconfirmed",
+      "observed": "104682 HTTP200 File Not Found 응답. 파일 GET 0.",
+      "contract": "일반 표식만으로 삭제 확정하지 않음",
+      "evidence_path": "/tmp/oc-host-audit-20260930/clicknupload-104682/"
+    },
+    {
+      "host": "letsupload.io",
+      "snapshot_url_count": 81,
+      "domain_count": 1,
+      "domains": [
+        "letsupload.io"
+      ],
+      "max_transfers": 1,
+      "outcome": "domain_for_sale",
+      "observed": "104922 HTTP200 도메인 판매/소유자 문의 화면. 현재 파일 서비스가 아님.",
+      "contract": "이후 자동 접속 없음; 원본 보존",
+      "evidence_path": "/tmp/oc-host-audit-20260930/letsupload-104922/"
+    },
+    {
+      "host": "send.cm",
+      "snapshot_url_count": 70,
+      "domain_count": 1,
+      "domains": [
+        "send.cm"
+      ],
+      "max_transfers": 1,
+      "outcome": "whole_file",
+      "observed": "104868 실제 같은 ID Send.now 이동 후 전체 43,269,513B.",
+      "contract": "Send.now와 같은 슬롯 사용; 루트 이동은 ID 불일치",
+      "evidence_path": "/tmp/oc-host-audit-20260930/sendcm-104868/browser-continuation/download2/transfer/104868.json"
+    },
+    {
+      "host": "filecrypt.cc",
+      "snapshot_url_count": 65,
+      "domain_count": 1,
+      "domains": [
+        "filecrypt.cc"
+      ],
+      "max_transfers": 1,
+      "outcome": "security_check_reappeared",
+      "observed": "144754 및 새 145049 단회 자체 PoW 진행·제출 뒤 같은 Security Check 재등장. 145049 진행률 86.4%; 미러 0/파일 GET 0.",
+      "contract": "내부 900초/외부 960초; 큐 대기 제외; PoW 시간초과를 삭제로 처리 금지",
+      "evidence_path": "/tmp/oc-host-audit-20260930/filecrypt-145049/result.json"
+    },
+    {
+      "host": "doodrive.com",
+      "snapshot_url_count": 59,
+      "domain_count": 1,
+      "domains": [
+        "doodrive.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "source_unconfirmed",
+      "observed": "104907 GET403; 새 104912 실제 CF 페이지에만 FS 1회 사용, 최종 File Not Found. 파일 GET 0.",
+      "contract": "일반 403에 FS 반복 없음; 삭제 확정 아님",
+      "evidence_path": "/tmp/oc-host-audit-20260930/doodrive-104912-fallback/"
+    },
+    {
+      "host": "filerio.in",
+      "snapshot_url_count": 46,
+      "domain_count": 1,
+      "domains": [
+        "filerio.in"
+      ],
+      "max_transfers": 1,
+      "outcome": "tls_connection_failed",
+      "observed": "104886 TLS unexpected EOF. 파일 GET 0.",
+      "contract": "인증서 검증 해제·노드 순회 없음",
+      "evidence_path": "/tmp/oc-host-audit-20260930/filerio-104886/"
+    },
+    {
+      "host": "teraboxapp.com",
+      "snapshot_url_count": 37,
+      "domain_count": 1,
+      "domains": [
+        "teraboxapp.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "login_required_after_download",
+      "observed": "145041 정상 Download 단회 클릭 뒤 실제 로그인 창. 파일 URL·전송 없음.",
+      "contract": "단순 로그인 링크나 리다이렉트로 권한 확정하지 않음",
+      "evidence_path": "/tmp/oc-host-audit-20260930/teraboxapp-145041/"
+    },
+    {
+      "host": "frdl.my",
+      "snapshot_url_count": 34,
+      "domain_count": 1,
+      "domains": [
+        "frdl.my"
+      ],
+      "max_transfers": 1,
+      "outcome": "source_unconfirmed",
+      "observed": "19977 HTTP404. 파일 GET 0.",
+      "contract": "단발 404로 삭제 확정·원본 제외 없음",
+      "evidence_path": "/tmp/oc-host-audit-20260930/frdl-19977/"
+    },
+    {
+      "host": "ouo.io",
+      "snapshot_url_count": 26,
+      "domain_count": 1,
+      "domains": [
+        "ouo.io"
+      ],
+      "max_transfers": 1,
+      "outcome": "container_flow_incomplete",
+      "observed": "131810 CF403. 131809 정상 버튼 흐름 중 브라우저 route 오류로 단회 실행 중단. 저장 증거로 frame guard/전용 executor 교정; 이후 최종 URL 추출 성공 근거 없음.",
+      "contract": "파일 호스터 아님; 정상 최종 주소를 실제 호스트에 인계",
+      "evidence_path": "/tmp/oc-host-audit-20260930/ouo-131809/result.json"
+    },
+    {
+      "host": "bayfiles.com",
+      "snapshot_url_count": 22,
+      "domain_count": 1,
+      "domains": [
+        "bayfiles.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "dns_connection_failed",
+      "observed": "104268 DNS/연결 실패. 파일 GET 0.",
+      "contract": "삭제·서비스 종료 확정 아님",
+      "evidence_path": "/tmp/oc-host-audit-20260930/bayfiles-104268/"
+    },
+    {
+      "host": "solidfiles.com",
+      "snapshot_url_count": 20,
+      "domain_count": 1,
+      "domains": [
+        "solidfiles.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "dns_connection_failed",
+      "observed": "102845 DNS/연결 실패. 파일 GET 0.",
+      "contract": "삭제·서비스 종료 확정 아님",
+      "evidence_path": "/tmp/oc-host-audit-20260930/solidfiles-102845/"
+    },
+    {
+      "host": "pixeldrain.com",
+      "snapshot_url_count": 9,
+      "domain_count": 1,
+      "domains": [
+        "pixeldrain.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "whole_file",
+      "observed": "102032 전체 9,885,570B/RAR/SHA256.",
+      "contract": "단일 공개 파일; 앨범은 파일 선택 필요",
+      "evidence_path": "/tmp/oc-host-audit-20260930/pixeldrain-102032/102032.json"
+    },
+    {
+      "host": "momerybox.com",
+      "snapshot_url_count": 7,
+      "domain_count": 1,
+      "domains": [
+        "momerybox.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "login_required_after_download",
+      "observed": "145101 정확 Part3 메타데이터 1,431,040,148B 확인; 정상 Download 후 로그인 창. 파일 전송 없음.",
+      "contract": "같은 공유 세션으로 확인; 다른 파트 교체 금지",
+      "evidence_path": null
+    },
+    {
+      "host": "bowfile.com",
+      "snapshot_url_count": 5,
+      "domain_count": 1,
+      "domains": [
+        "bowfile.com"
+      ],
+      "max_transfers": 1,
+      "outcome": "source_unconfirmed",
+      "observed": "102071 HTTP404. 파일 GET 0.",
+      "contract": "단발 응답으로 삭제 확정하지 않음",
+      "evidence_path": "/tmp/oc-host-audit-20260930/bowfile-102071/"
+    },
+    {
+      "host": "qiwi.gg",
+      "snapshot_url_count": 2,
+      "domain_count": 1,
+      "domains": [
+        "qiwi.gg"
+      ],
+      "max_transfers": 1,
+      "outcome": "unexpected_redirect",
+      "observed": "103101 CF403; 새 103095 CF에만 FS 1회, 등록 출처와 다른 호스트로 이동하여 중단. 파일 GET 0.",
+      "contract": "임의 타 서비스 ID 추정·광고 완료 처리 없음",
+      "evidence_path": "/tmp/oc-host-audit-20260930/qiwi-103095-fallback/"
+    },
+    {
+      "host": "discord.gg",
+      "snapshot_url_count": 2,
+      "domain_count": 1,
+      "domains": [
+        "discord.gg"
+      ],
+      "max_transfers": null,
+      "outcome": "non_file_url",
+      "observed": "수집기 광고/초대 항목 정리 완료. 과거 done1은 실파일 성공 근거 없음.",
+      "contract": "파일 호스트 목록에서 제외; 수집 원본 보존",
+      "evidence_path": null
+    },
+    {
+      "host": "go.nordvpn.net",
+      "snapshot_url_count": 1,
+      "domain_count": 1,
+      "domains": [
+        "go.nordvpn.net"
+      ],
+      "max_transfers": null,
+      "outcome": "non_file_url",
+      "observed": "수집기 광고 항목 정리 완료. 외부 probe 없음.",
+      "contract": "파일 호스트 목록에서 제외",
+      "evidence_path": null
+    },
+    {
+      "host": "clickndownload.org",
+      "snapshot_url_count": 1,
+      "domain_count": 1,
+      "domains": [
+        "clickndownload.org"
+      ],
+      "max_transfers": 1,
+      "outcome": "source_unconfirmed",
+      "observed": "102402 HTTP200 File Not Found. 파일 GET 0.",
+      "contract": "ClicknUpload와 동일 슬롯 계열; 삭제 확정 없음",
+      "evidence_path": "/tmp/oc-host-audit-20260930/clickndownload-102402/"
+    }
+  ],
+  "domains": [
+    {
+      "domain": "1fichier.com",
+      "group": "1fichier.com",
+      "snapshot_url_count": 11732,
+      "parser_kind": "dedicated_1fichier",
+      "resolver": "dedicated_1fichier",
+      "max_transfers": 1,
+      "historical_done": 825,
+      "evidence": "whole_file"
+    },
+    {
+      "domain": "multiup.io",
+      "group": "multiup.io",
+      "snapshot_url_count": 4140,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_multiup_sync",
+      "max_transfers": 1,
+      "historical_done": 10,
+      "evidence": "container_to_whole_file"
+    },
+    {
+      "domain": "datanodes.to",
+      "group": "datanodes.to",
+      "snapshot_url_count": 3636,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_datanodes_sync",
+      "max_transfers": 1,
+      "historical_done": 1233,
+      "evidence": "whole_file"
+    },
+    {
+      "domain": "send.now",
+      "group": "send.now",
+      "snapshot_url_count": 2499,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_blocked_hoster_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "whole_file"
+    },
+    {
+      "domain": "megaup.net",
+      "group": "megaup.net",
+      "snapshot_url_count": 1832,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_megaup_sync",
+      "max_transfers": 1,
+      "historical_done": 32,
+      "evidence": "whole_file"
+    },
+    {
+      "domain": "rapidgator.net",
+      "group": "rapidgator.net",
+      "snapshot_url_count": 1782,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_rapidgator_free_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "free_flow_incomplete"
+    },
+    {
+      "domain": "gofile.io",
+      "group": "gofile.io",
+      "snapshot_url_count": 1347,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_gofile_sync",
+      "max_transfers": 3,
+      "historical_done": 0,
+      "evidence": "three_overlapping_whole_files"
+    },
+    {
+      "domain": "mega.nz",
+      "group": "mega.nz",
+      "snapshot_url_count": 888,
+      "parser_kind": "dedicated_mega",
+      "resolver": "dedicated_mega",
+      "max_transfers": 1,
+      "historical_done": 4,
+      "evidence": "source_unconfirmed"
+    },
+    {
+      "domain": "filekeeper.net",
+      "group": "filekeeper.net",
+      "snapshot_url_count": 314,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_filekeeper_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "whole_file"
+    },
+    {
+      "domain": "tusfiles.com",
+      "group": "tusfiles.com",
+      "snapshot_url_count": 222,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_tusfiles_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "redirect_lost_file_id"
+    },
+    {
+      "domain": "uptobox.com",
+      "group": "uptobox.com",
+      "snapshot_url_count": 220,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_uptobox_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "host_unreachable"
+    },
+    {
+      "domain": "vikingfile.com",
+      "group": "vikingfile.com / vik1ngfile.site",
+      "snapshot_url_count": 115,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_vikingfile_sync",
+      "max_transfers": 3,
+      "historical_done": 2,
+      "evidence": "three_overlapping_whole_files"
+    },
+    {
+      "domain": "rootz.so",
+      "group": "rootz.so",
+      "snapshot_url_count": 114,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_rootz_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "whole_file"
+    },
+    {
+      "domain": "akirabox.com",
+      "group": "akirabox.com",
+      "snapshot_url_count": 112,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_akirabox_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "file_server_refused"
+    },
+    {
+      "domain": "datavaults.co",
+      "group": "datavaults.co",
+      "snapshot_url_count": 111,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_datavaults_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "human_verification_required"
+    },
+    {
+      "domain": "mediafire.com",
+      "group": "mediafire.com",
+      "snapshot_url_count": 101,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_mediafire_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "whole_file"
+    },
+    {
+      "domain": "letsupload.io",
+      "group": "letsupload.io",
+      "snapshot_url_count": 81,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_letsupload_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "domain_for_sale"
+    },
+    {
+      "domain": "send.cm",
+      "group": "send.cm",
+      "snapshot_url_count": 70,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_sendcm_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "whole_file"
+    },
+    {
+      "domain": "filecrypt.cc",
+      "group": "filecrypt.cc",
+      "snapshot_url_count": 65,
+      "parser_kind": "container",
+      "resolver": "container",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "security_check_reappeared"
+    },
+    {
+      "domain": "doodrive.com",
+      "group": "doodrive.com",
+      "snapshot_url_count": 59,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_doodrive_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "source_unconfirmed"
+    },
+    {
+      "domain": "clicknupload.to",
+      "group": "clicknupload (to/cc/red/co)",
+      "snapshot_url_count": 48,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_clicknupload_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "source_unconfirmed"
+    },
+    {
+      "domain": "filerio.in",
+      "group": "filerio.in",
+      "snapshot_url_count": 46,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_filerio_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "tls_connection_failed"
+    },
+    {
+      "domain": "teraboxapp.com",
+      "group": "teraboxapp.com",
+      "snapshot_url_count": 37,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_teraboxapp_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "login_required_after_download"
+    },
+    {
+      "domain": "clicknupload.cc",
+      "group": "clicknupload (to/cc/red/co)",
+      "snapshot_url_count": 34,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_clicknupload_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "source_unconfirmed"
+    },
+    {
+      "domain": "frdl.my",
+      "group": "frdl.my",
+      "snapshot_url_count": 34,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_frdl_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "source_unconfirmed"
+    },
+    {
+      "domain": "ouo.io",
+      "group": "ouo.io",
+      "snapshot_url_count": 26,
+      "parser_kind": "container",
+      "resolver": "container",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "container_flow_incomplete"
+    },
+    {
+      "domain": "bayfiles.com",
+      "group": "bayfiles.com",
+      "snapshot_url_count": 22,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_bayfiles_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "dns_connection_failed"
+    },
+    {
+      "domain": "solidfiles.com",
+      "group": "solidfiles.com",
+      "snapshot_url_count": 20,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_solidfiles_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "dns_connection_failed"
+    },
+    {
+      "domain": "vik1ngfile.site",
+      "group": "vikingfile.com / vik1ngfile.site",
+      "snapshot_url_count": 9,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_vikingfile_sync",
+      "max_transfers": 3,
+      "historical_done": 0,
+      "evidence": "three_overlapping_whole_files"
+    },
+    {
+      "domain": "pixeldrain.com",
+      "group": "pixeldrain.com",
+      "snapshot_url_count": 9,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "parse_pixeldrain_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "whole_file"
+    },
+    {
+      "domain": "momerybox.com",
+      "group": "momerybox.com",
+      "snapshot_url_count": 7,
+      "parser_kind": "container",
+      "resolver": "container",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "login_required_after_download"
+    },
+    {
+      "domain": "www62.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 6,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www53.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 6,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www96.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 5,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www16.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 5,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www6.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 5,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www9.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 5,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "bowfile.com",
+      "group": "bowfile.com",
+      "snapshot_url_count": 5,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_bowfile_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "source_unconfirmed"
+    },
+    {
+      "domain": "www63.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www119.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www93.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www75.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www91.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www94.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www18.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www2.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www84.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www23.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www106.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www40.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 4,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www35.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www92.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www99.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www34.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www48.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www38.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www30.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www17.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www41.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www64.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www10.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www88.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www28.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www11.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www110.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www61.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www87.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www57.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www102.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www120.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www112.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www36.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www111.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www90.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 3,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www100.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www46.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www78.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www50.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www21.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www108.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www5.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www26.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www79.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www113.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www72.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www43.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www27.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www25.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www104.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www33.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www37.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www83.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "clicknupload.red",
+      "group": "clicknupload (to/cc/red/co)",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_clicknupload_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "source_unconfirmed"
+    },
+    {
+      "domain": "www95.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www76.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "qiwi.gg",
+      "group": "qiwi.gg",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_qiwi_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "unexpected_redirect"
+    },
+    {
+      "domain": "www42.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www19.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www65.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www8.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www45.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www56.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "clicknupload.co",
+      "group": "clicknupload (to/cc/red/co)",
+      "snapshot_url_count": 2,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_clicknupload_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "source_unconfirmed"
+    },
+    {
+      "domain": "discord.gg",
+      "group": "discord.gg",
+      "snapshot_url_count": 2,
+      "parser_kind": "non_file",
+      "resolver": "non_file",
+      "max_transfers": null,
+      "historical_done": 1,
+      "evidence": "non_file_url"
+    },
+    {
+      "domain": "www118.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www81.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www4.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www70.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www80.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www1.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www54.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www51.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www97.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www77.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www3.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www32.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www14.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www115.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www117.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www39.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www68.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "go.nordvpn.net",
+      "group": "go.nordvpn.net",
+      "snapshot_url_count": 1,
+      "parser_kind": "non_file",
+      "resolver": "non_file",
+      "max_transfers": null,
+      "historical_done": 0,
+      "evidence": "non_file_url"
+    },
+    {
+      "domain": "www73.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www74.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www22.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www82.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www103.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www44.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www109.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www12.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www89.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www49.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "clickndownload.org",
+      "group": "clickndownload.org",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_clickndownload_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "source_unconfirmed"
+    },
+    {
+      "domain": "www47.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www114.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www107.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www52.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www29.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www24.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    },
+    {
+      "domain": "www60.zippyshare.com",
+      "group": "zippyshare.com",
+      "snapshot_url_count": 1,
+      "parser_kind": "dedicated_hoster",
+      "resolver": "legacy.parse_zippyshare_sync",
+      "max_transfers": 1,
+      "historical_done": 0,
+      "evidence": "service_ended"
+    }
+  ],
+  "additional_registered_families_without_snapshot_urls": [
+    "MixDrop: historical completion only; no new live sample",
+    "Bunkr: registered parser; no snapshot sample",
+    "Linkcuy: container parser; no snapshot sample",
+    "Google Drive: public 5-byte example whole/SHA256; large confirmation flow covered by regression tests",
+    "Ordinary HTTP: real loopback DownloadCore single GET/no HEAD, filename and HTML rejection checked"
+  ],
+  "failed_recovery_requests": [
+    2594,
+    2597
+  ],
+  "completed_recovery_requests": [
+    2596,
+    2605
+  ],
+  "deployment_state": "running",
+  "audit_tree_bytes": 2557517345,
+  "other_audit_tree_reserved_bytes": 1000000000,
+  "aggregate_audit_limit_bytes": 4294967296,
+  "requires_account_registration": false,
+  "source_deletion_confirmed": false,
+  "whole_file_evidence": [
+    {
+      "source_id": 135738,
+      "host": "send.now",
+      "outcome": "complete_file",
+      "bytes": 44273222,
+      "sha256": "eb7f6e393088cbf55383ae0b87a3a98d87e0053dbea51aa94fe01aedab773993",
+      "head_hex": "526172211a070100",
+      "file_requests": 1,
+      "started_at": "2026-09-30T03:50:59.312622+00:00",
+      "finished_at": "2026-09-30T03:51:11.768304+00:00",
+      "already_issued_url_reused": true,
+      "host_page_revisited": false,
+      "evidence_path": "/tmp/oc-host-audit-20260930/core-135738/result.json"
+    },
+    {
+      "source_id": 145125,
+      "host": "megaup.net",
+      "outcome": "complete_file",
+      "bytes": 156440480,
+      "sha256": "b754116be3e4b9dbb053826d2502df5aa3f31ce16680caf021d15bb42fd473cb",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "started_at": "2026-09-30T03:14:04.419825+00:00",
+      "finished_at": "2026-09-30T03:14:26.019226+00:00",
+      "evidence_path": "/tmp/oc-host-audit-20260930/core-145125/result.json"
+    },
+    {
+      "source_id": 145512,
+      "host": "multiup.io",
+      "outcome": "complete_file",
+      "bytes": 363144192,
+      "sha256": "63a475ac87ed982a6310ed1be6a6da2ea98b0f9703372eaae6fd6f52816ac07b",
+      "head_hex": "526172211a070100",
+      "file_requests": 1,
+      "started_at": "2026-09-30T02:58:05.994442+00:00",
+      "finished_at": "2026-09-30T02:58:19.090751+00:00",
+      "evidence_path": "/tmp/oc-host-audit-20260930/core-145512/result.json"
+    },
+    {
+      "source_id": 145910,
+      "host": "datanodes.to",
+      "outcome": "complete_file",
+      "bytes": 119053,
+      "sha256": "19b30c74f24013958bf61da1eb57e7a0ef5d41d98737adb937438853c0664f8d",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:11:50.745718+00:00",
+      "elapsed_seconds": 72.003,
+      "evidence_path": "/tmp/oc-host-audit-20260930/datanodes-145910/145910.json"
+    },
+    {
+      "source_id": 145507,
+      "host": "filekeeper.net",
+      "outcome": "complete_file",
+      "bytes": 446871418,
+      "sha256": "bf2080fb4b9c690b2b15ddadc5ea4400fff35c8b3f4f70590d1001f0dce6ecb4",
+      "head_hex": "526172211a070100",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:03:23.988605+00:00",
+      "elapsed_seconds": 39.807,
+      "evidence_path": "/tmp/oc-host-audit-20260930/filekeeper-145507/transfer/145507.json"
+    },
+    {
+      "source_id": 145511,
+      "host": "filekeeper.net",
+      "outcome": "complete_file",
+      "bytes": 363144192,
+      "sha256": "63a475ac87ed982a6310ed1be6a6da2ea98b0f9703372eaae6fd6f52816ac07b",
+      "head_hex": "526172211a070100",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:16:41.719426+00:00",
+      "elapsed_seconds": 32.287,
+      "evidence_path": "/tmp/oc-host-audit-20260930/filekeeper-145511-parser/145511.json"
+    },
+    {
+      "source_id": 145129,
+      "host": "gofile.io",
+      "outcome": "complete_file",
+      "bytes": 156440480,
+      "sha256": "b754116be3e4b9dbb053826d2502df5aa3f31ce16680caf021d15bb42fd473cb",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:15:11.130795+00:00",
+      "elapsed_seconds": 8.651,
+      "evidence_path": "/tmp/oc-host-audit-20260930/gofile-145129-parser/145129.json"
+    },
+    {
+      "source_id": 145911,
+      "host": "gofile.io",
+      "outcome": "complete_file",
+      "bytes": 119053,
+      "sha256": "19b30c74f24013958bf61da1eb57e7a0ef5d41d98737adb937438853c0664f8d",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:00:56.130297+00:00",
+      "elapsed_seconds": 1.594,
+      "evidence_path": "/tmp/oc-host-audit-20260930/gofile-145911/145911.json"
+    },
+    {
+      "source_id": 138587,
+      "host": "gofile.io",
+      "outcome": "complete_file",
+      "bytes": 85168028,
+      "sha256": "0168d0ade90cd4d8b6945543c84d677cf102da649b7dd075f13dc11baa126b32",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:32:05.508092+00:00",
+      "elapsed_seconds": 5.229,
+      "evidence_path": "/tmp/oc-host-audit-20260930/gofile-parallel/138587.json"
+    },
+    {
+      "source_id": 143980,
+      "host": "gofile.io",
+      "outcome": "complete_file",
+      "bytes": 112925895,
+      "sha256": "4330befd01c41c183e1cd1277c3d347d1c5ef0261a8a2c40cdd8ea9463675996",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:32:34.735635+00:00",
+      "elapsed_seconds": 34.457,
+      "evidence_path": "/tmp/oc-host-audit-20260930/gofile-parallel/143980.json"
+    },
+    {
+      "source_id": 143992,
+      "host": "gofile.io",
+      "outcome": "complete_file",
+      "bytes": 36493705,
+      "sha256": "f36a03065f1f1e0855149c6fbef04df97e56c82aef6ce75d4c9f02ad717471ff",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:32:05.452637+00:00",
+      "elapsed_seconds": 5.175,
+      "evidence_path": "/tmp/oc-host-audit-20260930/gofile-parallel/143992.json"
+    },
+    {
+      "source_id": 900001,
+      "host": "drive.google.com",
+      "outcome": "complete_file",
+      "bytes": 5,
+      "sha256": "284e3029cce3ae5ee0b05866100e300046359f53ae4c77fe6b34c05aa7a72cee",
+      "head_hex": "7370616d0a",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:15:54.789742+00:00",
+      "elapsed_seconds": 1.469,
+      "evidence_path": "/tmp/oc-host-audit-20260930/google-drive-public-example/900001.json"
+    },
+    {
+      "source_id": 102586,
+      "host": "www.mediafire.com",
+      "outcome": "complete_file",
+      "bytes": 362641878,
+      "sha256": "235ed44c4ffb7f6e33110deabe572de8cf851f9e66fedc7bec7575c37379d8db",
+      "head_hex": "526172211a070100",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:09:37.624881+00:00",
+      "elapsed_seconds": 10.732,
+      "evidence_path": "/tmp/oc-host-audit-20260930/mediafire-102586/102586.json"
+    },
+    {
+      "source_id": 102032,
+      "host": "pixeldrain.com",
+      "outcome": "complete_file",
+      "bytes": 9885570,
+      "sha256": "c9515ae3eb5fc4a58095733cb5ebd082e4e0d1d0223a4aeb23ef18a98aca380d",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:09:26.891566+00:00",
+      "elapsed_seconds": 3.485,
+      "evidence_path": "/tmp/oc-host-audit-20260930/pixeldrain-102032/102032.json"
+    },
+    {
+      "source_id": 104868,
+      "host": "send.cm",
+      "outcome": "complete_file",
+      "bytes": 43269513,
+      "sha256": "5a05543b994b5c6197f2b6bfa30feb08ff097137808f7c501453b99bbe512da9",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:22:37.483328+00:00",
+      "elapsed_seconds": 4.013,
+      "evidence_path": "/tmp/oc-host-audit-20260930/sendcm-104868/browser-continuation/download2/transfer/104868.json"
+    },
+    {
+      "source_id": 145126,
+      "host": "send.now",
+      "outcome": "complete_file",
+      "bytes": 156440480,
+      "sha256": "b754116be3e4b9dbb053826d2502df5aa3f31ce16680caf021d15bb42fd473cb",
+      "head_hex": "526172211a07003b",
+      "file_requests": 1,
+      "finished_at": "2026-09-30T02:45:14.405657+00:00",
+      "elapsed_seconds": 25.194,
+      "evidence_path": "/tmp/oc-host-audit-20260930/sendnow-145126-parser/145126.json"
+    }
+  ],
+  "sendnow_2605_recovery": {
+    "download_id": 2605,
+    "source_id": 135738,
+    "bytes": 44273222,
+    "sha256": "eb7f6e393088cbf55383ae0b87a3a98d87e0053dbea51aa94fe01aedab773993",
+    "status": "done",
+    "old_failure_history_count": 2,
+    "original_url_preserved": true,
+    "host_page_revisited": false,
+    "already_issued_url_reused": true,
+    "metadata_failure_is_parser_failure": true
+  },
+  "working_code_tests_passed": 1256
+}

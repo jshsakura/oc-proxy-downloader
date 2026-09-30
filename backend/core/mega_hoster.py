@@ -17,6 +17,7 @@ import asyncio
 import random
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
+from urllib.parse import urlparse
 
 import aiohttp
 from Crypto.Cipher import AES
@@ -82,10 +83,12 @@ class MegaFileInfo:
 
 def is_mega_url(url: str) -> bool:
     """True for a MEGA *file* share link (folder links return False)."""
-    u = (url or "").lower()
-    if not any(domain in u for domain in ("mega.nz", "mega.co.nz", "mega.io")):
+    p = urlparse(url or "")
+    host = (p.hostname or "").lower().removeprefix("www.")
+    if (p.scheme not in {"http", "https"} or p.username or p.password
+            or host not in {"mega.nz", "mega.co.nz", "mega.io"}):
         return False
-    return "/folder/" not in u and "#f!" not in u
+    return "/folder/" not in p.path.lower() and not p.fragment.lower().startswith('f!')
 
 
 def mega_error_message(err: MegaApiError) -> str:
@@ -104,7 +107,9 @@ def parse_mega_url(url: str) -> Tuple[str, str]:
     can't be downloaded anonymously by this single-file path.
     """
     url = (url or "").strip()
-    if not any(domain in url for domain in ("mega.nz", "mega.co.nz", "mega.io")):
+    p = urlparse(url)
+    if ((p.hostname or "").lower().removeprefix("www.") not in {"mega.nz", "mega.co.nz", "mega.io"}
+            or p.scheme not in {"http", "https"} or p.username or p.password):
         raise ValueError("MEGA 링크가 아닙니다")
     if "/folder/" in url or "/#F!" in url or "#F!" in url:
         raise ValueError("MEGA 폴더 링크는 지원하지 않습니다 (단일 파일 링크만)")
@@ -240,7 +245,7 @@ async def download_mega_file(
                     progress_cb(downloaded, info.size)
 
     if mac.result() != tuple(info.meta_mac):
-        # The CTR-decrypted bytes are still correct; a mismatch only flags an
-        # integrity concern, so we keep the file and warn rather than fail.
-        print(f"[WARNING] MEGA MAC 불일치: {info.name} (파일은 보존)")
+        # A wrong key or damaged ciphertext can produce a full-length file.
+        # Keep its partial file for inspection, but never call it complete.
+        raise IOError("MEGA 파일 무결성 검증 실패 (MAC 불일치; 부분 파일 보존)")
     return downloaded

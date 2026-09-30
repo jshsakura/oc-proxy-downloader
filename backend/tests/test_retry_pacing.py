@@ -48,7 +48,7 @@ def _wait(kind, attempt=1, retry_after=None):
 class TestNothingRetriesTooSoon:
 
     @pytest.mark.parametrize("kind", [
-        KIND_TRANSIENT, KIND_RATE_LIMITED, KIND_UNKNOWN,
+        KIND_TRANSIENT,
     ])
     def test_no_kind_retries_within_a_minute(self, kind):
         """A sub-minute retry is the behaviour that gets an IP banned. The
@@ -56,7 +56,7 @@ class TestNothingRetriesTooSoon:
         assert _wait(kind) >= 55
 
     def test_the_first_transient_wait_is_minutes_not_seconds(self):
-        assert 120 <= _wait(KIND_TRANSIENT, attempt=1) <= 150
+        assert 1800 <= _wait(KIND_TRANSIENT, attempt=1) <= 2250
 
 
 class TestBeingRefusedBacksOffHarder:
@@ -128,7 +128,7 @@ class TestBeingRefusedBacksOffHarder:
 
     def test_daily_quota_gets_two_next_day_retries_then_stops(self):
         assert _compute_next_retry_at(KIND_DAILY_QUOTA, 1, None) is not None
-        assert _compute_next_retry_at(KIND_DAILY_QUOTA, 2, None) is not None
+        assert _compute_next_retry_at(KIND_DAILY_QUOTA, 2, None) is None
         assert _compute_next_retry_at(KIND_DAILY_QUOTA, 3, None) is None
         assert auto_retry_budget_exhausted(KIND_DAILY_QUOTA, 3) is True
 
@@ -140,10 +140,8 @@ class TestBeingRefusedBacksOffHarder:
         assert auto_retry_budget_exhausted(kind, 1) is True
 
     def test_transient_backoff_escalates(self):
-        waits = [_wait(KIND_TRANSIENT, n) for n in (1, 2)]
-
-        assert waits == sorted(waits)
-        assert waits[-1] >= 480
+        assert _wait(KIND_TRANSIENT, 1) >= 1800
+        assert _compute_next_retry_at(KIND_TRANSIENT, 2, None) is None
 
 
 class TestJitter:
@@ -161,7 +159,7 @@ class TestJitter:
     def test_jitter_only_ever_delays(self):
         """Spreading must not pull a retry earlier than its floor."""
         for _ in range(50):
-            assert _wait(KIND_TRANSIENT, 1) >= 120
+            assert _wait(KIND_TRANSIENT, 1) >= 1800
 
 
 class TestTheBudgetIsSmall:
@@ -176,10 +174,10 @@ class TestTheBudgetIsSmall:
         """Giving up must not become giving up immediately — a blip deserves a
         second look."""
         assert _compute_next_retry_at(KIND_TRANSIENT, 1, None) is not None
-        assert _compute_next_retry_at(KIND_TRANSIENT, 2, None) is not None
+        assert _compute_next_retry_at(KIND_TRANSIENT, 2, None) is None
 
     def test_rate_limit_gets_only_one_delayed_retry(self):
-        assert _compute_next_retry_at(KIND_RATE_LIMITED, 1, None) is not None
+        assert _compute_next_retry_at(KIND_RATE_LIMITED, 1, None) is None
         assert _compute_next_retry_at(KIND_RATE_LIMITED, 2, None) is None
 
 
@@ -326,8 +324,10 @@ class TestAQueueWaitDoesNotLookLikeAFailure:
         assert "_fichier_sem(egress_of(req.use_proxy))._value == 0" not in admission
 
         worker = inspect.getsource(download_core.DownloadCore._download_task)
-        fichier_branch = worker[worker.index('if is_1fichier and not req.use_proxy:'):]
+        fichier_branch = worker[worker.index('if is_1fichier:'):]
         assert fichier_branch.index("async with slot_without_session") < fichier_branch.index(
             "await self._download_with_proxy_async"
         )
-        assert "await self._perform_preparse" not in fichier_branch
+        assert fichier_branch.index("async with slot_without_session") < fichier_branch.index(
+            "await self._perform_preparse"
+        )

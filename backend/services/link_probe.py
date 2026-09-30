@@ -37,6 +37,7 @@ from services.host_probe_rules import (
 from core.parser import fichier_parser
 from core.simple_parser import detect_block_reason
 from core.error_messages import (
+    KIND_SOURCE_UNCONFIRMED,
     KIND_DEAD,
     KIND_AUTH_REQUIRED,
     KIND_RATE_LIMITED,
@@ -79,6 +80,11 @@ class ProbeResult:
     body_marker: Optional[str]
     retry_after_seconds: Optional[int]
     definitive: bool
+
+    def __post_init__(self):
+        if self.kind == KIND_DEAD:
+            object.__setattr__(self, "kind", KIND_SOURCE_UNCONFIRMED)
+            object.__setattr__(self, "definitive", False)
 
     def to_user_message(self) -> str:
         if self.kind == KIND_ALIVE:
@@ -135,9 +141,9 @@ def _kind_from_marker(marker: str) -> str:
     """Map detect_block_reason's Korean markers to KIND_*."""
     m = marker.lower()
     if "파일" in marker and ("삭제" in marker or "신고" in marker or "없" in marker):
-        return KIND_DEAD
+        return KIND_SOURCE_UNCONFIRMED
     if "file not found" in m or "deleted" in m or "reported" in m:
-        return KIND_DEAD
+        return KIND_SOURCE_UNCONFIRMED
     if "vps" in m or "vpn" in m:
         return KIND_PROXY_BLOCKED
     if "게스트 슬롯" in marker or "guest slot" in m:
@@ -220,14 +226,14 @@ async def _probe_generic_host(url: str) -> ProbeResult:
     marker = find_dead_marker(host, text)
     if marker:
         return ProbeResult(
-            kind=KIND_DEAD, summary=f"파일 없음 ({host})", raw_status=status,
-            body_marker=marker, retry_after_seconds=None, definitive=True,
+            kind=KIND_SOURCE_UNCONFIRMED, summary=f"파일 접근 불가 신호 ({host}; 삭제 여부 미확인)", raw_status=status,
+            body_marker=marker, retry_after_seconds=None, definitive=False,
         )
 
     if status in (404, 410):
         return ProbeResult(
-            kind=KIND_DEAD, summary=f"HTTP {status} — 파일 없음", raw_status=status,
-            body_marker=None, retry_after_seconds=None, definitive=True,
+            kind=KIND_SOURCE_UNCONFIRMED, summary=f"HTTP {status} — 삭제 여부 미확인", raw_status=status,
+            body_marker=None, retry_after_seconds=None, definitive=False,
         )
 
     if status == 429:
@@ -327,7 +333,7 @@ async def probe_1fichier_url(url: str) -> ProbeResult:
             retry_after_seconds=_extract_retry_after_from_body(body),
             # Body markers are definitive, but only dead is allowed to be
             # pinned single-shot — handled that way in apply_probe_to_request.
-            definitive=True,
+            definitive=kind != KIND_SOURCE_UNCONFIRMED,
         )
 
     if status == 429:
@@ -447,6 +453,12 @@ def apply_probe_to_request(req, probe: ProbeResult) -> None:
         # real failure reason on 248 DataNodes rows with a note about this
         # prober's reach — leaving them pinned dead with no explanation. Record
         # the attempt (above) and leave the diagnosis alone.
+        return
+
+    if probe.kind == KIND_SOURCE_UNCONFIRMED:
+        req.failure_kind = KIND_SOURCE_UNCONFIRMED
+        req.next_retry_at = None
+        req.error = probe.to_user_message() + " (삭제 미확인; 링크 선택 가능; 자동 재시도 없음)"
         return
 
     if probe.kind == KIND_UNREACHABLE:

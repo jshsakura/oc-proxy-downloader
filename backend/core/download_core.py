@@ -19,8 +19,10 @@ import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncGenerator, Tuple
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from .models import DownloadRequest, StatusEnum
+from .models import DownloadRequest, HostAdmissionState, StatusEnum
 from .config import get_download_path, get_config
 from .db import SessionLocal
 from services.sse_manager import sse_manager
@@ -28,7 +30,11 @@ from services.notification_service import send_telegram_start_notification, send
 from utils.file_helpers import PART_SUFFIX, download_file_content, generate_file_path, get_final_file_path
 from core import db_async
 from core import live_progress
-from core.slots import slot_without_session
+from core.slots import DownloadSlots, slot_without_session
+from core.host_policy import (
+    SITE_DOWNLOAD_LIMITS, canonical_host, host_key_for_url,
+    http_failure_message, is_single_download_refusal, is_host_rate_limit,
+)
 from core.resume import (
     PROBE_RANGE,
     RANGE_NOT_SATISFIABLE,
@@ -52,12 +58,15 @@ from core.hoster_parsers import (
     fetch_special_hoster_file_info_sync,
     get_flaresolverr_context_for_url,
     is_special_hoster_url,
+    requires_direct_hoster_session,
     parse_special_hoster_sync,
 )
 from core.error_messages import (
     apply_failure_to_request,
     classify_error,
+    KIND_AUTH_REQUIRED,
     KIND_BLOCKED,
+    KIND_CLOUDFLARE,
     KIND_DAILY_QUOTA,
     KIND_SLOT_BUSY,
     KIND_BROWSER_PARSE,
@@ -67,7 +76,7 @@ from core.error_messages import (
     KIND_TRANSIENT,
     next_fichier_quota_reset,
 )
-from core.executors import parse_executor_for
+from core.executors import parse_executor_for, run_parser_with_start_notification
 from core.mega_hoster import (
     MegaApiError,
     download_mega_file,
@@ -78,6 +87,8 @@ from core.mega_hoster import (
 )
 from core import fichier_auth
 from core import cancel_signal
+from core.link_containers import is_container_url, resolve_container_sync, admission_url
+from core.hoster_common import HosterParseError
 from core.config import get_config
 from core.i18n import get_translations
 
@@ -92,9 +103,9 @@ DEFAULT_DOWNLOAD_USER_AGENT = (
 # 100 이었을 때, 링크 하나가 최대 300번 같은 페이지를 요청했다. 프록시를 바꿔가며
 # 두드려도 호스터 쪽에서는 그냥 계속 오는 요청이고, 안 되는 링크는 3번 안에 이미
 # 안 된다. 세 곳 모두 3회로 맞춘다.
-MAX_PROXY_PARSE_RETRIES_CAP = 3
-MAX_DOWNLOAD_RETRIES_PROXY_CAP = 3
-MAX_DOWNLOAD_RETRIES_LOCAL = 3
+MAX_PROXY_PARSE_RETRIES_CAP = 1
+MAX_DOWNLOAD_RETRIES_PROXY_CAP = 1
+MAX_DOWNLOAD_RETRIES_LOCAL = 1
 
 
 def _retry_special_parse_on_next_proxy(raw_error: str) -> bool:
@@ -121,25 +132,7 @@ def _retry_special_parse_on_next_proxy(raw_error: str) -> bool:
 # IP gets time to recover the way slow manual pacing used to.
 FICHIER_HOST_BACKOFF_SECONDS = (1800, 3600, 7200, 7200)  # 30m → 1h → 2h (capped)
 
-# Per-site concurrent-download limits (host substring -> max concurrent).
-# Different hosts tolerate different parallelism, so each gets its own queue
-# instead of sharing one global limit. Unlisted hosts use MAX_PER_HOST_DOWNLOADS.
-# (1fichier local has its own dedicated semaphore — max 1 — handled separately.)
-SITE_DOWNLOAD_LIMITS = {
-    "megaup.net": 2,
-    # The DataNodes Turnstile flow holds one browser per site. Letting three
-    # download tasks enter its parser just makes two time out and retry.
-    "datanodes.to": 1,
-    # MultiUp often resolves to a MixDrop browser flow. Queue at the source
-    # instead of repeatedly entering a browser lock for its second mirror.
-    "multiup.io": 1,
-    "gofile.io": 3,
-    "rapidgator.net": 1,
-    "send.now": 1,
-    "vikingfile.com": 3,
-    "akirabox.com": 3,
-    "rootz.so": 3,
-}
+# SITE_DOWNLOAD_LIMITS is shared with browser host identity in host_policy.
 
 # Smart-download concurrency defaults (overridable via config.json).
 # - GLOBAL ceiling: hard cap on total simultaneous downloads (the "max download
@@ -155,8 +148,7 @@ CONCURRENCY_MIN = 1
 CONCURRENCY_MAX = 32
 
 # --- Egress -----------------------------------------------------------------
-# Every limit above is enforced by the hoster PER IP: 1fichier's free tier allows
-# one download at a time from an address, datanodes.to tolerates three. So the
+# 1fichier's free tier allows one download at a time from an address. So the
 # slots are a property of (host, egress), not of the host alone. Adding a proxy
 # egress therefore adds a second set of slots instead of splitting the first.
 # `use_proxy` on the request is what selects the egress; these names key the
@@ -257,7 +249,7 @@ SPECIAL_HOSTER_PARSE_TIMEOUT_SEC = 300  # 5 minutes
 # and the existing .part resumes via a Range request. So on a node connection
 # failure, retry the SAME url on this short backoff BEFORE falling through to a
 # (futile, same-node) re-parse or a hard failure.
-SPECIAL_NODE_RETRY_BACKOFF_SEC = (5, 15, 30)
+SPECIAL_NODE_RETRY_BACKOFF_SEC = ()  # no immediate reconnect/reparse loop
 
 
 # 파일 대신 페이지를 받아놓고 완료 처리하면 안 된다.
@@ -337,19 +329,29 @@ def _read_head(path: str, size: int = _BLOCK_PAGE_SNIFF_BYTES) -> bytes:
 
 
 def _looks_like_html(head: bytes) -> bool:
-    stripped = head.lstrip()[:256].lower()
+    stripped = head.removeprefix(b"\xef\xbb\xbf").lstrip()[:256].lower()
     return any(stripped.startswith(m) for m in _HTML_SNIFF_MARKERS)
 
 
 def assert_downloaded_a_real_file(req, downloaded_size: int, content_type: str = "") -> None:
     """완료 처리 직전에 실제 파일을 받았는지 확인한다. 아니면 예외를 던져
     실패 경로로 보낸다 — 실패는 실패로 남아야 재시도·미러 교체가 가능하다."""
-    if "text/html" in (content_type or "").lower():
+    mime = (content_type or "").lower()
+    if "text/html" in mime or "application/xhtml+xml" in mime:
         raise Exception("호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함")
+    if "application/json" in mime and not (getattr(req, "file_name", None) or "").lower().endswith(".json"):
+        raise Exception("호스팅 최종 링크가 파일 대신 JSON 오류 페이지를 반환함")
 
     path = getattr(req, "save_path", None)
-    head = _read_head(path) if path and os.path.exists(path) else b""
+    if not path or not os.path.isfile(path):
+        raise Exception("완료 확인 실패: 실제 다운로드 파일이 없습니다")
+    actual_size = os.path.getsize(path)
+    if actual_size <= 0 or downloaded_size != actual_size:
+        raise Exception(f"완료 확인 실패: 파일 크기가 전송 기록과 다릅니다 ({actual_size}/{downloaded_size} bytes)")
+    head = _read_head(path)
     if _looks_like_html(head):
+        if is_single_download_refusal(head.decode("utf-8", "ignore")):
+            raise Exception("호스팅 파일 서버: only one file at a time")
         raise Exception(
             _network_block_notice(head)
             or "받은 내용이 파일이 아니라 HTML 페이지입니다 (캡차/미러 목록/차단 페이지)"
@@ -436,6 +438,30 @@ def _should_replace_file_name(current_name: Optional[str], new_name: Optional[st
     return bool(new_name) and _name_needs_resolution(current_name)
 
 
+def _apply_hoster_file_info(req: DownloadRequest, file_info) -> bool:
+    """Keep observed metadata on both successful and refused parser attempts."""
+    if not isinstance(file_info, dict):
+        return False
+    changed = False
+    name = file_info.get("name")
+    if isinstance(name, str) and _should_replace_file_name(req.file_name, name):
+        req.file_name = name
+        changed = True
+    size = file_info.get("size")
+    if isinstance(size, str) and size and not req.file_size:
+        req.file_size = size
+        changed = True
+    exact_size = file_info.get("size_bytes")
+    if isinstance(exact_size, int) and not isinstance(exact_size, bool) and exact_size >= 0:
+        total_size = exact_size
+    else:
+        total_size = _size_text_to_bytes(size) if isinstance(size, str) else 0
+    if total_size > 0 and not req.total_size:
+        req.total_size = total_size
+        changed = True
+    return changed
+
+
 _CD_FILENAME_STAR = re.compile(r"filename\*\s*=\s*[^']*''([^;]+)", re.IGNORECASE)
 _CD_FILENAME = re.compile(r'filename\s*=\s*"?([^";\r\n]+)"?', re.IGNORECASE)
 
@@ -460,7 +486,12 @@ def _name_needs_resolution(name: Optional[str]) -> bool:
         return True
     if is_1fichier_placeholder_name(name):
         return True
-    return "." not in name
+    # A site hostname or a version in the collector's display label is not a
+    # filename extension. Prefer the authoritative parser/GET filename there.
+    if canonical_host(name.strip()) in SITE_DOWNLOAD_LIMITS:
+        return True
+    suffix = os.path.splitext(name)[1]
+    return not bool(re.fullmatch(r"\.[A-Za-z0-9]{1,10}", suffix))
 
 
 def _size_text_to_bytes(size_text: Optional[str]) -> int:
@@ -518,19 +549,16 @@ class DownloadCore:
         # acquires its per-host semaphore first (host isolation), then the global
         # ceiling (total cap). Limits come from config so the user can tune them.
         self.MAX_CONCURRENT_DOWNLOADS, self.MAX_PER_HOST_DOWNLOADS = _read_concurrency_limits()
-        self.total_download_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_DOWNLOADS)
-        # Per-host semaphores (lazily created in the running loop), keyed by the
-        # SITE_DOWNLOAD_LIMITS host substring or, for unlisted hosts, the hostname.
-        self._site_semaphores: Dict[str, asyncio.Semaphore] = {}
-        # Up-front name/size resolution for special hosters runs OUTSIDE the
-        # download slots, so a queued item shows its real name while it waits its
-        # turn (no perpetual skeleton). Bounded so 85 queued items don't fan out
-        # into 85 simultaneous page GETs against the same host.
+        self.total_download_semaphore = DownloadSlots(self.MAX_CONCURRENT_DOWNLOADS)
+        # Existing host queues survive configuration updates.
+        self._site_semaphores: Dict[str, DownloadSlots] = {}
+        self._learned_host_limits: Dict[str, int] = {}
+        self._host_cooldown_until: Dict[str, datetime.datetime] = {}
+        self._parse_semaphores: Dict[str, asyncio.Semaphore] = {}
+        # Metadata shares host admission with link generation and transfers.
+        # Bound metadata work across sites as well as within each site's parser.
         self.MAX_SPECIAL_PREPARSE = 4
         self.special_preparse_semaphore = asyncio.Semaphore(self.MAX_SPECIAL_PREPARSE)
-        # Name/size lookups may run while the download slot is occupied, but
-        # one at a time so a bulk add does not flood 1fichier with page GETs.
-        self.fichier_metadata_semaphore = asyncio.Semaphore(1)
         # For throttling SSE message frequency
         self.last_sse_time: Dict[int, float] = {}  # Last SSE send time per download
         self.SSE_THROTTLE_INTERVAL = 10.0  # Send SSE only every 10 seconds
@@ -550,39 +578,168 @@ class DownloadCore:
         self._fichier_block_streak: Dict[str, int] = {}
 
     def refresh_concurrency_settings(self) -> None:
-        """Re-read concurrency limits from config and apply them to NEW downloads.
-
-        Called when settings are saved so changes take effect without a restart.
-        In-flight downloads keep the semaphore objects they already acquired, so
-        the new caps bind as those drain — total concurrency may briefly exceed a
-        lowered limit, then self-corrects. Per-host semaphores are rebuilt lazily.
-        """
+        """Update existing queues; holders drain before admitting more work."""
         self.MAX_CONCURRENT_DOWNLOADS, self.MAX_PER_HOST_DOWNLOADS = _read_concurrency_limits()
-        self.total_download_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_DOWNLOADS)
-        self._site_semaphores = {}
+        self.total_download_semaphore.set_limit(self.MAX_CONCURRENT_DOWNLOADS)
+        for slot_key, slots in tuple(self._site_semaphores.items()):
+            host_key = slot_key.partition("@")[0]
+            slots.set_limit(self._host_limit(host_key))
         print(
             f"[LOG] 동시 다운로드 설정 갱신 → 전체 {self.MAX_CONCURRENT_DOWNLOADS}개 / "
             f"호스트당 {self.MAX_PER_HOST_DOWNLOADS}개"
         )
 
     def _resolve_host_limit(self, url: Optional[str]) -> tuple:
-        """Map a URL to its (host_key, per_host_max) for per-host admission.
+        """Resolve the source host; the operator setting is always a ceiling."""
+        host_key = host_key_for_url(url)
+        return host_key, self._host_limit(host_key)
 
-        Listed hosts (SITE_DOWNLOAD_LIMITS) keep their tuned limit and are keyed
-        by the matched substring; every other host is keyed by its hostname and
-        shares the default per-host cap. The key is what gives each host its own
-        semaphore, so one host's queue never blocks another's.
+    def _host_limit(self, host_key: str) -> int:
+        return min(
+            self.MAX_PER_HOST_DOWNLOADS,
+            SITE_DOWNLOAD_LIMITS.get(host_key, 1),
+            self._learned_host_limits.get(host_key, self.MAX_PER_HOST_DOWNLOADS),
+        )
+
+    async def _run_special_parser(self, url: str, parse_call):
+        timeout = 960 if host_key_for_url(url) == "filecrypt.cc" else SPECIAL_HOSTER_PARSE_TIMEOUT_SEC
+        return await self._run_parser(url, parse_call, timeout)
+
+    async def _run_parser(self, url: str, parse_call, timeout=None):
+        """Serialize resolution per site while allowing parallel file transfers.
+
+        Executor work cannot be cancelled once running. Keep its site slot
+        until the actual thread finishes, even if our download times out/stops.
+        Queue waiting does not spend the parser's network timeout.
         """
-        host = (urlparse(url or "").hostname or "").lower()
-        host = host.removeprefix("www.")
-        host = {"vik1ngfile.site": "vikingfile.com", "akirabox.to": "akirabox.com"}.get(host, host)
-        site_key = next((k for k in SITE_DOWNLOAD_LIMITS if k in host), None)
-        if site_key is not None:
-            # The operator's per-host setting is a ceiling even for hosts with
-            # a tuned upper bound. Otherwise selecting 1 still launches three
-            # DataNodes captcha/download tasks from one bulk add.
-            return site_key, min(SITE_DOWNLOAD_LIMITS[site_key], self.MAX_PER_HOST_DOWNLOADS)
-        return (host or "_default"), self.MAX_PER_HOST_DOWNLOADS
+        key = host_key_for_url(url)
+        slots = self._parse_semaphores.setdefault(key, asyncio.Semaphore(1))
+        await slots.acquire()
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        def notify_started():
+            if not loop.is_closed():
+                loop.call_soon_threadsafe(started.set)
+        try:
+            future = loop.run_in_executor(
+                parse_executor_for(url),
+                lambda: run_parser_with_start_notification(
+                    parse_call, notify_started,
+                    defer_until_browser_slot=(key == "filecrypt.cc"),
+                ),
+            )
+        except BaseException:
+            slots.release()
+            raise
+
+        def finished(result):
+            slots.release()
+            if not result.cancelled():
+                result.exception()  # consume failures after the caller timed out
+
+        future.add_done_callback(finished)
+        start_waiter = asyncio.create_task(started.wait())
+        try:
+            # Executor and browser queue waits are scheduling, not execution.
+            # A refusal before admission completes is surfaced by the future.
+            await asyncio.wait({future, start_waiter}, return_when=asyncio.FIRST_COMPLETED)
+            return await asyncio.wait_for(asyncio.shield(future), timeout=timeout)
+        finally:
+            start_waiter.cancel()
+
+    def _register_host_refusal(self, req, host_key: str, slot_key: str):
+        """Respect a host's wait across queued files, not just this one file."""
+        try:
+            attempts = json.loads(getattr(req, "attempts_json", None) or "[]")
+            raw = attempts[-1].get("raw", "") if attempts else ""
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raw = ""
+        kind = getattr(req, "failure_kind", None)
+        refusal_kinds = {KIND_RATE_LIMITED, KIND_CLOUDFLARE, KIND_BLOCKED,
+                         KIND_BROWSER_PARSE, KIND_PROXY_BLOCKED, KIND_SLOT_BUSY, KIND_AUTH_REQUIRED}
+        if kind not in refusal_kinds and not is_host_rate_limit(raw):
+            return False
+        # A host wait applies to *other* queued files even when this file has
+        # no automatic retry scheduled. Never discard a long Retry-After.
+        explicit_wait = classify_error("", raw).retry_after_seconds or 0
+        until = datetime.datetime.now() + datetime.timedelta(
+            seconds=max(1800 if kind == KIND_RATE_LIMITED else 3600, explicit_wait + 60)
+        )
+        scheduled = getattr(req, "next_retry_at", None)
+        if scheduled:
+            until = max(until, scheduled)
+        self._host_cooldown_until[slot_key] = max(
+            until, self._host_cooldown_until.get(slot_key, until)
+        )
+        if is_single_download_refusal(raw):
+            self._learned_host_limits[host_key] = 1
+            for key, slots in self._site_semaphores.items():
+                if key.partition("@")[0] == host_key:
+                    slots.set_limit(1)
+        return True
+
+    async def _record_host_refusal(self, req, db, host_key: str, slot_key: str):
+        if not self._register_host_refusal(req, host_key, slot_key):
+            return
+        statement = sqlite_insert(HostAdmissionState).values(
+            slot_key=slot_key,
+            max_downloads=self._learned_host_limits.get(host_key),
+            cooldown_until=self._host_cooldown_until[slot_key],
+        )
+        # Concurrent failures must neither insert duplicate keys nor shorten
+        # the already recorded wait. A generic 429 cannot erase a learned cap.
+        statement = statement.on_conflict_do_update(
+            index_elements=[HostAdmissionState.slot_key],
+            set_={
+                "max_downloads": func.coalesce(
+                    statement.excluded.max_downloads, HostAdmissionState.max_downloads
+                ),
+                "cooldown_until": func.coalesce(func.max(
+                    HostAdmissionState.cooldown_until, statement.excluded.cooldown_until
+                ), statement.excluded.cooldown_until),
+            },
+        )
+        await asyncio.to_thread(db.execute, statement)
+        await db_async.commit(db)
+
+    async def restore_host_admission(self, db):
+        """Restore safety state before starting the pending/retry queues."""
+        rows = await db_async.all_rows(db.query(HostAdmissionState))
+        now = datetime.datetime.now()
+        for row in rows:
+            host, separator, egress = row.slot_key.partition("@")
+            if not separator or egress not in (EGRESS_DIRECT, EGRESS_VPN):
+                continue
+            host = canonical_host(host)
+            if row.max_downloads == 1:
+                self._learned_host_limits[host] = 1
+            if row.cooldown_until and row.cooldown_until > now:
+                key = f"{host}@{egress}"
+                self._host_cooldown_until[key] = max(
+                    row.cooldown_until, self._host_cooldown_until.get(key, row.cooldown_until)
+                )
+        for key, slots in tuple(self._site_semaphores.items()):
+            slots.set_limit(self._host_limit(key.partition("@")[0]))
+
+    async def _await_host_cooldown(self, req, db, slot_key: str):
+        target = self._host_cooldown_until.get(slot_key)
+        if not target or target <= datetime.datetime.now():
+            return
+        req.status = StatusEnum.pending
+        req.next_retry_at = target
+        await db_async.commit(db)
+        await self.send_download_update(req.id, {
+            "status": "pending", "message": "호스트 요청 제한이 풀리기를 기다리는 중...",
+            "next_retry_at": target.isoformat(),
+        })
+        while target > datetime.datetime.now():
+            await db_async.refresh(db, req)
+            if req.status == StatusEnum.stopped or cancel_signal.is_cancelled(req.id):
+                return
+            await asyncio.sleep(min(2, (target - datetime.datetime.now()).total_seconds()))
+            target = self._host_cooldown_until.get(slot_key, target)
+        req.next_retry_at = None
+        await db_async.commit(db)
 
     def _fichier_sem(self, egress: str) -> asyncio.Semaphore:
         """The 1fichier-local slot for one egress (created on first use)."""
@@ -675,6 +832,13 @@ class DownloadCore:
                     handler already maintains, so no extra state is needed.
         - balance : take the egress with a free slot, preferring direct.
         """
+        # These resolvers must issue their token on the same direct egress used
+        # by _download_file_directly. Do not display a VPN toggle while binding
+        # browser/forms to one IP and streaming the file from another.
+        if requires_direct_hoster_session(admission_url(req)):
+            if req.use_proxy:
+                return self._force_direct(req, db, f"{host_key_for_url(admission_url(req))}: 파싱과 파일 전송에 같은 직접 연결 세션을 사용합니다")
+            return None
         # A standing denial is not a preference between working paths — it is one
         # path that cannot work for this host at all, so it outranks every route.
         # `manual` is the shipped default and its whole job is to leave the
@@ -683,7 +847,7 @@ class DownloadCore:
         # Deliberately narrower than the learned _egress_blocked table: that one
         # is a heuristic read off live failures and it expires, so letting it
         # override the user's own toggle would be guessing on their behalf.
-        host_key, _ = self._resolve_host_limit(req.original_url or req.url)
+        host_key, _ = self._resolve_host_limit(admission_url(req))
         if req.use_proxy and egress_denied_for_host(host_key, EGRESS_VPN):
             return self._force_direct(req, db, f"{host_key} 는 VPN 출구를 거부합니다 — 직접 연결로 받습니다")
 
@@ -1009,7 +1173,7 @@ class DownloadCore:
         return sse_callback
 
     async def _perform_preparse(self, req: DownloadRequest, db: Session):
-        """Run preparsing (executed outside the semaphore)"""
+        """Run preparsing after admission to the host's transfer slot."""
         # Skip preparsing if file info is already present
         if (
             req.file_name
@@ -1032,8 +1196,9 @@ class DownloadCore:
             print(f"[LOG] 사전파싱 시작: {req.id}")
 
             try:
-                loop = asyncio.get_event_loop()
-                preparse_info = await loop.run_in_executor(None, preparse_1fichier_standalone, parse_url)
+                preparse_info = await self._run_parser(
+                    parse_url, lambda: preparse_1fichier_standalone(parse_url)
+                )
 
                 if preparse_info:
                     if _should_replace_file_name(req.file_name, preparse_info.get('name')):
@@ -1083,31 +1248,40 @@ class DownloadCore:
             except PreparseDeadLinkError:
                 raise
             except Exception as preparse_error:
+                if classify_error("파싱", str(preparse_error)).kind == KIND_RATE_LIMITED:
+                    apply_failure_to_request(req, "파싱", str(preparse_error))
+                    await self._record_host_refusal(
+                        req, db, "1fichier.com", f"1fichier.com@{egress_of(req.use_proxy)}"
+                    )
+                    raise
                 print(f"[WARNING] 사전파싱 실패: {preparse_error}")
 
     async def _perform_special_preparse(self, req: DownloadRequest, db: Session):
-        """Resolve a special-hoster item's name/size up-front, off the download slot.
-
-        Runs a single info-only page GET (no link resolution) so a queued item
-        shows its real filename while it waits for a download slot, instead of a
-        stuck skeleton. Best-effort: a failure leaves resolution to the full
-        parser at download time.
-        """
+        """Read missing metadata after host admission; respect explicit refusals."""
         if req.file_name and not _name_needs_resolution(req.file_name) and req.file_size:
             return
-        source_url = req.original_url or req.url
+        source_url = admission_url(req)
         if not is_special_hoster_url(source_url):
             return
+
+        if host_key_for_url(source_url) in {"vikingfile.com", "akirabox.com", "rootz.so", "datavaults.co"}:
+            return  # their full resolver already captures metadata in one visit
 
         async with self.special_preparse_semaphore:
             await db_async.refresh(db, req)
             if req.status not in (StatusEnum.pending, StatusEnum.parsing):
                 return  # cancelled / already advanced while queued
 
-            loop = asyncio.get_event_loop()
-            info = await loop.run_in_executor(
-                None, lambda: fetch_special_hoster_file_info_sync(source_url)
-            )
+            try:
+                info = await self._run_special_parser(
+                    source_url, lambda: fetch_special_hoster_file_info_sync(source_url)
+                )
+            except Exception as error:
+                if classify_error("파싱", str(error)).kind == KIND_RATE_LIMITED:
+                    apply_failure_to_request(req, "파싱", str(error))
+                    key = host_key_for_url(source_url)
+                    await self._record_host_refusal(req, db, key, f"{key}@{EGRESS_DIRECT}")
+                raise
             if not info:
                 return
 
@@ -1179,7 +1353,7 @@ class DownloadCore:
             # If file info is already present, skip parsing and start downloading right away.
             # 1fichier still needs a fresh download link, but saved metadata
             # must not trigger another info-only page request on every restart.
-            is_1fichier = "1fichier.com" in req.url
+            is_1fichier = host_key_for_url(admission_url(req)) == "1fichier.com"
             is_special_hoster = is_special_hoster_url(req.url)
             is_mega = is_mega_url(req.url)
             has_file_info = req.file_name and req.file_size and req.total_size and req.total_size > 0
@@ -1240,6 +1414,7 @@ class DownloadCore:
     async def _download_task(self, req_id: int, skip_parsing: bool = False):
         """Task that performs the actual download"""
         db = SessionLocal()
+        is_1fichier = False
         try:
             req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
             if not req:
@@ -1248,31 +1423,50 @@ class DownloadCore:
 
             print(f"[DEBUG] 다운로드 태스크 시작: ID={req_id}, URL={req.url}, USE_PROXY={req.use_proxy}")
 
-            # Proceed with the download - branch based on URL and proxy settings
-            is_1fichier = "1fichier.com" in req.url
-
-            # Metadata is safe to collect while this item waits for the file
-            # slot. It is fetched once and never repeated for saved name/size;
-            # link generation remains inside the download semaphore below.
-            if is_1fichier and (
-                _name_needs_resolution(req.file_name) or not req.file_size
-            ):
-                async with slot_without_session(db, self.fichier_metadata_semaphore):
-                    req = await db_async.first(
-                        db.query(DownloadRequest).filter(DownloadRequest.id == req_id)
-                    )
+            visited_containers = set()
+            while is_container_url(req.url):
+                if req.url in visited_containers or len(visited_containers) >= 3:
+                    raise HosterParseError("링크 컨테이너 순환 또는 중첩 한도 초과; 자동 반복하지 않습니다")
+                visited_containers.add(req.url)
+                source = req.url
+                container_host, limit = self._resolve_host_limit(source)
+                container_key = f"{container_host}@{EGRESS_DIRECT}"
+                container_slots = self._site_semaphores.setdefault(container_key, DownloadSlots(limit))
+                async with slot_without_session(db, container_slots):
+                    req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
                     if not req or req.status == StatusEnum.stopped:
                         return
-                    egress = egress_of(req.use_proxy)
-                    cooldown = self._fichier_cooldown_until.get(egress)
-                    if cooldown and cooldown > datetime.datetime.now():
-                        print(f"[LOG] 1fichier 차단 대기 중, 메타데이터 요청 생략: {req_id}")
-                    else:
-                        await self._perform_preparse(req, db)
+                    await self._await_host_cooldown(req, db, container_key)
+                    if req.status == StatusEnum.stopped or cancel_signal.is_cancelled(req.id):
+                        return
+                    try:
+                        resolved = await self._run_special_parser(
+                            source, lambda: resolve_container_sync(source)
+                        )
+                    except Exception as error:
+                        apply_failure_to_request(req, "파싱", str(error))
+                        await self._record_host_refusal(req, db, container_host, container_key)
+                        raise
+                await db_async.refresh(db, req)
+                if req.status == StatusEnum.stopped or cancel_signal.is_cancelled(req.id):
+                    return
+                req.original_url = req.original_url or source
+                req.url = resolved
+                if requires_direct_hoster_session(resolved) and req.use_proxy:
+                    routed = await asyncio.to_thread(self._apply_download_route, req, db)
+                    if routed:
+                        await self.send_download_update(req.id, {"use_proxy": False, "message": routed[1]})
+                skip_parsing = False
+                await db_async.commit(db)
 
-            if is_1fichier and not req.use_proxy:
-                # 1fichier local download (to work around the free-tier limit - max 1)
-                print(f"[DEBUG] 1fichier 로컬 다운로드 시작: {req_id}")
+            # Proceed with the download - branch based on URL and proxy settings
+            is_1fichier = host_key_for_url(admission_url(req)) == "1fichier.com"
+
+            if is_1fichier:
+                # Both direct and proxy free flows own one slot through metadata,
+                # link issuance, and the entire transfer.
+                download_type = "1fichier 프록시" if req.use_proxy else "1fichier 로컬"
+                print(f"[DEBUG] {download_type} 다운로드 시작: {req_id}")
 
                 # Apply the 1fichier local download concurrency limit
                 # Check whether to wait on the semaphore
@@ -1303,6 +1497,7 @@ class DownloadCore:
 
                     # Honor an active host backoff before touching 1fichier again
                     # (avoids cascading the same form-rejection across the queue).
+                    await self._await_host_cooldown(req, db, f"1fichier.com@{fichier_egress}")
                     await self._await_fichier_cooldown(req, db, fichier_egress)
                     await db_async.refresh(db, req)
                     if req.status == StatusEnum.stopped:
@@ -1332,12 +1527,17 @@ class DownloadCore:
                             req.status = StatusEnum.parsing
                         await db_async.commit(db)
 
+                        if _name_needs_resolution(req.file_name) or not req.file_size:
+                            await self._perform_preparse(req, db)
                         await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing,
                                                               metadata_checked=True)
 
                         # Feed the result into the host backoff: a block/quota signal
                         # extends the cooldown for the whole queue; a success resets it.
                         await db_async.refresh(db, req)
+                        await self._record_host_refusal(
+                            req, db, "1fichier.com", f"1fichier.com@{fichier_egress}"
+                        )
                         if req.status == StatusEnum.done:
                             self._register_fichier_success(fichier_egress)
                         elif getattr(req, "failure_kind", None) == KIND_SLOT_BUSY:
@@ -1351,29 +1551,21 @@ class DownloadCore:
                             await self._publish_fichier_cooldown(db, fichier_egress)
                     print(f"[DEBUG] 1fichier 로컬 다운로드 세마포어 해제: {req_id}")
             else:
-                # General download (includes 1fichier proxy and plain URLs - max 5)
-                if is_1fichier:
-                    download_type = "1fichier 프록시"
-                else:
-                    download_type = "일반"
-                print(f"[DEBUG] {download_type} 다운로드 시작: {req_id}")
-
-                # Resolve the special-hoster name/size BEFORE queueing on the
-                # download slot, so a queued item shows its real filename instead
-                # of a stuck skeleton while it waits its turn.
-                if not skip_parsing and self.MAX_CONCURRENT_DOWNLOADS > 1:
-                    await self._perform_special_preparse(req, db)
-
-                # Smart admission: every host gets its OWN queue, so several big
-                # files on one host never starve a small file on another host.
-                host_key, per_host_max = self._resolve_host_limit(req.original_url or req.url)
-                # Key by (host, egress): the hoster counts slots per IP, so the
-                # proxy egress gets its own queue instead of sharing this one.
-                slot_key = f"{host_key}@{egress_of(req.use_proxy)}"
+                download_type = "일반"
+                host_key, per_host_max = self._resolve_host_limit(admission_url(req))
+                # These hosters proxy the resolver only; their file transfer is
+                # direct, so the proxy toggle cannot grant extra transfer slots.
+                transfer_egress = (
+                    EGRESS_DIRECT if is_special_hoster_url(admission_url(req))
+                    else egress_of(req.use_proxy)
+                )
+                slot_key = f"{host_key}@{transfer_egress}"
                 host_semaphore = self._site_semaphores.get(slot_key)
                 if host_semaphore is None:
-                    host_semaphore = asyncio.Semaphore(per_host_max)
+                    host_semaphore = DownloadSlots(per_host_max)
                     self._site_semaphores[slot_key] = host_semaphore
+
+                # Metadata also waits for admission and any host cooldown.
 
                 # If either the host queue or the global ceiling is full, mark the
                 # download pending so the UI shows it is waiting its turn.
@@ -1390,60 +1582,51 @@ class DownloadCore:
                     req.status = StatusEnum.pending
                     await db_async.commit(db)
 
-                # Acquire the host slot FIRST, then the global ceiling. A task
-                # waiting on the global cap holds only its own host slot, so it can
-                # never block a different host from starting.
-                async with slot_without_session(
-                    db, host_semaphore, self.total_download_semaphore
-                ):
-                    print(f"[DEBUG] {download_type} 다운로드 세마포어 획득: {req_id}")
-
-                    # The wait detached everything the session held, so the
-                    # row has to be read again before it can be used.
+                # Cooldown holds only this host's slot, never a global slot.
+                async with slot_without_session(db, host_semaphore):
                     req = await db_async.first(
                         db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
-                    if not req:
+                    if not req or req.status == StatusEnum.stopped:
                         return
-                    if req.status == StatusEnum.stopped:
-                        # Stopped while it sat in the queue. The 1fichier
-                        # branch already refused to start in this case; this
-                        # one used to start anyway.
-                        print(f"[LOG] 대기 중 정지됨, 시작 안 함: {req_id}")
+                    await self._await_host_cooldown(req, db, slot_key)
+                    if req.status == StatusEnum.stopped or cancel_signal.is_cancelled(req.id):
                         return
+                    async with slot_without_session(db, self.total_download_semaphore):
+                        req = await db_async.first(
+                            db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
+                        if not req or req.status == StatusEnum.stopped:
+                            return
+                        if not skip_parsing and not is_special_hoster_url(req.url):
+                            await self._perform_special_preparse(req, db)
 
-                    # With a total limit of one, parsing must also own that
-                    # slot: special-host parsing itself makes network requests.
-                    if not skip_parsing and self.MAX_CONCURRENT_DOWNLOADS == 1:
-                        await self._perform_special_preparse(req, db)
+                        if skip_parsing:
+                            # File info is present, so skip parsing and start downloading immediately
+                            await self.send_download_update(req_id, {
+                                "status": "downloading",
+                                "message": f"{download_type} 다운로드 시작 중..."
+                            })
+                            req.status = StatusEnum.downloading
+                        else:
+                            # When parsing is required
+                            await self.send_download_update(req_id, {
+                                "status": "parsing",
+                                "message": f"대기 완료, {download_type} 다운로드 시작 중..."
+                            })
+                            req.status = StatusEnum.parsing
+                        await db_async.commit(db)
 
-                    if skip_parsing:
-                        # File info is present, so skip parsing and start downloading immediately
-                        await self.send_download_update(req_id, {
-                            "status": "downloading",
-                            "message": f"{download_type} 다운로드 시작 중..."
-                        })
-                        req.status = StatusEnum.downloading
-                    else:
-                        # When parsing is required
-                        await self.send_download_update(req_id, {
-                            "status": "parsing",
-                            "message": f"대기 완료, {download_type} 다운로드 시작 중..."
-                        })
-                        req.status = StatusEnum.parsing
-                    await db_async.commit(db)
-
-                    if is_1fichier:
-                        await self._download_with_proxy_async(req, db, skip_preparse=skip_parsing,
-                                                              metadata_checked=True)
-                    else:
-                        await self._download_local_async(req, db)  # Plain URL download
+                        try:
+                            await self._download_local_async(req, db)
+                        finally:
+                            await db_async.refresh(db, req)
+                            await self._record_host_refusal(req, db, host_key, slot_key)
                         if host_key == "datanodes.to":
                             await db_async.refresh(db, req)
                             if req.status == StatusEnum.failed and req.failure_kind == KIND_BROWSER_PARSE:
                                 await self._stop_datanodes_queue_after_browser_failure(
                                     db, bool(req.use_proxy)
                                 )
-                    print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
+                        print(f"[DEBUG] {download_type} 다운로드 세마포어 해제: {req_id}")
 
         except asyncio.CancelledError:
             # Download cancelled
@@ -1465,6 +1648,9 @@ class DownloadCore:
                 )
                 req.status = _status_after_failure(verdict)
                 await db_async.commit(db)
+                host = host_key_for_url(admission_url(req))
+                egress = EGRESS_DIRECT if is_special_hoster_url(admission_url(req)) or is_container_url(req.url) else egress_of(req.use_proxy)
+                await self._record_host_refusal(req, db, host, f"{host}@{egress}")
                 if is_1fichier and isinstance(e, PreparseBlockedError):
                     fichier_egress = egress_of(req.use_proxy)
                     if verdict.kind == KIND_SLOT_BUSY:
@@ -1534,14 +1720,14 @@ class DownloadCore:
             # Run 1fichier parsing (already an async function)
             # Use original_url only for 1fichier; plain downloads use the current url
             # For local 1fichier, parsing is needed even on restart to check the wait time
-            is_1fichier = "1fichier.com" in (req.original_url or req.url)
+            is_1fichier = host_key_for_url(admission_url(req)) == "1fichier.com"
             is_local_1fichier = is_1fichier and not req.use_proxy
 
             # Local 1fichier needs one fresh link resolve for each download.
             # Metadata is independent and is fetched only when missing.
             should_skip_preparse = skip_preparse
 
-            if should_skip_preparse and "1fichier.com" in (req.original_url or req.url):
+            if should_skip_preparse and is_1fichier:
                 print(f"[LOG] 파일 정보가 이미 있음, 전체 파싱 건너뛰고 바로 다운로드: {req.id} - {req.file_name} ({req.file_size})")
 
                 # Skip parsing and start downloading immediately
@@ -1558,7 +1744,7 @@ class DownloadCore:
                 await self._perform_file_download_async(req, db, download_url, proxy_addr)
                 return
 
-            elif "1fichier.com" in (req.original_url or req.url) and not should_skip_preparse:
+            elif is_1fichier and not should_skip_preparse:
                 parse_url = choose_1fichier_parse_url(req.url, req.original_url)
                 if not parse_url:
                     raise Exception("원본 1fichier 파일 페이지 URL을 찾을 수 없음")
@@ -1625,8 +1811,8 @@ class DownloadCore:
                     if account_cookies:
                         print(f"[LOG] 1fichier 계정 세션 사용 (cookies={len(account_cookies)})")
 
-                    parse_result = await loop.run_in_executor(
-                        None,
+                    parse_result = await self._run_parser(
+                        parse_url,
                         lambda: parse_1fichier_simple_sync(
                             parse_url,
                             req.password,
@@ -1690,8 +1876,8 @@ class DownloadCore:
                             account_cookies_proxy = await loop.run_in_executor(
                                 None, get_fichier_account_cookies
                             )
-                            parse_result = await loop.run_in_executor(
-                                None,
+                            parse_result = await self._run_parser(
+                                parse_url,
                                 lambda: parse_1fichier_simple_sync(
                                     parse_url,
                                     req.password,
@@ -1733,6 +1919,11 @@ class DownloadCore:
                             # VPS/VPN block was being thrown away, and routing
                             # never learned the host refuses that egress.
                             last_proxy_error = proxy_parse_error
+
+                            # A refusal is not a broken proxy. Do not ask another
+                            # proxy for the same blocked/quota-limited free flow.
+                            if classify_error("파싱", str(proxy_parse_error)).kind != KIND_TRANSIENT:
+                                raise
 
                             if req.use_proxy and proxy_addr:
                                 # Record the failed proxy and increment the failure count
@@ -1866,7 +2057,7 @@ class DownloadCore:
 
                 # For 1fichier, preserve the original file page. The download server link
                 # expires quickly, so saving it as original_url would cause a 404 on retry.
-                if "1fichier.com" in parse_url and req.original_url != parse_url:
+                if "1fichier.com" in parse_url and req.original_url != parse_url and not is_container_url(req.original_url):
                     req.original_url = parse_url
                     await db_async.commit(db)
 
@@ -1947,15 +2138,7 @@ class DownloadCore:
             })
             return False
 
-    async def _consume_response_and_finish(
-        self,
-        req: DownloadRequest,
-        db: Session,
-        response,
-        initial_size: int,
-        download_mode: str,
-    ):
-        """After receiving a 200/206 response, read the body and run completion handling."""
+    async def _apply_response_filename(self, req, db, response, initial_size):
         # Prefer the server-provided filename (Content-Disposition) when ours is
         # missing, a placeholder, or a bare file code without an extension. Only
         # when nothing has been written yet (initial_size == 0) so resume isn't broken.
@@ -1970,6 +2153,18 @@ class DownloadCore:
                     "id": req.id,
                     "filename": req.file_name,
                 })
+
+
+    async def _consume_response_and_finish(
+        self,
+        req: DownloadRequest,
+        db: Session,
+        response,
+        initial_size: int,
+        download_mode: str,
+    ):
+        """After receiving a 200/206 response, read the body and run completion handling."""
+        await self._apply_response_filename(req, db, response, initial_size)
 
         # If we still can't determine a real filename (no extension) after the
         # parser and Content-Disposition, the source gave us nothing usable — fail
@@ -2219,9 +2414,8 @@ class DownloadCore:
         if not parse_url:
             return None
         try:
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                None,
+            return await self._run_parser(
+                parse_url,
                 lambda: parse_1fichier_simple_sync(
                     parse_url,
                     req.password,
@@ -2232,7 +2426,7 @@ class DownloadCore:
             )
         except Exception as reparse_error:
             print(f"[ERROR] 재파싱 오류: {reparse_error}")
-            return None
+            raise
 
     async def _reparse_special_for_retry(
         self,
@@ -2249,14 +2443,13 @@ class DownloadCore:
         """
         source_url = req.original_url or req.url
         try:
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                None,
+            return await self._run_special_parser(
+                source_url,
                 lambda: parse_special_hoster_sync(source_url, req.password, proxies=proxies),
             )
         except Exception as reparse_error:
             print(f"[ERROR] 특수 호스터 재파싱 오류: {reparse_error}")
-            return None
+            raise
 
     async def _sleep_unless_cancelled(self, req: DownloadRequest, seconds: float) -> bool:
         """Sleep up to ``seconds``, returning True if the download was cancelled
@@ -2280,7 +2473,7 @@ class DownloadCore:
         user_agent: Optional[str] = None,
         referer: Optional[str] = None,
         parse_url: Optional[str] = None,
-        max_reparse: int = 1,
+        max_reparse: int = 0,
     ):
         """Direct download (same as the local method).
 
@@ -2311,8 +2504,9 @@ class DownloadCore:
             current_ua = user_agent
             current_referer = referer
             reparse_url = choose_1fichier_parse_url(parse_url)
-            is_special = is_special_hoster_url(req.original_url or req.url)
+            is_special = is_special_hoster_url(admission_url(req))
             flaresolverr_cookie_attempted = False
+            drive_confirmation_attempted = False
 
             while True:
                 try:
@@ -2327,29 +2521,35 @@ class DownloadCore:
                             print(f"[DEBUG] 이어받기: {initial_size} bytes")
 
                         async with session.get(current_url, headers=headers) as response:
-                            # AkiraBox can issue a valid-looking signed URL even
-                            # when the assigned storage node has no file. Its
-                            # plain-text 403 says so explicitly; asking
-                            # FlareSolverr for cookies cannot restore that file.
-                            if response.status == 403 and (urlparse(req.original_url or req.url).hostname or "").lower().removeprefix("www.") in {"akirabox.com", "akirabox.to"}:
-                                preview = await response.content.read(256)
-                                if b"the link is not available at this time" in preview.lower():
+                            # AkiraBox may issue a signed URL whose storage
+                            # server refuses the GET. This observed plain-text
+                            # 403 is not proof of deletion or a missing file.
+                            # It also is not a Cloudflare challenge: do not
+                            # repeat it through a cookie-solving fallback.
+                            refusal_preview = b""
+                            if response.status == 403:
+                                refusal_preview = await response.content.read(2048)
+                            if response.status == 403 and canonical_host(urlparse(admission_url(req)).hostname) == "akirabox.com":
+                                if b"the link is not available at this time" in refusal_preview.lower():
                                     raise Exception("akirabox storage unavailable")
                             if (
                                 response.status == 403
-                                and is_special_hoster_url(req.original_url or req.url)
+                                and is_special
+                                and any(marker in refusal_preview.lower() for marker in (
+                                    b"challenge-platform", b"cf_chl", b"cf-chl-", b"checking your browser",
+                                ))
                                 and not flaresolverr_cookie_attempted
                             ):
                                 flaresolverr_cookie_attempted = True
-                                cf_context = await asyncio.get_event_loop().run_in_executor(
-                                    None,
+                                cf_context = await self._run_parser(
+                                    admission_url(req),
                                     lambda: get_flaresolverr_context_for_url(
                                         current_url,
                                         referer=current_referer or req.url,
                                     ),
                                 )
                                 cf_cookies = cf_context.get("cookies") or {}
-                                if cf_cookies:
+                                if cf_cookies.get("cf_clearance") and cf_cookies.get("cf_clearance") != current_cookies.get("cf_clearance"):
                                     current_cookies = {**current_cookies, **cf_cookies}
                                     current_ua = cf_context.get("user_agent") or current_ua
                                     print(f"[LOG] FlareSolverr 쿠키 확보, 호스팅 최종 링크 재시도: {list(cf_cookies.keys())}")
@@ -2363,7 +2563,13 @@ class DownloadCore:
                                     return
                                 continue
                             if response.status not in [200, 206]:
-                                raise Exception(f"HTTP {response.status}: {response.reason}")
+                                message = http_failure_message(response.status, response.reason, response.headers)
+                                if response.status == 429:
+                                    preview = await response.content.read(_BLOCK_PAGE_SNIFF_BYTES)
+                                    notice = preview.decode("utf-8", "ignore")
+                                    if is_single_download_refusal(notice):
+                                        message += "; only one file at a time"
+                                raise Exception(message)
                             # A 200 answering our Range means the range was
                             # ignored and the body restarts at byte zero, so the
                             # bytes on disk must be overwritten, not appended to.
@@ -2373,9 +2579,23 @@ class DownloadCore:
                             # is_special_hoster_url() 로 게이팅돼 있어서 등록되지
                             # 않은 호스터(multiup 등)의 HTML 이 파일로 저장됐다.
                             if "text/html" in content_type:
+                                if canonical_host(urlparse(admission_url(req)).hostname) == "drive.google.com":
+                                    from core.generic_links import google_drive_confirmation, read_confirmation_body
+                                    if drive_confirmation_attempted:
+                                        raise Exception("Google Drive 공개 파일 확인 후에도 파일 대신 HTML을 반환했습니다; 자동 반복 없음")
+                                    body = await read_confirmation_body(response.content)
+                                    next_url = google_drive_confirmation(body, str(response.url), parse_url or req.url)
+                                    if not next_url:
+                                        raise Exception("Google Drive 공개 파일 확인 단계 미확인")
+                                    drive_confirmation_attempted = True
+                                    current_cookies.update({c.key: c.value for c in session.cookie_jar})
+                                    current_referer, current_url = str(response.url), next_url
+                                    continue
                                 # 본문 앞부분을 봐야 이게 호스터의 캡차인지, 내
                                 # 회선의 차단 안내 페이지인지 구분할 수 있다.
                                 preview = await response.content.read(_BLOCK_PAGE_SNIFF_BYTES)
+                                if is_single_download_refusal(preview.decode("utf-8", "ignore")):
+                                    raise Exception("호스팅 파일 서버: only one file at a time")
                                 raise Exception(
                                     _network_block_notice(preview)
                                     or "호스팅 최종 링크가 파일 대신 HTML/보안 확인 페이지를 반환함"
@@ -2674,12 +2894,20 @@ class DownloadCore:
                                     # loop re-request the whole file from zero.
                                     raise Exception("HTTP 416: 이어받기 지점이 파일 끝을 넘어 처음부터 다시 받습니다")
                                 if response.status not in [200, 206]:
-                                    raise Exception(f"HTTP {response.status}: {response.reason}")
+                                    raise Exception(http_failure_message(
+                                        response.status, response.reason, response.headers
+                                    ))
 
                                 # A 200 answering our Range means the range was
                                 # ignored and the body restarts at byte zero, so
                                 # what is on disk must be overwritten.
                                 initial_size = effective_initial_size(response.status, initial_size)
+
+                                content_type = (response.headers.get("Content-Type") or "").lower()
+                                if "text/html" in content_type or "application/json" in content_type:
+                                    preview = await response.content.read(_BLOCK_PAGE_SNIFF_BYTES)
+                                    raise Exception(_network_block_notice(preview) or "파일 대신 HTML/API 페이지를 반환했습니다")
+                                await self._apply_response_filename(req, db, response, initial_size)
 
                                 # Content-Length. A body starting at byte zero states
                                 # the true length and supersedes an inflated total left
@@ -2740,6 +2968,9 @@ class DownloadCore:
                 except Exception as download_error:
                     print(f"[ERROR] 다운로드 실패 ({retry_count + 1}): {download_error}")
 
+                    if classify_error("다운로드", str(download_error)).kind != KIND_TRANSIENT:
+                        raise
+
                     # Both 404/410 signal link expiry or session loss - attempt re-parsing
                     err_text = str(download_error)
                     expired = (
@@ -2747,38 +2978,9 @@ class DownloadCore:
                         or "Gone" in err_text or "Not Found" in err_text
                     )
                     if expired:
-                        print(f"[WARNING] 다운로드 링크 만료/세션 손실 감지 - 재파싱 시도")
-                        try:
-                            # Re-parse
-                            parse_url = choose_1fichier_parse_url(req.url, req.original_url)
-                            if not parse_url:
-                                raise Exception("원본 1fichier 파일 페이지 URL을 찾을 수 없음")
-
-                            loop = asyncio.get_event_loop()
-                            new_parse_result = await loop.run_in_executor(
-                                None,
-                                lambda: parse_1fichier_simple_sync(
-                                    parse_url,
-                                    req.password,
-                                    _build_proxy_dict(proxy_addr),
-                                    proxy_addr,
-                                    req.id,
-                                )
-                            )
-
-                            if new_parse_result and new_parse_result.get('download_link'):
-                                download_url = new_parse_result['download_link']
-                                # Refresh the session context obtained from re-parsing too
-                                cookies = new_parse_result.get('cookies') or cookies
-                                user_agent = new_parse_result.get('user_agent') or user_agent
-                                referer = new_parse_result.get('referer') or referer
-                                print(f"[LOG] 재파싱 성공, 새 다운로드 링크: {download_url}")
-                                # continue to retry with the new link
-                                continue
-                            else:
-                                print(f"[ERROR] 재파싱 실패")
-                        except Exception as reparse_error:
-                            print(f"[ERROR] 재파싱 오류: {reparse_error}")
+                        # A missing file response is not authority to re-issue
+                        # another download session immediately.
+                        raise download_error
 
                     if req.use_proxy and proxy_addr:
                         # Record the failed proxy and increment the failure count
@@ -2940,9 +3142,6 @@ class DownloadCore:
 
     async def _download_special_hoster_async(self, req: DownloadRequest, db: Session):
         """Resolve a file hosting page (MegaUp/DataNodes, etc.) to a final link, then download."""
-        host = (urlparse(req.url or "").hostname or "").lower().removeprefix("www.")
-        one_shot_hosts = {"vikingfile.com", "vik1ngfile.site", "akirabox.com", "akirabox.to", "rootz.so"}
-        one_shot_parse = host in one_shot_hosts
         print(f"[DEBUG] 특수 호스팅 파싱 시작: {req.id} - {req.url}")
         await self.send_download_update(req.id, {
             "status": "parsing",
@@ -2953,20 +3152,14 @@ class DownloadCore:
         await db_async.commit(db)
 
         try:
-            loop = asyncio.get_event_loop()
             if not req.use_proxy:
                 try:
-                    parse_result = await asyncio.wait_for(
-                        loop.run_in_executor(
-                            parse_executor_for(req.url),
-                            lambda: parse_special_hoster_sync(req.url, req.password),
-                        ),
-                        timeout=SPECIAL_HOSTER_PARSE_TIMEOUT_SEC,
+                    parse_result = await self._run_special_parser(
+                        req.url, lambda: parse_special_hoster_sync(req.url, req.password),
                     )
                 except asyncio.TimeoutError:
-                    # The executor thread may linger until its own bounded calls
-                    # finish, but the task fails now so the semaphore slot is freed
-                    # and the row leaves the "parsing" state instead of hanging.
+                    # The row fails promptly; the resolver slot stays held until
+                    # the actual executor work finishes.
                     minutes = SPECIAL_HOSTER_PARSE_TIMEOUT_SEC // 60
                     raise Exception(
                         f"호스팅 페이지 파싱 시간 초과 ({minutes}분). "
@@ -2977,9 +3170,7 @@ class DownloadCore:
                 # retry across proxies on failure (download step stays direct).
                 total_proxy_list = await proxy_manager.get_user_proxy_list(db)
                 total_proxies = len(total_proxy_list) if total_proxy_list else 0
-                MAX_RETRIES = min(MAX_DOWNLOAD_RETRIES_PROXY_CAP, total_proxies)
-                if one_shot_parse:
-                    MAX_RETRIES = min(MAX_RETRIES, 1)
+                MAX_RETRIES = min(total_proxies, 1)
 
                 retry_count = 0
                 parse_result = None
@@ -3009,14 +3200,11 @@ class DownloadCore:
                         print(f"[LOG] SSE 파싱시도 전송: {retry_count + 1}/{total_proxies}")
 
                     try:
-                        parse_result = await asyncio.wait_for(
-                            loop.run_in_executor(
-                                parse_executor_for(req.url),
-                                lambda p=proxies: parse_special_hoster_sync(
-                                    req.url, req.password, proxies=p
-                                ),
+                        parse_result = await self._run_special_parser(
+                            req.url,
+                            lambda p=proxies: parse_special_hoster_sync(
+                                req.url, req.password, proxies=p
                             ),
-                            timeout=SPECIAL_HOSTER_PARSE_TIMEOUT_SEC,
                         )
                         if parse_result:
                             break
@@ -3041,17 +3229,9 @@ class DownloadCore:
                     )
 
             file_info = parse_result.get("file_info") or {}
-            if _should_replace_file_name(req.file_name, file_info.get("name")):
-                req.file_name = file_info["name"]
-                print(f"[LOG] 호스팅 파일명 저장: {req.file_name}")
-            if file_info.get("size") and not req.file_size:
-                req.file_size = file_info["size"]
-                total_size = _size_text_to_bytes(req.file_size)
-                if total_size and (not req.total_size or req.total_size == 0):
-                    req.total_size = total_size
-                print(f"[LOG] 호스팅 파일크기 저장: {req.file_size}")
+            _apply_hoster_file_info(req, file_info)
 
-            if req.original_url != req.url:
+            if not req.original_url:
                 req.original_url = req.url
             await db_async.commit(db)
 
@@ -3086,20 +3266,26 @@ class DownloadCore:
                 user_agent=parse_result.get("user_agent"),
                 referer=parse_result.get("referer") or req.url,
                 parse_url=req.url,
-                # 1 re-resolution allowed: if the assigned node (e.g.
-                # node42.datanodes.to) is dead/unreachable and the download fails
-                # (connect timeout, expiry, ...), re-parse once so the host hands
-                # out a fresh node URL instead of retrying the same dead node.
-                max_reparse=0 if one_shot_parse else 1,
+                # A failed file request must not immediately issue another
+                # host token or reconnect to a refusing storage node.
+                max_reparse=0,
             )
         except Exception as e:
             print(f"[ERROR] 특수 호스팅 처리 실패: {e}")
+            metadata_changed = _apply_hoster_file_info(req, getattr(e, "file_info", None))
             verdict = apply_failure_to_request(req, "파싱", str(e))
             req.status = _status_after_failure(verdict)
             req.finished_at = datetime.datetime.now()
             await db_async.commit(db)
+            if metadata_changed:
+                await sse_manager.broadcast_message("filename_update", {
+                    "id": req.id, "filename": req.file_name, "file_size": req.file_size,
+                })
             await self.send_download_update(req.id, {
                 "status": "failed",
+                "filename": req.file_name,
+                "file_size": req.file_size,
+                "total_size": req.total_size or 0,
                 "message": verdict.user_message,
                 "stage": "파싱",
                 "raw_error": str(e),
@@ -3135,7 +3321,7 @@ class DownloadCore:
                 req.file_name = info.name
                 req.total_size = info.size
                 req.file_size = _format_bytes(info.size)
-                if req.original_url != req.url:
+                if not req.original_url:
                     req.original_url = req.url
                 if not req.save_path:
                     req.save_path = generate_file_path(
@@ -3340,36 +3526,8 @@ class DownloadCore:
                     })
                     return
 
-            # Try extracting the file name from the Content-Disposition header
-            try:
-                timeout = aiohttp.ClientTimeout(total=30, connect=10)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.head(req.url) as response:
-                        if response.status == 200:
-                            content_disposition = response.headers.get('Content-Disposition', '')
-                            if content_disposition:
-                                # Content-Disposition: attachment; filename="filename.ext"
-                                filename_match = re.search(r'filename[*]?=([^;]+)', content_disposition, re.IGNORECASE)
-                                if filename_match:
-                                    filename = filename_match.group(1).strip().strip('"\'')
-                                    if filename:
-                                        req.file_name = filename
-                                        print(f"[LOG] Content-Disposition에서 파일명 추출: {filename}")
-
-                                        # Reset the save path with the new file name
-                                        req.save_path = generate_file_path(req.file_name, is_temporary=True)
-                                        print(f"[LOG] Content-Disposition 저장경로 재설정: {req.save_path}")
-                                        await db_async.commit(db)
-
-                                        # Send the file name update over SSE
-                                        await sse_manager.broadcast_message("filename_update", {
-                                            "id": req.id,
-                                            "filename": req.file_name,
-                                            "file_size": req.file_size
-                                        })
-                                        return
-            except Exception as head_error:
-                print(f"[WARNING] HEAD 요청 실패: {head_error}")
+            # Read Content-Disposition during the actual GET. A preliminary
+            # HEAD consumes a separate request and can use a different session.
 
             print(f"[WARNING] URL에서 파일명 추출 실패: {req.url}")
 

@@ -128,6 +128,15 @@ class UserProxy(_AsDictMixin, Base):
     description = Column(String, nullable=True)  # user description
 
 
+class HostAdmissionState(Base):
+    """Confirmed host limits must survive retries, row deletion, and restarts."""
+    __tablename__ = "host_admission_state"
+
+    slot_key = Column(String, primary_key=True)  # canonical host@transfer egress
+    max_downloads = Column(Integer, nullable=True)  # learned cap, currently 1
+    cooldown_until = Column(DateTime, nullable=True)
+
+
 # Proxy status management table
 class ProxyStatus(Base):
     __tablename__ = "proxy_status"

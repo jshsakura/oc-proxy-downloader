@@ -83,7 +83,7 @@ def test_전송이_끊기면_실패(tmp_path):
     # Content-Length 를 받았는데 그보다 적게 받았으면 완료가 아니다.
     req = _Req(save_path=_write(str(tmp_path), "x.rar", b"Rar!\x1a\x07\x01\x00"), total_size=5_000_000_000)
     with pytest.raises(Exception, match="중간에 끊"):
-        assert_downloaded_a_real_file(req, 1_234_567, "")
+        assert_downloaded_a_real_file(req, 8, "")
 
 
 def test_정상_rar_은_통과(tmp_path):
@@ -105,10 +105,16 @@ def test_총크기를_모르면_크기검사는_건너뛴다(tmp_path):
     assert_downloaded_a_real_file(req, len(body), "")
 
 
-def test_파일이_없어도_예외로_죽지_않는다():
-    # 경로가 비어있거나 사라진 경우 — 검사 자체가 터지면 안 된다.
-    assert_downloaded_a_real_file(_Req(save_path=""), 100, "")
-    assert_downloaded_a_real_file(_Req(save_path="/nonexistent/x.rar"), 100, "")
+def test_missing_file_cannot_be_completed():
+    for path in ("", "/nonexistent/x.rar"):
+        with pytest.raises(Exception, match="실제 다운로드 파일이 없습니다"):
+            assert_downloaded_a_real_file(_Req(save_path=path), 100, "")
+
+
+def test_empty_file_cannot_be_completed(tmp_path):
+    req = _Req(save_path=_write(str(tmp_path), "empty.nsp", b""), total_size=0)
+    with pytest.raises(Exception, match="파일 크기"):
+        assert_downloaded_a_real_file(req, 0, "")
 
 
 def test_HTML_이_본문_뒤쪽에_있으면_통과(tmp_path):

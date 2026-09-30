@@ -25,7 +25,8 @@ from core.error_messages import (
     KIND_DAILY_QUOTA,
     next_fichier_quota_reset,
 )
-from core.hoster_common import _host
+from core.host_policy import host_key_for_url
+from core.link_containers import admission_url
 from core.proxy_manager import proxy_manager
 from services.sse_manager import sse_manager
 
@@ -37,7 +38,7 @@ RETRY_SWEEP_INTERVAL_SEC = 20
 # each waiting their own polite two minutes still add up to a steady stream at
 # one host — from its side that is one client retrying without pause. No host is
 # approached again until this long after the last retry sent to it.
-HOST_RETRY_SPACING_SEC = 180
+HOST_RETRY_SPACING_SEC = 1800
 
 # Max downloads the sweeper re-runs PER cycle. Re-running a special-hoster/1fichier
 # item triggers a heavy parse (cloudscraper + possibly FlareSolverr, multi-second,
@@ -70,6 +71,10 @@ class DownloadService:
         """Start the service"""
         if self.is_running:
             return
+
+        # Load confirmed restrictions before a queued item can contact a host.
+        with SessionLocal() as db:
+            await download_core.restore_host_admission(db)
 
         self.is_running = True
         print("[LOG] DownloadService started")
@@ -106,7 +111,7 @@ class DownloadService:
         it — a download that died on a brief blip stayed failed forever. This loop
         is that missing piece: it periodically picks up due, non-terminal failures
         and restarts them, preserving ``attempt_count`` so the existing backoff
-        keeps escalating (30s → 2m → 8m → 30m) on repeat failure.
+        permits only one delayed transient retry (at least 30 minutes).
         """
         while self.is_running:
             await asyncio.sleep(RETRY_SWEEP_INTERVAL_SEC)
@@ -151,7 +156,7 @@ class DownloadService:
                 # backwards. Measured: 42 due items behind one host meant one
                 # release every three minutes, and the queue stopped moving.
                 if req.failure_kind != KIND_QUEUED:
-                    host = _host(req.original_url or req.url or "")
+                    host = host_key_for_url(admission_url(req))
                     last = self._last_retry_per_host.get(host, 0.0)
                     if host and now_mono - last < HOST_RETRY_SPACING_SEC:
                         continue

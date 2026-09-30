@@ -208,9 +208,9 @@ class TestErrorClassification:
     """MegaApiError → message → central classifier must land on the right kind."""
 
     def test_dead_maps_to_dead_kind(self):
-        from core.error_messages import classify_failure_text, KIND_DEAD
+        from core.error_messages import classify_failure_text, KIND_SOURCE_UNCONFIRMED
         msg = mh.mega_error_message(mh.MegaApiError(-9))
-        assert classify_failure_text(msg) == KIND_DEAD
+        assert classify_failure_text(msg) == KIND_SOURCE_UNCONFIRMED
 
     def test_quota_maps_to_rate_limited(self):
         from core.error_messages import classify_failure_text, KIND_RATE_LIMITED
@@ -227,6 +227,20 @@ class TestErrorClassification:
         assert mh.is_mega_url("https://mega.nz/#!abc!key")
         assert not mh.is_mega_url("https://mega.nz/folder/abc#key")
         assert not mh.is_mega_url("https://1fichier.com/?x")
+        assert not mh.is_mega_url("https://mega.nz.evil.test/file/abc#key")
+        assert not mh.is_mega_url("https://example.test/file?url=mega.nz/file/abc#key")
+
+
+@pytest.mark.asyncio
+async def test_full_length_file_with_wrong_mac_is_not_a_success(tmp_path):
+    key = mc.a32_to_bytes((11, 22, 33, 44))
+    iv = (55, 66, 0, 0)
+    data = b'PFS0' + b'\x00' * 256
+    info = mh.MegaFileInfo('https://example.test/file', len(data), 'bad.nsp', key, iv, (0, 0))
+    dest = tmp_path / 'bad.nsp.part'
+    with pytest.raises(IOError, match='무결성'):
+        await mh.download_mega_file(_FakeSession(_encrypt_ctr(data, key, iv)), info, str(dest))
+    assert dest.read_bytes() == data
 
 
 class TestDeriveDisplayName:

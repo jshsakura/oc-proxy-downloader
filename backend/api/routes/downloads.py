@@ -19,11 +19,14 @@ from urllib.parse import urlparse, unquote, urlunparse
 from core.db import get_db, SessionLocal
 from core import db_async
 from core.models import DownloadRequest, StatusEnum
-from core.download_core import download_core, ROUTE_MANUAL, _read_download_route
+from core.download_core import download_core, ROUTE_MANUAL, _read_download_route, assert_downloaded_a_real_file
 from core.parser import fichier_parser
 from core.simple_parser import parse_1fichier_simple_sync, clean_1fichier_url, derive_display_name
 from core.hoster_parsers import should_preserve_original_url
 from core.config import get_config
+from core.link_admission import enqueue_link_error
+from core.link_containers import is_container_url, admission_url
+from core.host_policy import host_key_for_url
 from core.i18n import get_translations
 from core.error_messages import (
     classify_failure_text,
@@ -68,7 +71,7 @@ def _should_skip_retry(req: DownloadRequest, has_credentials: bool) -> Optional[
 
 def _retry_host(req: DownloadRequest) -> str:
     """Use the original host when a parser has replaced the download URL."""
-    return (urlparse(req.original_url or req.url or "").hostname or f"request:{req.id}").lower()
+    return host_key_for_url(admission_url(req))
 
 
 def _one_retry_per_idle_host(candidates, active):
@@ -96,7 +99,12 @@ def _find_completed_duplicate(db: Session, url: str) -> Optional[DownloadRequest
     ).order_by(DownloadRequest.id.desc()).all()
     for req in candidates:
         if req.save_path and os.path.exists(req.save_path):
-            return req
+            try:
+                size = os.path.getsize(req.save_path)
+                assert_downloaded_a_real_file(req, size)
+                return req
+            except Exception:
+                continue
     return None
 
 
@@ -137,44 +145,11 @@ def _persist_new_request(db: Session, new_request: DownloadRequest) -> int:
 
 
 async def _resolve_ouo_url(req: DownloadRequest, db: Session) -> bool:
-    """Replace an ouo shortlink with the real download URL it hides.
+    """Leave OUO to DownloadCore's admitted, single-browser container flow.
 
-    ``unwrap_if_ouo`` is synchronous and can take minutes (FlareSolverr,
-    curl_cffi, headless browser), so it runs on the pool that host belongs to —
-    never on the event loop, and never on the shared pool for a browser flow.
-    Returns False when the shortlink could not be resolved; the row is left
-    failed so the normal retry path can pick it up.
+    The old API preflight ran several retry backends outside the host slot.
+    Keeping the original URL here also prevents a second resolve after failure.
     """
-    if not is_ouo_url(req.url):
-        return True
-
-    loop = asyncio.get_running_loop()
-    unwrapped = await loop.run_in_executor(
-        parse_executor_for(req.url), unwrap_if_ouo, req.url
-    )
-
-    if not unwrapped:
-        print(f"[WARNING] ouo unwrap 실패: {req.url}")
-        failed_id, failed_url = req.id, req.url
-        message = f"ouo 단축링크 우회 실패: {failed_url} — 잠시 후 다시 시도해주세요"
-        req.status = StatusEnum.failed
-        req.error = message
-        req.failure_kind = KIND_TRANSIENT
-        await db_async.commit(db)
-        await sse_manager.broadcast_message("download_added", {
-            "id": failed_id,
-            "url": failed_url,
-            "status": "failed",
-            "message": message,
-        })
-        return False
-
-    print(f"[LOG] ouo unwrap: {req.url} -> {unwrapped}")
-    resolved_id = req.id
-    req.url = clean_1fichier_url(unwrapped)
-    req.file_name = derive_display_name(req.url)
-    await db_async.commit(db)
-    await db_async.reload(db, DownloadRequest, [resolved_id])
     return True
 
 
@@ -245,9 +220,20 @@ async def add_download(
         url = request.get("url", "").strip()
         password = request.get("password", "")
         use_proxy = request.get("use_proxy", False)
+        # Collector/display metadata is available before any host contact.
+        # Keep it through failures; parser/GET metadata resolves the real name.
+        display_name = request.get("filename") or request.get("file_name")
+        if isinstance(display_name, str):
+            display_name = re.sub(r"[\x00-\x1f\x7f]", " ", display_name)
+            display_name = display_name.replace("\\", "/").rsplit("/", 1)[-1].strip()[:512]
+        else:
+            display_name = None
 
         if not url:
             raise HTTPException(status_code=400, detail="URL이 필요합니다")
+        link_error = enqueue_link_error(url)
+        if link_error:
+            raise HTTPException(status_code=400, detail=link_error)
 
         # ouo.io / ouo.press shortlinks are stored as-is and unwrapped by the
         # background start (FlareSolverr / headless browser, minutes at worst).
@@ -286,7 +272,7 @@ async def add_download(
         # filename on success, so the placeholder only persists in dead cases,
         # and even then it's far more identifiable than "Unknown".
         preserved_original_url = url if (
-            is_ouo or "1fichier.com" in url or should_preserve_original_url(url)
+            is_ouo or is_container_url(url) or "1fichier.com" in url or should_preserve_original_url(url)
         ) else None
 
         new_request = DownloadRequest(
@@ -295,7 +281,7 @@ async def add_download(
             password=password if password else None,
             use_proxy=use_proxy,
             status=StatusEnum.pending,
-            file_name=derive_display_name(url),
+            file_name=display_name or derive_display_name(url),
         )
 
         download_id = await asyncio.to_thread(_persist_new_request, db, new_request)

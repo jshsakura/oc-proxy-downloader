@@ -50,29 +50,31 @@ The [host parsing and failure matrix](docs/HOSTER_CASES.md) lists the current ca
 |------|----------|-------------|
 | 1fichier, MEGA | nothing | ✅ Works |
 | Pixeldrain | nothing (public API) | ✅ Works |
-| GoFile | Time-based website token and free metadata rate limits | ✅ For public files |
+| GoFile | The current guest website session; no registration/API key | Docker browser required for this flow |
 | MediaFire | FlareSolverr when Cloudflare-challenged | 🟡 Works unless challenged |
 | MegaUp | FlareSolverr (always) | ❌ Needs an external FlareSolverr |
 | Bunkr | FlareSolverr when challenged | 🟡 Encrypted-CDN links may not resolve |
 | **DataNodes** | **a browser (Turnstile captcha)** | ❌ **Docker only** |
-| Send.now | FlareSolverr, or a browser when captcha-gated | 🟡 Fails if a captcha appears |
+| Send.now / Send.cm | Actual download forms in the normal browser session | Docker browser required for this flow |
 | **AkiraBox** (`akirabox.com`, `akirabox.to`) | **Browser to issue a short-lived download URL** | ❌ **Docker only** |
 | **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **Browser and Turnstile captcha** | ❌ **Docker only** |
 | **Rootz** (`rootz.so`) | **Browser to verify metadata and resolve the file URL** | ❌ **Docker only** |
-| DataVaults | Name/size metadata available; free download requires reCAPTCHA v2 | ❌ No automatic download without human verification; no repeated requests |
-| FileCrypt | Human verification before its multi-link container | ❌ Automated downloads unsupported |
+| DataVaults | Follow actual free-download forms once each | Stop on human verification; no blanket host block |
+| FileCrypt / Linkcuy | Extract public destinations or follow site navigation | FileCrypt PoW: one attempt, up to 900 seconds; full extraction remains unverified |
 | MomeryBox / TeraBox | Redirects to TeraBox; the example link prompts for login on download | ❌ Automated downloads unsupported |
 
 Browser-based link resolution runs **one link at a time per site**. Waiting for a
 turn does not consume a failure retry. AkiraBox, VikingFile, and Rootz resolve
 their file URL once when the download slot is available; a failed resolution does
-not cycle through multiple proxies. Each of these hosts allows up to three
-concurrent transfers. Their domain aliases share the same limit.
-
-The defaults are 8 global transfers and 3 per host. Set `max_concurrent_downloads`
-and `max_per_host_downloads` in `/config/config.json` or the web settings to lower
-them. Free 1fichier transfers are limited to one per egress; DataNodes and
-MultiUp are limited to one per host.
+not cycle through multiple proxies. GoFile and VikingFile have three overlapping completed
+transfers verified on this route. Other and unverified hosts default to one.
+The global default is eight; the configured per-host value of three is a ceiling.
+Aliases share admission. Slots cover metadata, resolution and the entire transfer.
+Retries are conservative: no immediate reparse/reconnect, no automatic retries for
+captcha, parsing or access refusal; at most one delayed transient retry after 30 minutes.
+HTTP 429 pauses the host queue, respecting `Retry-After`. An explicit single-file
+refusal lowers that host's limit to one. Confirmed caps and cooldowns are stored
+in SQLite and restored before queue startup, surviving retries and restarts.
 
 > Turnstile and free-download limits vary by host and egress address. A resolved
 > link can still be refused by the file server when the transfer begins.
@@ -319,3 +321,8 @@ This project is distributed under the MIT License.
 ---
 
 **⭐ If this project helped you, please give it a Star!**
+
+Containers preserve the original URL and admit a single destination by its actual host.
+Multiple files/parts/mirrors require explicit selection. HTML/JSON error pages, missing
+or empty files and length mismatches cannot become completed downloads. Single missing
+or inactive observations never authorize removal of collected links.

@@ -26,6 +26,10 @@ class _Req:
         self.password = None
         self.status = StatusEnum.pending
         self.finished_at = None
+        self.use_proxy = False
+        self.file_name = "file.rar"
+        self.file_size = None
+        self.total_size = 0
 
 
 class _Verdict:

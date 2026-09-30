@@ -71,9 +71,9 @@ def test_new_host_aliases_share_three_download_slots():
     dc = DownloadCore()
     assert dc._resolve_host_limit("https://vikingfile.com/f/a") == ("vikingfile.com", 3)
     assert dc._resolve_host_limit("https://vik1ngfile.site/f/b") == ("vikingfile.com", 3)
-    assert dc._resolve_host_limit("https://akirabox.com/a/file") == ("akirabox.com", 3)
-    assert dc._resolve_host_limit("https://akirabox.to/b/file") == ("akirabox.com", 3)
-    assert dc._resolve_host_limit("https://www.rootz.so/d/a") == ("rootz.so", 3)
+    assert dc._resolve_host_limit("https://akirabox.com/a/file") == ("akirabox.com", 1)
+    assert dc._resolve_host_limit("https://akirabox.to/b/file") == ("akirabox.com", 1)
+    assert dc._resolve_host_limit("https://www.rootz.so/d/a") == ("rootz.so", 1)
 
 
 @pytest.mark.parametrize("host", ["datanodes.to", "gofile.io", "megaup.net", "send.now"])
@@ -90,7 +90,7 @@ def test_unlisted_host_uses_default_per_host_cap():
     dc = DownloadCore()
     key, limit = dc._resolve_host_limit("https://some-random-host.example/file/9")
     assert key == "some-random-host.example"
-    assert limit == dc.MAX_PER_HOST_DOWNLOADS
+    assert limit == 1
 
 
 def test_different_unlisted_hosts_get_distinct_keys():
@@ -105,8 +105,8 @@ def test_different_unlisted_hosts_get_distinct_keys():
 def test_missing_or_empty_url_falls_back_to_default_key():
     _write_config({})
     dc = DownloadCore()
-    assert dc._resolve_host_limit(None) == ("_default", dc.MAX_PER_HOST_DOWNLOADS)
-    assert dc._resolve_host_limit("") == ("_default", dc.MAX_PER_HOST_DOWNLOADS)
+    assert dc._resolve_host_limit(None) == ("_default", 1)
+    assert dc._resolve_host_limit("") == ("_default", 1)
 
 
 def test_refresh_concurrency_settings_reapplies_config():
