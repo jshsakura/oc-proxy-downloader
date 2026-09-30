@@ -5,6 +5,7 @@ import {
   countActiveByStatus,
   countLive,
   failureStatusKey,
+  fitFilename,
   hasScheduledRetry,
   itemsPerPageForWidth,
   isLiveStatus,
@@ -185,5 +186,32 @@ describe("shortening a release name", () => {
 
     expect(out.length).toBeLessThan(wide.length);
     expect(wide).toContain("[Base].rar");
+  });
+});
+
+describe("fitting release names to the visible column", () => {
+  const name = "Digimon_Story_Time_Stranger_10578[0100ABCDE1234000][BASE_B].part3.rar";
+  const measure = (text) => Array.from(text).length * 7;
+
+  it("shows the complete name when the space is available, without a fixed cap", () => {
+    expect(fitFilename(name, 1000, measure)).toBe(name);
+  });
+
+  it("keeps title and part suffix in a narrow column and uses more space when widened", () => {
+    const narrow = fitFilename(name, 240, measure);
+    const wide = fitFilename(name, 420, measure);
+    expect(narrow).toMatch(/^Digimon.*….*\.part3\.rar$/);
+    expect(measure(narrow)).toBeLessThanOrEqual(240);
+    expect(measure(wide)).toBeLessThanOrEqual(420);
+    expect(wide.length).toBeGreaterThan(narrow.length);
+  });
+
+  it("uses font widths for Korean text and keeps Unicode characters intact", () => {
+    const mixed = "한글 파일 이름 🎮🎮 Very_Long_Game_Name[BASE].part3.rar";
+    const fontMeasure = (text) => Array.from(text).reduce((sum, c) => sum + (/^[\x00-\x7F]$/.test(c) ? 7 : 14), 0);
+    const result = fitFilename(mixed, 200, fontMeasure);
+    expect(fontMeasure(result)).toBeLessThanOrEqual(200);
+    expect(result).toMatch(/^한글.*\.rar$/);
+    expect(result).not.toMatch(/[\uD800-\uDFFF]/u);
   });
 });

@@ -79,6 +79,7 @@
   // Truthy when the last grid fetch failed (D-02): the grid renders a distinct
   // error surface with a retry path instead of collapsing into the empty state.
   let gridFetchError = null;
+  let gridFetchVersion = 0;
   let isAddingDownload = false;
   // Server-reported total count for the currently active tab — used by
   // pagination text and the dashboard fallback.
@@ -1218,6 +1219,9 @@
   // Fetch one page of the grid for the current tab, search, and period range.
   // `{ silent: true }` skips the loading skeleton — used by background syncs.
   async function fetchGridPage({ silent = false } = {}) {
+    const version = ++gridFetchVersion;
+    const requestedTab = currentTab;
+    const requestedPage = currentPage;
     if (!silent) {
       isDownloadsLoading = true;
       gridFetchError = null;
@@ -1242,8 +1246,10 @@
       // tokenless request, which lands in the else branch and empties the grid:
       // the "list disappeared after the update" bug.
       const response = await authenticatedFetch(`${endpoint}?${params.toString()}`);
+      if (version !== gridFetchVersion || requestedTab !== currentTab || requestedPage !== currentPage) return;
       if (response.ok) {
         const data = await response.json();
+        if (version !== gridFetchVersion || requestedTab !== currentTab || requestedPage !== currentPage) return;
         gridDownloads = Array.isArray(data.downloads) ? data.downloads : [];
         totalPages = data.total_pages || 0;
         currentTabTotalCount = data.total_count || 0;
@@ -1260,13 +1266,14 @@
         currentTabTotalCount = 0;
       }
     } catch (error) {
+      if (version !== gridFetchVersion || requestedTab !== currentTab || requestedPage !== currentPage) return;
       console.error("Error fetching grid page:", error);
       gridFetchError = "network";
       gridDownloads = [];
       totalPages = 0;
       currentTabTotalCount = 0;
     } finally {
-      if (!silent) {
+      if (version === gridFetchVersion) {
         isDownloadsLoading = false;
       }
     }
@@ -2065,7 +2072,11 @@
       }
       // The search query is kept across tab switches
       currentPage = 1; // Move to the first page on tab switch
-      // Quiet data refresh on tab switch
+      // Rows from the previous tab must not appear as completed while the new
+      // page is loading. Keep the same grid/columns mounted during the switch.
+      gridDownloads = [];
+      isDownloadsLoading = true;
+      gridFetchError = null;
       syncDownloadsSilently();
     }
   }

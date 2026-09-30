@@ -89,7 +89,8 @@ function rulesFor(css, selectorPart) {
 }
 
 describe("column widths address the columns that exist", () => {
-  const gridColCount = (GRID.match(/colId:\s*["'][^"']+["']/g) || []).length;
+  const columnDefs = GRID.slice(GRID.indexOf("function createColumnDefs()"), GRID.indexOf("function initGrid()"));
+  const gridColCount = (columnDefs.match(/colId:\s*["'][^"']+["']/g) || []).length;
 
   it("the header has the nine columns the width rules assume", () => {
     // select, filename, status, size, progress, speed, date, proxy, actions.

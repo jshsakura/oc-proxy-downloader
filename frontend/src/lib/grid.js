@@ -102,3 +102,24 @@ export function truncateMiddle(name, cap) {
   const head = cap - tail - 1;
   return `${name.slice(0, head)}…${name.slice(-tail)}`;
 }
+
+/** Fit both ends to the actual cell width, using the renderer's font metrics. */
+export function fitFilename(name, width, measure) {
+  if (!name || measure(name) <= width) return name;
+  const chars = Array.from(name);
+  let result = measure("…") <= width ? "…" : "";
+  let low = 2;
+  let high = chars.length - 1;
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+    const tail = Math.min(kept - 1, Math.max(12, Math.floor(kept * 0.45)));
+    const candidate = `${chars.slice(0, kept - tail).join("")}…${chars.slice(-tail).join("")}`;
+    if (measure(candidate) <= width) {
+      result = candidate;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+  return result;
+}

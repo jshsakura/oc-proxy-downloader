@@ -8,7 +8,7 @@
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-quartz.css";
   import { t } from "./i18n.js";
-  import { failureStatusKey, hasScheduledRetry, retryAttemptLabel, truncateMiddle } from "./grid.js";
+  import { failureStatusKey, fitFilename, hasScheduledRetry, retryAttemptLabel } from "./grid.js";
   import { theme } from "./theme.js";
 
   import ChevronLeftIcon from "../icons/ChevronLeftIcon.svelte";
@@ -40,6 +40,9 @@
 
   let gridContainer;
   let gridApi = null;
+  let filenameMeasureContext;
+  let filenameRefreshFrame;
+  let settledRowCount = 0;
 
   // One density authority (DESIGN.md 4.1/4.2): 44px rows, 40px header,
   // grid height clamped to 350-500px below 640px and 400-800px above.
@@ -139,7 +142,7 @@
 
   function getDisplayFileName(download) {
     const name = download?.filename;
-    if (name && !isPlaceholderName(name)) return truncateMiddle(name, 56);
+    if (name && !isPlaceholderName(name)) return name;
     const st = (download?.status || "").toLowerCase();
     if (st === "pending") return $t("file_name_queued");
     if (["parsing", "proxying", "downloading", "waiting"].includes(st))
@@ -362,7 +365,14 @@
     update(params) {
       const d = params.data;
       if (!d) return;
-      this.nameSpan.textContent = getDisplayFileName(d);
+      filenameMeasureContext ||= document.createElement("canvas").getContext("2d");
+      const font = getComputedStyle(gridContainer);
+      filenameMeasureContext.font = `500 14px ${font.fontFamily}`;
+      this.nameSpan.textContent = fitFilename(
+        getDisplayFileName(d),
+        Math.max(0, params.column.getActualWidth() - 20),
+        (text) => filenameMeasureContext.measureText(text).width
+      );
       const full = d.filename || d.url || "";
       this.btn.title = full;
       this.btn.setAttribute("aria-label", full || getDisplayFileName(d));
@@ -975,8 +985,10 @@
       headerHeight: GRID_HEADER_HEIGHT,
       enableCellTextSelection: true,
       animateRows: false,
+      suppressColumnMoveAnimation: true,
       domLayout: "normal",
       suppressRowClickSelection: true,
+      onColumnResized: scheduleFilenameRefresh,
       overlayNoRowsTemplate: `<div class="ag-empty-overlay-msg no-downloads-message">${
         currentTab === "working"
           ? $t("no_working_downloads")
@@ -992,28 +1004,28 @@
   }
 
   function fillFilenameColumn() {
-    if (!gridApi || !gridContainer) return;
-    const columns = gridApi.getAllDisplayedColumns();
-    const filename = columns.find((column) => column.getColId() === "filename");
-    const viewport = gridContainer.querySelector(".ag-center-cols-viewport");
-    if (!filename || !viewport) return;
+    if (!gridApi) return;
+    // Manual resizing disables AG Grid flex. Restore it when the layout/tab
+    // changes, using the supported column state API rather than old DOM nodes.
+    // The grid accounts for its viewport, hidden columns and scrollbars itself.
+    gridApi.applyColumnState({ state: [
+      { colId: "filename", flex: 1 },
+      { colId: "speed_graph", hide: currentTab === "completed" }
+    ] });
+    scheduleFilenameRefresh();
+  }
 
-    const otherWidth = columns.reduce(
-      (sum, column) => sum + (column === filename ? 0 : column.getActualWidth()),
-      0
-    );
-    // Keep the minimum width and horizontal scrolling on narrow screens. When
-    // the other columns fit, give every spare pixel to the filename, including
-    // the space released when the completed tab hides the speed column.
-    const minWidth = isMobileView() ? 180 : 240;
-    const width = Math.max(minWidth, Math.floor(viewport.clientWidth - otherWidth));
-    if (Math.abs(filename.getActualWidth() - width) > 1) {
-      gridApi.setColumnWidths([{ key: "filename", newWidth: width }]);
-    }
+  function scheduleFilenameRefresh() {
+    if (!gridApi || filenameRefreshFrame) return;
+    filenameRefreshFrame = requestAnimationFrame(() => {
+      filenameRefreshFrame = null;
+      gridApi?.refreshCells({ columns: ["filename"], force: true });
+    });
   }
 
   let resizeObserver = null;
   let prevIsMobile = false;
+  let observedGridWidth = 0;
 
   function cleanupSpeedHistories(items) {
     if (!items || !Array.isArray(items)) return;
@@ -1029,21 +1041,32 @@
     prevIsMobile = isMobileView();
     initGrid();
     if (gridContainer && typeof window !== "undefined" && window.ResizeObserver) {
-      resizeObserver = new ResizeObserver(() => {
+      resizeObserver = new ResizeObserver(([entry]) => {
         if (gridApi) {
+          const width = entry.contentRect.width;
+          if (Math.abs(width - observedGridWidth) < 1) return;
+          observedGridWidth = width;
           const curMobile = isMobileView();
           if (curMobile !== prevIsMobile) {
             prevIsMobile = curMobile;
+            const state = gridApi.getColumnState();
             gridApi.setGridOption("columnDefs", createColumnDefs());
+            gridApi.applyColumnState({
+              state: state.map((column) => column.colId === "actions"
+                ? { ...column, width: curMobile ? 128 : 140 }
+                : column)
+            });
           }
           fillFilenameColumn();
         }
       });
       resizeObserver.observe(gridContainer);
     }
+    document.fonts?.ready.then(() => scheduleFilenameRefresh());
   });
 
   onDestroy(() => {
+    if (filenameRefreshFrame) cancelAnimationFrame(filenameRefreshFrame);
     if (resizeObserver) {
       resizeObserver.disconnect();
       resizeObserver = null;
@@ -1065,7 +1088,6 @@
   // Reactivity: update column visibility or overlay message when tab or locale changes
   $: if (gridApi && (currentTab || $t)) {
     const isCompleted = currentTab === "completed";
-    gridApi.setColumnsVisible(["speed_graph"], !isCompleted);
     fillFilenameColumn();
     const msg = isCompleted
       ? $t("no_completed_downloads")
@@ -1074,6 +1096,17 @@
       "overlayNoRowsTemplate",
       `<div class="ag-empty-overlay-msg no-downloads-message">${msg}</div>`
     );
+    gridApi.refreshCells({ force: true });
+  }
+
+  // Translation changes must update real headers without resetting the user's
+  // other column widths, order or sort. Updating only the empty overlay left
+  // initial translation keys in the header when the locale loaded later.
+  $: if (gridApi && $t) {
+    const state = gridApi.getColumnState();
+    gridApi.setGridOption("columnDefs", createColumnDefs());
+    gridApi.applyColumnState({ state, applyOrder: true });
+    fillFilenameColumn();
   }
 
   // Reactivity: loading vs empty vs data. Loading uses the supported `loading`
@@ -1098,11 +1131,13 @@
   // Dynamic height (DESIGN.md 4.2/4.3): one authority, using the same row and
   // header heights the grid renders. Grows with the page up to the cap so no
   // fetched row hides behind an unexpected internal scrollbar.
+  // Hold the previous page's space while switching tabs/loading the next page.
+  $: if (!isDownloadsLoading) settledRowCount = downloads.length;
   $: computedGridHeight = (() => {
     const isMob = isMobileView();
     const minH = isMob ? 350 : 400;
     const maxH = isMob ? 500 : 800;
-    const count = downloads ? downloads.length : 0;
+    const count = isDownloadsLoading ? settledRowCount : downloads.length;
     if (count === 0) return minH;
     const needed = GRID_HEADER_HEIGHT + count * GRID_ROW_HEIGHT;
     return Math.min(maxH, Math.max(minH, needed));
@@ -1383,6 +1418,8 @@
   .ag-grid-wrapper {
     position: relative;
     width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     border: 1px solid var(--card-border);
     border-radius: 8px;
     background-color: var(--card-background);
@@ -1398,6 +1435,7 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    min-width: 0;
   }
 
   .ag-grid-inner {
@@ -1531,6 +1569,16 @@
   :global(.ag-cell-center) {
     justify-content: center;
     text-align: center;
+  }
+
+  /* Custom renderers must inherit the cell's available width. Without this,
+     AG Grid's wrapper uses intrinsic text width: filenames spill into status
+     cells and the progress track collapses to zero pixels. */
+  :global(.ag-grid-wrapper .ag-cell-wrapper),
+  :global(.ag-grid-wrapper .ag-cell-value) {
+    min-width: 0;
+    width: 100%;
+    flex: 1 1 0%;
   }
 
   :global(.ag-cell-filename) {
@@ -1708,16 +1756,8 @@
       animation-duration: 1.6s;
     }
   }
-  :global(.ag-body-viewport) {
+  :global(.ag-grid-viewport) {
     -webkit-overflow-scrolling: touch;
-  }
-  :global(.ag-body-horizontal-scroll) {
-    height: 10px !important;
-    min-height: 10px !important;
-  }
-  :global(.ag-body-horizontal-scroll-viewport) {
-    height: 10px !important;
-    min-height: 10px !important;
   }
 
   /* Size & Date */
