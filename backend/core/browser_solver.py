@@ -217,6 +217,7 @@ AKIRABOX_FLOW = BrowserFlow(
     widget_selector='#download-button div:has(> input[name="cf-turnstile-response"]), .cf-turnstile',
     follow_issued_redirect=True,
 )
+AKIRA_STORAGE_SUFFIXES = (".akirabox.xyz", ".akirabox.com")
 DEFAULT_FLOW = BrowserFlow()
 
 _FLOWS = {
@@ -689,7 +690,9 @@ def _follow_akira_issued_redirect(page: Page, context, issued: str,
                 raise HosterParseError(f'AkiraBox 발급 주소 HTTP {response.status_code}; 저장 서버 이동 미확인, 자동 반복 없음')
             candidate = response.headers.get('Location', '')
             target = urlparse(candidate)
-            if (target.scheme != 'https' or not (target.hostname or '').endswith('.akirabox.xyz')
+            # Storage nodes live under .akirabox.xyz (eufb) and, for other
+            # regions, under Akira's own domain (eeur1.akirabox.com).
+            if (target.scheme != 'https' or not (target.hostname or '').endswith(AKIRA_STORAGE_SUFFIXES)
                     or target.username or target.password
                     or target.netloc.lower() != target.hostname.lower()):
                 raise HosterParseError('AkiraBox 다운로드가 확인되지 않은 저장 서버로 이동했습니다')

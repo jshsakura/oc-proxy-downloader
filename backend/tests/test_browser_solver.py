@@ -761,6 +761,11 @@ def test_akira_current_and_legacy_issued_buttons(button_id):
     (302, 'https://eufb.akirabox.xyz/file.nsp?access=keep%2Bexact', True),
     (302, 'https://eufb.akirabox.xyz.evil.example/file.nsp', False),
     (302, 'https://user@eufb.akirabox.xyz/file.nsp', False),
+    # Akira also serves from regional nodes under its own .com domain.
+    (302, 'https://eeur1.akirabox.com/uploads/users/u/file.nsp?access=keep', True),
+    (302, 'https://eeur1.akirabox.com.evil.example/file.nsp', False),
+    (302, 'https://akirabox.com/uploads/users/u/file.nsp', False),
+    (302, 'http://eeur1.akirabox.com/file.nsp', False),
     (302, '', False),
     (403, '', False),
     (200, '', False),
