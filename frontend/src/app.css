@@ -3691,6 +3691,37 @@ table th:first-child {
   }
 }
 
+/* === 실패 사유 색 ==========================================================
+   빨강은 앱이 원인을 모르는 진짜 오류에만 쓴다. 나머지 실패는 "사람이 할 일"
+   이나 "원래 없는 파일"이라 색으로 갈라, 목록이 통째로 고장 난 것처럼 보이지
+   않게 한다. 기존 상태색(파랑·노랑·초록·빨강·회색·보라·청록)과 색상 계열이
+   겹치지 않도록 갈색·주황·라임·틸로 잡았다. */
+:root {
+  --fail-gone: #8b5e3c;
+  --fail-gone-ink: #6f4a2d;
+  --fail-human: #f76707;
+  --fail-human-ink: #b34700;
+  --fail-wait: #65a30d;
+  --fail-wait-ink: #4d7c0f;
+  --fail-refused: #0d9488;
+  --fail-refused-ink: #0f766e;
+}
+html:is(.dark, .dracula, .nord, .solarized, .monokai, .ocean, .rose, .neon, .forest, .sunset) {
+  --fail-gone: #c9a27e;
+  --fail-gone-ink: #dcbf9f;
+  --fail-human: #fb923c;
+  --fail-human-ink: #fdba74;
+  --fail-wait: #a3e635;
+  --fail-wait-ink: #bef264;
+  --fail-refused: #2dd4bf;
+  --fail-refused-ink: #5eead4;
+}
+/* 이 두 테마는 이미 주황 계열을 상태색으로 쓰고 있어 분홍으로 비킨다. */
+html:is(.sunset, .solarized) {
+  --fail-human: #f472b6;
+  --fail-human-ink: #f9a8d4;
+}
+
 /* === 상태 라벨 ==========================================================
    같은 열에 앉는 라벨들이 서로 다른 규칙으로 칠해져 있었다 — 어떤 건 채운
    배경에 흰 글씨, 어떤 건 줄무늬, 어떤 건 상태색과 다른 테두리. 이제 상태가
@@ -3753,6 +3784,22 @@ span.status.status-failed {
 span.status.status-stopped {
   --status-hue: var(--status-stopped-border);
   --status-ink: var(--text-primary);
+}
+span.status.status-failed.tone-gone {
+  --status-hue: var(--fail-gone);
+  --status-ink: var(--fail-gone-ink);
+}
+span.status.status-failed.tone-human {
+  --status-hue: var(--fail-human);
+  --status-ink: var(--fail-human-ink);
+}
+span.status.status-failed.tone-wait {
+  --status-hue: var(--fail-wait);
+  --status-ink: var(--fail-wait-ink);
+}
+span.status.status-failed.tone-refused {
+  --status-hue: var(--fail-refused);
+  --status-ink: var(--fail-refused-ink);
 }
 
 /* 아직 일하는 중인 상태만 도트가 뛴다 — 라벨 전체를 깜빡이게 하면 그 줄만

@@ -68,9 +68,30 @@ export function retryAttemptLabel(download) {
   return count > 0 && limit ? `${count}/${limit}` : "";
 }
 
-/** Failure detail belongs in the tooltip/modal; the status stays one state. */
-export function failureStatusKey() {
-  return "download_failed";
+/**
+ * A failed row is named by what the person can do about it. Only a failure the
+ * app cannot explain stays the plain red "failed", so red means "broken" and
+ * every other colour means "nothing is wrong with the app".
+ */
+const FAILURE_GROUPS = Object.freeze({
+  source_unconfirmed: { key: "failed_source_gone", tone: "gone" },
+  dead: { key: "failed_source_gone", tone: "gone" },
+  auth_required: { key: "failed_needs_human", tone: "human" },
+  slot_busy: { key: "failed_wait", tone: "wait" },
+  rate_limited: { key: "failed_wait", tone: "wait" },
+  daily_quota: { key: "failed_wait", tone: "wait" },
+  blocked: { key: "failed_host_refused", tone: "refused" },
+  proxy_blocked: { key: "failed_host_refused", tone: "refused" },
+  cloudflare: { key: "failed_host_refused", tone: "refused" },
+});
+
+export function failureStatusKey(download) {
+  return FAILURE_GROUPS[download?.failure_kind]?.key ?? "download_failed";
+}
+
+/** CSS tone for the failed pill; empty for the plain red failure. */
+export function failureTone(download) {
+  return FAILURE_GROUPS[download?.failure_kind]?.tone ?? "";
 }
 
 /**

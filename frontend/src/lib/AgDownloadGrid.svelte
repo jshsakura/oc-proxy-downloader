@@ -8,7 +8,7 @@
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-quartz.css";
   import { t } from "./i18n.js";
-  import { failureStatusKey, fitFilename, hasScheduledRetry, retryAttemptLabel } from "./grid.js";
+  import { failureStatusKey, failureTone, fitFilename, hasScheduledRetry, retryAttemptLabel } from "./grid.js";
   import { theme } from "./theme.js";
 
   import ChevronLeftIcon from "../icons/ChevronLeftIcon.svelte";
@@ -405,7 +405,8 @@
       const isAuditing = auditingIds.has(d.id);
       const wait = downloadWaitInfo[d.id];
 
-      this.pill.className = `status status-${st} interactive-status ${
+      const tone = st === "failed" && !hasScheduledRetry(d, currentTime) ? failureTone(d) : "";
+      this.pill.className = `status status-${st}${tone ? ` tone-${tone}` : ""} interactive-status ${
         isProxy ? "proxy-status" : "local-status"
       }`;
       this.pill.title = getStatusTooltip(d);

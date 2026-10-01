@@ -5,6 +5,7 @@ import {
   countActiveByStatus,
   countLive,
   failureStatusKey,
+  failureTone,
   fitFilename,
   hasScheduledRetry,
   itemsPerPageForWidth,
@@ -29,19 +30,28 @@ describe("stable grid page size", () => {
 });
 
 describe("failed status wording", () => {
-  it("keeps a parser failure in the single failed status", () => {
-    expect(failureStatusKey({
-      failure_kind: "browser_parse",
-      error_message: "[파싱 실패] 다운로드 버튼 처리 후 링크를 받지 못했습니다",
-    })).toBe("download_failed");
+  it.each([
+    ["source_unconfirmed", "failed_source_gone", "gone"],
+    ["dead", "failed_source_gone", "gone"],
+    ["auth_required", "failed_needs_human", "human"],
+    ["slot_busy", "failed_wait", "wait"],
+    ["rate_limited", "failed_wait", "wait"],
+    ["daily_quota", "failed_wait", "wait"],
+    ["blocked", "failed_host_refused", "refused"],
+    ["proxy_blocked", "failed_host_refused", "refused"],
+    ["cloudflare", "failed_host_refused", "refused"],
+  ])("names a %s failure by what the user can do about it", (kind, key, tone) => {
+    expect(failureStatusKey({ failure_kind: kind })).toBe(key);
+    expect(failureTone({ failure_kind: kind })).toBe(tone);
   });
 
-  it("keeps a host block in the same failed status", () => {
-    expect(failureStatusKey({
-      failure_kind: "blocked",
-      error_message: "호스팅 서버가 접근을 거부했습니다",
-    })).toBe("download_failed");
-  });
+  it.each(["browser_parse", "transient", "unknown", "unknown_terminal", undefined, null])(
+    "keeps %s as a plain failure, the only red one",
+    (kind) => {
+      expect(failureStatusKey({ failure_kind: kind })).toBe("download_failed");
+      expect(failureTone({ failure_kind: kind })).toBe("");
+    },
+  );
 });
 
 /**
