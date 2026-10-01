@@ -17,6 +17,16 @@
     ? Math.min(100, Math.round(((download.downloaded_size || 0) / download.total_size) * 100))
     : 0;
 
+  // The backend stores "<message>\n조치: <action>" (or "Action:" in English) as
+  // one string. Showing it as one paragraph made the cause and the next step
+  // run together, so they are rendered as two blocks.
+  function splitErrorMessage(message) {
+    const [head, ...rest] = String(message || "").split(/\n(?:조치|Action):\s*/);
+    return { head: head.trim(), action: rest.join(" ").trim() };
+  }
+
+  $: errorParts = splitErrorMessage(download.error_message);
+
   function closeModal() {
     showModal = false;
     dispatch("close");
@@ -104,6 +114,22 @@
           {/if}
         </section>
 
+        {#if download.error_message}
+          <section class="detail-section error-section" aria-label={$t("detail_error_message")}>
+            <h3>{$t("detail_error_message")}</h3>
+            <div class="value-line">
+              <span class="error-text-block">{errorParts.head}</span>
+              <button type="button" class="copy-button" on:click={() => copyToClipboard(download.error_message)} aria-label={$t("copy_error")} title={$t("copy_error")}><CopyIcon /></button>
+            </div>
+            {#if errorParts.action}
+              <div class="error-action">
+                <span class="error-action-label">{$t("detail_error_action")}</span>
+                <span class="error-action-text">{errorParts.action}</span>
+              </div>
+            {/if}
+          </section>
+        {/if}
+
         <section class="detail-section" aria-label={$t("detail_download_url")}>
           <h3>{$t("detail_download_url")}</h3>
           <div class="value-line">
@@ -147,15 +173,6 @@
           {/if}
         </dl>
 
-        {#if download.error_message}
-          <section class="detail-section error-section" aria-label={$t("detail_error_message")}>
-            <h3>{$t("detail_error_message")}</h3>
-            <div class="value-line">
-              <span class="error-text-block">{download.error_message}</span>
-              <button type="button" class="copy-button" on:click={() => copyToClipboard(download.error_message)} aria-label={$t("copy_error")} title={$t("copy_error")}><CopyIcon /></button>
-            </div>
-          </section>
-        {/if}
       </div>
 
       <footer class="modal-footer">
@@ -249,8 +266,23 @@
   }
   .close-button :global(svg), .copy-button :global(svg) { width: 16px; height: 16px; }
 
-  .modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 28px; }
-  .overview { padding-bottom: 22px; border-bottom: 1px solid var(--card-border); }
+  .modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px 28px;
+  }
+  /* Every block is its own card instead of rows divided by hairlines. */
+  .overview, .detail-section, .time-list, .error-section {
+    box-sizing: border-box;
+    padding: 16px 18px;
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+  }
   .overview-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
   .status-badge {
     --status-color: var(--status-pending-border);
@@ -279,7 +311,6 @@
   .progress-track span { display: block; height: 100%; background: var(--primary-color); }
   .queue-note { margin: 14px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
 
-  .detail-section { padding: 18px 0; border-bottom: 1px solid var(--card-border); }
   .value-line { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
   .long-value, .error-text-block {
     flex: 1;
@@ -291,9 +322,35 @@
     white-space: pre-wrap;
   }
   .long-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .error-section {
+    border-color: color-mix(in srgb, var(--status-failed-border) 55%, var(--card-border));
+    background: color-mix(in srgb, var(--status-failed-border) 8%, var(--bg-secondary));
+  }
   .error-section h3 { color: var(--status-failed-text); }
+  .error-text-block { font-weight: 600; font-size: 14px; }
+  .error-action {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--card-border);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .error-action-label {
+    flex: none;
+    align-self: flex-start;
+    padding: 1px 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--status-failed-border) 18%, transparent);
+    color: var(--status-failed-text);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.7;
+  }
+  .error-action-text { min-width: 0; overflow-wrap: anywhere; }
 
-  .time-list { display: flex; flex-wrap: wrap; gap: 14px 36px; margin: 0; padding: 18px 0; }
+  .time-list { display: flex; flex-wrap: wrap; gap: 14px 36px; margin: 0; }
   .time-list > div { min-width: 180px; }
   .time-list dt { margin-bottom: 7px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
   .time-list dd { margin: 0; font-size: 13px; }
@@ -304,7 +361,7 @@
     .modern-backdrop { padding: 10px; align-items: flex-end; }
     .modern-modal { width: 100%; max-height: 92dvh; box-sizing: border-box; border-radius: 12px; }
     .modal-header { padding: 18px; gap: 12px; }
-    .modal-body { padding: 18px; }
+    .modal-body { padding: 18px; gap: 12px; }
     .modal-footer { padding: 14px 18px; }
     .modal-footer button { width: 100%; }
     h2 { font-size: 16px; }

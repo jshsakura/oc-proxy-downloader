@@ -354,6 +354,25 @@ describe("modal and theme contracts", () => {
     expect(rulesFor(DETAIL, ".error-text-block").join(" ")).not.toMatch(/text-overflow:\s*ellipsis/);
   });
 
+  it("lays the detail sections out as separate cards", () => {
+    for (const selector of [".overview", ".detail-section", ".time-list", ".error-section"]) {
+      const css = rulesFor(DETAIL, selector).join(" ");
+      expect(css, selector).toMatch(/border:\s*1px solid/);
+      expect(css, selector).toMatch(/border-radius:\s*12px/);
+      expect(css, selector).toMatch(/padding:\s*16px 18px/);
+    }
+    expect(rulesFor(DETAIL, ".modal-body").join(" ")).toMatch(/flex-direction:\s*column/);
+    expect(rulesFor(DETAIL, ".modal-body").join(" ")).toMatch(/gap:\s*14px/);
+  });
+
+  it("shows the failure message and its action as two separate blocks", () => {
+    expect(DETAIL).toContain("splitErrorMessage(download.error_message)");
+    expect(DETAIL).toContain('class="error-action"');
+    expect(DETAIL).toContain('$t("detail_error_action")');
+    // Copy still hands over the complete stored message, not just one half.
+    expect(DETAIL).toContain("copyToClipboard(download.error_message)");
+  });
+
   it("lets the detail title wrap without clipping the mobile close button", () => {
     expect(rulesFor(DETAIL, ".title-section").join(" ")).toMatch(/min-width:\s*0/);
     expect(rulesFor(DETAIL, "h2").join(" ")).toMatch(/overflow-wrap:\s*anywhere/);
