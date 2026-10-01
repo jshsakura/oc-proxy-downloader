@@ -15,7 +15,8 @@ A FastAPI + Svelte web app that resolves file-host links, queues downloads, and 
 - 📊 **Real-time Monitoring**: SSE-based real-time status updates and progress display
 - 🎯 **Concurrent Download Limits**: 8 global and 3 per host by default; one free 1fichier transfer per egress
 - 📱 **Telegram Notifications**: Download completion/failure notification support
-- 🌙 **Theme Support**: Dark/Light/Dracula themes
+- 🌙 **Theme Support**: 11 themes (Light, Dark, Dracula, Nord, Solarized, Monokai, Ocean, Rose, Neon, Forest, Sunset) plus follow-the-system
+- 🏷️ **Failures named by what you can do**: a failed row says whether the file is gone, needs your verification, needs a wait, or was refused by the host (see below)
 - 🌐 **Multilingual**: 18 bundled UI languages
 - 📱 **Responsive UI**: Mobile/Desktop optimized
 - 🛡️ **Optional Authentication**: JWT-based security (optional)
@@ -79,10 +80,29 @@ in SQLite and restored before queue startup, surviving retries and restarts.
 > Turnstile and free-download limits vary by host and egress address. A resolved
 > link can still be refused by the file server when the transfer begins.
 
-For some AkiraBox files, the storage server refuses a freshly issued signed URL
-with `The link is not available at this time.` The downloader reports that
-storage refusal and stops automatic retries. Other files on AkiraBox may still
-work; use another mirror or wait for the host to restore the file.
+AkiraBox serves files from several storage nodes: `*.akirabox.xyz` and regional
+nodes under `*.akirabox.com`. For some files the node refuses a freshly issued
+signed URL with `The link is not available at this time.` The downloader reports
+that storage refusal and stops automatic retries. Files on another node may still
+work, so use another mirror or wait for the host to restore the file.
+
+### Failure labels
+
+A failed row is named by what you can do about it, and only a failure the app cannot
+explain stays red. The full reason and the next step are in the detail dialog.
+
+| Label | Meaning | What to do |
+|-------|---------|------------|
+| **File gone** (brown) | The host says the file is missing or the link is dead | Use another mirror; the link is kept, never removed automatically |
+| **Needs you** (orange) | A captcha, login or human check is required | Finish it on the site, or use another mirror |
+| **Wait needed** (lime) | Free slot busy, rate limit or daily quota | Retry later; a busy 1fichier slot pauses the rest of that queue |
+| **Host refused** (teal) | The host or its storage server refused the transfer | Use another mirror, or retry when the host recovers |
+| **Failed** (red) | The app could not classify the error | Check the logs |
+
+A queue paused because a host was busy shows as **stopped**, not failed, and can be
+resumed from the row.
+
+![Failure detail](https://github.com/jshsakura/oc-proxy-downloader/blob/main/docs/preview/preview2.png?raw=true)
 
 ---
 
