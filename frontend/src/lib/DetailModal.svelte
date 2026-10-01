@@ -17,12 +17,18 @@
     ? Math.min(100, Math.round(((download.downloaded_size || 0) / download.total_size) * 100))
     : 0;
 
-  // The backend stores "<message>\n조치: <action>" (or "Action:" in English) as
-  // one string. Showing it as one paragraph made the cause and the next step
-  // run together, so they are rendered as two blocks.
+  // The backend stores "<message>\n<label>: <action>" as one string, with the
+  // label in the user's language. Showing it as one paragraph made the cause and
+  // the next step run together, so they are rendered as two blocks. Only a short
+  // "label:" line counts as the action; any other multi-line text stays whole.
+  const ACTION_LINE = /^[^:：\n]{1,20}[:：]\s*(\S[\s\S]*)$/;
+
   function splitErrorMessage(message) {
-    const [head, ...rest] = String(message || "").split(/\n(?:조치|Action):\s*/);
-    return { head: head.trim(), action: rest.join(" ").trim() };
+    const text = String(message || "").trim();
+    const lineEnd = text.indexOf("\n");
+    const action = lineEnd < 0 ? null : ACTION_LINE.exec(text.slice(lineEnd + 1).trim());
+    if (!action) return { head: text, action: "" };
+    return { head: text.slice(0, lineEnd).trim(), action: action[1].replace(/\s*\n\s*/g, " ") };
   }
 
   $: errorParts = splitErrorMessage(download.error_message);
