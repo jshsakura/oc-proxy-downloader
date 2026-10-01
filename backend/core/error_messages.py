@@ -753,6 +753,19 @@ def classify_error(stage: str, raw_message: str) -> ClassifiedError:
     text = (raw_message or "").lower()
     retry_after = _extract_retry_after(raw_message or "")
     if "삭제 여부 미확인" in text:
+        # Say what the host actually answered. "접근 불가 응답" hides whether the
+        # page declared the file gone or merely returned an HTTP status.
+        host = (raw_message or "").split(" 파일 없음 또는 삭제됨")[0].strip() if "파일 없음 또는 삭제됨" in text else ""
+        if host and len(host) <= 30:
+            return ClassifiedError(stage=stage, summary=f"{host} 페이지가 '파일 없음'이라고 표시했습니다",
+                                   action="같은 파일의 다른 미러를 사용하세요. 이 링크는 지우지 않고 남겨둡니다.",
+                                   raw=raw_message, kind=KIND_SOURCE_UNCONFIRMED, definitive=False)
+        status = re.search(r"^(.*?)\s*호스터 페이지 http (\d{3})", text)
+        if status:
+            label = (raw_message or "")[:len(status.group(1))].strip() or "호스터"
+            return ClassifiedError(stage=stage, summary=f"{label} 페이지가 HTTP {status.group(2)}를 반환했습니다",
+                                   action="브라우저에서 링크를 열어 파일이 있는지 확인하세요. 링크는 지우지 않고 남겨둡니다.",
+                                   raw=raw_message, kind=KIND_SOURCE_UNCONFIRMED, definitive=False)
         return ClassifiedError(stage=stage, summary="파일 접근 불가 응답을 받았습니다 (삭제 여부 미확인)",
                                action="원본 링크를 보존합니다. 확인 후 수동으로 다시 시도하세요.",
                                raw=raw_message, kind=KIND_SOURCE_UNCONFIRMED, definitive=False)

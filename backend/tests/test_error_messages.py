@@ -297,6 +297,30 @@ class TestClassify:
         assert result.stage == "파싱"
 
 
+class TestHostStatementIsShownVerbatim:
+    """The row must say what the host said, not "접근 불가 응답"."""
+
+    def test_page_saying_file_not_found_is_reported_as_such(self):
+        result = classify_error("파싱", "MegaUp 파일 없음 또는 삭제됨 (삭제 여부 미확인)")
+        assert result.summary == "MegaUp 페이지가 '파일 없음'이라고 표시했습니다"
+        assert "다른 미러" in result.action
+        assert "접근 불가" not in result.summary
+        assert "미확인" not in result.summary
+        # Behaviour is unchanged: the link is kept and never auto-pruned.
+        assert result.kind == KIND_SOURCE_UNCONFIRMED
+        assert result.definitive is False
+
+    def test_http_404_is_reported_as_a_status_not_as_deletion(self):
+        result = classify_error("파싱", "1fichier 호스터 페이지 HTTP 404 (삭제 여부 미확인)")
+        assert result.summary == "1fichier 페이지가 HTTP 404를 반환했습니다"
+        assert "접근 불가" not in result.summary
+        assert result.kind == KIND_SOURCE_UNCONFIRMED
+
+    def test_unknown_unconfirmed_text_keeps_the_generic_message(self):
+        result = classify_error("파싱", "GoFile 파일 상태 확인 실패 (삭제 여부 미확인)")
+        assert "삭제 여부 미확인" in result.summary
+
+
 # ---------------------------------------------------------------------------
 # kind classification — dead pinning only on body markers, HTTP codes are transient
 # ---------------------------------------------------------------------------
