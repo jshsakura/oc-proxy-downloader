@@ -117,6 +117,17 @@ describe("column widths address the columns that exist", () => {
     expect(Math.max(...widths)).toBeLessThanOrEqual(60);
   });
 
+  it("the status column is wide enough for the longest retry pill", () => {
+    // "재시도 대기 2/3 (55:38)" was cut off at 140px. The filename column is
+    // the flexible one, so giving this column room costs the others nothing.
+    const status = columnDefs.slice(columnDefs.indexOf('colId: "status"'));
+    const width = Number(/width:\s*(\d+)/.exec(status)[1]);
+    const minWidth = Number(/minWidth:\s*(\d+)/.exec(status)[1]);
+
+    expect(width).toBeGreaterThanOrEqual(190);
+    expect(minWidth).toBeGreaterThanOrEqual(170);
+  });
+
   it("the filename column is the one given room to breathe", () => {
     const filenameRules = rulesFor(CSS, "nth-child(2)").join(" ");
 

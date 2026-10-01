@@ -867,8 +867,8 @@
         headerName: $t("table_header_status"),
         field: "status",
         cellRenderer: StatusCellRenderer,
-        width: 140,
-        minWidth: 125,
+        width: 190,
+        minWidth: 170,
         sortable: true,
         resizable: true,
         cellClass: "ag-cell-center"
