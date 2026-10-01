@@ -97,6 +97,49 @@ async def test_saved_fichier_metadata_does_not_trigger_another_info_request(monk
     core._download_file_directly.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_row_stopped_while_waiting_ends_quietly_instead_of_failing(monkeypatch):
+    """A stop during the 1fichier wait makes the parser return None.
+
+    That is the user's (or the busy-slot queue pause's) decision, not a parse
+    failure. The queue pause writes ``stopped`` and signals the task, but a task
+    that was already parsing can overwrite the row's status afterwards. The row
+    then looked like an ordinary unclassified failure; the in-memory cancel
+    signal is the reliable record that it was stopped on purpose.
+    """
+    core = dc.DownloadCore()
+    req = SimpleNamespace(
+        id=43,
+        url="https://1fichier.com/?abcdefghijklmnopqrst",
+        original_url="https://1fichier.com/?abcdefghijklmnopqrst",
+        file_name="archive.rar",
+        file_size="130 MB",
+        total_size=136314880,
+        password=None,
+        use_proxy=False,
+        save_path="/tmp/archive.rar",
+        started_at=object(),
+        # The task's own status write landed after the queue pause's.
+        status=dc.StatusEnum.parsing,
+        error=None,
+    )
+    monkeypatch.setattr(core, "send_download_log", AsyncMock())
+    monkeypatch.setattr(core, "send_download_update", AsyncMock())
+    monkeypatch.setattr(core, "_download_file_directly", AsyncMock())
+    monkeypatch.setattr(core, "_perform_preparse", AsyncMock())
+    monkeypatch.setattr(dc.db_async, "commit", AsyncMock())
+    monkeypatch.setattr(dc.db_async, "refresh", AsyncMock())
+    monkeypatch.setattr(dc, "get_fichier_account_cookies", lambda: {})
+    monkeypatch.setattr(dc, "parse_1fichier_simple_sync", lambda *_a, **_k: None)
+    monkeypatch.setattr(dc.cancel_signal, "is_cancelled", lambda _id: True)
+
+    await core._download_with_proxy_async(req, MagicMock(), metadata_checked=True)
+
+    assert req.status == dc.StatusEnum.stopped
+    assert req.error is None
+    core._download_file_directly.assert_not_awaited()
+
+
 class _FakeBody:
     """Just enough of aiohttp's stream to let the guard peek at the body."""
 

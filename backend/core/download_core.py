@@ -2124,6 +2124,16 @@ class DownloadCore:
             if req.status == StatusEnum.stopped:
                 print(f"[LOG] 다운로드 {req.id}가 이미 정지됨, 상태 유지")
                 return False
+            # A queue pause or a user stop writes ``stopped`` and signals the task,
+            # but a task that was already parsing can write its own status over
+            # it. The signal is the reliable record that the stop was deliberate;
+            # without this the row shows up as an unclassified failure.
+            if cancel_signal.is_cancelled(req.id):
+                print(f"[LOG] 다운로드 {req.id} 정지 신호 확인, 실패가 아니라 정지로 기록")
+                req.status = StatusEnum.stopped
+                req.next_retry_at = None
+                await db_async.commit(db)
+                return False
 
             # Decide the stage label based on whether the download stage was entered
             # (an inner function may set status to failed and then re-raise, so we
