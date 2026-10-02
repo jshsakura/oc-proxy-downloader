@@ -25,25 +25,44 @@ from typing import Any, List, Optional
 from sqlalchemy.orm import Query, Session
 
 
+async def _run(func, *args):
+    """Run ``func`` in a worker thread and, if the caller is cancelled, wait for
+    that thread to finish before the cancellation propagates.
+
+    ``asyncio.to_thread`` cannot interrupt a thread, so a cancelled caller used
+    to move on while its query was still running. The caller's ``finally`` then
+    closed the session, and two threads on one SQLite connection crashed the
+    whole process. Waiting out the (short) query keeps the connection single-user.
+    """
+    work = asyncio.ensure_future(asyncio.to_thread(func, *args))
+    try:
+        return await asyncio.shield(work)
+    except asyncio.CancelledError:
+        await asyncio.wait([work])
+        if not work.cancelled():
+            work.exception()  # mark retrieved; the caller is being cancelled anyway
+        raise
+
+
 async def first(query: Query) -> Optional[Any]:
     """``query.first()``, off the loop."""
-    return await asyncio.to_thread(query.first)
+    return await _run(query.first)
 
 
 async def all_rows(query: Query) -> List[Any]:
     """``query.all()``, off the loop."""
-    return await asyncio.to_thread(query.all)
+    return await _run(query.all)
 
 
 async def count(query: Query) -> int:
     """``query.count()``, off the loop."""
-    return await asyncio.to_thread(query.count)
+    return await _run(query.count)
 
 
 async def commit(db: Session) -> None:
     """``db.commit()``, off the loop. This is the call that waits on the write
     lock, and the one that used to freeze the app."""
-    await asyncio.to_thread(db.commit)
+    await _run(db.commit)
 
 
 async def refresh(db: Session, instance) -> None:
@@ -52,7 +71,7 @@ async def refresh(db: Session, instance) -> None:
     A refresh is a SELECT, and the download state machine does them mid-transfer
     to re-read a row another session may have touched.
     """
-    await asyncio.to_thread(db.refresh, instance)
+    await _run(db.refresh, instance)
 
 
 def _reload(db: Session, model, row_ids: List[int]) -> None:
@@ -71,4 +90,4 @@ async def reload(db: Session, model, row_ids: List[int]) -> None:
     """
     if not row_ids:
         return
-    await asyncio.to_thread(_reload, db, model, row_ids)
+    await _run(_reload, db, model, row_ids)
