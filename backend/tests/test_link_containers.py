@@ -138,11 +138,19 @@ def test_pow_passes_sixty_seconds_without_reclick_or_new_get(monkeypatch, tmp_pa
             if 'data-state="idle"' in self.selector: return int(returned_form and page.seconds >= (66 if partial_navigation else 65))
             if 'cutcaptcha' in self.selector: return 1
             return 0
-        def click(self, **kwargs): page.clicks += 1
+        def click(self, **kwargs): raise AssertionError("the check must be pressed, not teleport-clicked")
+        def bounding_box(self): return {"x": 400, "y": 500, "width": 300, "height": 70}
         def get_attribute(self, key): return 'working'
+    class Mouse:
+        def move(self, *args, **kwargs): pass
+        def down(self): page.clicks += 1
+        # The proof's own clock starts at the press.
+        def up(self): page.seconds = 0
     class Page:
         seconds = 0; clicks = 0; visits = 0
+        mouse = Mouse()
         url = "https://filecrypt.cc/Container/a.html"
+        def wait_for_load_state(self, state, **kwargs): assert state == "load"
         def on(self, event, callback): self.callback = callback
         def evaluate(self, expression): return 'complete'
         def goto(self, url, **kwargs): self.visits += 1; return SimpleNamespace(status=200)
@@ -166,6 +174,7 @@ def test_pow_passes_sixty_seconds_without_reclick_or_new_get(monkeypatch, tmp_pa
     page = Page()
     class Context:
         def route(self, *args): pass
+        def on(self, *args): pass
         def new_page(self): return page
     class Browser:
         def new_context(self, **kwargs): return Context()
@@ -295,6 +304,7 @@ def test_popup_without_created_frame_does_not_leave_navigation_pending(monkeypat
         def content(self):return '<a href="https://rootz.so/d/exact-file">Download</a>'
     class Context:
         def route(self,pattern,cb):self.callback=cb
+        def on(self, *args): pass
         def new_page(self):return Page()
     context=Context()
     instance=SimpleNamespace(new_context=lambda **kw:context,close=lambda:None)
@@ -303,3 +313,149 @@ def test_popup_without_created_frame_does_not_leave_navigation_pending(monkeypat
     monkeypatch.setattr(module.browser,'sync_playwright',lambda:contextlib.nullcontext(SimpleNamespace(chromium=SimpleNamespace(launch=lambda **kw:instance))))
     assert module.resolve_container_sync(Page.url)=='https://rootz.so/d/exact-file'
     assert calls==['continued','aborted']
+
+
+class _FakeMouse:
+    def __init__(self, events):
+        self.events = events
+
+    def move(self, x, y, steps=1):
+        self.events.append(("move", steps))
+
+    def down(self):
+        self.events.append(("down",))
+
+    def up(self):
+        self.events.append(("up",))
+
+
+class _FakeBox:
+    def __init__(self, events):
+        self.events = events
+
+    def bounding_box(self):
+        return {"x": 400, "y": 500, "width": 300, "height": 70}
+
+    def click(self, **_kwargs):
+        raise AssertionError("a teleporting click is what FileCrypt rejects")
+
+
+class _FakePage:
+    def __init__(self):
+        self.events = []
+        self.mouse = _FakeMouse(self.events)
+
+    def wait_for_load_state(self, state, timeout=None):
+        self.events.append(("load", state))
+
+    def wait_for_timeout(self, _ms):
+        pass
+
+
+def test_filecrypt_check_is_pressed_after_its_scripts_load_and_with_a_pointer_path():
+    """Measured 2026-10-04 on the live site.
+
+    The old flow clicked right after domcontentloaded: the signal module that
+    records the click had not loaded, and the pointer teleported onto the box.
+    The proof finished, the POST went out, and the same check came back. The
+    same container type passed on the first try when the page had loaded and the
+    pointer travelled to the box and pressed.
+    """
+    page = _FakePage()
+    module.press_security_check(page, _FakeBox(page.events), SimpleNamespace(budget_ms=lambda ms: ms))
+    kinds = [event[0] for event in page.events]
+    assert page.events[0] == ("load", "load")
+    assert kinds.index("move") < kinds.index("down") < kinds.index("up")
+    assert sum(event[1] for event in page.events if event[0] == "move") >= 10
+
+
+@pytest.mark.parametrize("state,idle,presses,posted,expected", [
+    ("idle", 6, 1, False, True),      # an ad took the press; the proof never started
+    ("idle", 5, 1, False, False),     # give the page a moment first
+    ("idle", 6, 3, False, False),     # three presses is the limit
+    ("idle", 9, 1, True, False),      # after a submission, idle means the check came back
+    ("working", 9, 1, False, False),  # never interrupt a running proof
+])
+def test_security_check_is_pressed_again_only_when_the_proof_never_started(state, idle, presses, posted, expected):
+    assert module.should_press_again(state, idle, presses, posted) is expected
+
+
+class _Anchor:
+    def __init__(self, href): self.href = href
+    def get_attribute(self, name): return self.href
+
+
+class _LinkPage:
+    url = "https://filecrypt.cc/Container/A.html"
+
+    def __init__(self, hrefs, captured, lands_on=None):
+        self.hrefs, self.captured, self.lands_on, self.visits = hrefs, captured, lands_on, []
+
+    def locator(self, selector):
+        assert ":visible" in selector  # FileCrypt also ships a hidden /Link/ honeypot
+        return SimpleNamespace(all=lambda: [_Anchor(h) for h in self.hrefs])
+
+    def goto(self, url, **kwargs):
+        self.visits.append(url)
+
+    def wait_for_timeout(self, _ms):
+        if self.lands_on:
+            self.captured.append(self.lands_on)
+
+
+def test_the_link_page_is_followed_by_its_own_address():
+    """An ad script swallows the click on FileCrypt's download button."""
+    captured = []
+    page = _LinkPage(["/Link/DC87D069E2.html"], captured, lands_on="https://www.mediafire.com/file/x/a.rar")
+    deadline = SimpleNamespace(budget_ms=lambda ms: ms, remaining=lambda: 60)
+    assert module.follow_link_page(page, deadline, captured) == "https://www.mediafire.com/file/x/a.rar"
+    assert page.visits == ["https://filecrypt.cc/Link/DC87D069E2.html"]
+
+
+def test_several_link_pages_need_the_user_to_choose():
+    page = _LinkPage(["/Link/A.html", "/Link/B.html"], [])
+    deadline = SimpleNamespace(budget_ms=lambda ms: ms, remaining=lambda: 60)
+    with pytest.raises(HosterParseError, match="여러 개"):
+        module.follow_link_page(page, deadline, [])
+    assert page.visits == []
+
+
+def test_no_link_page_leaves_the_other_fallbacks_to_run():
+    page = _LinkPage([], [])
+    deadline = SimpleNamespace(budget_ms=lambda ms: ms, remaining=lambda: 60)
+    assert module.follow_link_page(page, deadline, []) is None
+
+
+def test_a_redirect_that_lands_on_the_file_host_is_taken_from_the_page_address():
+    """Measured 2026-10-04: /Go/ redirected by HTTP straight to Google Drive.
+
+    The route handler never sees a redirect, so nothing was captured and the
+    container failed with "no supported host" while the tab sat on the file.
+    """
+    target = "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view?usp=sharing"
+    page = _LinkPage(["/Link/DC87D069E2.html"], [])
+    page.goto = lambda url, **kwargs: (page.visits.append(url), setattr(page, "url", target))
+    deadline = SimpleNamespace(budget_ms=lambda ms: ms, remaining=lambda: 60)
+    assert module.follow_link_page(page, deadline, []) == target
+    assert module.supported_destination(target)
+
+
+def test_a_hosts_home_page_link_is_not_a_file_link():
+    """Measured 2026-10-04: FileCrypt labels each mirror with its host's home page.
+
+    `<a href="http://mediafire.com" class="external_link">` was returned as the
+    file, so the row would have downloaded MediaFire's front page.
+    """
+    html = ('<a href="http://mediafire.com" target="blank" class="external_link">mediafire</a>'
+            '<a href="https://drive.google.com/">drive</a>'
+            '<a href="https://www.mediafire.com/file/5xsfj5u8yfwzy2g/a.rar/file">file</a>')
+    assert module.extract_container_links(html, "https://filecrypt.cc/Container/A.html") == [
+        "https://www.mediafire.com/file/5xsfj5u8yfwzy2g/a.rar/file"
+    ]
+
+
+def test_a_redirect_to_a_hosts_home_page_is_not_taken_as_the_file():
+    page = _LinkPage(["/Link/DC87D069E2.html"], [])
+    page.goto = lambda url, **kwargs: (page.visits.append(url), setattr(page, "url", "https://drive.google.com/"))
+    deadline = SimpleNamespace(budget_ms=lambda ms: ms, remaining=lambda: 3)
+    assert module.follow_link_page(page, deadline, []) is None

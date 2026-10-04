@@ -61,7 +61,7 @@ The [host parsing and failure matrix](docs/HOSTER_CASES.md) lists the current ca
 | **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **Browser and Turnstile captcha** | ❌ **Docker only** |
 | **Rootz** (`rootz.so`) | **Browser to verify metadata and resolve the file URL** | ❌ **Docker only** |
 | DataVaults | Follow actual free-download forms once each | Stop on human verification; no blanket host block |
-| FileCrypt / Linkcuy | Extract public destinations or follow site navigation | FileCrypt PoW: one attempt, up to 900 seconds; full extraction remains unverified |
+| FileCrypt / Linkcuy | Extract public destinations or follow site navigation | FileCrypt: passes the security check and hands over a single file's real mirror (MediaFire, Google Drive, ...); several files need a manual choice |
 | MomeryBox / TeraBox | Redirects to TeraBox; the example link prompts for login on download | ❌ Automated downloads unsupported |
 
 Browser-based link resolution runs **one link at a time per site**. Waiting for a

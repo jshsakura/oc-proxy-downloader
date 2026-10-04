@@ -35,6 +35,7 @@ DESTINATION_HOSTS = frozenset({
     "filekeeper.net", "send.cm", "uptobox.com", "clicknupload.to", "filerio.in",
     "frdl.my", "letsupload.io", "bowfile.com", "doodrive.com", "solidfiles.com",
     "bayfiles.com", "qiwi.gg", "zippyshare.com", "teraboxapp.com",
+    "drive.google.com",
 })
 
 
@@ -122,13 +123,86 @@ def extract_container_links(text, base_url):
 
     # Preserve published order and choose just one mirror. A failed mirror must
     # not fan out to all the others automatically.
-    return list(dict.fromkeys(value for value in candidates if supported_destination(value)))
+    return list(dict.fromkeys(value for value in candidates if is_file_address(value)))
+
+
+def is_file_address(url):
+    """A supported host's address that names something, not its home page.
+
+    FileCrypt labels each mirror with a link to the host's front page.
+    """
+    return supported_destination(url) and urlparse(url).path not in ("", "/")
 
 
 def choose_container_link(links):
     if len(links) != 1:
         raise HosterParseError("링크 컨테이너에 파일 또는 미러가 여러 개입니다. 실제 파일 링크를 선택하세요.")
     return links[0]
+
+
+# An ad script on FileCrypt opens a popup on the first click, which can swallow
+# the press. A proof that never left "idle" was never sent, so pressing again
+# is not a replay; a limit still keeps it from becoming a click loop.
+SECURITY_PRESS_LIMIT = 3
+IDLE_BEFORE_REPRESS_S = 6
+LINK_PAGE_WAIT_S = 30
+
+
+def should_press_again(state, idle_seconds, presses, posted):
+    """Press once more only when the proof never started and nothing was sent."""
+    return (state == "idle" and not posted
+            and idle_seconds >= IDLE_BEFORE_REPRESS_S and presses < SECURITY_PRESS_LIMIT)
+
+
+def follow_link_page(page, deadline, captured):
+    """Open FileCrypt's single /Link/ page by the download button's own address.
+
+    Clicking the button only opened an ad popup in live runs. The visible
+    button's href goes /Link/ -> /Go/ -> the file host, whose navigation the
+    route handler captures. A hidden /Link/ anchor is a honeypot and is ignored.
+    """
+    targets = list(dict.fromkeys(
+        urljoin(page.url, href)
+        for href in (anchor.get_attribute("href") for anchor in page.locator('a.download[href*="/Link/"]:visible').all())
+        if href
+    ))
+    if not targets:
+        return None
+    if len(targets) > 1:
+        choose_container_link(targets)
+    page.goto(targets[0], wait_until="domcontentloaded", timeout=deadline.budget_ms(30000))
+    for _ in range(int(min(deadline.remaining(), LINK_PAGE_WAIT_S))):
+        # /Go/ can hand off by an HTTP redirect, which the route handler never
+        # sees; the tab then simply sits on the file host's page.
+        if not captured and is_file_address(page.url):
+            captured.append(page.url)
+        if captured:
+            return choose_container_link(list(dict.fromkeys(captured)))
+        page.wait_for_timeout(1000)
+    return choose_container_link(list(dict.fromkeys(captured))) if captured else None
+
+
+def press_security_check(page, box, deadline):
+    """Press FileCrypt's "I am a human" box the way a visitor does.
+
+    Its signal module records the click and the pointer's approach and sends
+    them with the proof. Clicking at domcontentloaded meant the module had not
+    loaded yet, and Playwright's click jumps the pointer onto the box, so the
+    proof was accepted as work but the form came back. Wait for the page's own
+    scripts, travel to the box, then press. This sends no extra request.
+    """
+    page.wait_for_load_state("load", timeout=deadline.budget_ms(30000))
+    page.wait_for_timeout(deadline.budget_ms(1500))
+    bounds = box.bounding_box()
+    target_x = bounds["x"] + bounds["width"] * 0.3
+    target_y = bounds["y"] + bounds["height"] / 2
+    page.mouse.move(max(10, target_x - 220), max(10, target_y - 160), steps=8)
+    page.wait_for_timeout(deadline.budget_ms(300))
+    page.mouse.move(target_x, target_y, steps=25)
+    page.wait_for_timeout(deadline.budget_ms(250))
+    page.mouse.down()
+    page.wait_for_timeout(deadline.budget_ms(90))
+    page.mouse.up()
 
 
 def resolve_container_sync(url):
@@ -173,7 +247,7 @@ def resolve_container_sync(url):
                             else:
                                 route.abort()
                             return
-                        if supported_destination(request.url):
+                        if is_file_address(request.url):
                             captured.append(request.url)
                             route.abort()  # admission to that host happens later
                             return
@@ -188,6 +262,9 @@ def resolve_container_sync(url):
 
                 context.route("**/*", route_navigation)
                 page = context.new_page()
+                # Ad scripts open popups on a click. A popup takes focus, and
+                # FileCrypt pauses its proof while the page is blurred.
+                context.on("page", lambda extra: extra.close() if extra is not page else None)
                 def observe_navigation(reply):
                     try:
                         request = reply.request
@@ -226,13 +303,16 @@ def resolve_container_sync(url):
                 if links:
                     return choose_container_link(links)
                 # FileCrypt's public security step runs its own JS work. Click
-                # once and let it finish; never forge its form or replay a fail.
+                # once and let it finish; never forge its form or replay a submission.
                 checkbox = page.locator("#pow-captcha [role=checkbox]").first
                 if checkbox.count():
-                    checkbox.click(timeout=deadline.budget_ms(20000))
+                    press_security_check(page, checkbox, deadline)
+                    presses, idle_seconds = 1, 0
                     # Observe the next page rather than depending on one
                     # version's internal JS state names. Polling the DOM sends
-                    # no host requests and never re-clicks the security form.
+                    # no host requests. The box is pressed again only while the
+                    # proof never started (an ad took the press), never after a
+                    # submission came back.
                     while deadline.remaining() > 0:
                         if captured:
                             return choose_container_link(list(dict.fromkeys(captured)))
@@ -269,9 +349,19 @@ def resolve_container_sync(url):
                             if page.locator("#pow-captcha").count():
                                 raise HosterParseError("링크 컨테이너 FileCrypt 보안 작업 제출 후 확인 화면이 다시 나왔습니다 (검증 미완료; 자동 반복 없음)")
                             break
+                        proof = page.locator("#pow-captcha").first
+                        state = proof.get_attribute("data-state") if proof.count() else None
+                        idle_seconds = idle_seconds + 1 if state == "idle" else 0
+                        if should_press_again(state, idle_seconds, presses, navigation.get("method") == "POST"):
+                            press_security_check(page, checkbox, deadline)
+                            presses, idle_seconds = presses + 1, 0
+                        page.bring_to_front()
                         page.wait_for_timeout(deadline.budget_ms(1000))
                     if page.locator('#pow-captcha[data-state="working"]').count():
                         raise HosterParseError("FileCrypt 보안 검증 작업이 제한시간 내 완료되지 않았습니다 (진행 미확인; 자동 반복 없음)")
+                link = follow_link_page(page, deadline, captured)
+                if link:
+                    return link
                 # Some containers expose a single Link/... navigation through
                 # a download button. Follow one; intercept its final host URL.
                 button = page.locator('a[href*="/Link/"]:visible, button.download:visible, button[onclick*="openLink"]:visible').first

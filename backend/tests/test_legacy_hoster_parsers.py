@@ -288,3 +288,105 @@ def test_sendnow_marketing_text_is_not_file_metadata():
 def test_sendnow_disagreeing_file_cards_stop_without_guessing():
     with pytest.raises(sites.HosterParseError, match='이름이 서로'):
         sites._extract_sendnow_file_info('<h6 class="max-width-50">a.rar</h6><h6 id="qr">b.rar</h6>')
+
+
+@pytest.mark.parametrize('token_field,href', [
+    ('verifyCode', 'direct'), ('cf-turnstile-response', 'direct'), ('verifyCode', '#'),
+])
+def test_rapidgator_takes_the_ready_download_button_after_the_confirmation(monkeypatch, token_field, href):
+    """Measured 2026-10-04 on the live site.
+
+    After Send the page shows "CLICK HERE TO DOWNLOAD" and waits; nothing
+    navigates by itself, so the parser sat there until its deadline. The
+    Turnstile token can also sit only in cf-turnstile-response while the page
+    already says "Success!". Take the button's own file-server address once.
+    """
+    from core import browser_solver as browser
+    state = SimpleNamespace(clicks=[], seconds=0, stage='file', route=None, gotos=0)
+    target = 'https://s7.rapidgator.net/download/token/update.rar'
+    class Locator:
+        def __init__(self, selector): self.selector = selector
+        @property
+        def first(self): return self
+        def wait_for(self, **kwargs): pass
+        def count(self):
+            if 'recaptcha' in self.selector or 'hcaptcha' in self.selector: return 0
+            if 'captchaform' in self.selector: return int(state.stage == 'confirmation')
+            if 'Click here to download' in self.selector: return int(state.stage == 'ready')
+            return 1
+        def inner_text(self, **kwargs): return 'File size: 237 MB'
+        def locator(self, selector): return Locator(selector)
+        def input_value(self, **kwargs):
+            return 'token' if token_field in self.selector else ''
+        def get_attribute(self, name):
+            assert name == 'href' and state.stage == 'ready'
+            return target if href == 'direct' else '#'
+        def click(self, **kwargs):
+            state.clicks.append(self.selector)
+            if 'Click here to download' in self.selector:
+                # A JS button: the press navigates to the file server.
+                request = SimpleNamespace(url=target, is_navigation_request=lambda: True, frame=SimpleNamespace(parent_frame=None))
+                state.route(SimpleNamespace(request=request, abort=lambda: None, continue_=lambda: None))
+                return
+            state.stage = 'ready' if 'submit-button' in self.selector else 'confirmation'
+    class Page:
+        url = 'https://rapidgator.net/file/' + 'c' * 32 + '/update.rar.html'
+        def locator(self, s): return Locator(s)
+        def goto(self, *args, **kwargs): state.gotos += 1; return SimpleNamespace(status=200)
+        def wait_for_timeout(self, ms): state.seconds += ms / 1000
+        def content(self): return '<h1 class="file-name">update.rar</h1>'
+        def evaluate(self, *args): return 'normal-UA'
+    class Context:
+        def route(self, p, cb): state.route = cb
+        def new_page(self): return Page()
+        def cookies(self, *args): return []
+    instance = SimpleNamespace(new_context=lambda **kw: Context(), close=lambda: None)
+    monkeypatch.setattr(browser, '_require_display', lambda: None)
+    monkeypatch.setattr(browser, '_queued_browser_slot', lambda *a: contextlib.nullcontext())
+    monkeypatch.setattr(browser, 'Deadline', lambda seconds: SimpleNamespace(remaining=lambda: seconds - state.seconds, budget_ms=lambda ms: ms))
+    monkeypatch.setattr(browser, 'sync_playwright', lambda: contextlib.nullcontext(SimpleNamespace(chromium=SimpleNamespace(launch=lambda **kw: instance))))
+    assert sites.parse_rapidgator_free_sync(Page.url)['download_link'] == target
+    # Free button, then Send once; a ready button with an address is only read.
+    assert len(state.clicks) == (2 if href == 'direct' else 3) and 'submit-button' in state.clicks[1]
+    assert state.gotos == 1
+    assert state.seconds < 30
+
+
+def test_rapidgator_hourly_limit_page_is_a_wait_not_a_stall(monkeypatch):
+    """Measured 2026-10-04: after one free file the page says
+    "You have reached your hourly downloads limit" and nothing else happens.
+    The parser waited out its whole 180 s deadline and reported a generic failure.
+    """
+    from core import browser_solver as browser
+    from core.error_messages import classify_error
+    state = SimpleNamespace(seconds=0)
+    class Locator:
+        @property
+        def first(self): return self
+        def wait_for(self, **kwargs): pass
+        def click(self, **kwargs): pass
+        def count(self): return 0
+        def inner_text(self, **kwargs): return 'File size: 42.22 MB'
+    class Page:
+        url = 'https://rapidgator.net/file/' + 'd' * 32 + '/update.rar.html'
+        def locator(self, *args): return Locator()
+        def goto(self, *args, **kwargs): return SimpleNamespace(status=200)
+        def wait_for_timeout(self, ms): state.seconds += ms / 1000
+        def content(self): return '<div>You have reached your hourly downloads limit. Please, try again later.</div>'
+        def evaluate(self, *args): return 'UA'
+    class Context:
+        def route(self, p, cb): pass
+        def new_page(self): return Page()
+        def cookies(self, *args): return []
+    instance = SimpleNamespace(new_context=lambda **kw: Context(), close=lambda: None)
+    monkeypatch.setattr(browser, '_require_display', lambda: None)
+    monkeypatch.setattr(browser, '_queued_browser_slot', lambda *a: contextlib.nullcontext())
+    monkeypatch.setattr(browser, 'Deadline', lambda seconds: SimpleNamespace(remaining=lambda: seconds - state.seconds, budget_ms=lambda ms: ms))
+    monkeypatch.setattr(browser, 'sync_playwright', lambda: contextlib.nullcontext(SimpleNamespace(chromium=SimpleNamespace(launch=lambda **kw: instance))))
+    with pytest.raises(HosterParseError) as failure:
+        sites.parse_rapidgator_free_sync(Page.url)
+    assert state.seconds < 5
+    verdict = classify_error('파싱', str(failure.value))
+    assert verdict.kind == 'rate_limited'
+    assert verdict.retry_after_seconds == 7200
+    assert '시간당' in verdict.summary

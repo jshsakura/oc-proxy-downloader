@@ -60,7 +60,7 @@ Windows 실행 파일은 **단일 파일 유지를 위해 브라우저를 번들
 | **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **브라우저와 Turnstile 캡차** | ❌ **Docker 전용** |
 | **Rootz** (`rootz.so`) | **브라우저에서 파일 정보와 다운로드 주소 확인** | ❌ **Docker 전용** |
 | DataVaults | 실제 무료 폼을 단계별로 한 번씩 처리 | 검증을 요구하는 파일은 사람 확인에서 중단; 호스트 전체 차단 없음 |
-| FileCrypt / Linkcuy | 공개 링크 추출 또는 사이트 브라우저 절차 | FileCrypt PoW 최대 900초 단회; 실미러 추출/파일 완료는 별도 검증 |
+| FileCrypt / Linkcuy | 공개 링크 추출 또는 사이트 브라우저 절차 | FileCrypt 보안 확인을 통과한 뒤 단일 파일의 실제 미러 주소(MediaFire·Google Drive 등)를 넘깁니다. 파일이 여러 개면 직접 고르게 합니다 |
 | MomeryBox / TeraBox | 공개 이동 주소 확인 | 로그인 요구 시 자동 반복 없이 중단 |
 
 브라우저가 필요한 링크 해석은 **사이트별로 한 번에 하나씩** 처리됩니다. 차례를 기다리는

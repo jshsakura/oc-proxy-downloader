@@ -320,6 +320,9 @@ def _extract_sendnow_file_info(html_text):
     return info
 
 
+RAPIDGATOR_READY_PRESSES = 3
+
+
 def _parse_browser(site,url,proxies):
     from core import browser_solver as browser
     from core.link_containers import inspect_terabox_download
@@ -359,7 +362,12 @@ def _parse_browser(site,url,proxies):
                 button.wait_for(state='visible',timeout=deadline.budget_ms(15000))
                 button.click(timeout=deadline.budget_ms(15000))
                 confirmation_submitted = False
+                ready_presses = 0
                 while deadline.remaining()>0 and not captured:
+                    # The free tier allows one file per 120 minutes. The page
+                    # says so and then waits forever; report it as a wait.
+                    if 'reached your hourly downloads limit' in page.content():
+                        raise HosterParseError('Rapidgator 무료 다운로드 시간당 한도에 도달했습니다 (120분 뒤 다시 시도; 자동 반복 없음)')
                     if page.locator('.g-recaptcha:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible').count():
                         raise HosterParseError('Rapidgator 다운로드에 사람 확인 캡차가 필요합니다; 자동 반복하지 않습니다')
                     # The live free flow advances to /download/captcha. Its
@@ -370,14 +378,33 @@ def _parse_browser(site,url,proxies):
                     if form.count():
                         if confirmation_submitted:
                             raise HosterParseError('Rapidgator 확인 폼 제출 후 다시 사람 확인을 요구했습니다; 자동 반복 없음')
-                        token = form.locator('input[name="DownloadCaptchaForm[verifyCode]"]').first
-                        if token.count() and token.input_value(timeout=deadline.budget_ms(1000)):
+                        # The page can show "Success!" with the token only in
+                        # Turnstile's own field; either one means it was issued.
+                        fields = [form.locator(f'input[name="{name}"]').first
+                                  for name in ('DownloadCaptchaForm[verifyCode]', 'cf-turnstile-response')]
+                        if any(field.count() and field.input_value(timeout=deadline.budget_ms(1000)) for field in fields):
                             submit = form.locator('#submit-button:visible').first
                             if not submit.count():
                                 raise HosterParseError('Rapidgator 확인 폼의 제출 버튼을 확인하지 못했습니다; 자동 반복 없음')
                             confirmation_submitted = True
                             submit.click(timeout=deadline.budget_ms(15000))
                             page.wait_for_timeout(deadline.budget_ms(1000))
+                    elif confirmation_submitted:
+                        # The accepted confirmation shows a "CLICK HERE TO
+                        # DOWNLOAD" button and waits. Take its file-server
+                        # address when it has one; a script-driven "#" button
+                        # is pressed instead (an ad can swallow a press, so a
+                        # few) and the route handler captures the navigation.
+                        ready = page.locator('a:has-text("Click here to download"):visible').first
+                        if ready.count():
+                            link = _candidate(site, ready.get_attribute('href'), page.url, url)
+                            if link:
+                                captured.append(link)
+                                break
+                            if ready_presses < RAPIDGATOR_READY_PRESSES:
+                                ready_presses += 1
+                                ready.click(timeout=deadline.budget_ms(15000))
+                                page.wait_for_timeout(deadline.budget_ms(3000))
                     page.wait_for_timeout(deadline.budget_ms(500))
                 if len(set(captured))!=1:raise HosterParseError('전용 파서: Rapidgator 무료 단회 요청에서 파일 주소를 확인하지 못했습니다')
                 link=captured[0]
