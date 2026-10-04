@@ -316,6 +316,19 @@ class TestHostStatementIsShownVerbatim:
         assert "접근 불가" not in result.summary
         assert result.kind == KIND_SOURCE_UNCONFIRMED
 
+    @pytest.mark.parametrize("raw, summary", [
+        ("1fichier 차단: 파일 삭제됨", "1fichier 페이지가 '파일이 삭제됨'이라고 표시했습니다"),
+        ("1fichier 차단: 파일이 신고되어 차단됨", "1fichier 페이지가 '신고로 차단된 파일'이라고 표시했습니다"),
+        ("Rootz: 파일이 비활성 상태입니다 (deleted)", "Rootz API가 파일 상태를 'deleted'로 응답했습니다"),
+        ("Pixeldrain 파일 없음 또는 삭제됨", "Pixeldrain 페이지가 '파일 없음'이라고 표시했습니다"),
+    ])
+    def test_dead_signals_name_the_host_statement(self, raw, summary):
+        result = classify_error("파싱", raw)
+        assert result.summary == summary
+        assert "접근 불가" not in result.summary
+        assert result.kind == KIND_SOURCE_UNCONFIRMED
+        assert result.definitive is False
+
     def test_unknown_unconfirmed_text_keeps_the_generic_message(self):
         result = classify_error("파싱", "GoFile 파일 상태 확인 실패 (삭제 여부 미확인)")
         assert "삭제 여부 미확인" in result.summary

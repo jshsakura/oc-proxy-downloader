@@ -76,7 +76,8 @@ async def test_failed_filecrypt_resolution_never_downloads_its_html(monkeypatch)
     req = SimpleNamespace(id=42, url=url, original_url=url, file_name="Culdcept.nsp",
                           file_size="1 GB", total_size=1074912470, downloaded_size=0,
                           use_proxy=False, status=dc.StatusEnum.parsing, failure_kind=None,
-                          next_retry_at=None, attempt_count=0, attempts_json=None, error=None)
+                          next_retry_at=None, attempt_count=0, attempts_json=None, error=None,
+                          finished_at=None)
     db = MagicMock()
     core = DownloadCore()
     core.send_download_update = AsyncMock()
@@ -92,6 +93,8 @@ async def test_failed_filecrypt_resolution_never_downloads_its_html(monkeypatch)
     core._run_special_parser.assert_awaited_once()
     core._download_local_async.assert_not_awaited()
     assert req.status == dc.StatusEnum.failed
+    # A failed row without an end time sorts and reads as never finished.
+    assert req.finished_at is not None
     assert req.url == req.original_url == url
     assert req.file_name == "Culdcept.nsp" and req.total_size == 1074912470
     assert core.send_download_update.await_args.args[1]["stage"] == "파싱"

@@ -218,7 +218,10 @@ def detect_block_reason(html_content):
         ("professional infrastructure detected", "VPS/VPN IP 차단"),
         ("server, proxy, vpn", "VPS/VPN IP 차단"),
         ("unauthorized personal vpn", "VPS/VPN IP 차단"),
-        # File status
+        # File status. The owner-deletion page also says "File not found", so
+        # its more specific wording has to be checked first.
+        ("deleted by its owner", "소유자가 파일을 삭제함"),
+        ("supprimé par son propriétaire", "소유자가 파일을 삭제함"),
         ("file not found", "파일 없음 또는 삭제됨"),
         ("the file has been deleted", "파일 삭제됨"),
         ("the requested file has been removed", "파일 삭제됨"),
@@ -245,6 +248,16 @@ def detect_block_reason(html_content):
             return reason  # None means "ignore"
 
     return None
+
+
+# Reasons that describe one file rather than this connection. They must not be
+# raised as a block: a block pauses every queued 1fichier row on the egress.
+FILE_GONE_REASONS = frozenset({
+    "소유자가 파일을 삭제함",
+    "파일 없음 또는 삭제됨",
+    "파일 삭제됨",
+    "파일이 신고되어 차단됨",
+})
 
 
 def is_likely_download_url(candidate, base_host=None):
@@ -398,6 +411,12 @@ def parse_1fichier_simple_sync(url, password=None, proxies=None, proxy_addr=None
             else:
                 print(f"[WARNING] FlareSolverr 쿠키 확보 실패 — Cloudflare 우회 불가")
 
+        if response.status_code == 404:
+            # A deleted link is a 404 whose body says why; report that.
+            gone_reason = detect_block_reason(response.text)
+            if gone_reason in FILE_GONE_REASONS:
+                raise Exception(f"1fichier 차단: {gone_reason}")
+            raise Exception("1fichier 호스터 페이지 HTTP 404 (삭제 여부 미확인)")
         if response.status_code != 200:
             print(f"[ERROR] 페이지 로드 실패 - 응답 내용: {response.text[:500]}")
             raise Exception(f"페이지 로드 실패: HTTP {response.status_code}")
@@ -645,6 +664,11 @@ def preparse_1fichier_standalone(url):
         # Load the page
         response = scraper.get(url, headers=headers, timeout=(10, 30))
 
+        # 1fichier answers a deleted link with 404 and states the reason in the
+        # body, so read the body before falling back to the bare status.
+        block_reason = detect_block_reason(response.text) if response.status_code in (200, 404) else None
+        if block_reason in FILE_GONE_REASONS:
+            raise PreparseDeadLinkError(f"1fichier 차단: {block_reason}")
         if response.status_code == 404:
             raise PreparseDeadLinkError("1fichier 호스터 페이지 HTTP 404 (삭제 여부 미확인)")
         if response.status_code != 200:
@@ -653,7 +677,6 @@ def preparse_1fichier_standalone(url):
 
         # A confirmed block must stop here. Fetching the same page again in the
         # main parser only increases the number of refused requests.
-        block_reason = detect_block_reason(response.text)
         if block_reason:
             print(f"[WARNING] 사전파싱: 차단 감지 - {block_reason}")
             raise PreparseBlockedError(f"1fichier 차단: {block_reason}")

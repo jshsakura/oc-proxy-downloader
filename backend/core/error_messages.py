@@ -184,7 +184,7 @@ class ClassifiedError:
             )
         if self.raw.lower().startswith("rootz: 파일이 비활성 상태입니다 (deleted)") and language == "en":
             return (
-                "[Parsing failed] Rootz returned an unavailable-file signal; deletion is unconfirmed.\n"
+                "[Parsing failed] The Rootz API reported the file status as 'deleted'.\n"
                 "Action: The link remains selectable. Automatic retry is disabled."
             )
         if self.raw.lower().startswith("rootz:") and language == "en":
@@ -268,7 +268,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "같은 링크를 자동 재시도하지 않습니다. 다른 미러를 사용하세요.",
      KIND_AUTH_REQUIRED, True),
     ("pixeldrain 파일 없음 또는 삭제됨",
-     "Pixeldrain에서 파일이 삭제되었거나 존재하지 않습니다",
+     "Pixeldrain 페이지가 '파일 없음'이라고 표시했습니다",
      "다른 파일 링크를 사용하세요.", KIND_DEAD, True),
     ("호스터 페이지 http 404 (삭제 여부 미확인)",
      "호스터 페이지가 404를 반환했지만 파일 삭제는 확인되지 않았습니다",
@@ -326,39 +326,43 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "응답 원인을 확인하세요. Cloudflare 차단으로 단정하지 않고 자동 재시도하지 않습니다.",
      KIND_BROWSER_PARSE, False),
     # --- definitive dead: 1fichier body marker ---
-    ("1fichier 차단: 파일 삭제됨", "1fichier 측에서 파일이 삭제되었습니다",
+    ("1fichier 차단: 소유자가 파일을 삭제함",
+     "1fichier 페이지가 '소유자가 파일을 삭제함'이라고 표시했습니다",
+     "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
+     KIND_DEAD, True),
+    ("1fichier 차단: 파일 삭제됨", "1fichier 페이지가 '파일이 삭제됨'이라고 표시했습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
     ("1fichier 차단: 파일이 신고되어 차단됨",
-     "1fichier 가 신고로 인해 파일을 차단했습니다",
+     "1fichier 페이지가 '신고로 차단된 파일'이라고 표시했습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
-    ("1fichier 차단: 파일 없음", "1fichier 에 해당 파일이 존재하지 않습니다",
+    ("1fichier 차단: 파일 없음", "1fichier 페이지가 '파일 없음'이라고 표시했습니다",
      "URL 의 파일 ID 가 정확한지 확인하세요.",
      KIND_DEAD, True),
-    ("file not found", "파일이 1fichier 에 존재하지 않습니다",
+    ("file not found", "호스트 페이지가 'File not found'라고 표시했습니다",
      "URL 의 파일 ID 가 정확한지 확인하세요.",
      KIND_DEAD, True),
-    ("file has been deleted", "1fichier 측에서 파일이 삭제되었습니다",
+    ("file has been deleted", "호스트 페이지가 '파일이 삭제됨'이라고 표시했습니다",
      "다른 다운로드 링크를 사용하세요.",
      KIND_DEAD, True),
-    ("file has been reported", "1fichier 가 신고로 인해 파일을 차단했습니다",
+    ("file has been reported", "호스트 페이지가 '신고로 차단된 파일'이라고 표시했습니다",
      "다른 다운로드 링크를 사용하세요.",
      KIND_DEAD, True),
-    ("megaup 파일 없음", "MegaUp 측에서 파일이 삭제되었거나 존재하지 않습니다",
+    ("megaup 파일 없음", "MegaUp 페이지가 '파일 없음'이라고 표시했습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
-    ("datanodes 파일 없음", "DataNodes 측에서 파일이 삭제되었거나 존재하지 않습니다",
+    ("datanodes 파일 없음", "DataNodes 페이지가 '파일 없음'이라고 표시했습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
-    ("gofile 파일 없음", "Gofile 측에서 파일이 삭제되었거나 존재하지 않습니다",
+    ("gofile 파일 없음", "GoFile이 '파일 없음'이라고 응답했습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
-    ("mega 파일 없음", "MEGA 측에서 파일이 삭제되었거나 존재하지 않습니다",
+    ("mega 파일 없음", "MEGA가 '파일 없음'이라고 응답했습니다",
      "다른 다운로드 링크를 사용하세요. (재시도해도 같은 결과)",
      KIND_DEAD, True),
     ("파일 없음 또는 삭제됨",
-     "호스터가 파일이 없거나 삭제됐다고 확인했습니다",
+     "호스터가 '파일 없음'이라고 응답했습니다",
      "다른 미러를 사용하세요. 자동 재시도하지 않습니다.",
      KIND_DEAD, True),
     ("파일명(확장자)을 확인할 수 없",
@@ -582,7 +586,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "같은 링크를 자동으로 다시 조회하지 않습니다. 브라우저에서 링크 상태를 확인하거나 다른 미러를 사용하세요.",
      KIND_BLOCKED, True),
     ("rootz: 파일이 비활성 상태입니다 (deleted)",
-     "Rootz에서 파일이 삭제되었습니다",
+     "Rootz API가 파일 상태를 'deleted'로 응답했습니다",
      "다른 미러를 사용하세요. 삭제된 파일은 재시도해도 복구되지 않습니다.",
      KIND_DEAD, True),
     ("rootz: 파일이 비활성 상태입니다",
@@ -791,8 +795,10 @@ def classify_error(stage: str, raw_message: str) -> ClassifiedError:
             # A page marker or one API state is an observation, not authority
             # to remove a user's link or prohibit their manual selection.
             if kind == KIND_DEAD:
+                # Name what the host said; the kind below is what keeps the
+                # link from being treated as confirmed deleted.
                 return ClassifiedError(
-                    stage=stage, summary=("Rootz " if "rootz" in text else "") + "파일 접근 불가 신호를 받았습니다 (삭제 여부 미확인)",
+                    stage=stage, summary=summary,
                     action="링크를 제외하지 않습니다. 원인을 확인한 뒤 수동으로 선택하거나 다른 다운로드 링크를 사용하세요. 자동 반복하지 않습니다.",
                     raw=raw_message, kind=KIND_SOURCE_UNCONFIRMED, definitive=False,
                 )

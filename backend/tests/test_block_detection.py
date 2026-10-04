@@ -148,3 +148,68 @@ class TestErrorMessageClassification:
     def test_cloudflare_block_classified(self):
         c = classify_error("파싱", "1fichier 차단: Cloudflare 챌린지(우회 실패)")
         assert "Cloudflare" in c.summary
+
+
+# The page 1fichier serves today for a deleted link: HTTP 404 with a body
+# that states why, in both French and English (captured 2026-10-04).
+OWNER_DELETED_404_HTML = """
+<html><head><title>1fichier.com: Cloud Storage</title></head><body>
+❌ Fichier introuvable 🚫 Le fichier demandé a été supprimé par son propriétaire.
+❌ File not found 🚫 The requested file has been deleted by its owner.
+👉 Contact the person who gave you this link to obtain a valid link
+</body></html>
+"""
+
+
+class TestFileGonePageIsNotAQueueBlock:
+    """A page about one file must not pause the whole 1fichier queue."""
+
+    def _preparse(self, monkeypatch, status_code, html):
+        response = MagicMock(status_code=status_code, text=html, headers={})
+        scraper = MagicMock(cookies=[])
+        scraper.get.return_value = response
+        monkeypatch.setattr(sp.cloudscraper, "create_scraper", lambda **kw: scraper)
+        return scraper
+
+    def test_owner_deletion_wording_is_recognized(self):
+        assert sp.detect_block_reason(OWNER_DELETED_404_HTML) == "소유자가 파일을 삭제함"
+
+    def test_404_reports_what_the_page_says(self, monkeypatch):
+        scraper = self._preparse(monkeypatch, 404, OWNER_DELETED_404_HTML)
+        with pytest.raises(sp.PreparseDeadLinkError) as excinfo:
+            sp.preparse_1fichier_standalone("https://1fichier.com/?abc")
+        assert "소유자가 파일을 삭제함" in str(excinfo.value)
+        assert scraper.get.call_count == 1
+        classified = classify_error("파싱", str(excinfo.value))
+        assert classified.summary == "1fichier 페이지가 '소유자가 파일을 삭제함'이라고 표시했습니다"
+        assert classified.kind == "source_unconfirmed"
+        assert classified.definitive is False
+
+    def test_bare_404_still_reports_the_status(self, monkeypatch):
+        self._preparse(monkeypatch, 404, "<html><body>Not here</body></html>")
+        with pytest.raises(sp.PreparseDeadLinkError, match="HTTP 404"):
+            sp.preparse_1fichier_standalone("https://1fichier.com/?abc")
+
+    @pytest.mark.parametrize("html", [DELETED_HTML, REPORTED_HTML])
+    def test_file_status_on_200_is_a_dead_link_not_a_block(self, monkeypatch, html):
+        # PreparseBlockedError puts the egress into a 30-minute+ backoff, which
+        # would hold every other queued file because one link is gone.
+        self._preparse(monkeypatch, 200, html)
+        with pytest.raises(sp.PreparseDeadLinkError):
+            sp.preparse_1fichier_standalone("https://1fichier.com/?abc")
+
+    def test_main_parser_404_reports_what_the_page_says(self, monkeypatch):
+        # Rows whose name is already known skip the preparse and land here.
+        self._preparse(monkeypatch, 404, OWNER_DELETED_404_HTML)
+        with pytest.raises(Exception) as excinfo:
+            sp.parse_1fichier_simple_sync("https://1fichier.com/?abc")
+        classified = classify_error("파싱", str(excinfo.value))
+        assert classified.summary == "1fichier 페이지가 '소유자가 파일을 삭제함'이라고 표시했습니다"
+        assert classified.kind == "source_unconfirmed"
+
+    def test_main_parser_bare_404_is_a_status_not_unknown(self, monkeypatch):
+        self._preparse(monkeypatch, 404, "<html><body>Not here</body></html>")
+        with pytest.raises(Exception) as excinfo:
+            sp.parse_1fichier_simple_sync("https://1fichier.com/?abc")
+        classified = classify_error("파싱", str(excinfo.value))
+        assert classified.summary == "1fichier 페이지가 HTTP 404를 반환했습니다"

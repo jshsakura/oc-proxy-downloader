@@ -1655,6 +1655,8 @@ class DownloadCore:
                     req, failure_stage, str(e)
                 )
                 req.status = _status_after_failure(verdict)
+                if req.status == StatusEnum.failed:
+                    req.finished_at = datetime.datetime.now()
                 await db_async.commit(db)
                 host = host_key_for_url(admission_url(req))
                 egress = EGRESS_DIRECT if is_special_hoster_url(admission_url(req)) or is_container_url(req.url) else egress_of(req.use_proxy)
