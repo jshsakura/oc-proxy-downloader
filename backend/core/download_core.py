@@ -1041,13 +1041,26 @@ class DownloadCore:
                 "next_retry_at": target.isoformat(),
             })
 
-    async def _stop_fichier_queue_for_busy_slots(self, db: Session, egress: str,
-                                                  browser_parse_failed: bool = False) -> None:
-        """Stop the rest of a batch after a refusal shared by the same egress.
+    async def _hold_fichier_queue_for_busy_slots(self, db: Session, egress: str) -> None:
+        """Make the rest of a batch wait out busy free slots instead of stopping.
+
+        1fichier's busy page says a slot frees up with time. The host cooldown
+        recorded for this egress already gates the next request; align the
+        1fichier wait with it so every queued row shows the real deadline and
+        resumes by itself.
+        """
+        target = self._host_cooldown_until.get(f"1fichier.com@{egress}")
+        current = self._fichier_cooldown_until.get(egress)
+        if target and (not current or current < target):
+            self._fichier_cooldown_until[egress] = target
+        await self._publish_fichier_cooldown(db, egress)
+
+    async def _stop_fichier_queue_after_browser_failure(self, db: Session, egress: str) -> None:
+        """Stop the rest of a batch after a browser parse failure on the same egress.
 
         A per-file no-retry verdict is ineffective if the next queued file
-        immediately makes the same request from the same account and IP.
-        Explicitly stopped rows can be resumed by the user once slots reopen.
+        immediately repeats the same browser flow from the same account and IP.
+        Explicitly stopped rows can be resumed by the user once the cause is fixed.
         """
         queued = await db_async.all_rows(
             db.query(DownloadRequest).filter(
@@ -1064,24 +1077,16 @@ class DownloadCore:
             cancel_signal.signal_cancel(item.id)
         await db_async.commit(db)
         language = (get_config().get("language") or "ko")
-        if browser_parse_failed:
-            message = (
-                "1fichier browser parsing failed. The remaining queue is paused; resume it manually."
-                if language == "en" else
-                "1fichier 브라우저 파싱 실패로 나머지 대기열을 중지했습니다. 원인 해결 후 수동으로 재개하세요."
-            )
-        else:
-            message = (
-                "1fichier free slots are busy. The remaining queue is paused; resume it manually."
-                if language == "en" else
-                "1fichier 무료 슬롯이 사용 중이어서 나머지 대기열을 중지했습니다. 나중에 수동으로 재개하세요."
-            )
+        message = (
+            "1fichier browser parsing failed. The remaining queue is paused; resume it manually."
+            if language == "en" else
+            "1fichier 브라우저 파싱 실패로 나머지 대기열을 중지했습니다. 원인 해결 후 수동으로 재개하세요."
+        )
         for item in queued:
             await self.send_download_update(item.id, {
                 "status": "stopped", "message": message, "next_retry_at": None,
             })
-        reason = "브라우저 파싱 실패" if browser_parse_failed else "무료 슬롯 혼잡"
-        print(f"[LOG] 1fichier {reason}로 대기열 {len(queued)}건 중지 [{egress}]")
+        print(f"[LOG] 1fichier 브라우저 파싱 실패로 대기열 {len(queued)}건 중지 [{egress}]")
 
     async def _stop_datanodes_queue_after_browser_failure(self, db: Session,
                                                            use_proxy: bool) -> None:
@@ -1549,11 +1554,9 @@ class DownloadCore:
                         if req.status == StatusEnum.done:
                             self._register_fichier_success(fichier_egress)
                         elif getattr(req, "failure_kind", None) == KIND_SLOT_BUSY:
-                            await self._stop_fichier_queue_for_busy_slots(db, fichier_egress)
+                            await self._hold_fichier_queue_for_busy_slots(db, fichier_egress)
                         elif getattr(req, "failure_kind", None) == KIND_BROWSER_PARSE:
-                            await self._stop_fichier_queue_for_busy_slots(
-                                db, fichier_egress, browser_parse_failed=True
-                            )
+                            await self._stop_fichier_queue_after_browser_failure(db, fichier_egress)
                         elif getattr(req, "failure_kind", None) in (KIND_BLOCKED, KIND_RATE_LIMITED, KIND_DAILY_QUOTA):
                             self._register_fichier_block(fichier_egress, req.error)
                             await self._publish_fichier_cooldown(db, fichier_egress)
@@ -1664,7 +1667,7 @@ class DownloadCore:
                 if is_1fichier and isinstance(e, PreparseBlockedError):
                     fichier_egress = egress_of(req.use_proxy)
                     if verdict.kind == KIND_SLOT_BUSY:
-                        await self._stop_fichier_queue_for_busy_slots(db, fichier_egress)
+                        await self._hold_fichier_queue_for_busy_slots(db, fichier_egress)
                     else:
                         await self._publish_fichier_cooldown(db, fichier_egress)
                 await self.send_download_update(req_id, {

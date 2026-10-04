@@ -54,11 +54,15 @@ export function hasScheduledRetry(download, now = Date.now()) {
   );
 }
 
-/** Total attempts allowed by the backend (the initial request is attempt 1). */
+/**
+ * Total attempts allowed by the backend (the initial request is attempt 1).
+ * Mirrors `_MAX_AUTO_RETRY_ATTEMPTS` for every kind that retries on its own;
+ * backend/tests/test_frontend_retry_limits.py fails if the two drift.
+ */
 export const AUTO_RETRY_LIMITS = Object.freeze({
-  transient: 3,
-  rate_limited: 2,
-  unknown: 3,
+  transient: 2,
+  daily_quota: 2,
+  slot_busy: 4,
 });
 
 /** Compact current/maximum counter for a scheduled retry status pill. */

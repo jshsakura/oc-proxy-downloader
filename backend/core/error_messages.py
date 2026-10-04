@@ -130,7 +130,9 @@ _MAX_AUTO_RETRY_ATTEMPTS = {
     KIND_TRANSIENT: 2,  # initial request + one retry after at least 30 minutes
     KIND_RATE_LIMITED: 1,  # wait for manual retry; host cooldown is persisted separately
     KIND_DAILY_QUOTA: 2,  # at most one retry after the next daily reset
-    KIND_SLOT_BUSY: 1,  # another automatic request cannot create a free slot
+    # 1fichier's busy page itself says to wait for a slot. Three waits of one,
+    # two and four hours, one request each, then hand back to the user.
+    KIND_SLOT_BUSY: 4,
     KIND_BROWSER_PARSE: 1,  # repeated captcha solves can trigger a host block
     KIND_CLOUDFLARE: 1,
     KIND_PROXY_BLOCKED: 1,
@@ -141,7 +143,6 @@ _NO_AUTOMATIC_RETRY_KINDS = frozenset({
     KIND_CLOUDFLARE,
     KIND_PROXY_BLOCKED,
     KIND_BLOCKED,
-    KIND_SLOT_BUSY,
 })
 
 
@@ -200,18 +201,7 @@ class ClassifiedError:
                 "Action: Automatic retry is disabled. Use a mirror of the same file; the original link is preserved."
             )
         if self.kind == KIND_SLOT_BUSY and language in {"ko", "en"}:
-            if language == "en":
-                stage = {"파싱": "Parsing", "다운로드": "Download"}.get(self.stage, self.stage)
-                return (
-                    f"[{stage} failed] All 1fichier free download slots are in use.\n"
-                    "Action: Automatic retry is disabled. Try again manually after a "
-                    "slot becomes available or your connection changes."
-                )
-            return (
-                f"[{self.stage} 실패] 1fichier 무료 다운로드 슬롯이 모두 사용 중입니다.\n"
-                "조치: 자동 재시도하지 않습니다. 슬롯이 비거나 회선 상태가 바뀐 뒤 "
-                "'다시 받기'를 누르세요."
-            )
+            return _slot_busy_message(self.stage, language, will_retry=False)
         if language == "ko":
             return f"[{self.stage} 실패] {self.summary}" + _multiup_mirror_reasons(self.raw, language) + f"\n조치: {self.action}"
 
@@ -233,7 +223,7 @@ class ClassifiedError:
         if host:
             cause = f"{host}: {cause}"
         action_key = (
-            "failure_action_wait" if self.kind in {KIND_DAILY_QUOTA, KIND_RATE_LIMITED, KIND_QUEUED}
+            "failure_action_wait" if self.kind in {KIND_DAILY_QUOTA, KIND_RATE_LIMITED, KIND_QUEUED, KIND_SLOT_BUSY}
             else "failure_action_retry" if self.kind in {KIND_TRANSIENT, KIND_UNKNOWN}
             else "failure_action_manual"
         )
@@ -752,6 +742,24 @@ def _extract_retry_after(text: str) -> Optional[int]:
     return None
 
 
+def _slot_busy_message(stage: str, language: str, will_retry: bool) -> str:
+    """1fichier busy slots: wait for one, then hand back after the waits run out."""
+    if language == "en":
+        label = {"파싱": "Parsing", "다운로드": "Download"}.get(stage, stage)
+        action = (
+            "The 1fichier queue waits for a free slot and retries automatically."
+            if will_retry else
+            "Automatic retry has stopped after several waits. Try again later."
+        )
+        return f"[{label} failed] All 1fichier free download slots are in use.\nAction: {action}"
+    action = (
+        "슬롯이 비기를 기다렸다가 자동으로 다시 시도합니다. 그동안 1fichier 대기열도 함께 기다립니다."
+        if will_retry else
+        "여러 번 기다렸지만 슬롯이 나지 않아 자동 재시도를 멈췄습니다. 나중에 '다시 받기'를 누르세요."
+    )
+    return f"[{stage} 실패] 1fichier 무료 다운로드 슬롯이 모두 사용 중입니다.\n조치: {action}"
+
+
 def classify_error(stage: str, raw_message: str) -> ClassifiedError:
     """Classify a raw error message into a user-friendly form."""
     text = (raw_message or "").lower()
@@ -904,8 +912,9 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
         return next_fichier_quota_reset(now)
 
     if kind == KIND_SLOT_BUSY:
-        # Do not turn a crowded free tier into a tight request loop.
-        return now + _with_jitter(900 * (2 ** max(0, attempt_count - 1)))
+        # Do not turn a crowded free tier into a tight request loop. The host
+        # cooldown recorded for the queue is at least an hour, so start there.
+        return now + _with_jitter(min(3600 * (2 ** max(0, attempt_count - 1)), 14400))
 
     if kind == KIND_RATE_LIMITED:
         # If 1fichier specified a wait time, use it + a 60s margin.
@@ -1076,10 +1085,15 @@ def apply_failure_to_request(
     )
 
     user_message = classified.to_user_message(language)
+    if kind == KIND_SLOT_BUSY and language in {"ko", "en"}:
+        user_message = _slot_busy_message(
+            classified.stage, language, will_retry=next_retry_at is not None
+        )
     # When a recoverable failure has used up its auto-retry budget, the action
     # text above still implies "auto-retry soon" — append a note so the user
     # knows the loop has stopped and a manual retry is now required.
-    if next_retry_at is None and kind in {KIND_DAILY_QUOTA, KIND_RATE_LIMITED, KIND_TRANSIENT, KIND_UNKNOWN, "unknown_terminal"}:
+    if (next_retry_at is None and kind in {KIND_DAILY_QUOTA, KIND_RATE_LIMITED, KIND_TRANSIENT, KIND_UNKNOWN, "unknown_terminal", KIND_SLOT_BUSY}
+            and not (kind == KIND_SLOT_BUSY and language in {"ko", "en"})):
         # The normal message for these kinds can mention waiting/automatic
         # retries. Once the budget is gone, add a locale-specific manual action.
         user_message += "\n" + _failure_phrase(language, "failure_action_manual")

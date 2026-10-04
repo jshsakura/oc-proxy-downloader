@@ -88,9 +88,7 @@ class TestBeingRefusedBacksOffHarder:
         commit.assert_awaited_once()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("browser_parse_failed", [False, True])
-    async def test_host_refusal_stops_the_rest_of_the_fichier_queue(self, monkeypatch,
-                                                                    browser_parse_failed):
+    async def test_fichier_browser_failure_stops_the_rest_of_the_queue(self, monkeypatch):
         from core import download_core as core_module
         from core.models import StatusEnum
 
@@ -106,21 +104,61 @@ class TestBeingRefusedBacksOffHarder:
         monkeypatch.setattr(core_module, "get_config", lambda: {"language": "ko"})
         core.send_download_update = AsyncMock()
 
-        await core._stop_fichier_queue_for_busy_slots(
-            MagicMock(), core_module.EGRESS_DIRECT,
-            browser_parse_failed=browser_parse_failed,
-        )
+        await core._stop_fichier_queue_after_browser_failure(MagicMock(), core_module.EGRESS_DIRECT)
 
         assert all(item.status == StatusEnum.stopped for item in queued)
         assert all(item.next_retry_at is None for item in queued)
         assert core.send_download_update.await_count == 2
-        if browser_parse_failed:
-            assert "브라우저 파싱 실패" in core.send_download_update.await_args_list[0].args[1]["message"]
+        assert "브라우저 파싱 실패" in core.send_download_update.await_args_list[0].args[1]["message"]
         commit.assert_awaited_once()
 
-    def test_busy_free_slots_do_not_retry_the_same_link(self):
-        assert _compute_next_retry_at(KIND_SLOT_BUSY, 1, None) is None
-        assert auto_retry_budget_exhausted(KIND_SLOT_BUSY, 1)
+    @pytest.mark.asyncio
+    async def test_busy_slots_hold_the_fichier_queue_until_the_host_wait_ends(self, monkeypatch):
+        """Busy slots clear by waiting, so the queue waits instead of stopping.
+
+        Every queued row shows the same deadline the host cooldown enforces, and
+        none of them is cancelled or needs a manual resume.
+        """
+        from core import download_core as core_module
+        from core.models import StatusEnum
+
+        core = core_module.DownloadCore()
+        deadline = datetime.datetime.now() + datetime.timedelta(hours=1)
+        core._host_cooldown_until[f"1fichier.com@{core_module.EGRESS_DIRECT}"] = deadline
+        core._fichier_cooldown_until[core_module.EGRESS_DIRECT] = (
+            datetime.datetime.now() + datetime.timedelta(minutes=30)
+        )
+        queued = [
+            SimpleNamespace(id=101, status=StatusEnum.pending, next_retry_at=None),
+            SimpleNamespace(id=102, status=StatusEnum.pending, next_retry_at=None),
+        ]
+        monkeypatch.setattr(core_module.db_async, "all_rows", AsyncMock(return_value=queued))
+        monkeypatch.setattr(core_module.db_async, "commit", AsyncMock())
+        cancelled = []
+        monkeypatch.setattr(core_module.cancel_signal, "signal_cancel", cancelled.append)
+        core.send_download_update = AsyncMock()
+
+        await core._hold_fichier_queue_for_busy_slots(MagicMock(), core_module.EGRESS_DIRECT)
+
+        assert core._fichier_cooldown_until[core_module.EGRESS_DIRECT] == deadline
+        assert all(item.status == StatusEnum.pending for item in queued)
+        assert all(item.next_retry_at == deadline for item in queued)
+        assert cancelled == []
+
+    @pytest.mark.parametrize("attempt,hours", [(1, 1), (2, 2), (3, 4)])
+    def test_busy_free_slots_wait_and_retry_with_growing_gaps(self, attempt, hours):
+        # 1fichier's own page says "You can also wait for a slot to free up".
+        # One request per window, an hour apart at least, cannot hammer it.
+        before = datetime.datetime.now()
+        retry_at = _compute_next_retry_at(KIND_SLOT_BUSY, attempt, None)
+        assert retry_at is not None
+        wait = (retry_at - before).total_seconds()
+        assert hours * 3600 <= wait <= hours * 3600 * 1.25 + 5
+        assert not auto_retry_budget_exhausted(KIND_SLOT_BUSY, attempt)
+
+    def test_busy_free_slots_stop_after_four_attempts(self):
+        assert _compute_next_retry_at(KIND_SLOT_BUSY, 4, None) is None
+        assert auto_retry_budget_exhausted(KIND_SLOT_BUSY, 4)
 
     def test_browser_parse_failure_does_not_repeat_captcha(self):
         assert _compute_next_retry_at(KIND_BROWSER_PARSE, 1, None) is None

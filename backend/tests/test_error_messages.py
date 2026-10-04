@@ -216,11 +216,24 @@ class TestClassify:
         assert ("거부 원인은 미확인" if language == "ko" else "reason for refusal are unconfirmed") in req.error
 
     @pytest.mark.parametrize("language,expected,excluded", [
-        ("ko", "자동 재시도하지 않습니다", "자동으로 다시 시도"),
-        ("en", "Automatic retry is disabled", "조치:"),
+        ("ko", "자동으로 다시 시도합니다", "자동 재시도하지 않습니다"),
+        ("en", "retries automatically", "Automatic retry is disabled"),
     ])
-    def test_slot_busy_message_has_one_consistent_action(self, language, expected, excluded):
+    def test_slot_busy_waits_and_says_it_will_retry(self, language, expected, excluded):
         req = _FakeReq()
+        verdict = apply_failure_to_request(
+            req, "파싱", "1fichier 차단: 무료 다운로드 슬롯 혼잡", language=language
+        )
+        assert verdict.next_retry_at is not None
+        assert expected in req.error
+        assert excluded not in req.error
+
+    @pytest.mark.parametrize("language,expected,excluded", [
+        ("ko", "'다시 받기'", "자동으로 다시 시도합니다"),
+        ("en", "Automatic retry has stopped", "retries automatically"),
+    ])
+    def test_slot_busy_asks_for_a_manual_retry_once_the_waits_are_used(self, language, expected, excluded):
+        req = _FakeReq(attempt_count=3)
         verdict = apply_failure_to_request(
             req, "파싱", "1fichier 차단: 무료 다운로드 슬롯 혼잡", language=language
         )

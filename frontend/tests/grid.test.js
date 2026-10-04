@@ -149,8 +149,10 @@ describe("scheduled retry actions", () => {
   });
 
   it("shows the current and maximum total attempt count", () => {
-    expect(retryAttemptLabel({ failure_kind: "transient", attempt_count: 1 })).toBe("1/3");
-    expect(retryAttemptLabel({ failure_kind: "rate_limited", attempt_count: 1 })).toBe("1/2");
+    expect(retryAttemptLabel({ failure_kind: "transient", attempt_count: 1 })).toBe("1/2");
+    expect(retryAttemptLabel({ failure_kind: "slot_busy", attempt_count: 2 })).toBe("2/4");
+    // A rate limit is never retried automatically, so it has no counter.
+    expect(retryAttemptLabel({ failure_kind: "rate_limited", attempt_count: 1 })).toBe("");
     expect(retryAttemptLabel({ failure_kind: "queued", attempt_count: 0 })).toBe("");
   });
 });
