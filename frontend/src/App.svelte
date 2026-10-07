@@ -2200,11 +2200,9 @@
       <div class="loading-panel">
         <div class="loading-mark" aria-hidden="true">
           <span></span>
-          <img src={logo} alt="" />
         </div>
-        <div class="loading-brand">OC PROXY DOWNLOADER</div>
         <div class="loading-title">
-          {$isLoading ? "LOADING" : $t("loading_message")}
+          {$isLoading ? "Loading..." : $t("loading_message")}
         </div>
       </div>
     </div>

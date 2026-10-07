@@ -482,8 +482,9 @@ describe("dashboard skeleton geometry", () => {
 });
 
 describe("loading experience", () => {
-  it("uses a restrained branded loading surface", () => {
+  it("uses a simple spinner and loading message", () => {
     expect(APP).toContain('class="loading-mark"');
+    expect(APP).not.toContain('class="loading-brand"');
     expect(APP).not.toContain('class="loading-preview"');
     expect(APP).not.toContain('class="loading-aurora"');
     expect(CSS).toContain("@keyframes loading-spin");

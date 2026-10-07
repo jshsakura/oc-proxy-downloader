@@ -1165,20 +1165,18 @@ select.input option {
 }
 
 .loading-panel {
-  width: min(100%, 280px);
+  max-width: 100%;
   display: flex;
-  flex-direction: column;
+  gap: 0.75rem;
   align-items: center;
   text-align: center;
 }
 
 .loading-mark {
   position: relative;
-  width: 72px;
-  height: 72px;
-  display: grid;
-  place-items: center;
-  margin-bottom: 1.15rem;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
 }
 
 .loading-mark span {
@@ -1190,29 +1188,10 @@ select.input option {
   animation: loading-spin 0.9s linear infinite;
 }
 
-.loading-mark img {
-  width: 36px;
-  height: 36px;
-  display: block;
-  object-fit: contain;
-}
-
-.loading-brand {
-  color: var(--text-primary);
-  font-family: var(--font-logo);
-  font-size: 1.2rem;
-  line-height: 1.25;
-  letter-spacing: 0.04em;
-}
-
 .loading-title {
-  min-height: 1.4em;
-  margin-top: 0.5rem;
   color: var(--text-secondary);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 @keyframes loading-spin {
@@ -1228,7 +1207,7 @@ select.input option {
 
 @media (prefers-reduced-motion: reduce) {
   .loading-mark span {
-    animation-duration: 1.8s;
+    animation: none;
   }
 }
 .header {
@@ -1245,7 +1224,7 @@ select.input option {
   flex-grow: 1;
   text-align: center;
   font-family: var(--font-logo);
-  font-size: 1.8rem;
+  font-size: 2rem;
   font-weight: normal;
   letter-spacing: -0.02em;
   text-transform: uppercase;
