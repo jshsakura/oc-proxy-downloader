@@ -804,3 +804,49 @@ def test_akira_header_only_storage_handoff_never_repeats_or_downloads_a_probe(mo
 def test_akira_page_cookie_is_not_sent_to_storage():
     raw = [_cookie('page_session', '.akirabox.to'), _cookie('storage_session', '.akirabox.xyz')]
     assert bs._usable_cookies(raw, 'https://eufb.akirabox.xyz/file.nsp') == {'storage_session': 'v'}
+
+
+@pytest.mark.parametrize('issuance', [False, True])
+def test_host_502_is_reported_instead_of_missing_button(issuance):
+    from types import SimpleNamespace
+    from core.error_messages import classify_error, KIND_TRANSIENT
+    frame = object()
+    request = SimpleNamespace(method='POST', headers={'X-Dn-Dl': '1'} if issuance else {},
+                              is_navigation_request=lambda: not issuance, frame=frame)
+    response = SimpleNamespace(request=request, url='https://datanodes.to/download',
+                               status=502, status_text='Bad Gateway', headers={})
+    captured = {}
+    bs._capture_download_response(response, 'https://datanodes.to/example', captured, frame)
+    # No further locator lookup or click is allowed on the gateway error page.
+    with pytest.raises(HosterParseError, match='HTTP 502') as failure:
+        bs._drive_to_download(object(), bs.DATANODES_FLOW, captured, bs.Deadline(5))
+    assert classify_error('파싱', str(failure.value)).kind == KIND_TRANSIENT
+
+
+@pytest.mark.parametrize('url,navigation,child', [
+    ('https://ads.example/download', True, False),
+    ('https://datanodes.to/app.js', False, False),
+    ('https://datanodes.to/frame', True, True),
+])
+def test_unrelated_http_error_does_not_fail_download(url, navigation, child):
+    from types import SimpleNamespace
+    frame = object()
+    request = SimpleNamespace(method='GET', headers={},
+                              is_navigation_request=lambda: navigation,
+                              frame=object() if child else frame)
+    response = SimpleNamespace(request=request, url=url, status=502,
+                               status_text='Bad Gateway', headers={})
+    captured = {}
+    bs._capture_download_response(response, 'https://datanodes.to/example', captured, frame)
+    assert captured == {}
+
+
+def test_browser_http_limit_preserves_retry_after():
+    from types import SimpleNamespace
+    frame = object()
+    request = SimpleNamespace(method='GET', headers={}, is_navigation_request=lambda: True, frame=frame)
+    response = SimpleNamespace(request=request, url='https://datanodes.to/example', status=429,
+                               status_text='Too Many Requests', headers={'retry-after': '3600'})
+    captured = {}
+    bs._capture_download_response(response, response.url, captured, frame)
+    assert 'wait 3600 seconds' in captured['http_error']

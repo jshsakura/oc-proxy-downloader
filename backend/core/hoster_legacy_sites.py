@@ -297,6 +297,17 @@ def _sendnow_browser(url):
             exc.file_info = {**_extract_sendnow_file_info(exc.page_html), **exc.file_info}
         raise
     info = _extract_sendnow_file_info(result.page_html)
+    if not info.get('name'):
+        # Send.now truncates long card/QR names with an ellipsis. The issued
+        # storage URL retains the full filename even without Content-Disposition.
+        candidate = _candidate(SITES['sendnow'], result.download_link, result.page_url or url, url)
+        parsed = urlparse(candidate or '')
+        name = unquote(parsed.path.rsplit('/', 1)[-1])
+        if (parsed.hostname and parsed.hostname.endswith('.send.now')
+                and parsed.path.startswith('/d/')
+                and not re.search(r'[/\\\x00-\x1f\x7f]', name)
+                and re.search(r'\.[A-Za-z0-9]{1,10}$', name)):
+            info['name'] = name
     return HosterParseResult(result.download_link, info or None, cookies=result.cookies,
                              user_agent=result.user_agent, referer=result.page_url or url).as_parse_result()
 

@@ -390,3 +390,35 @@ def test_rapidgator_hourly_limit_page_is_a_wait_not_a_stall(monkeypatch):
     assert verdict.kind == 'rate_limited'
     assert verdict.retry_after_seconds == 7200
     assert '시간당' in verdict.summary
+
+
+def test_sendnow_truncated_card_uses_full_issued_storage_filename(monkeypatch):
+    from core import browser_solver as browser
+    name = 'collection-update-101.rar'
+    result = browser.BrowserSolveResult(
+        'https://d3378.send.now/d/signed/collection-update-101.rar', {'sid': 'cookie'}, 'agent',
+        '<h6 class="max-width-50">collection-update-101.ra…</h6>'
+        '<h6 id="qr">collection-update-101.ra…</h6>'
+        '<button id="downloadbtn">Download [76.3 MB]</button>',
+        'https://send.now/example12345')
+    monkeypatch.setattr(browser, 'solve_download_page', lambda *args: result)
+    parsed = sites.parse_sendnow_sync('https://send.now/example12345')
+    assert parsed['file_info'] == {'name': name, 'size': '76.3 MB'}
+    assert parsed['cookies'] == {'sid': 'cookie'}
+    assert parsed['download_link'] == result.download_link
+
+
+@pytest.mark.parametrize('link', [
+    'https://ads.example/d/token/advert.rar',
+    'https://send.now/example12345/page.rar',
+    'https://d3378.send.now/d/token/folder%2Ffile.rar',
+    'https://d3378.send.now/d/token/folder%5Cfile.rar',
+    'https://d3378.send.now/d/token/error.html',
+])
+def test_sendnow_filename_fallback_rejects_untrusted_or_nonfile_paths(monkeypatch, link):
+    from core import browser_solver as browser
+    result = browser.BrowserSolveResult(link, {}, 'agent', '<h6 id="qr">file.ra…</h6>',
+                                       'https://send.now/example12345')
+    monkeypatch.setattr(browser, 'solve_download_page', lambda *args: result)
+    parsed = sites.parse_sendnow_sync('https://send.now/example12345')
+    assert not (parsed.get('file_info') or {}).get('name')

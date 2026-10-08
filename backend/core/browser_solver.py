@@ -374,7 +374,8 @@ def _guard_hoster_navigation(route, page: Page, source_url: str,
         route.continue_()
 
 
-def _capture_download_response(response, page_url: str, captured: Dict[str, str]) -> None:
+def _capture_download_response(response, page_url: str, captured: Dict[str, str],
+                               main_frame=None) -> None:
     """Read the host's final ``download2`` JSON response directly.
 
     DataNodes' Vue component obtains the storage URL with ``fetch`` and only
@@ -387,11 +388,21 @@ def _capture_download_response(response, page_url: str, captured: Dict[str, str]
     try:
         request = response.request
         headers = {str(k).lower(): str(v) for k, v in request.headers.items()}
-        if request.method.upper() != "POST" or headers.get("x-dn-dl") != "1":
-            return
+        issuance = request.method.upper() == "POST" and headers.get("x-dn-dl") == "1"
         response_host = (urlparse(getattr(response, "url", "") or getattr(request, "url", "")).hostname or "").lower()
         page_host = (urlparse(page_url).hostname or "").lower()
         if response_host and not _same_site(response_host, page_host):
+            return
+        navigation = (main_frame is not None and request.is_navigation_request()
+                      and request.frame == main_frame)
+        if (response_host and (issuance or navigation)
+                and getattr(response, "status", 200) >= 400):
+            from core.host_policy import http_failure_message
+            captured["http_error"] = http_failure_message(
+                response.status, response.status_text,
+                {"Retry-After": response.headers.get("retry-after", "")})
+            return
+        if not issuance:
             return
         data = response.json()
         if not isinstance(data, dict):
@@ -621,6 +632,8 @@ def _drive_to_download(
         deadline.check("다운로드 시작 버튼")
         if captured.get("url"):
             return captured["url"]
+        if captured.get("http_error"):
+            raise HosterParseError(captured["http_error"])
         if captured.get("error"):
             raise HosterParseError(f"다운로드 요청 거부 (자동 재제출 없음): {captured['error']}")
         action = page.locator(flow.action_selector).first
@@ -649,6 +662,8 @@ def _drive_to_download(
         page.wait_for_timeout(min(ACTION_ROUND_WAIT_MS, deadline.budget_ms(ACTION_ROUND_WAIT_MS)))
         if captured.get("url"):
             return captured["url"]
+        if captured.get("http_error"):
+            raise HosterParseError(captured["http_error"])
         if captured.get("error"):
             raise HosterParseError(f"다운로드 요청 거부 (자동 재제출 없음): {captured['error']}")
     detail = captured.get("error")
@@ -730,7 +745,7 @@ def solve_download_page(
             captured.setdefault("url", request.url)
 
     def on_response(response) -> None:
-        _capture_download_response(response, url, captured)
+        _capture_download_response(response, url, captured, page.main_frame)
 
     host = (urlparse(url).hostname or "").lower()
     with _queued_browser_slot(host, deadline):
@@ -757,6 +772,8 @@ def solve_download_page(
                     wait_until="networkidle",
                     timeout=deadline.budget_ms(PAGE_LOAD_TIMEOUT_MS),
                 )
+                if captured.get("http_error"):
+                    raise HosterParseError(captured["http_error"])
                 _await_page_ready(page, flow, deadline)
                 from core.hoster_common import _raise_for_dead_page
                 _raise_for_dead_page(host, page.content(), initial_response.status if initial_response else 200)
@@ -801,7 +818,8 @@ def solve_download_page(
                     page_url=page.url,
                 )
             except Exception as original:
-                exc = original if isinstance(original, HosterParseError) else HosterParseError(str(original))
+                exc = (HosterParseError(captured["http_error"]) if captured.get("http_error")
+                       else original if isinstance(original, HosterParseError) else HosterParseError(str(original)))
                 if page is not None:
                     try:
                         exc.page_html = page.content()
