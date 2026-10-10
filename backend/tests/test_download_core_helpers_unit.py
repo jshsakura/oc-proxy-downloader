@@ -26,6 +26,7 @@ class TestBuildProxyDict:
 
 import asyncio
 import datetime
+from core.error_messages import next_fichier_quota_reset
 
 from core.download_core import (
     DownloadCore,
@@ -121,9 +122,8 @@ class TestFichierHostBackoff:
         assert [row.next_retry_at for row in rows] == [deadline, deadline]
         assert [row_id for row_id, _ in updates] == [1, 2]
 
-    def test_daily_quota_holds_the_entire_egress_until_tomorrow(self):
+    def test_daily_quota_holds_the_entire_egress_until_the_reset(self):
         dc = DownloadCore()
-        now = datetime.datetime.now()
 
         dc._register_fichier_block(
             EGRESS_DIRECT,
@@ -131,9 +131,23 @@ class TestFichierHostBackoff:
         )
 
         cooldown = dc._fichier_cooldown_until[EGRESS_DIRECT]
-        assert cooldown.date() == (now + datetime.timedelta(days=1)).date()
-        assert (cooldown.hour, cooldown.minute) == (0, 10)
+        assert cooldown == next_fichier_quota_reset()
         assert dc._fichier_cooldown_until.get(EGRESS_VPN) is None
+
+    def test_quota_still_spent_after_a_reset_rechecks_hourly(self):
+        # The reset guess was wrong once and froze the queue for another full
+        # day. Refused right after a reset means check again soon instead.
+        dc = DownloadCore()
+        now = datetime.datetime.now()
+        dc._fichier_quota_waited_until[EGRESS_DIRECT] = now - datetime.timedelta(seconds=5)
+
+        dc._register_fichier_block(
+            EGRESS_DIRECT,
+            "1fichier 일일 무료 다운로드 한도를 모두 사용했습니다",
+        )
+
+        wait = dc._fichier_cooldown_until[EGRESS_DIRECT] - now
+        assert datetime.timedelta(minutes=55) < wait < datetime.timedelta(minutes=65)
 
     def test_a_blocked_egress_leaves_the_other_alone(self):
         # The reason the state is keyed at all: a flagged IP on one route must

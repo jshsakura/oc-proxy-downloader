@@ -11,6 +11,7 @@ Core contracts:
 """
 
 import datetime
+import time
 import ast
 import json
 from pathlib import Path
@@ -624,9 +625,19 @@ class TestRateLimitRealWait:
 
 
 class TestDailyQuotaRecovery:
-    def test_reset_is_next_local_day_with_margin(self):
-        now = datetime.datetime(2026, 9, 21, 23, 59)
-        assert next_fichier_quota_reset(now) == datetime.datetime(2026, 9, 22, 0, 10)
+    def test_reset_follows_paris_midnight_not_local_midnight(self, monkeypatch):
+        monkeypatch.setenv("TZ", "Asia/Seoul")
+        time.tzset()
+        try:
+            # 00:10 KST is still 17:10 the previous day in Paris (CEST).
+            now = datetime.datetime(2026, 10, 11, 0, 10)
+            assert next_fichier_quota_reset(now) == datetime.datetime(2026, 10, 11, 7, 10)
+            # After the October switch Paris is UTC+1, so the reset is 08:10 KST.
+            now = datetime.datetime(2026, 11, 2, 12, 0)
+            assert next_fichier_quota_reset(now) == datetime.datetime(2026, 11, 3, 8, 10)
+        finally:
+            monkeypatch.undo()
+            time.tzset()
 
     def test_explicit_daily_quota_keeps_a_retry_schedule(self):
         req = _FakeReq()

@@ -39,6 +39,7 @@ from pathlib import Path
 import random
 import re
 from typing import List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 
 @lru_cache(maxsize=24)
@@ -883,10 +884,21 @@ def _with_jitter(seconds: float) -> timedelta:
     return timedelta(seconds=seconds + random.uniform(0, spread))
 
 
+# 1fichier counts its free quota per French calendar day. Midnight in Seoul is
+# 16:00-17:00 in Paris, so waiting for a local midnight retried while the quota
+# was still spent and then pushed the whole queue out another 24 hours.
+FICHIER_QUOTA_TZ = ZoneInfo("Europe/Paris")
+FICHIER_QUOTA_RESET_MARGIN = timedelta(minutes=10)
+
+
 def next_fichier_quota_reset(now: Optional[datetime] = None) -> datetime:
-    """First conservative retry time after the next local calendar midnight."""
+    """First retry time after the next Paris midnight, as naive local time."""
     now = now or datetime.now()
-    return now.replace(hour=0, minute=10, second=0, microsecond=0) + timedelta(days=1)
+    paris_now = now.astimezone(FICHIER_QUOTA_TZ)
+    paris_midnight = datetime.combine(
+        paris_now.date() + timedelta(days=1), datetime.min.time(), FICHIER_QUOTA_TZ
+    )
+    return (paris_midnight + FICHIER_QUOTA_RESET_MARGIN).astimezone().replace(tzinfo=None)
 
 
 def _compute_next_retry_at(kind: str, attempt_count: int,

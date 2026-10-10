@@ -131,6 +131,8 @@ def _retry_special_parse_on_next_proxy(raw_error: str) -> bool:
 # downloads for an increasing cooldown (reset on the next success), so a flagged
 # IP gets time to recover the way slow manual pacing used to.
 FICHIER_HOST_BACKOFF_SECONDS = (1800, 3600, 7200, 7200)  # 30m → 1h → 2h (capped)
+FICHIER_QUOTA_RECHECK = datetime.timedelta(hours=1)
+FICHIER_QUOTA_RECHECK_WINDOW = datetime.timedelta(hours=6)
 
 # SITE_DOWNLOAD_LIMITS is shared with browser host identity in host_policy.
 
@@ -583,6 +585,8 @@ class DownloadCore:
         # egress, which is the whole point of having a second one.
         self._fichier_cooldown_until: Dict[str, Optional[datetime.datetime]] = {}
         self._fichier_block_streak: Dict[str, int] = {}
+        # Deadline of the last quota wait, to notice a reset that did not free it.
+        self._fichier_quota_waited_until: Dict[str, datetime.datetime] = {}
 
     def refresh_concurrency_settings(self) -> None:
         """Update existing queues; holders drain before admitting more work."""
@@ -953,8 +957,15 @@ class DownloadCore:
             now = datetime.datetime.now()
             # Do not feed every queued file into a quota page that explicitly
             # says this egress has already used its daily allowance. Hold the
-            # one-per-IP queue until shortly after the next local midnight.
+            # one-per-IP queue until shortly after the next reset.
             tomorrow = next_fichier_quota_reset(now)
+            last_reset = self._fichier_quota_waited_until.get(egress)
+            if last_reset and now - last_reset < FICHIER_QUOTA_RECHECK_WINDOW:
+                # We just waited out a reset and are still refused, so the reset
+                # guess is wrong for this quota. Checking again in an hour costs
+                # one page load; sleeping another full day loses the day.
+                tomorrow = now + FICHIER_QUOTA_RECHECK
+            self._fichier_quota_waited_until[egress] = tomorrow
             self._fichier_cooldown_until[egress] = tomorrow
             self._fichier_block_streak[egress] = max(
                 1, self._fichier_block_streak.get(egress, 0)
