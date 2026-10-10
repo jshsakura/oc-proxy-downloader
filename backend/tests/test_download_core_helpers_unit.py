@@ -149,6 +149,18 @@ class TestFichierHostBackoff:
         wait = dc._fichier_cooldown_until[EGRESS_DIRECT] - now
         assert datetime.timedelta(minutes=55) < wait < datetime.timedelta(minutes=65)
 
+    def test_hourly_quota_rechecks_stop_after_the_cap(self):
+        dc = DownloadCore()
+        quota = "1fichier 일일 무료 다운로드 한도를 모두 사용했습니다"
+        for _ in range(3):
+            dc._fichier_quota_waited_until[EGRESS_DIRECT] = datetime.datetime.now()
+            dc._register_fichier_block(EGRESS_DIRECT, quota)
+        dc._fichier_quota_waited_until[EGRESS_DIRECT] = datetime.datetime.now()
+
+        dc._register_fichier_block(EGRESS_DIRECT, quota)
+
+        assert dc._fichier_cooldown_until[EGRESS_DIRECT] == next_fichier_quota_reset()
+
     def test_a_blocked_egress_leaves_the_other_alone(self):
         # The reason the state is keyed at all: a flagged IP on one route must
         # not stop the route that is still working.

@@ -335,3 +335,23 @@ class TestFailureKindSource:
         rows = client.get("/api/downloads/working").json()["downloads"]
 
         assert rows[0]["failure_kind"] not in (None, "")
+
+
+class TestWorkingQueuePosition:
+    def test_rows_behind_one_host_deadline_are_numbered_in_order(self, client):
+        # Parked rows share the host cooldown but are tried one at a time, so
+        # the grid must tell the head of the line from the rows behind it.
+        deadline = datetime.datetime.now() + datetime.timedelta(hours=1)
+        now = datetime.datetime.now()
+        _insert_rows(*[
+            DownloadRequest(url=f"https://1fichier.com/?f{i}", status=StatusEnum.pending,
+                            next_retry_at=deadline, requested_at=now)
+            for i in range(3)
+        ], DownloadRequest(url="https://www.rootz.so/d/x", status=StatusEnum.pending,
+                           next_retry_at=deadline, requested_at=now))
+
+        rows = client.get("/api/downloads/working").json()["downloads"]
+        by_url = {r["url"]: r["queue_position"] for r in rows}
+
+        assert [by_url[f"https://1fichier.com/?f{i}"] for i in range(3)] == [1, 2, 3]
+        assert by_url["https://www.rootz.so/d/x"] == 1

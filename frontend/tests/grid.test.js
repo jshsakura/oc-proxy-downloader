@@ -10,6 +10,7 @@ import {
   hasScheduledRetry,
   itemsPerPageForWidth,
   isLiveStatus,
+  isQueuedBehind,
   retryAttemptLabel,
   truncateMiddle,
 } from "../src/lib/grid.js";
@@ -225,5 +226,16 @@ describe("fitting release names to the visible column", () => {
     expect(fontMeasure(result)).toBeLessThanOrEqual(200);
     expect(result).toMatch(/^한글.*\.rar$/);
     expect(result).not.toMatch(/[\uD800-\uDFFF]/u);
+  });
+});
+
+describe("rows waiting behind the same host", () => {
+  it("leaves the countdown on the head of the line only", () => {
+    const now = Date.parse("2026-10-11T07:00:00+09:00");
+    const base = { status: "pending", next_retry_at: "2026-10-11T07:10:00+09:00" };
+    expect(isQueuedBehind({ ...base, queue_position: 1 }, now)).toBe(false);
+    expect(isQueuedBehind({ ...base, queue_position: 2 }, now)).toBe(true);
+    expect(isQueuedBehind({ ...base, queue_position: null }, now)).toBe(false);
+    expect(isQueuedBehind({ ...base, status: "done", queue_position: 3 }, now)).toBe(false);
   });
 });

@@ -16,6 +16,8 @@
   "failed_wait": "Wait needed",
   "failed_host_refused": "Host refused",
   "download_retry_pending": "Retry pending",
+  "download_queue_position": "Queued #{n}",
+  "queue_position_tooltip": "Tried one at a time after the earlier files on this host",
   "download_parsing": "Parsing",
   "download_waiting": "Waiting",
   "table_header_file_name": "File Name",

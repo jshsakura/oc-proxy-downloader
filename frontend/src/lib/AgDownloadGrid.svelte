@@ -8,7 +8,7 @@
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-quartz.css";
   import { t } from "./i18n.js";
-  import { failureStatusKey, failureTone, fitFilename, hasScheduledRetry, retryAttemptLabel } from "./grid.js";
+  import { failureStatusKey, failureTone, fitFilename, hasScheduledRetry, isQueuedBehind, retryAttemptLabel } from "./grid.js";
   import { theme } from "./theme.js";
 
   import ChevronLeftIcon from "../icons/ChevronLeftIcon.svelte";
@@ -172,6 +172,9 @@
 
   function getStatusTooltip(download) {
     const proxyInfo = downloadProxyInfo[download.id];
+    if (isQueuedBehind(download)) {
+      return $t("queue_position_tooltip");
+    }
     if (hasScheduledRetry(download)) {
       return $t("retry_cooldown", {
         when: new Date(download.next_retry_at).toLocaleTimeString()
@@ -423,6 +426,8 @@
         )})<span class="wait-indicator wait-indicator-waiting"></span></span>`;
       } else if (st === "downloading" && !d.progress) {
         this.pill.innerHTML = `<span class="wait-countdown">${$t("download_downloading")}<span class="wait-indicator wait-indicator-${st}"></span></span>`;
+      } else if (isQueuedBehind(d, currentTime)) {
+        this.pill.textContent = $t("download_queue_position", { n: d.queue_position });
       } else if (hasScheduledRetry(d, currentTime)) {
         const remSec = Math.max(0, (new Date(d.next_retry_at).getTime() - currentTime) / 1000);
         const attemptLabel = retryAttemptLabel(d);

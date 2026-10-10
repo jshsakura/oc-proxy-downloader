@@ -55,6 +55,14 @@ export function hasScheduledRetry(download, now = Date.now()) {
 }
 
 /**
+ * A row parked behind an earlier row of the same host. The host is tried one
+ * row at a time, so only the head of the line carries the retry countdown.
+ */
+export function isQueuedBehind(download, now = Date.now()) {
+  return hasScheduledRetry(download, now) && Number(download?.queue_position) > 1;
+}
+
+/**
  * Total attempts allowed by the backend (the initial request is attempt 1).
  * Mirrors `_MAX_AUTO_RETRY_ATTEMPTS` for every kind that retries on its own;
  * backend/tests/test_frontend_retry_limits.py fails if the two drift.

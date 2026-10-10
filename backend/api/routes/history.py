@@ -103,6 +103,29 @@ def get_download_history(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _queue_positions(db: Session) -> dict:
+    """Place of each row among rows waiting on the same host and deadline.
+
+    A host cooldown is stamped on every row parked behind it, but the rows are
+    tried one at a time through the host slot. Showing the same countdown on all
+    of them reads as a batch retry, so only the head keeps the countdown.
+    """
+    waiting = db.query(
+        DownloadRequest.id, DownloadRequest.url, DownloadRequest.original_url,
+        DownloadRequest.use_proxy, DownloadRequest.next_retry_at,
+    ).filter(
+        DownloadRequest.status == StatusEnum.pending,
+        DownloadRequest.next_retry_at.isnot(None),
+    ).order_by(DownloadRequest.id).all()
+    seen: dict = {}
+    positions = {}
+    for row in waiting:
+        key = (hoster_slug(row.url or row.original_url), bool(row.use_proxy), row.next_retry_at)
+        seen[key] = seen.get(key, 0) + 1
+        positions[row.id] = seen[key]
+    return positions
+
+
 @router.get("/downloads/working")
 def get_working_downloads(
     db: Session = Depends(get_db),
@@ -150,6 +173,7 @@ def get_working_downloads(
         downloads = query.order_by(desc(DownloadRequest.id)).offset(offset).limit(page_size).all()
 
         live_speeds = live_progress.snapshot()
+        queue_positions = _queue_positions(db)
         download_list = []
         for download in downloads:
             download_list.append({
@@ -176,6 +200,8 @@ def get_working_downloads(
                 # not only when an SSE event happens to arrive.
                 "next_retry_at": download.next_retry_at.isoformat() if getattr(download, "next_retry_at", None) else None,
                 "attempt_count": getattr(download, "attempt_count", 0) or 0,
+                # 1 is next in line for the host; later rows wait their turn.
+                "queue_position": queue_positions.get(download.id),
                 # Live reading, so a refetch does not blank the column mid-transfer.
                 "download_speed": live_speeds.get(download.id, 0),
             })
