@@ -7,8 +7,8 @@
   } from "ag-grid-community";
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-quartz.css";
-  import { t } from "./i18n.js";
-  import { failureStatusKey, failureTone, fitFilename, hasScheduledRetry, isQueuedBehind, retryAttemptLabel } from "./grid.js";
+  import { t, locale } from "./i18n.js";
+  import { failureStatusKey, failureTone, fitFilename, hasScheduledRetry, isQueuedBehind, retryAttemptLabel, retryClockLabel, showsRetryClock } from "./grid.js";
   import { theme } from "./theme.js";
 
   import ChevronLeftIcon from "../icons/ChevronLeftIcon.svelte";
@@ -87,9 +87,12 @@
 
   function formatWaitTime(seconds) {
     if (!seconds || seconds <= 0) return "0:00";
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s < 10 ? "0" : ""}${s}`;
+    const total = Math.floor(seconds);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+    return `${h > 0 ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
   }
 
   function formatEta(seconds) {
@@ -177,7 +180,7 @@
     }
     if (hasScheduledRetry(download)) {
       return $t("retry_cooldown", {
-        when: new Date(download.next_retry_at).toLocaleTimeString()
+        when: retryClockLabel(download.next_retry_at, Date.now(), $locale)
       });
     }
     if (
@@ -196,7 +199,7 @@
         retryNote =
           "\n" +
           $t("retry_cooldown", {
-            when: new Date(download.next_retry_at).toLocaleTimeString()
+            when: retryClockLabel(download.next_retry_at, Date.now(), $locale)
           });
         if (download.attempt_count) retryNote += ` (↻${download.attempt_count})`;
       } else if (download.attempt_count) {
@@ -428,6 +431,10 @@
         this.pill.innerHTML = `<span class="wait-countdown">${$t("download_downloading")}<span class="wait-indicator wait-indicator-${st}"></span></span>`;
       } else if (isQueuedBehind(d, currentTime)) {
         this.pill.textContent = $t("download_queue_position", { n: d.queue_position });
+      } else if (hasScheduledRetry(d, currentTime) && showsRetryClock(d, currentTime)) {
+        this.pill.textContent = $t("download_retry_at", {
+          when: retryClockLabel(d.next_retry_at, currentTime, $locale)
+        });
       } else if (hasScheduledRetry(d, currentTime)) {
         const remSec = Math.max(0, (new Date(d.next_retry_at).getTime() - currentTime) / 1000);
         const attemptLabel = retryAttemptLabel(d);

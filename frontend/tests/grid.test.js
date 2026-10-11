@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  retryClockLabel,
+  showsRetryClock,
   ACTIVE_STATUSES,
   countActiveByStatus,
   countLive,
@@ -237,5 +239,26 @@ describe("rows waiting behind the same host", () => {
     expect(isQueuedBehind({ ...base, queue_position: 2 }, now)).toBe(true);
     expect(isQueuedBehind({ ...base, queue_position: null }, now)).toBe(false);
     expect(isQueuedBehind({ ...base, status: "done", queue_position: 3 }, now)).toBe(false);
+  });
+});
+
+describe("retry clock label", () => {
+  const now = new Date(2026, 9, 11, 17, 22, 0).getTime();
+
+  it("shows a long wait as the time of the retry instead of a minute count", () => {
+    const tomorrow = new Date(2026, 9, 12, 7, 10, 0).toISOString();
+    expect(showsRetryClock({ next_retry_at: tomorrow }, now)).toBe(true);
+    expect(retryClockLabel(tomorrow, now, "ko")).toBe("내일 07:10");
+    expect(retryClockLabel(tomorrow, now, "en")).toBe("tomorrow 07:10");
+  });
+
+  it("omits the day for a retry later today", () => {
+    const tonight = new Date(2026, 9, 11, 21, 5, 0).toISOString();
+    expect(retryClockLabel(tonight, now, "ko")).toBe("21:05");
+  });
+
+  it("keeps the countdown for waits under an hour", () => {
+    const soon = new Date(now + 20 * 60 * 1000).toISOString();
+    expect(showsRetryClock({ next_retry_at: soon }, now)).toBe(false);
   });
 });

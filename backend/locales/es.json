@@ -16,6 +16,7 @@
   "failed_wait": "Esperar",
   "failed_host_refused": "Rechazado",
   "download_retry_pending": "Reintento pendiente",
+  "download_retry_at": "Reintento {when}",
   "download_queue_position": "En cola #{n}",
   "queue_position_tooltip": "Se intentará de uno en uno tras los archivos anteriores de este host",
   "download_parsing": "Analizando",

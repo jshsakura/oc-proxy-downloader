@@ -16,6 +16,7 @@
   "failed_wait": "Bekleme gerekli",
   "failed_host_refused": "Reddedildi",
   "download_retry_pending": "Yeniden deneme bekleniyor",
+  "download_retry_at": "Otomatik deneme {when}",
   "download_queue_position": "Sırada #{n}",
   "queue_position_tooltip": "Bu sunucudaki önceki dosyalardan sonra tek tek denenir",
   "download_parsing": "Ayrıştırılıyor",

@@ -16,6 +16,7 @@
   "failed_wait": "Wachten nodig",
   "failed_host_refused": "Geweigerd",
   "download_retry_pending": "Wachten op nieuwe poging",
+  "download_retry_at": "Automatisch opnieuw {when}",
   "download_queue_position": "In wachtrij #{n}",
   "queue_position_tooltip": "Wordt één voor één geprobeerd na eerdere bestanden van deze host",
   "download_parsing": "Bezig met parseren",

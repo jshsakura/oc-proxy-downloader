@@ -16,6 +16,7 @@
   "failed_wait": "Perlu menunggu",
   "failed_host_refused": "Ditolak host",
   "download_retry_pending": "Mencoba lagi tertunda",
+  "download_retry_at": "Coba otomatis {when}",
   "download_queue_position": "Antrean #{n}",
   "queue_position_tooltip": "Dicoba satu per satu setelah file sebelumnya di host ini",
   "download_parsing": "Mengurai",

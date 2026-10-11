@@ -121,7 +121,9 @@ _ATTEMPTS_RING_SIZE = 5  # attempts_json ring-buffer length
 # with a note; a manual "다시 받기" resets attempt_count and grants a fresh budget.
 # Kinds NOT listed here (DEAD / AUTH_REQUIRED / unknown_terminal) are already
 # terminal and never auto-retry; UNKNOWN is bounded separately by
-# `_UNKNOWN_MAX_ATTEMPTS` (quarantine → unknown_terminal).
+# `_UNKNOWN_MAX_ATTEMPTS` (quarantine → unknown_terminal). DAILY_QUOTA is left
+# out on purpose: the quota belongs to the IP, not the link, and it always
+# resets, so giving up on a link after two spent days only strands it.
 # A known refusal is never probed automatically again. Retrying a block page,
 # proxy rejection, or Cloudflare challenge from the same machine is more likely
 # to extend the block than clear it. Genuine transport failures get one retry
@@ -130,7 +132,6 @@ _MAX_AUTO_RETRY_ATTEMPTS = {
     KIND_SOURCE_UNCONFIRMED: 1,
     KIND_TRANSIENT: 2,  # initial request + one retry after at least 30 minutes
     KIND_RATE_LIMITED: 1,  # wait for manual retry; host cooldown is persisted separately
-    KIND_DAILY_QUOTA: 2,  # at most one retry after the next daily reset
     # 1fichier's busy page itself says to wait for a slot. Three waits of one,
     # two and four hours, one request each, then hand back to the user.
     KIND_SLOT_BUSY: 4,
@@ -923,8 +924,8 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
         return now + timedelta(seconds=45 + random.randint(0, 30))
 
     if kind == KIND_DAILY_QUOTA:
-        # A quota is a known daily wait, not a permanent host block. The
-        # attempt cap above stops trying after two unsuccessful daily retries.
+        # A quota is a known daily wait, not a permanent host block. It costs
+        # one page load per reset, so it is retried every day until it clears.
         return next_fichier_quota_reset(now)
 
     if kind == KIND_SLOT_BUSY:

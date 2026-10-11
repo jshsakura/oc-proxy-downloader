@@ -16,6 +16,7 @@
   "failed_wait": "Cần chờ",
   "failed_host_refused": "Bị từ chối",
   "download_retry_pending": "Đang chờ thử lại",
+  "download_retry_at": "Tự thử lại {when}",
   "download_queue_position": "Xếp hàng #{n}",
   "queue_position_tooltip": "Sẽ thử lần lượt sau các tệp trước đó trên máy chủ này",
   "download_parsing": "Đang phân tích",

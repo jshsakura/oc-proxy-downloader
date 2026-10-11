@@ -4,6 +4,7 @@
     ACTIVE_STATUSES,
     itemsPerPageForWidth,
     isLiveStatus,
+    retryClockLabel,
     truncateMiddle,
   } from "./lib/grid.js";
   import SettingsModal from "./lib/SettingsModal.svelte";
@@ -12,6 +13,7 @@
   import { theme } from "./lib/theme.js";
   import {
     t,
+    locale,
     isLoading,
     initializeLocale,
     loadTranslations,
@@ -1789,7 +1791,7 @@
       // the retry detail that used to sit inline now lives here in the tooltip.
       let retryNote = "";
       if (download.next_retry_at && new Date(download.next_retry_at).getTime() > Date.now()) {
-        retryNote = "\n" + $t("retry_cooldown", { when: new Date(download.next_retry_at).toLocaleTimeString() });
+        retryNote = "\n" + $t("retry_cooldown", { when: retryClockLabel(download.next_retry_at, Date.now(), $locale) });
         if (download.attempt_count) retryNote += ` (↻${download.attempt_count})`;
       } else if (download.attempt_count) {
         retryNote = "\n" + $t("retry_exhausted");

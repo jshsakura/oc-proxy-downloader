@@ -16,6 +16,7 @@
   "failed_wait": "Нужно ждать",
   "failed_host_refused": "Отказ хоста",
   "download_retry_pending": "Ожидание повторной попытки",
+  "download_retry_at": "Повтор {when}",
   "download_queue_position": "В очереди №{n}",
   "queue_position_tooltip": "Будет запущено по одному после предыдущих файлов этого хоста",
   "download_parsing": "Анализ",

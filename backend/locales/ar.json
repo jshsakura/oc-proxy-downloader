@@ -16,6 +16,7 @@
   "failed_wait": "يلزم الانتظار",
   "failed_host_refused": "رفض المضيف",
   "download_retry_pending": "إعادة المحاولة قيد الانتظار",
+  "download_retry_at": "إعادة تلقائية {when}",
   "download_queue_position": "في الطابور #{n}",
   "queue_position_tooltip": "ستتم المحاولة واحدًا تلو الآخر بعد الملفات السابقة من هذا المضيف",
   "download_parsing": "جارٍ التحليل",

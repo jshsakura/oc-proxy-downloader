@@ -647,17 +647,13 @@ class TestDailyQuotaRecovery:
         assert req.next_retry_at == next_fichier_quota_reset()
         assert "자동으로 다시 시도" in req.error
 
-        # Two automatic attempts are allowed on later days; then stop.
-        req.attempts_json = None
-        second = apply_failure_to_request(req, "파싱", raw)
-        assert second.kind == KIND_DAILY_QUOTA
-        assert second.next_retry_at is None
-        req.attempts_json = None
-        third = apply_failure_to_request(req, "파싱", raw)
-        assert third.kind == KIND_DAILY_QUOTA
-        assert third.next_retry_at is None
-        assert req.next_retry_at is None
-        assert "수동으로 다시 시도" in req.error
+        # Hitting the quota again on a later day keeps the link scheduled.
+        for _ in range(3):
+            req.attempts_json = None
+            again = apply_failure_to_request(req, "파싱", raw)
+            assert again.kind == KIND_DAILY_QUOTA
+            assert req.next_retry_at == next_fichier_quota_reset()
+        assert "수동으로 다시 시도" not in req.error
 
 
 class TestBrowserFallbackCookieHandoff:

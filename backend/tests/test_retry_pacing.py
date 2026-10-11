@@ -164,11 +164,12 @@ class TestBeingRefusedBacksOffHarder:
         assert _compute_next_retry_at(KIND_BROWSER_PARSE, 1, None) is None
         assert auto_retry_budget_exhausted(KIND_BROWSER_PARSE, 1)
 
-    def test_daily_quota_gets_two_next_day_retries_then_stops(self):
-        assert _compute_next_retry_at(KIND_DAILY_QUOTA, 1, None) is not None
-        assert _compute_next_retry_at(KIND_DAILY_QUOTA, 2, None) is None
-        assert _compute_next_retry_at(KIND_DAILY_QUOTA, 3, None) is None
-        assert auto_retry_budget_exhausted(KIND_DAILY_QUOTA, 3) is True
+    def test_daily_quota_is_retried_after_every_reset(self):
+        # The quota is the IP's, not the link's. A link that hit it twice is
+        # still a good link and must not be stranded as needing a manual retry.
+        for attempts in (1, 2, 3, 10):
+            assert _compute_next_retry_at(KIND_DAILY_QUOTA, attempts, None) is not None
+        assert auto_retry_budget_exhausted(KIND_DAILY_QUOTA, 10) is False
 
     @pytest.mark.parametrize("kind", [
         KIND_BLOCKED, KIND_PROXY_BLOCKED, KIND_CLOUDFLARE,

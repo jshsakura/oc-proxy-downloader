@@ -16,6 +16,7 @@
   "failed_wait": "ต้องรอ",
   "failed_host_refused": "โฮสต์ปฏิเสธ",
   "download_retry_pending": "รอลองใหม่",
+  "download_retry_at": "ลองใหม่อัตโนมัติ {when}",
   "download_queue_position": "คิวที่ {n}",
   "queue_position_tooltip": "จะลองทีละไฟล์หลังไฟล์ก่อนหน้าจากโฮสต์นี้",
   "download_parsing": "กำลังแยกวิเคราะห์",

@@ -355,3 +355,22 @@ class TestWorkingQueuePosition:
 
         assert [by_url[f"https://1fichier.com/?f{i}"] for i in range(3)] == [1, 2, 3]
         assert by_url["https://www.rootz.so/d/x"] == 1
+
+    def test_the_failed_row_that_hit_the_quota_heads_the_same_line(self, client):
+        # Only one row may show the countdown; the failed head and the pending
+        # rows behind it share one deadline.
+        deadline = datetime.datetime.now() + datetime.timedelta(hours=12)
+        now = datetime.datetime.now()
+        _insert_rows(
+            DownloadRequest(url="https://1fichier.com/?head", status=StatusEnum.failed,
+                            failure_kind="daily_quota", attempt_count=1,
+                            next_retry_at=deadline, requested_at=now),
+            *[DownloadRequest(url=f"https://1fichier.com/?p{i}", status=StatusEnum.pending,
+                              next_retry_at=deadline, requested_at=now) for i in range(2)],
+        )
+
+        rows = client.get("/api/downloads/working").json()["downloads"]
+        by_url = {r["url"]: r["queue_position"] for r in rows}
+
+        assert by_url["https://1fichier.com/?head"] == 1
+        assert [by_url[f"https://1fichier.com/?p{i}"] for i in range(2)] == [2, 3]

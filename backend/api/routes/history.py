@@ -109,12 +109,14 @@ def _queue_positions(db: Session) -> dict:
     A host cooldown is stamped on every row parked behind it, but the rows are
     tried one at a time through the host slot. Showing the same countdown on all
     of them reads as a batch retry, so only the head keeps the countdown.
+    A failed row with a retry at the same deadline (the one that ran into the
+    quota) waits in the same line, so it is counted too.
     """
     waiting = db.query(
         DownloadRequest.id, DownloadRequest.url, DownloadRequest.original_url,
         DownloadRequest.use_proxy, DownloadRequest.next_retry_at,
     ).filter(
-        DownloadRequest.status == StatusEnum.pending,
+        DownloadRequest.status.in_((StatusEnum.pending, StatusEnum.failed)),
         DownloadRequest.next_retry_at.isnot(None),
     ).order_by(DownloadRequest.id).all()
     seen: dict = {}

@@ -63,13 +63,36 @@ export function isQueuedBehind(download, now = Date.now()) {
 }
 
 /**
+ * Waits at least this long are shown as the clock time of the retry, not a
+ * countdown. A 1fichier quota waits for the next Paris midnight, and "827:28"
+ * on screen reads like a bug rather than "tomorrow morning".
+ */
+export const RETRY_CLOCK_AFTER_SECONDS = 3600;
+
+/** Whether the retry is far enough away to show as a time of day. */
+export function showsRetryClock(download, now = Date.now()) {
+  if (!download?.next_retry_at) return false;
+  return new Date(download.next_retry_at).getTime() - now >= RETRY_CLOCK_AFTER_SECONDS * 1000;
+}
+
+/** "07:10", or "tomorrow 07:10" / "내일 07:10" when the retry is on a later day. */
+export function retryClockLabel(nextRetryAt, now = Date.now(), lang = "en") {
+  const at = new Date(nextRetryAt);
+  const time = at.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOfDay(at) - startOfDay(new Date(now))) / 86400000);
+  if (days === 0) return time;
+  const day = new Intl.RelativeTimeFormat(lang, { numeric: "auto" }).format(days, "day");
+  return `${day} ${time}`;
+}
+
+/**
  * Total attempts allowed by the backend (the initial request is attempt 1).
  * Mirrors `_MAX_AUTO_RETRY_ATTEMPTS` for every kind that retries on its own;
  * backend/tests/test_frontend_retry_limits.py fails if the two drift.
  */
 export const AUTO_RETRY_LIMITS = Object.freeze({
   transient: 2,
-  daily_quota: 2,
   slot_busy: 4,
 });
 

@@ -16,6 +16,7 @@
   "failed_wait": "需要等待",
   "failed_host_refused": "主机拒绝",
   "download_retry_pending": "等待重试",
+  "download_retry_at": "{when} 自动重试",
   "download_queue_position": "排队第 {n} 位",
   "queue_position_tooltip": "同一主机前面的文件完成后逐个尝试",
   "download_parsing": "解析中",
