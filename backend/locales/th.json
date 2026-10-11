@@ -18,6 +18,7 @@
   "download_retry_pending": "รอลองใหม่",
   "download_retry_at": "ลองใหม่อัตโนมัติ {when}",
   "download_queue_position": "คิวที่ {n}",
+  "download_queue_position_at": "{when} · ลำดับ {n}",
   "queue_position_tooltip": "จะลองทีละไฟล์หลังไฟล์ก่อนหน้าจากโฮสต์นี้",
   "download_parsing": "กำลังแยกวิเคราะห์",
   "download_waiting": "กำลังรอ",

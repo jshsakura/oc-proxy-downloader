@@ -18,6 +18,7 @@
   "download_retry_pending": "Oczekiwanie na ponowną próbę",
   "download_retry_at": "Ponowienie {when}",
   "download_queue_position": "W kolejce #{n}",
+  "download_queue_position_at": "{when} · nr {n}",
   "queue_position_tooltip": "Próbowane pojedynczo po wcześniejszych plikach z tego hosta",
   "download_parsing": "Analizowanie",
   "download_waiting": "Oczekiwanie",

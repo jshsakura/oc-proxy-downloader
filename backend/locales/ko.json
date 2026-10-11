@@ -18,6 +18,7 @@
   "download_retry_pending": "재시도 대기",
   "download_retry_at": "{when} 자동 시도",
   "download_queue_position": "순서 대기 {n}번째",
+  "download_queue_position_at": "{when} · {n}번째",
   "queue_position_tooltip": "같은 호스트의 앞 파일이 끝나면 하나씩 차례로 시도합니다",
   "download_parsing": "파싱 중",
   "download_waiting": "대기중",

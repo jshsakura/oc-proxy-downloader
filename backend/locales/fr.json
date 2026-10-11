@@ -18,6 +18,7 @@
   "download_retry_pending": "Nouvelle tentative en attente",
   "download_retry_at": "Nouvel essai {when}",
   "download_queue_position": "En file n°{n}",
+  "download_queue_position_at": "{when} · n° {n}",
   "queue_position_tooltip": "Tenté un par un après les fichiers précédents de cet hébergeur",
   "download_parsing": "Analyse",
   "download_waiting": "En attente",

@@ -18,6 +18,7 @@
   "download_retry_pending": "Retry pending",
   "download_retry_at": "Auto-retry {when}",
   "download_queue_position": "Queued #{n}",
+  "download_queue_position_at": "{when} · #{n}",
   "queue_position_tooltip": "Tried one at a time after the earlier files on this host",
   "download_parsing": "Parsing",
   "download_waiting": "Waiting",

@@ -18,6 +18,7 @@
   "download_retry_pending": "Reintento pendiente",
   "download_retry_at": "Reintento {when}",
   "download_queue_position": "En cola #{n}",
+  "download_queue_position_at": "{when} · n.º {n}",
   "queue_position_tooltip": "Se intentará de uno en uno tras los archivos anteriores de este host",
   "download_parsing": "Analizando",
   "download_waiting": "Esperando",

@@ -18,6 +18,7 @@
   "download_retry_pending": "Mencoba lagi tertunda",
   "download_retry_at": "Coba otomatis {when}",
   "download_queue_position": "Antrean #{n}",
+  "download_queue_position_at": "{when} · ke-{n}",
   "queue_position_tooltip": "Dicoba satu per satu setelah file sebelumnya di host ini",
   "download_parsing": "Mengurai",
   "download_waiting": "Menunggu",

@@ -429,6 +429,13 @@
         )})<span class="wait-indicator wait-indicator-waiting"></span></span>`;
       } else if (st === "downloading" && !d.progress) {
         this.pill.innerHTML = `<span class="wait-countdown">${$t("download_downloading")}<span class="wait-indicator wait-indicator-${st}"></span></span>`;
+      } else if (isQueuedBehind(d, currentTime) && showsRetryClock(d, currentTime)) {
+        // The head of the line may sit on another page, so every row says when
+        // the line starts moving, not only its place in it.
+        this.pill.textContent = $t("download_queue_position_at", {
+          when: retryClockLabel(d.next_retry_at, currentTime, $locale),
+          n: d.queue_position
+        });
       } else if (isQueuedBehind(d, currentTime)) {
         this.pill.textContent = $t("download_queue_position", { n: d.queue_position });
       } else if (hasScheduledRetry(d, currentTime) && showsRetryClock(d, currentTime)) {

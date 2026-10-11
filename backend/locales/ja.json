@@ -18,6 +18,7 @@
   "download_retry_pending": "再試行待ち",
   "download_retry_at": "{when} 自動再試行",
   "download_queue_position": "順番待ち {n}番目",
+  "download_queue_position_at": "{when} · {n}番目",
   "queue_position_tooltip": "同じホストの前のファイルが終わると一つずつ試します",
   "download_parsing": "解析中",
   "download_waiting": "待機中",
