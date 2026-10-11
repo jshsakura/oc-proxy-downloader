@@ -8,7 +8,7 @@
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-quartz.css";
   import { t, locale } from "./i18n.js";
-  import { failureStatusKey, failureTone, fitFilename, hasScheduledRetry, isQueuedBehind, retryAttemptLabel, retryClockLabel, showsRetryClock } from "./grid.js";
+  import { failureStatusKey, failureTone, fitFilename, hasScheduledRetry, isQueuedBehind, retryAttemptLabel, retryClockLabel, retryDayLabel, showsRetryClock } from "./grid.js";
   import { theme } from "./theme.js";
 
   import ChevronLeftIcon from "../icons/ChevronLeftIcon.svelte";
@@ -430,10 +430,10 @@
       } else if (st === "downloading" && !d.progress) {
         this.pill.innerHTML = `<span class="wait-countdown">${$t("download_downloading")}<span class="wait-indicator wait-indicator-${st}"></span></span>`;
       } else if (isQueuedBehind(d, currentTime) && showsRetryClock(d, currentTime)) {
-        // The head of the line may sit on another page, so every row says when
-        // the line starts moving, not only its place in it.
+        // The head of the line may sit on another page, so every row says which
+        // day the line starts moving. Only the head gets the clock time.
         this.pill.textContent = $t("download_queue_position_at", {
-          when: retryClockLabel(d.next_retry_at, currentTime, $locale),
+          when: retryDayLabel(d.next_retry_at, currentTime, $locale),
           n: d.queue_position
         });
       } else if (isQueuedBehind(d, currentTime)) {

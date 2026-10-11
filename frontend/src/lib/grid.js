@@ -79,11 +79,25 @@ export function showsRetryClock(download, now = Date.now()) {
 export function retryClockLabel(nextRetryAt, now = Date.now(), lang = "en") {
   const at = new Date(nextRetryAt);
   const time = at.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit", hour12: false });
-  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const days = Math.round((startOfDay(at) - startOfDay(new Date(now))) / 86400000);
+  const days = daysUntil(at, now);
   if (days === 0) return time;
   const day = new Intl.RelativeTimeFormat(lang, { numeric: "auto" }).format(days, "day");
   return `${day} ${time}`;
+}
+
+/**
+ * "today" / "tomorrow" / "내일" for a row behind the head of the line. Only the
+ * head starts at the clock time; the rest follow one by one after it, so a time
+ * on them would promise something that will not happen.
+ */
+export function retryDayLabel(nextRetryAt, now = Date.now(), lang = "en") {
+  const days = daysUntil(new Date(nextRetryAt), now);
+  return new Intl.RelativeTimeFormat(lang, { numeric: "auto" }).format(days, "day");
+}
+
+function daysUntil(at, now) {
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((startOfDay(at) - startOfDay(new Date(now))) / 86400000);
 }
 
 /**

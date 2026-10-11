@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   retryClockLabel,
+  retryDayLabel,
   showsRetryClock,
   ACTIVE_STATUSES,
   countActiveByStatus,
@@ -250,6 +251,12 @@ describe("retry clock label", () => {
     expect(showsRetryClock({ next_retry_at: tomorrow }, now)).toBe(true);
     expect(retryClockLabel(tomorrow, now, "ko")).toBe("내일 07:10");
     expect(retryClockLabel(tomorrow, now, "en")).toBe("tomorrow 07:10");
+  });
+
+  it("gives rows behind the head only the day, since they start after it", () => {
+    const tomorrow = new Date(2026, 9, 12, 7, 10, 0).toISOString();
+    expect(retryDayLabel(tomorrow, now, "ko")).toBe("내일");
+    expect(retryDayLabel(tomorrow, now, "en")).toBe("tomorrow");
   });
 
   it("omits the day for a retry later today", () => {
