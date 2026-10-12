@@ -405,6 +405,7 @@ def _capture_download_response(response, page_url: str, captured: Dict[str, str]
         if not issuance:
             return
         status = getattr(response, "status", 200)
+        print(f"[DEBUG] 링크 발급 요청 응답: HTTP {status}")
         if 300 <= status < 400:
             # The page fetches with redirect: "manual", so a redirect here ends
             # the click silently on its side too. Name it instead of pressing
@@ -664,6 +665,11 @@ def _drive_to_download(
             continue
         if present:
             presses += 1
+            try:
+                label = " ".join(action.inner_text(timeout=1000).split())[:40]
+            except Exception:
+                label = "?"
+            print(f"[DEBUG] 다운로드 버튼 누름 {presses}/{ACTION_ROUNDS}: {label}")
             # The button relabels itself through the countdown ("Free Download" →
             # "Ready in 4s" → "Start Download"), and a click landing on the frame
             # that re-renders it times out. That is one lost press, not a failed
