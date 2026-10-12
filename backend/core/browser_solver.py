@@ -640,7 +640,13 @@ def _drive_to_download(
 ) -> str:
     """Press the action button until the browser starts fetching the file."""
     click_timeouts = 0
-    for _ in range(ACTION_ROUNDS):
+    presses = 0
+    # Only rounds that press the button count. While DataNodes runs its
+    # "Ready in Ns" countdown the button matches no selector, and that wait
+    # grows after a few downloads in a row: on 2026-10-12 part 3 of a batch
+    # outlasted eight fixed rounds and the page turned ready just after the
+    # flow gave up. The countdown is bounded by the solve deadline instead.
+    while presses < ACTION_ROUNDS:
         deadline.check("다운로드 시작 버튼")
         if captured.get("url"):
             return captured["url"]
@@ -657,6 +663,7 @@ def _drive_to_download(
             page.wait_for_timeout(POLL_INTERVAL_MS)
             continue
         if present:
+            presses += 1
             # The button relabels itself through the countdown ("Free Download" →
             # "Ready in 4s" → "Start Download"), and a click landing on the frame
             # that re-renders it times out. That is one lost press, not a failed

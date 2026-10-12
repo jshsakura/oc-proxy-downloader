@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for the headful-browser Turnstile fallback and its wiring."""
 
+import time
+
 import pytest
 from contextlib import nullcontext
 
@@ -150,6 +152,57 @@ def test_download_button_stops_after_three_click_timeouts():
     with pytest.raises(HosterParseError, match="3회 연속 시간 초과"):
         bs._drive_to_download(Page(), bs.DATANODES_FLOW, {}, bs.Deadline(90))
     assert calls == 3
+
+
+def test_a_countdown_longer_than_the_press_rounds_is_waited_out():
+    # The button disappears behind "Ready in Ns" while the countdown runs.
+    # Rounds without a button must not use up the presses, or a long countdown
+    # ends the solve just before the link would be issued.
+    captured = {}
+    rounds = 0
+
+    class Locator:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        def count(self):
+            return 1 if rounds > bs.ACTION_ROUNDS * 2 else 0
+
+        def click(self, **_kwargs):
+            captured["url"] = "https://tunnel5.dlproxy.uk/download/x"
+
+    class Page:
+        def locator(self, _selector):
+            return Locator()
+
+        def wait_for_timeout(self, _ms):
+            nonlocal rounds
+            rounds += 1
+
+    assert bs._drive_to_download(Page(), bs.DATANODES_FLOW, captured, bs.Deadline(30)) == captured["url"]
+
+
+def test_a_button_that_never_returns_ends_at_the_deadline():
+    class Locator:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        def count(self):
+            return 0
+
+    class Page:
+        def locator(self, _selector):
+            return Locator()
+
+        def wait_for_timeout(self, _ms):
+            time.sleep(0.01)
+
+    with pytest.raises(HosterParseError, match="제한시간"):
+        bs._drive_to_download(Page(), bs.DATANODES_FLOW, {}, bs.Deadline(0.3))
 
 
 # --- flow registry ---
