@@ -25,6 +25,7 @@ from core.error_messages import (
     KIND_CLOUDFLARE,
     KIND_DAILY_QUOTA,
     KIND_PROXY_BLOCKED,
+    KIND_QUEUED,
     KIND_RATE_LIMITED,
     KIND_SLOT_BUSY,
     KIND_BROWSER_PARSE,
@@ -33,6 +34,8 @@ from core.error_messages import (
     _compute_next_retry_at,
     auto_retry_budget_exhausted,
 )
+from core.models import StatusEnum
+from services.download_service import _paced_by_host
 
 
 def _wait(kind, attempt=1, retry_after=None):
@@ -259,13 +262,25 @@ class TestQueueWaitsAreNotRefusals:
         from core.error_messages import KIND_QUEUED
 
         body = inspect.getsource(download_service.DownloadService._sweep_due_retries)
+        gate = inspect.getsource(download_service._paced_by_host)
 
-        assert "KIND_QUEUED" in body, (
+        assert "_paced_by_host" in body and "KIND_QUEUED" in gate, (
             "the host-spacing gate must skip queue waits, or one busy host "
             "throttles its own queue"
         )
         # The gate still exists for everything else.
         assert "HOST_RETRY_SPACING_SEC" in body
+
+    def test_rows_held_in_line_are_not_spaced_like_refusals(self):
+        """Rows queued behind a spent 1fichier quota went out one per 30 minutes
+        after the quota freed, though only the head had touched the host."""
+        held = SimpleNamespace(status=StatusEnum.pending, failure_kind=None)
+        queued = SimpleNamespace(status=StatusEnum.failed, failure_kind=KIND_QUEUED)
+        refused = SimpleNamespace(status=StatusEnum.failed, failure_kind=KIND_DAILY_QUOTA)
+
+        assert not _paced_by_host(held)
+        assert not _paced_by_host(queued)
+        assert _paced_by_host(refused)
 
     def test_a_queue_wait_still_gets_a_short_reschedule(self):
         """Exempting it from spacing must not mean retrying it instantly."""

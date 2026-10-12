@@ -57,6 +57,19 @@ def _has_fichier_credentials() -> bool:
     return bool(email and password)
 
 
+def _paced_by_host(req) -> bool:
+    """Whether a due row is a retry of a refusal and must keep the host spacing.
+
+    A KIND_QUEUED row and a pending row never reached the host: they wait their
+    turn on our own slot or behind a hold such as a spent 1fichier quota, and
+    the hold itself already gates the next request. Pacing them as if they had
+    just been refused is backwards. Measured: 42 due items behind one host came
+    out one every three minutes, and on 2026-10-12 a freed 1fichier quota moved
+    one file every 30 minutes.
+    """
+    return req.status != StatusEnum.pending and req.failure_kind != KIND_QUEUED
+
+
 class DownloadService:
     """A completely new async download service"""
 
@@ -150,12 +163,8 @@ class DownloadService:
                 if is_retry_blocked_now(req, has_creds) is not None:
                     continue
 
-                # Space retries per host — but only real retries. A KIND_QUEUED
-                # row never reached the host: it is waiting its turn on our own
-                # per-site slot, so pacing it as if it had just been refused is
-                # backwards. Measured: 42 due items behind one host meant one
-                # release every three minutes, and the queue stopped moving.
-                if req.failure_kind != KIND_QUEUED:
+                # Space retries per host — but only real retries.
+                if _paced_by_host(req):
                     host = host_key_for_url(admission_url(req))
                     last = self._last_retry_per_host.get(host, 0.0)
                     if host and now_mono - last < HOST_RETRY_SPACING_SEC:
