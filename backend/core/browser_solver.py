@@ -62,8 +62,11 @@ SUBMIT_TIMEOUT_S = 20
 WIDGET_TIMEOUT_S = 15
 TOKEN_TIMEOUT_S = 60
 # The countdown button needs more than one press: the first arms the host's timer,
-# a later one fires the request that yields the file URL.
-ACTION_ROUNDS = 8
+# a later one fires the request that yields the file URL. DataNodes runs that
+# timer without showing it: the button reads "Your file is ready" throughout and
+# only a press ~30s after the first one sends the request. A fixed count of
+# presses ran out when an ad ate a few of them, so the window is in seconds.
+ACTION_WINDOW_S = 120
 ACTION_ROUND_WAIT_MS = 6_000
 
 # Wall-clock budget for one solve, deliberately under download_core's 300s
@@ -642,12 +645,10 @@ def _drive_to_download(
     """Press the action button until the browser starts fetching the file."""
     click_timeouts = 0
     presses = 0
-    # Only rounds that press the button count. While DataNodes runs its
-    # "Ready in Ns" countdown the button matches no selector, and that wait
-    # grows after a few downloads in a row: on 2026-10-12 part 3 of a batch
-    # outlasted eight fixed rounds and the page turned ready just after the
-    # flow gave up. The countdown is bounded by the solve deadline instead.
-    while presses < ACTION_ROUNDS:
+    # The window opens at the first press, so a page that has not rendered its
+    # button yet waits on the solve deadline, not on this window.
+    press_until: Optional[float] = None
+    while press_until is None or time.monotonic() < press_until:
         deadline.check("다운로드 시작 버튼")
         if captured.get("url"):
             return captured["url"]
@@ -665,11 +666,13 @@ def _drive_to_download(
             continue
         if present:
             presses += 1
+            if press_until is None:
+                press_until = time.monotonic() + ACTION_WINDOW_S
             try:
                 label = " ".join(action.inner_text(timeout=1000).split())[:40]
             except Exception:
                 label = "?"
-            print(f"[DEBUG] 다운로드 버튼 누름 {presses}/{ACTION_ROUNDS}: {label}")
+            print(f"[DEBUG] 다운로드 버튼 누름 {presses}회: {label}")
             # The button relabels itself through the countdown ("Free Download" →
             # "Ready in 4s" → "Start Download"), and a click landing on the frame
             # that re-renders it times out. That is one lost press, not a failed

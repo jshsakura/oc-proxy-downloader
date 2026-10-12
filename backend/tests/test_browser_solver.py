@@ -168,7 +168,7 @@ def test_a_countdown_longer_than_the_press_rounds_is_waited_out():
             self.first = self
 
         def count(self):
-            return 1 if rounds > bs.ACTION_ROUNDS * 2 else 0
+            return 1 if rounds > 20 else 0
 
         def click(self, **_kwargs):
             captured["url"] = "https://tunnel5.dlproxy.uk/download/x"
@@ -182,6 +182,65 @@ def test_a_countdown_longer_than_the_press_rounds_is_waited_out():
             rounds += 1
 
     assert bs._drive_to_download(Page(), bs.DATANODES_FLOW, captured, bs.Deadline(30)) == captured["url"]
+
+
+def test_presses_continue_through_a_hidden_countdown():
+    # DataNodes keeps "Your file is ready" on the button while an unseen ~30s
+    # timer runs, and only a later press sends the link request. On 2026-10-12
+    # eight presses ran out because an ad had eaten three of them.
+    captured = {}
+    presses = 0
+
+    class Locator:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        def count(self):
+            return 1
+
+        def click(self, **_kwargs):
+            nonlocal presses
+            presses += 1
+            if presses == 15:
+                captured["url"] = "https://tunnel5.dlproxy.uk/download/x"
+
+    class Page:
+        def locator(self, _selector):
+            return Locator()
+
+        def wait_for_timeout(self, _ms):
+            pass
+
+    assert bs._drive_to_download(Page(), bs.DATANODES_FLOW, captured, bs.Deadline(30)) == captured["url"]
+    assert presses == 15
+
+
+def test_pressing_stops_when_the_window_closes(monkeypatch):
+    monkeypatch.setattr(bs, "ACTION_WINDOW_S", 0.2)
+
+    class Locator:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        def count(self):
+            return 1
+
+        def click(self, **_kwargs):
+            pass
+
+    class Page:
+        def locator(self, _selector):
+            return Locator()
+
+        def wait_for_timeout(self, _ms):
+            time.sleep(0.01)
+
+    with pytest.raises(HosterParseError, match="링크를 받지 못했습니다"):
+        bs._drive_to_download(Page(), bs.DATANODES_FLOW, {}, bs.Deadline(30))
 
 
 def test_a_button_that_never_returns_ends_at_the_deadline():
