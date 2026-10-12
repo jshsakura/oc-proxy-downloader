@@ -512,6 +512,31 @@ def test_download2_json_error_is_preserved_for_diagnostics():
     assert captured["error"] == "Security token expired"
 
 
+def test_download2_redirect_is_named_instead_of_silently_retried():
+    # DataNodes' page fetches download2 with redirect: "manual"; a redirect
+    # ends the click with no message on either side, and the old flow pressed
+    # the button until its budget ran out with nothing to show for it.
+    response = _Download2Response({})
+    response.status = 302
+    response.headers = {"location": "https://datanodes.to/premium?from=x"}
+    captured = {}
+
+    bs._capture_download_response(response, "https://datanodes.to/abc", captured)
+
+    assert "url" not in captured
+    assert "HTTP 302 → /premium" in captured["error"]
+
+
+def test_download2_html_instead_of_json_is_named():
+    response = _Download2Response({})
+    response.json = lambda: (_ for _ in ()).throw(ValueError("not json"))
+    captured = {}
+
+    bs._capture_download_response(response, "https://datanodes.to/abc", captured)
+
+    assert "웹 페이지" in captured["error"]
+
+
 def test_unrelated_post_response_is_ignored():
     response = _Download2Response({"url": "https://ads.example/file.rar"})
     response.request = type(

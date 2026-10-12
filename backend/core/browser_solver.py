@@ -404,7 +404,19 @@ def _capture_download_response(response, page_url: str, captured: Dict[str, str]
             return
         if not issuance:
             return
-        data = response.json()
+        status = getattr(response, "status", 200)
+        if 300 <= status < 400:
+            # The page fetches with redirect: "manual", so a redirect here ends
+            # the click silently on its side too. Name it instead of pressing
+            # the button until the budget runs out.
+            target = urlparse(response.headers.get("location", "")).path or "?"
+            captured["error"] = f"링크 대신 다른 페이지로 돌려보냈습니다 (HTTP {status} → {target})"
+            return
+        try:
+            data = response.json()
+        except ValueError:
+            captured["error"] = "링크 대신 웹 페이지를 돌려줬습니다 (다운로드 페이지 만료)"
+            return
         if not isinstance(data, dict):
             return
         candidate = unquote(str(data.get("url") or ""))
