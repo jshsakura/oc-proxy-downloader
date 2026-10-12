@@ -16,6 +16,7 @@
   "failed_wait": "Aguardar",
   "failed_host_refused": "Recusado",
   "download_retry_pending": "Nova tentativa pendente",
+  "download_quota_check": "1fichier limit · checking again",
   "download_retry_at": "Nova tentativa {when}",
   "download_queue_position": "Na fila #{n}",
   "download_queue_position_at": "{when} · nº {n}",

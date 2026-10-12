@@ -16,6 +16,7 @@
   "failed_wait": "Warten nötig",
   "failed_host_refused": "Abgelehnt",
   "download_retry_pending": "Wiederholung ausstehend",
+  "download_quota_check": "1fichier limit · checking again",
   "download_retry_at": "Automatisch {when}",
   "download_queue_position": "Warteschlange #{n}",
   "download_queue_position_at": "{when} · Nr. {n}",

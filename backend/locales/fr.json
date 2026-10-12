@@ -16,6 +16,7 @@
   "failed_wait": "Patienter",
   "failed_host_refused": "Refusé",
   "download_retry_pending": "Nouvelle tentative en attente",
+  "download_quota_check": "1fichier limit · checking again",
   "download_retry_at": "Nouvel essai {when}",
   "download_queue_position": "En file n°{n}",
   "download_queue_position_at": "{when} · n° {n}",

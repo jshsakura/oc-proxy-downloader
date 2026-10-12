@@ -39,7 +39,6 @@ from pathlib import Path
 import random
 import re
 from typing import List, Optional, Tuple
-from zoneinfo import ZoneInfo
 
 
 @lru_cache(maxsize=24)
@@ -487,7 +486,7 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      KIND_SLOT_BUSY, True),
     ("1fichier 차단: 일일 무료 다운로드 한도 초과",
      "1fichier 일일 무료 다운로드 한도를 모두 사용했습니다",
-     "무료 계정으로 로그인해도 이 제한은 적용됩니다. 오늘은 추가 요청을 멈추고 한도가 갱신된 뒤 자동으로 다시 시도합니다.",
+     "1fichier 는 인터넷 주소(IP) 하나에 24시간 동안 무료 5개까지만 허용하므로 계정을 늘려도 풀리지 않습니다. 30분마다 확인해 자리가 나면 자동으로 다시 시도합니다.",
      KIND_DAILY_QUOTA, True),
     ("limite", "1fichier 무료 다운로드 한도에 걸렸습니다",
      "프록시 모드를 켜거나 한도가 풀릴 때까지 기다리세요.",
@@ -885,21 +884,19 @@ def _with_jitter(seconds: float) -> timedelta:
     return timedelta(seconds=seconds + random.uniform(0, spread))
 
 
-# 1fichier counts its free quota per French calendar day. Midnight in Seoul is
-# 16:00-17:00 in Paris, so waiting for a local midnight retried while the quota
-# was still spent and then pushed the whole queue out another 24 hours.
-FICHIER_QUOTA_TZ = ZoneInfo("Europe/Paris")
-FICHIER_QUOTA_RESET_MARGIN = timedelta(minutes=10)
+# 1fichier's free quota is about five files per IP over a rolling 24 hours, not
+# per calendar day. On 2026-10-12 the queue was refused at 08:10 KST after only
+# two files that morning, because three of the previous day's were still inside
+# the window, and both a guest and a logged-in page load were clear again by
+# 13:40. Waiting for a fixed reset loses most of a day, so check again soon: the
+# guest page already shows the quota, so a refused check costs one page load
+# and spends nothing.
+FICHIER_QUOTA_RECHECK = timedelta(minutes=30)
 
 
-def next_fichier_quota_reset(now: Optional[datetime] = None) -> datetime:
-    """First retry time after the next Paris midnight, as naive local time."""
-    now = now or datetime.now()
-    paris_now = now.astimezone(FICHIER_QUOTA_TZ)
-    paris_midnight = datetime.combine(
-        paris_now.date() + timedelta(days=1), datetime.min.time(), FICHIER_QUOTA_TZ
-    )
-    return (paris_midnight + FICHIER_QUOTA_RESET_MARGIN).astimezone().replace(tzinfo=None)
+def next_fichier_quota_check(now: Optional[datetime] = None) -> datetime:
+    """When to look at a spent 1fichier quota again, as naive local time."""
+    return (now or datetime.now()) + FICHIER_QUOTA_RECHECK
 
 
 def _compute_next_retry_at(kind: str, attempt_count: int,
@@ -924,9 +921,9 @@ def _compute_next_retry_at(kind: str, attempt_count: int,
         return now + timedelta(seconds=45 + random.randint(0, 30))
 
     if kind == KIND_DAILY_QUOTA:
-        # A quota is a known daily wait, not a permanent host block. It costs
-        # one page load per reset, so it is retried every day until it clears.
-        return next_fichier_quota_reset(now)
+        # A quota frees one slot at a time as old downloads leave the window,
+        # so the link is checked again soon and never given up on.
+        return next_fichier_quota_check(now)
 
     if kind == KIND_SLOT_BUSY:
         # Do not turn a crowded free tier into a tight request loop. The host

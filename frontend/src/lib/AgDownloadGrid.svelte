@@ -438,6 +438,13 @@
         });
       } else if (isQueuedBehind(d, currentTime)) {
         this.pill.textContent = $t("download_queue_position", { n: d.queue_position });
+      } else if (hasScheduledRetry(d, currentTime) && d.failure_kind === "daily_quota") {
+        // Say which limit is being waited out, so a short countdown on a
+        // 1fichier row does not read as a fault the app will repeat.
+        const remSec = Math.max(0, (new Date(d.next_retry_at).getTime() - currentTime) / 1000);
+        this.pill.innerHTML = `${$t("download_quota_check")} <span class="wait-countdown">(${formatWaitTime(
+          remSec
+        )})</span>`;
       } else if (hasScheduledRetry(d, currentTime) && showsRetryClock(d, currentTime)) {
         this.pill.textContent = $t("download_retry_at", {
           when: retryClockLabel(d.next_retry_at, currentTime, $locale)

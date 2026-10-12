@@ -23,7 +23,7 @@ from core.error_messages import (
     KIND_QUEUED,
     KIND_BLOCKED,
     KIND_DAILY_QUOTA,
-    next_fichier_quota_reset,
+    next_fichier_quota_check,
 )
 from core.host_policy import host_key_for_url
 from core.link_containers import admission_url
@@ -231,8 +231,7 @@ class DownloadService:
                 now = datetime.datetime.now()
                 for req in old_quota_rows:
                     req.failure_kind = KIND_DAILY_QUOTA
-                    reset_at = next_fichier_quota_reset(req.finished_at or req.requested_at or now)
-                    req.next_retry_at = max(reset_at, now + datetime.timedelta(seconds=30))
+                    req.next_retry_at = next_fichier_quota_check(now)
 
                 await db_async.commit(db)
 

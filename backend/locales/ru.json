@@ -16,6 +16,7 @@
   "failed_wait": "Нужно ждать",
   "failed_host_refused": "Отказ хоста",
   "download_retry_pending": "Ожидание повторной попытки",
+  "download_quota_check": "1fichier limit · checking again",
   "download_retry_at": "Повтор {when}",
   "download_queue_position": "В очереди №{n}",
   "download_queue_position_at": "{when} · №{n}",

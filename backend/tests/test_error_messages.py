@@ -36,7 +36,7 @@ from core.error_messages import (
     KIND_TRANSIENT,
     KIND_BROWSER_PARSE,
     KIND_UNKNOWN,
-    next_fichier_quota_reset,
+    FICHIER_QUOTA_RECHECK,
 )
 
 
@@ -625,34 +625,26 @@ class TestRateLimitRealWait:
 
 
 class TestDailyQuotaRecovery:
-    def test_reset_follows_paris_midnight_not_local_midnight(self, monkeypatch):
-        monkeypatch.setenv("TZ", "Asia/Seoul")
-        time.tzset()
-        try:
-            # 00:10 KST is still 17:10 the previous day in Paris (CEST).
-            now = datetime.datetime(2026, 10, 11, 0, 10)
-            assert next_fichier_quota_reset(now) == datetime.datetime(2026, 10, 11, 7, 10)
-            # After the October switch Paris is UTC+1, so the reset is 08:10 KST.
-            now = datetime.datetime(2026, 11, 2, 12, 0)
-            assert next_fichier_quota_reset(now) == datetime.datetime(2026, 11, 3, 8, 10)
-        finally:
-            monkeypatch.undo()
-            time.tzset()
-
-    def test_explicit_daily_quota_keeps_a_retry_schedule(self):
+    def test_explicit_daily_quota_is_checked_again_within_the_hour(self):
+        # The quota is a rolling window per IP. Waiting for a fixed daily reset
+        # held the queue all day after slots had already freed up.
         req = _FakeReq()
         raw = "1fichier 차단: 일일 무료 다운로드 한도 초과"
+        before = datetime.datetime.now()
         verdict = apply_failure_to_request(req, "파싱", raw)
         assert verdict.kind == KIND_DAILY_QUOTA
-        assert req.next_retry_at == next_fichier_quota_reset()
+        wait = req.next_retry_at - before
+        assert FICHIER_QUOTA_RECHECK <= wait < FICHIER_QUOTA_RECHECK + datetime.timedelta(seconds=5)
+        assert wait <= datetime.timedelta(hours=1)
         assert "자동으로 다시 시도" in req.error
+        assert "계정을 늘려도" in req.error
 
-        # Hitting the quota again on a later day keeps the link scheduled.
-        for _ in range(3):
+        # Hitting the quota again keeps the link scheduled, however often.
+        for _ in range(40):
             req.attempts_json = None
             again = apply_failure_to_request(req, "파싱", raw)
             assert again.kind == KIND_DAILY_QUOTA
-            assert req.next_retry_at == next_fichier_quota_reset()
+            assert req.next_retry_at is not None
         assert "수동으로 다시 시도" not in req.error
 
 

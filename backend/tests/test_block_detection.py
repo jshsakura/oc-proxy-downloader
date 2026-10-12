@@ -62,7 +62,7 @@ class TestDetectBlockReason:
         )
         assert classified.kind == "daily_quota"
         assert "10개" not in classified.summary
-        assert "로그인해도" in classified.action
+        assert "계정을 늘려도" in classified.action
 
     def test_preparse_daily_quota_stops_before_main_parse(self, monkeypatch):
         response = MagicMock(status_code=200, text="You already downloaded for free more than 5 files today.")

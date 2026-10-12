@@ -74,7 +74,7 @@ from core.error_messages import (
     KIND_QUEUED,
     KIND_RATE_LIMITED,
     KIND_TRANSIENT,
-    next_fichier_quota_reset,
+    next_fichier_quota_check,
 )
 from core.executors import parse_executor_for, run_parser_with_start_notification
 from core.mega_hoster import (
@@ -131,9 +131,6 @@ def _retry_special_parse_on_next_proxy(raw_error: str) -> bool:
 # downloads for an increasing cooldown (reset on the next success), so a flagged
 # IP gets time to recover the way slow manual pacing used to.
 FICHIER_HOST_BACKOFF_SECONDS = (1800, 3600, 7200, 7200)  # 30m → 1h → 2h (capped)
-FICHIER_QUOTA_RECHECK = datetime.timedelta(hours=1)
-FICHIER_QUOTA_RECHECK_WINDOW = datetime.timedelta(hours=6)
-FICHIER_QUOTA_MAX_RECHECKS = 3  # hourly checks after a reset, then wait for the next one
 
 # SITE_DOWNLOAD_LIMITS is shared with browser host identity in host_policy.
 
@@ -587,8 +584,6 @@ class DownloadCore:
         self._fichier_cooldown_until: Dict[str, Optional[datetime.datetime]] = {}
         self._fichier_block_streak: Dict[str, int] = {}
         # Deadline of the last quota wait, to notice a reset that did not free it.
-        self._fichier_quota_waited_until: Dict[str, datetime.datetime] = {}
-        self._fichier_quota_rechecks: Dict[str, int] = {}
 
     def refresh_concurrency_settings(self) -> None:
         """Update existing queues; holders drain before admitting more work."""
@@ -956,31 +951,17 @@ class DownloadCore:
         Scoped to the egress that was blocked; the other one keeps working.
         """
         if "일일 무료 다운로드 한도" in (error or ""):
-            now = datetime.datetime.now()
             # Do not feed every queued file into a quota page that explicitly
-            # says this egress has already used its daily allowance. Hold the
-            # one-per-IP queue until shortly after the next reset.
-            tomorrow = next_fichier_quota_reset(now)
-            last_reset = self._fichier_quota_waited_until.get(egress)
-            rechecks = self._fichier_quota_rechecks.get(egress, 0)
-            if (last_reset and now - last_reset < FICHIER_QUOTA_RECHECK_WINDOW
-                    and rechecks < FICHIER_QUOTA_MAX_RECHECKS):
-                # We just waited out a reset and are still refused, so the reset
-                # guess is wrong for this quota. Checking again in an hour costs
-                # one page load; sleeping another full day loses the day. The
-                # checks are capped so a quota that stays spent is not polled.
-                tomorrow = now + FICHIER_QUOTA_RECHECK
-                self._fichier_quota_rechecks[egress] = rechecks + 1
-            else:
-                self._fichier_quota_rechecks[egress] = 0
-            self._fichier_quota_waited_until[egress] = tomorrow
-            self._fichier_cooldown_until[egress] = tomorrow
+            # says this egress has used its allowance. Hold the one-per-IP
+            # queue and look again once an old download may have aged out.
+            check_at = next_fichier_quota_check()
+            self._fichier_cooldown_until[egress] = check_at
             self._fichier_block_streak[egress] = max(
                 1, self._fichier_block_streak.get(egress, 0)
             )
             print(
                 f"[LOG] 1fichier 일일 한도 감지 [{egress}] → "
-                f"{tomorrow.isoformat()}까지 전체 큐 대기"
+                f"{check_at.isoformat()}에 다시 확인, 그때까지 전체 큐 대기"
             )
             return
 

@@ -64,8 +64,8 @@ export function isQueuedBehind(download, now = Date.now()) {
 
 /**
  * Waits at least this long are shown as the clock time of the retry, not a
- * countdown. A 1fichier quota waits for the next Paris midnight, and "827:28"
- * on screen reads like a bug rather than "tomorrow morning".
+ * countdown. A wait of many hours shown as "827:28" reads like a bug rather
+ * than "tomorrow morning".
  */
 export const RETRY_CLOCK_AFTER_SECONDS = 3600;
 

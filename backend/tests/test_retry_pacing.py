@@ -164,7 +164,7 @@ class TestBeingRefusedBacksOffHarder:
         assert _compute_next_retry_at(KIND_BROWSER_PARSE, 1, None) is None
         assert auto_retry_budget_exhausted(KIND_BROWSER_PARSE, 1)
 
-    def test_daily_quota_is_retried_after_every_reset(self):
+    def test_daily_quota_is_retried_however_often_it_is_hit(self):
         # The quota is the IP's, not the link's. A link that hit it twice is
         # still a good link and must not be stranded as needing a manual retry.
         for attempts in (1, 2, 3, 10):

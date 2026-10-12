@@ -16,6 +16,7 @@
   "failed_wait": "Wait needed",
   "failed_host_refused": "Host refused",
   "download_retry_pending": "Retry pending",
+  "download_quota_check": "1fichier limit · checking again",
   "download_retry_at": "Auto-retry {when}",
   "download_queue_position": "Queued #{n}",
   "download_queue_position_at": "{when} · #{n}",
