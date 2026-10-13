@@ -205,10 +205,10 @@ def press_security_check(page, box, deadline):
     page.mouse.up()
 
 
-def resolve_container_sync(url):
+def resolve_container_sync(url, skip_hosts=()):
     if canonical_host(urlparse(url).hostname) == "multiup.io":
         from core.hoster_sites import resolve_multiup_mirror_sync
-        return resolve_multiup_mirror_sync(url)
+        return resolve_multiup_mirror_sync(url, skip_hosts)
     browser._require_display()
     deadline = browser.Deadline(900 if canonical_host(urlparse(url).hostname) == "filecrypt.cc" else 120)
     source_host = (urlparse(url).hostname or "").lower().removeprefix("www.")

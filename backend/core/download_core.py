@@ -486,6 +486,15 @@ def _filename_from_disposition(disposition: Optional[str]) -> str:
     return ""
 
 
+# A failed MultiUp mirror goes back through MultiUp almost at once: the next
+# mirror is another host, so nothing here is waiting out a refusal.
+MIRROR_FALLBACK_DELAY_SEC = 5
+
+
+def _is_multiup_url(url: str) -> bool:
+    return canonical_host(urlparse(url or "").hostname) == "multiup.io"
+
+
 def _filename_from_url(url) -> str:
     """The file name a storage address carries in its last path segment.
 
@@ -570,6 +579,8 @@ class DownloadCore:
         self.total_download_semaphore = DownloadSlots(self.MAX_CONCURRENT_DOWNLOADS)
         # Existing host queues survive configuration updates.
         self._site_semaphores: Dict[str, DownloadSlots] = {}
+        # Mirror hosts already failed per row, so a MultiUp link moves on.
+        self._mirrors_tried: Dict[int, frozenset] = {}
         self._learned_host_limits: Dict[str, int] = {}
         self._host_cooldown_until: Dict[str, datetime.datetime] = {}
         self._parse_semaphores: Dict[str, asyncio.Semaphore] = {}
@@ -1465,7 +1476,9 @@ class DownloadCore:
                         return
                     try:
                         resolved = await self._run_special_parser(
-                            source, lambda: resolve_container_sync(source)
+                            source, lambda: resolve_container_sync(
+                                source, self._mirrors_tried.get(req_id, frozenset())
+                            )
                         )
                     except Exception as error:
                         apply_failure_to_request(req, "파싱", str(error))
@@ -3312,6 +3325,8 @@ class DownloadCore:
             )
         except Exception as e:
             print(f"[ERROR] 특수 호스팅 처리 실패: {e}")
+            if await self._fall_back_to_next_mirror(req, db, e):
+                return
             metadata_changed = _apply_hoster_file_info(req, getattr(e, "file_info", None))
             verdict = apply_failure_to_request(req, "파싱", str(e))
             req.status = _status_after_failure(verdict)
@@ -3333,6 +3348,32 @@ class DownloadCore:
                 "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
                 "attempt_count": verdict.attempt_count,
             })
+
+    async def _fall_back_to_next_mirror(self, req: DownloadRequest, db: Session, error) -> bool:
+        """Send a failed MultiUp mirror back to MultiUp for the next mirror.
+
+        MultiUp lists the same file on several hosts, but the row kept only the
+        mirror it picked first. On 2026-10-13 thirteen files failed as "not
+        found" on Gofile, which had expired them, while MultiUp still listed
+        each one on other hosts. True when the row was queued again.
+        """
+        source = getattr(req, "original_url", None) or ""
+        if not _is_multiup_url(source) or req.url == source:
+            return False
+        tried = self._mirrors_tried.get(req.id, frozenset()) | {
+            canonical_host(urlparse(req.url).hostname)
+        }
+        self._mirrors_tried[req.id] = tried
+        print(f"[LOG] MultiUp 미러 실패, 다음 미러로: id={req.id} 시도함={sorted(tried)} ({error})")
+        req.url = source
+        req.status = StatusEnum.pending
+        req.error = f"MultiUp 미러({', '.join(sorted(tried))}) 실패, 다른 미러로 다시 시도합니다"
+        req.failure_kind = None
+        req.finished_at = None
+        req.next_retry_at = datetime.datetime.now() + datetime.timedelta(seconds=MIRROR_FALLBACK_DELAY_SEC)
+        await db_async.commit(db)
+        await self.send_download_update(req.id, {"status": "pending", "message": req.error})
+        return True
 
     async def _download_mega_async(self, req: DownloadRequest, db: Session):
         """Resolve a MEGA public link and stream-decrypt it to disk.

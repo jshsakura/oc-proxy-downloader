@@ -20,7 +20,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from core.browser_solver import flow_for_host, solve_download_page, resolve_rootz_page
-from core.host_policy import BUNKR_HOSTS
+from core.host_policy import BUNKR_HOSTS, canonical_host
 from core.host_policy import http_failure_message
 from core.hoster_common import (
     DEFAULT_HOSTER_USER_AGENT,
@@ -299,7 +299,7 @@ def parse_mixdrop_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Di
     ).as_parse_result()
 
 
-def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mirror_only=False) -> Dict[str, object]:
+def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mirror_only=False, skip_hosts=()) -> Dict[str, object]:
     """Resolve MultiUp's mirror list, trying each supported mirror once."""
     session = requests.Session()
     session.headers.update({"User-Agent": DEFAULT_HOSTER_USER_AGENT})
@@ -355,7 +355,15 @@ def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mi
     if mirror_only:
         # Production admits the chosen mirror before its parser touches that
         # host. Resolving all mirrors here would bypass their session caps.
-        return next(candidate for _, candidate, _ in mirror_candidates if candidate)
+        # A mirror that already failed for this row is passed over, so a dead
+        # Gofile copy no longer fails a file MegaUp still holds.
+        untried = [
+            candidate for _, candidate, _ in mirror_candidates
+            if candidate and canonical_host(_host(candidate)) not in skip_hosts
+        ]
+        if not untried:
+            raise HosterParseError("MultiUp 모든 지원 미러 실패 (미러마다 한 번씩 시도했습니다)")
+        return untried[0]
 
     failures = []
     result = None
@@ -376,8 +384,8 @@ def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mi
     return result
 
 
-def resolve_multiup_mirror_sync(url):
-    return parse_multiup_sync(url, mirror_only=True)
+def resolve_multiup_mirror_sync(url, skip_hosts=()):
+    return parse_multiup_sync(url, mirror_only=True, skip_hosts=skip_hosts)
 
 
 def _extract_megaup_file_info(soup: BeautifulSoup, url: str, html_text: str) -> Dict[str, str]:

@@ -701,3 +701,32 @@ async def test_name_comes_from_the_storage_address_without_content_disposition(m
 def test_a_token_segment_is_not_a_name():
     assert dc._filename_from_url('https://x.example/d/zby5p44z6cosj4l4') == ''
     assert dc._filename_from_url('https://x.example/d/t/A%20B.rar') == 'A B.rar'
+
+
+@pytest.mark.asyncio
+async def test_failed_multiup_mirror_goes_back_for_the_next_mirror():
+    """Thirteen MultiUp files failed on expired Gofile copies MultiUp still listed elsewhere."""
+    core, db = dc.DownloadCore(), _FakeDb()
+    core.send_download_update = AsyncMock()
+    req = _FakeDownloadRequest()
+    req.id = 2780
+    req.original_url = 'https://multiup.io/download/abc/Code.rar'
+    req.url = 'https://gofile.io/d/hHynWw'
+    req.status = dc.StatusEnum.parsing
+
+    assert await core._fall_back_to_next_mirror(req, db, Exception('GoFile 파일 상태 확인 실패'))
+
+    assert req.url == req.original_url
+    assert req.status == dc.StatusEnum.pending
+    assert req.next_retry_at is not None
+    assert core._mirrors_tried[2780] == frozenset({'gofile.io'})
+
+
+@pytest.mark.asyncio
+async def test_a_link_that_was_not_a_multiup_mirror_fails_as_before():
+    core, db = dc.DownloadCore(), _FakeDb()
+    core.send_download_update = AsyncMock()
+    req = _FakeDownloadRequest()
+    req.original_url = req.url = 'https://gofile.io/d/hHynWw'
+
+    assert not await core._fall_back_to_next_mirror(req, db, Exception('x'))

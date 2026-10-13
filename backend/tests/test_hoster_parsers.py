@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for per-site hoster parsers such as MegaUp/DataNodes."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from core import hoster_parsers as hp
@@ -860,3 +862,36 @@ def test_datavaults_stops_before_post_when_access_is_refused(monkeypatch):
         hs.parse_datavaults_sync(page.url)
     session.get.assert_called_once()
     session.post.assert_not_called()
+
+
+def test_multiup_mirror_choice_passes_over_mirrors_that_already_failed(monkeypatch):
+    """A dead Gofile copy must not fail a file MegaUp still holds."""
+    page = (
+        '<form action="/fr/mirror/id" method="post">'
+        '<input name="_csrf_token" value="t"></form>'
+    )
+    mirrors = (
+        '<a namehost="gofile.io" link="https://gofile.io/d/abc"></a>'
+        '<a namehost="megaup.net" link="https://megaup.net/xyz/file.rar"></a>'
+    )
+
+    class Session:
+        def __init__(self):
+            self.headers = {}
+            self.proxies = {}
+
+        def get(self, url, timeout):
+            return SimpleNamespace(status_code=200, url=url, text=page, content=page.encode(),
+                                   headers={}, encoding="utf-8", raise_for_status=lambda: None)
+
+        def post(self, url, data, headers, timeout):
+            return SimpleNamespace(status_code=200, url=url, text=mirrors, content=mirrors.encode(),
+                                   headers={}, encoding="utf-8", raise_for_status=lambda: None)
+
+    monkeypatch.setattr(hs.requests, "Session", Session)
+    url = "https://multiup.io/download/id/file.rar"
+
+    assert hs.resolve_multiup_mirror_sync(url) == "https://gofile.io/d/abc"
+    assert hs.resolve_multiup_mirror_sync(url, frozenset({"gofile.io"})) == "https://megaup.net/xyz/file.rar"
+    with pytest.raises(HosterParseError, match="모든 지원 미러"):
+        hs.resolve_multiup_mirror_sync(url, frozenset({"gofile.io", "megaup.net"}))
