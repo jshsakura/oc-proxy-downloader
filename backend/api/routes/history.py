@@ -11,7 +11,12 @@ from typing import List, Optional
 
 from core.db import get_db
 from core.models import DownloadRequest, StatusEnum
-from core.error_messages import classify_failure_text
+from core.error_messages import (
+    FICHIER_QUOTA_WINDOW,
+    KIND_DAILY_QUOTA,
+    classify_failure_text,
+    fichier_quota_frees_at,
+)
 from core.hoster_labels import hoster_label, hoster_slug
 from core import live_progress
 from core.simple_parser import derive_display_name
@@ -128,6 +133,19 @@ def _queue_positions(db: Session) -> dict:
     return positions
 
 
+def _fichier_quota_frees_at(db: Session) -> Optional[str]:
+    """Expected time a spent 1fichier quota frees, from the transfers we started."""
+    since = datetime.now() - FICHIER_QUOTA_WINDOW
+    started = db.query(DownloadRequest.started_at).filter(
+        DownloadRequest.started_at >= since,
+        DownloadRequest.downloaded_size > 0,
+        (DownloadRequest.url.contains("1fichier.com"))
+        | (DownloadRequest.original_url.contains("1fichier.com")),
+    ).all()
+    frees = fichier_quota_frees_at(row.started_at for row in started)
+    return frees.isoformat() if frees else None
+
+
 @router.get("/downloads/working")
 def get_working_downloads(
     db: Session = Depends(get_db),
@@ -176,6 +194,10 @@ def get_working_downloads(
 
         live_speeds = live_progress.snapshot()
         queue_positions = _queue_positions(db)
+        quota_frees_at = (
+            _fichier_quota_frees_at(db)
+            if any(d.failure_kind == KIND_DAILY_QUOTA for d in downloads) else None
+        )
         download_list = []
         for download in downloads:
             download_list.append({
@@ -204,6 +226,8 @@ def get_working_downloads(
                 "attempt_count": getattr(download, "attempt_count", 0) or 0,
                 # 1 is next in line for the host; later rows wait their turn.
                 "queue_position": queue_positions.get(download.id),
+                # Only on the row that hit the 1fichier quota: when it should free.
+                "quota_frees_at": quota_frees_at if download.failure_kind == KIND_DAILY_QUOTA else None,
                 # Live reading, so a refetch does not blank the column mid-transfer.
                 "download_speed": live_speeds.get(download.id, 0),
             })

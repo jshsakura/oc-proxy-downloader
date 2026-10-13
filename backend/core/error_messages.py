@@ -899,6 +899,24 @@ def next_fichier_quota_check(now: Optional[datetime] = None) -> datetime:
     return (now or datetime.now()) + FICHIER_QUOTA_RECHECK
 
 
+FICHIER_QUOTA_WINDOW = timedelta(hours=24)
+
+
+def fichier_quota_frees_at(started, now: Optional[datetime] = None) -> Optional[datetime]:
+    """When the oldest 1fichier download we started inside the window ages out.
+
+    1fichier never says when a spent quota frees. It counts free downloads per
+    IP over a rolling 24 hours, and our own history is the part of that count we
+    can see, so the oldest of those leaving the window is the expected time.
+    Anything else on the same IP counts too, which is why the queue keeps its
+    cheap periodic check instead of waiting for this time. ``None`` when we have
+    started nothing inside the window.
+    """
+    now = now or datetime.now()
+    inside = [t for t in started if t and now - t < FICHIER_QUOTA_WINDOW]
+    return min(inside) + FICHIER_QUOTA_WINDOW if inside else None
+
+
 def _compute_next_retry_at(kind: str, attempt_count: int,
                            retry_after_seconds: Optional[int]) -> Optional[datetime]:
     """Compute the next retry-allowed time from ``kind`` + past attempt count.

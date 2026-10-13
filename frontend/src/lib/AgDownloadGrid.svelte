@@ -414,7 +414,9 @@
       const wait = downloadWaitInfo[d.id];
 
       const tone = st === "failed" && !hasScheduledRetry(d, currentTime) ? failureTone(d) : "";
-      this.pill.className = `status status-${st}${tone ? ` tone-${tone}` : ""} interactive-status ${
+      // A spent 1fichier quota is a wait, not a fault: paint it like the queue.
+      const quotaWait = d.failure_kind === "daily_quota" && hasScheduledRetry(d, currentTime);
+      this.pill.className = `status status-${quotaWait ? "pending" : st}${tone ? ` tone-${tone}` : ""} interactive-status ${
         isProxy ? "proxy-status" : "local-status"
       }`;
       this.pill.title = getStatusTooltip(d);
@@ -440,7 +442,12 @@
         });
       } else if (isQueuedBehind(d, currentTime)) {
         this.pill.textContent = $t("download_queue_position", { n: d.queue_position });
-      } else if (hasScheduledRetry(d, currentTime) && d.failure_kind === "daily_quota") {
+      } else if (quotaWait && d.quota_frees_at && new Date(d.quota_frees_at).getTime() > currentTime) {
+        // 1fichier never says when; our own transfers say when one ages out.
+        this.pill.textContent = $t("download_quota_frees", {
+          when: retryClockLabel(d.quota_frees_at, currentTime, $locale)
+        });
+      } else if (quotaWait) {
         // Say which limit is being waited out, so a short countdown on a
         // 1fichier row does not read as a fault the app will repeat.
         const remSec = Math.max(0, (new Date(d.next_retry_at).getTime() - currentTime) / 1000);
