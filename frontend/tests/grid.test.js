@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  placeholderLabel,
   retryClockLabel,
   retryDayLabel,
   showsRetryClock,
@@ -267,5 +268,18 @@ describe("retry clock label", () => {
   it("keeps the countdown for waits under an hour", () => {
     const soon = new Date(now + 20 * 60 * 1000).toISOString();
     expect(showsRetryClock({ next_retry_at: soon }, now)).toBe(false);
+  });
+});
+
+describe("placeholderLabel", () => {
+  it("shows the host and id of a row that has no name yet", () => {
+    expect(placeholderLabel("1fichier:ccwoppei56xf49pllwms")).toBe(
+      "1fichier · ccwoppei56xf49pllwms",
+    );
+  });
+
+  it("leaves real names to the caller", () => {
+    expect(placeholderLabel("Game.part1.rar")).toBe("");
+    expect(placeholderLabel("")).toBe("");
   });
 });

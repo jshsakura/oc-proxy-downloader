@@ -8,7 +8,7 @@
   import "ag-grid-community/styles/ag-grid.css";
   import "ag-grid-community/styles/ag-theme-quartz.css";
   import { t, locale } from "./i18n.js";
-  import { failureStatusKey, failureTone, fitFilename, hasScheduledRetry, isQueuedBehind, retryAttemptLabel, retryClockLabel, retryDayLabel, showsRetryClock } from "./grid.js";
+  import { failureStatusKey, failureTone, fitFilename, hasScheduledRetry, isQueuedBehind, placeholderLabel, retryAttemptLabel, retryClockLabel, retryDayLabel, showsRetryClock } from "./grid.js";
   import { theme } from "./theme.js";
 
   import ChevronLeftIcon from "../icons/ChevronLeftIcon.svelte";
@@ -146,6 +146,8 @@
   function getDisplayFileName(download) {
     const name = download?.filename;
     if (name && !isPlaceholderName(name)) return name;
+    const label = placeholderLabel(name);
+    if (label) return label;
     const st = (download?.status || "").toLowerCase();
     if (st === "pending") return $t("file_name_queued");
     if (["parsing", "proxying", "downloading", "waiting"].includes(st))

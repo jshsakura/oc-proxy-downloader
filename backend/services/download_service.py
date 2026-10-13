@@ -28,6 +28,7 @@ from core.error_messages import (
 from core.host_policy import host_key_for_url
 from core.link_containers import admission_url
 from core.proxy_manager import proxy_manager
+from services.name_resolver import name_resolver
 from services.sse_manager import sse_manager
 
 # How often the background sweeper scans for failed downloads whose retry
@@ -97,6 +98,7 @@ class DownloadService:
 
         # Start the background auto-retry sweeper
         self._retry_sweeper_task = asyncio.create_task(self._retry_sweeper_loop())
+        name_resolver.start()
 
     async def stop(self):
         """Stop the service"""
@@ -110,6 +112,7 @@ class DownloadService:
         if self._retry_sweeper_task is not None:
             self._retry_sweeper_task.cancel()
             self._retry_sweeper_task = None
+        name_resolver.stop()
 
         # Clean up all download tasks
         await download_core.cleanup_all_tasks()

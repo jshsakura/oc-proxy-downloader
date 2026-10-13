@@ -5,6 +5,7 @@
     itemsPerPageForWidth,
     isLiveStatus,
     retryClockLabel,
+    placeholderLabel,
     truncateMiddle,
   } from "./lib/grid.js";
   import SettingsModal from "./lib/SettingsModal.svelte";
@@ -1755,6 +1756,8 @@
   function displayFileName(download) {
     const name = download?.filename;
     if (name && !isPlaceholderName(name)) return truncateMiddle(name, nameCap);
+    const label = placeholderLabel(name);
+    if (label) return label;
     const st = (download?.status || "").toLowerCase();
     if (st === "pending") return $t("file_name_queued");
     if (["parsing", "proxying", "downloading", "waiting"].includes(st))

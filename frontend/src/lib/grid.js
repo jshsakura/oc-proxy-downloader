@@ -158,6 +158,17 @@ export function itemsPerPageForWidth(width) {
 }
 
 /**
+ * What to show for a row whose name is still the id its link carried.
+ *
+ * "Name not found" on every such row told the user nothing about which file it
+ * was. The host and id at least tell rows apart and match the link they added.
+ */
+export function placeholderLabel(name) {
+  const m = (name || "").trim().match(/^(1fichier|mega):(.+)$/i);
+  return m ? `${m[1]} · ${m[2]}` : "";
+}
+
+/**
  * Shorten a release name from the middle.
  *
  * The meaning sits at both ends: the title in front, and
