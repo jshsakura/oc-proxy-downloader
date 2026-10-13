@@ -697,6 +697,10 @@ class DownloadCore:
             raw = attempts[-1].get("raw", "") if attempts else ""
         except (ValueError, TypeError, KeyError, AttributeError):
             raw = ""
+        if _is_dead_mirror_set(raw) or _is_dead_mirror_set(getattr(req, "error", None) or ""):
+            # Checked here, not at one call site: the same failure is recorded
+            # again by the task's outer handler, which held MultiUp anyway.
+            return False
         kind = getattr(req, "failure_kind", None)
         refusal_kinds = {KIND_RATE_LIMITED, KIND_CLOUDFLARE, KIND_BLOCKED,
                          KIND_BROWSER_PARSE, KIND_PROXY_BLOCKED, KIND_SLOT_BUSY, KIND_AUTH_REQUIRED}
@@ -1495,8 +1499,7 @@ class DownloadCore:
                         )
                     except Exception as error:
                         apply_failure_to_request(req, "파싱", str(error))
-                        if not _is_dead_mirror_set(str(error)):
-                            await self._record_host_refusal(req, db, container_host, container_key)
+                        await self._record_host_refusal(req, db, container_host, container_key)
                         raise
                 await db_async.refresh(db, req)
                 if req.status == StatusEnum.stopped or cancel_signal.is_cancelled(req.id):

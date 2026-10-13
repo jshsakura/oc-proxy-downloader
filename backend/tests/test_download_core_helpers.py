@@ -736,3 +736,14 @@ def test_a_file_whose_mirrors_are_all_gone_does_not_hold_multiup():
     assert dc._is_dead_mirror_set("MultiUp 모든 지원 미러 실패 (미러마다 한 번씩 시도했습니다)")
     assert dc._is_dead_mirror_set("MultiUp에 자동 다운로드 가능한 미러가 없음 (현재 미러: usenet)")
     assert not dc._is_dead_mirror_set("MultiUp 페이지 조회 실패: 429")
+
+
+def test_a_dead_mirror_set_never_registers_a_host_refusal():
+    core = dc.DownloadCore()
+    req = _FakeDownloadRequest()
+    req.failure_kind = dc.KIND_BROWSER_PARSE
+    req.error = "[파싱 실패] MultiUp의 지원 미러에서 다운로드 주소를 얻지 못했습니다"
+    req.attempts_json = '[{"raw": "MultiUp 모든 지원 미러 실패 (미러마다 한 번씩 시도했습니다)"}]'
+
+    assert not core._register_host_refusal(req, "multiup.io", "multiup.io@direct")
+    assert "multiup.io@direct" not in core._host_cooldown_until
