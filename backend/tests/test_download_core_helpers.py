@@ -747,3 +747,17 @@ def test_a_dead_mirror_set_never_registers_a_host_refusal():
 
     assert not core._register_host_refusal(req, "multiup.io", "multiup.io@direct")
     assert "multiup.io@direct" not in core._host_cooldown_until
+
+
+def test_ouo_is_resolved_over_http_before_any_browser(monkeypatch):
+    monkeypatch.setattr(dc, 'unwrap_if_ouo', lambda url: 'https://megaup.net/abc/Game.rar')
+    monkeypatch.setattr(dc, 'resolve_container_sync', lambda *a: pytest.fail('browser must not run'))
+
+    assert dc._resolve_container('https://ouo.press/HZMwmY', frozenset()) == 'https://megaup.net/abc/Game.rar'
+
+
+def test_ouo_falls_back_to_the_browser_when_http_cannot_resolve(monkeypatch):
+    monkeypatch.setattr(dc, 'unwrap_if_ouo', lambda url: None)
+    monkeypatch.setattr(dc, 'resolve_container_sync', lambda url, skip: 'https://send.now/c57v3xyrz7r2')
+
+    assert dc._resolve_container('https://ouo.io/naWGpw', frozenset()) == 'https://send.now/c57v3xyrz7r2'

@@ -27,6 +27,7 @@ from .config import get_download_path, get_config
 from .db import SessionLocal
 from services.sse_manager import sse_manager
 from services.notification_service import send_telegram_start_notification, send_telegram_notification
+from services.ouo_unwrap_service import is_ouo_url, unwrap_if_ouo
 from utils.file_helpers import PART_SUFFIX, download_file_content, generate_file_path, get_final_file_path
 from core import db_async
 from core import live_progress
@@ -502,6 +503,21 @@ _DEAD_MIRROR_SET_MESSAGES = (
 
 def _is_dead_mirror_set(error: str) -> bool:
     return any(message in error for message in _DEAD_MIRROR_SET_MESSAGES)
+
+
+def _resolve_container(source: str, skip_hosts) -> str:
+    """The file address behind a container link.
+
+    ouo answers its own form chain over plain HTTP in seconds; that is the
+    resolver oc-scraper runs. The browser click is only the fallback: on
+    2026-10-13 a popunder ad took the press on both ouo links sent, and they
+    failed although the HTTP chain resolved each one.
+    """
+    if is_ouo_url(source):
+        resolved = unwrap_if_ouo(source)
+        if resolved and resolved != source:
+            return resolved
+    return resolve_container_sync(source, skip_hosts)
 
 
 def _is_multiup_url(url: str) -> bool:
@@ -1493,7 +1509,7 @@ class DownloadCore:
                         return
                     try:
                         resolved = await self._run_special_parser(
-                            source, lambda: resolve_container_sync(
+                            source, lambda: _resolve_container(
                                 source, self._mirrors_tried.get(req_id, frozenset())
                             )
                         )
