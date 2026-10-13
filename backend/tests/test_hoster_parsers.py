@@ -910,3 +910,10 @@ def test_multiup_skips_mirrors_it_marks_invalid_and_tries_vikingfile():
     names = [name for name, _, _ in hs._multiup_mirror_candidates(mirrors)]
 
     assert names == ["VikingFile", "Gofile"]
+
+
+def test_mixdrop_missing_file_page_is_recognised_at_once():
+    """The browser waited 270 s for a button on this page for each MultiUp file."""
+    page = "<h2>WE ARE SORRY</h2><p>We can't find the file you are looking for.</p>"
+    with pytest.raises(HosterParseError, match="파일 없음"):
+        _raise_for_dead_page("MixDrop", page, 200)

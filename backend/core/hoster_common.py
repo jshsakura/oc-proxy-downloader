@@ -350,6 +350,9 @@ def _raise_for_dead_page(host_label: str, text: str, status_code: int) -> None:
         "file expired",
         "deleted by",
         "no longer available",
+        # MixDrop: "WE ARE SORRY / We can't find the file you are looking for".
+        "can't find the file",
+        "can’t find the file",
     )
     if any(marker in lowered for marker in dead_markers):
         raise HosterParseError(f"{host_label} 파일 없음 또는 삭제됨 (삭제 여부 미확인)")
