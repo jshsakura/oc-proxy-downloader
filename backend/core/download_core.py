@@ -486,6 +486,17 @@ def _filename_from_disposition(disposition: Optional[str]) -> str:
     return ""
 
 
+def _filename_from_url(url) -> str:
+    """The file name a storage address carries in its last path segment.
+
+    Send.now and send.cm hand out ``/d/<token>/<file name>`` with no
+    Content-Disposition. A segment without a real extension (a token, a code) is
+    not a name.
+    """
+    segment = unquote(urlparse(str(url or "")).path.rstrip("/").rsplit("/", 1)[-1])
+    return "" if _name_needs_resolution(segment) else segment
+
+
 def _name_needs_resolution(name: Optional[str]) -> bool:
     """True when the stored name is missing, a placeholder, or a bare code
     without an extension — i.e. we should prefer the server-provided filename."""
@@ -2166,12 +2177,15 @@ class DownloadCore:
         # missing, a placeholder, or a bare file code without an extension. Only
         # when nothing has been written yet (initial_size == 0) so resume isn't broken.
         if initial_size == 0:
-            disp_name = _filename_from_disposition(response.headers.get("Content-Disposition"))
+            disp_name = (
+                _filename_from_disposition(response.headers.get("Content-Disposition"))
+                or _filename_from_url(response.url)
+            )
             if disp_name and _name_needs_resolution(req.file_name):
                 req.file_name = disp_name
                 req.save_path = generate_file_path(disp_name, is_temporary=True)
                 await db_async.commit(db)
-                print(f"[LOG] Content-Disposition 파일명 적용: {disp_name}")
+                print(f"[LOG] 응답 파일명 적용: {disp_name}")
                 await sse_manager.broadcast_message("filename_update", {
                     "id": req.id,
                     "filename": req.file_name,

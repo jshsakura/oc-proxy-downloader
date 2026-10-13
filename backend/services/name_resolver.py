@@ -53,6 +53,16 @@ def pick_unnamed(rows, tried: Dict[int, float], now: float) -> List:
     ]
 
 
+def _renamed(row, info) -> bool:
+    """Apply what was found; true only when the row got a real name from it.
+
+    A dead page can hand back just the code it was opened with, which fills in a
+    size at most and is no name worth reporting.
+    """
+    before = row.file_name
+    return _apply_hoster_file_info(row, info) and row.file_name != before
+
+
 class NameResolver:
     def __init__(self):
         self._tried: Dict[int, float] = {}
@@ -106,7 +116,7 @@ class NameResolver:
         named = []
         for row in rows:
             info = found.get(fichier_file_id(lookup_url(row)))
-            if info and _apply_hoster_file_info(row, info):
+            if info and _renamed(row, info):
                 named.append(row.file_name)
         return named
 
@@ -123,7 +133,7 @@ class NameResolver:
                 # The host said slow down (429). Leave the rest for later.
                 print(f"[WARNING] 파일명 미리 찾기 중단 (id={row.id}): {e}")
                 break
-            if _apply_hoster_file_info(row, info):
+            if _renamed(row, info):
                 named.append(row.file_name)
         return named
 

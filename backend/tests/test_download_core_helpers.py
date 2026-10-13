@@ -161,6 +161,7 @@ class _FakeAioResponse:
         self.reason = reason
         self.headers = headers or {}
         self.content = _FakeBody(body)
+        self.url = None
 
     async def __aenter__(self):
         return self
@@ -661,3 +662,42 @@ async def test_ordinary_download_gets_filename_in_single_get_and_rejects_html(mo
         assert requests == [('GET', '/file'), ('GET', '/page')]
     finally:
         await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_name_comes_from_the_storage_address_without_content_disposition(monkeypatch, tmp_path):
+    """send.now answered /d/<token>/<name>.rar with no header and the row had only its code."""
+    from aiohttp import web
+    core, db = dc.DownloadCore(), _FakeDb()
+    core.send_download_update = AsyncMock()
+    monkeypatch.setattr(dc, 'send_telegram_start_notification', lambda *a, **kw: None)
+    monkeypatch.setattr(dc, 'send_telegram_notification', lambda *a, **kw: None)
+    monkeypatch.setattr(dc, 'generate_file_path', lambda name, **kw: str(tmp_path / (name + '.part')))
+    monkeypatch.setattr(dc.sse_manager, 'broadcast_message', AsyncMock())
+    payload = b'Rar!' + b'\x00' * 256
+
+    async def respond(request):
+        return web.Response(body=payload, content_type='application/octet-stream')
+    app = web.Application()
+    app.router.add_route('*', '/d/{token}/{name}', respond)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    server = web.TCPSite(runner, '127.0.0.1', 0)
+    await server.start()
+    port = server._server.sockets[0].getsockname()[1]
+    try:
+        req = _FakeDownloadRequest()
+        req.url = req.original_url = f'http://127.0.0.1:{port}/d/zby5p44z/Game-%5BBASE%5D.part2.rar'
+        req.save_path = None
+        req.file_name = '9w9iohn3pnw4'
+        req.status = dc.StatusEnum.downloading
+        await core._perform_local_download_async(req, db)
+        assert req.status == dc.StatusEnum.done
+        assert req.file_name == 'Game-[BASE].part2.rar'
+    finally:
+        await runner.cleanup()
+
+
+def test_a_token_segment_is_not_a_name():
+    assert dc._filename_from_url('https://x.example/d/zby5p44z6cosj4l4') == ''
+    assert dc._filename_from_url('https://x.example/d/t/A%20B.rar') == 'A B.rar'
