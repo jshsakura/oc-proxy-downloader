@@ -95,6 +95,9 @@ class DownloadRequest(_AsDictMixin, Base):
     last_probed_at = Column(DateTime, nullable=True)
     # Ring buffer of the most recent N=5 attempts (JSON array, each element {ts, stage, kind, raw, proxy})
     attempts_json = Column(Text, nullable=True)
+    # Alternative links for the same file, next first (JSON array). The row
+    # moves to the next one when its link is deleted, unparseable or held.
+    mirror_urls = Column(Text, nullable=True)
 
     @validates("file_name")
     def _drop_site_tag(self, _key, value):

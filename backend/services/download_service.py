@@ -28,6 +28,7 @@ from core.error_messages import (
 from core.host_policy import host_key_for_url
 from core.link_containers import admission_url
 from core.proxy_manager import proxy_manager
+from services.mirror_failover import needs_failover, switch_to_next_mirror
 from services.name_resolver import name_resolver
 from services.sse_manager import sse_manager
 
@@ -140,10 +141,26 @@ class DownloadService:
             except Exception as e:
                 print(f"[ERROR] 자동 재시도 스윕 실패: {e}")
 
+    async def _fail_over_to_mirrors(self, db, now):
+        """Move rows stuck on their link to the next link they were sent with."""
+        rows = await db_async.all_rows(db.query(DownloadRequest).filter(
+            DownloadRequest.mirror_urls.isnot(None),
+            DownloadRequest.status.in_([StatusEnum.failed, StatusEnum.pending]),
+        ))
+        active = set(download_core.download_tasks)
+        moved = [req for req in rows if needs_failover(req, now, active)]
+        for req in moved:
+            switch_to_next_mirror(req, now)
+            # Mirrors MultiUp already tried belong to the link being left.
+            download_core._mirrors_tried.pop(req.id, None)
+        if moved:
+            await db_async.commit(db)
+
     async def _sweep_due_retries(self):
         """Restart every failed download whose ``next_retry_at`` has passed."""
         with SessionLocal() as db:
             now = datetime.datetime.now()
+            await self._fail_over_to_mirrors(db, now)
             # `pending` is here because a queue wait is not a failure and no
             # longer pretends to be one. next_retry_at is what separates a
             # scheduled wait from a download parked behind a semaphore by a live

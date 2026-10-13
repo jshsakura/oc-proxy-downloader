@@ -14,6 +14,7 @@ runs, and the work still happens afterwards.
 """
 
 import asyncio
+import json
 
 import pytest
 from sqlalchemy import create_engine
@@ -185,3 +186,17 @@ def test_the_app_database_runs_in_wal_mode():
 
     assert mode.lower() == "wal"
     assert busy >= 10_000
+
+
+@pytest.mark.asyncio
+async def test_other_links_to_the_same_file_are_kept_in_order(db, started):
+    """A collector sends one file with its other hosts; the row keeps them to fall back on."""
+    mirrors = ["https://datanodes.to/abc123def456", PLAIN_URL, "https://megaup.net/x/Game.rar"]
+
+    result = await downloads_route.add_download({"url": PLAIN_URL, "mirrors": mirrors}, db)
+    await drain_background_starts()
+
+    row = db.get(DownloadRequest, result["id"])
+    assert json.loads(row.mirror_urls) == [
+        "https://datanodes.to/abc123def456", "https://megaup.net/x/Game.rar",
+    ]

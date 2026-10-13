@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import asyncio
 import httpx
+import json
 import os
 import re
 from urllib.parse import urlparse, unquote, urlunparse
@@ -22,7 +23,6 @@ from core.models import DownloadRequest, StatusEnum
 from core.download_core import download_core, ROUTE_MANUAL, _read_download_route, assert_downloaded_a_real_file
 from core.parser import fichier_parser
 from core.simple_parser import parse_1fichier_simple_sync, clean_1fichier_url, derive_display_name
-from core.hoster_parsers import should_preserve_original_url
 from core.config import get_config
 from core.link_admission import enqueue_link_error
 from core.link_containers import is_container_url, admission_url
@@ -40,6 +40,7 @@ from core.error_messages import (
 from core.executors import parse_executor_for
 from services.sse_manager import sse_manager
 from services.ouo_unwrap_service import is_ouo_url, unwrap_if_ouo
+from services.mirror_failover import clean_mirrors, original_url_for
 
 
 def _has_fichier_credentials() -> bool:
@@ -271,9 +272,9 @@ async def add_download(
         # visible even before parsing — preparse overwrites it with the real
         # filename on success, so the placeholder only persists in dead cases,
         # and even then it's far more identifiable than "Unknown".
-        preserved_original_url = url if (
-            is_ouo or is_container_url(url) or "1fichier.com" in url or should_preserve_original_url(url)
-        ) else None
+        preserved_original_url = original_url_for(url)
+        # Other links to the same file, tried in order when this one is stuck.
+        mirrors = clean_mirrors(url, request.get("mirrors"))
 
         new_request = DownloadRequest(
             url=url,
@@ -282,6 +283,7 @@ async def add_download(
             use_proxy=use_proxy,
             status=StatusEnum.pending,
             file_name=display_name or derive_display_name(url),
+            mirror_urls=json.dumps(mirrors) if mirrors else None,
         )
 
         download_id = await asyncio.to_thread(_persist_new_request, db, new_request)
