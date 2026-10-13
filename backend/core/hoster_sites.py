@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 
 from core.browser_solver import flow_for_host, solve_download_page, resolve_rootz_page
 from core.host_policy import BUNKR_HOSTS, canonical_host
+from core import hoster_legacy_sites as legacy_sites
 from core.host_policy import http_failure_message
 from core.hoster_common import (
     DEFAULT_HOSTER_USER_AGENT,
@@ -299,6 +300,43 @@ def parse_mixdrop_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Di
     ).as_parse_result()
 
 
+# Supported MultiUp mirrors, in the order they are tried. MegaUp and VikingFile
+# answer plain requests. Gofile needs a browser and expires files nobody
+# fetches, and MixDrop and ClicknUpload sit behind countdowns and ads.
+_MULTIUP_MIRRORS = (
+    ("MegaUp", "megaup.net", "parse_megaup_sync"),
+    ("VikingFile", "vikingfile.com", "parse_vikingfile_sync"),
+    ("Gofile", "gofile.io", "parse_gofile_sync"),
+    ("MixDrop", "mixdrop.ag", "parse_mixdrop_sync"),
+    ("ClicknUpload", "clicknupload.to", "parse_clicknupload_sync"),
+)
+# MultiUp checks its mirrors and marks each one. "invalid" copies are gone;
+# measured on 2026-10-13, every MegaUp and MixDrop copy marked so failed.
+_MULTIUP_VALIDITY_ORDER = {"valid": 0, "": 1, "unknown": 1}
+
+
+def _multiup_mirror_candidates(mirrors):
+    """``(name, url, resolver)`` for each usable mirror, best first."""
+    ranked = []
+    for order, (name, host, resolver) in enumerate(_MULTIUP_MIRRORS):
+        for mirror_url, validity in mirrors:
+            if canonical_host(_host(mirror_url)) != host:
+                continue
+            if validity not in _MULTIUP_VALIDITY_ORDER:
+                break
+            ranked.append((_MULTIUP_VALIDITY_ORDER[validity], order, name, mirror_url, resolver))
+            break
+    ranked.sort()
+    return [(name, mirror_url, _multiup_resolver(resolver)) for _, _, name, mirror_url, resolver in ranked]
+
+
+def _multiup_resolver(name):
+    # Looked up when used so a replaced parser (tests, hot fixes) is the one called.
+    if name == "parse_clicknupload_sync":
+        return legacy_sites.parse_clicknupload_sync
+    return globals()[name]
+
+
 def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mirror_only=False, skip_hosts=()) -> Dict[str, object]:
     """Resolve MultiUp's mirror list, trying each supported mirror once."""
     session = requests.Session()
@@ -341,15 +379,11 @@ def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mi
     for anchor in mirrors_soup.select("a[namehost], a[link]"):
         mirror_url = anchor.get("link") or anchor.get("href") or ""
         if mirror_url.startswith("http"):
-            mirrors.append(mirror_url)
+            mirrors.append((mirror_url, (anchor.get("validity") or "").lower()))
 
-    mirror_candidates = (
-        ("Gofile", next((item for item in mirrors if _host(item).removeprefix("www.") == "gofile.io"), ""), parse_gofile_sync),
-        ("MegaUp", next((item for item in mirrors if _host(item).removeprefix("www.") == "megaup.net"), ""), parse_megaup_sync),
-        ("MixDrop", next((item for item in mirrors if _host(item).removeprefix("www.") in {"mixdrop.ag", "mixdrop.top", "mxdrop.top"}), ""), parse_mixdrop_sync),
-    )
-    if not any(candidate for _, candidate, _ in mirror_candidates):
-        available = ", ".join(sorted({_host(item) for item in mirrors if _host(item)}))
+    mirror_candidates = _multiup_mirror_candidates(mirrors)
+    if not mirror_candidates:
+        available = ", ".join(sorted({_host(item) for item, _ in mirrors if _host(item)}))
         detail = f" (현재 미러: {available})" if available else ""
         raise HosterParseError(f"MultiUp에 자동 다운로드 가능한 미러가 없음{detail}")
     if mirror_only:
@@ -359,7 +393,7 @@ def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mi
         # Gofile copy no longer fails a file MegaUp still holds.
         untried = [
             candidate for _, candidate, _ in mirror_candidates
-            if candidate and canonical_host(_host(candidate)) not in skip_hosts
+            if canonical_host(_host(candidate)) not in skip_hosts
         ]
         if not untried:
             raise HosterParseError("MultiUp 모든 지원 미러 실패 (미러마다 한 번씩 시도했습니다)")
@@ -368,8 +402,6 @@ def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mi
     failures = []
     result = None
     for name, mirror_url, resolver in mirror_candidates:
-        if not mirror_url:
-            continue
         try:
             result = resolver(mirror_url, proxies=proxies)
             break

@@ -543,7 +543,8 @@ def test_multiup_tries_megaup_once_before_mixdrop(monkeypatch):
 
     result = hp.parse_special_hoster_sync("https://multiup.io/download/id/file.rar")
     assert result["download_link"] == "https://megaup.net/direct/file.rar"
-    assert calls == ["gofile", "megaup"]
+    # MegaUp leads: it answers plain requests, and Gofile expires idle files.
+    assert calls == ["megaup"]
 
 
 def test_multiup_reports_when_only_unsupported_mirrors_exist(monkeypatch):
@@ -891,7 +892,21 @@ def test_multiup_mirror_choice_passes_over_mirrors_that_already_failed(monkeypat
     monkeypatch.setattr(hs.requests, "Session", Session)
     url = "https://multiup.io/download/id/file.rar"
 
-    assert hs.resolve_multiup_mirror_sync(url) == "https://gofile.io/d/abc"
-    assert hs.resolve_multiup_mirror_sync(url, frozenset({"gofile.io"})) == "https://megaup.net/xyz/file.rar"
+    assert hs.resolve_multiup_mirror_sync(url) == "https://megaup.net/xyz/file.rar"
+    assert hs.resolve_multiup_mirror_sync(url, frozenset({"megaup.net"})) == "https://gofile.io/d/abc"
     with pytest.raises(HosterParseError, match="모든 지원 미러"):
         hs.resolve_multiup_mirror_sync(url, frozenset({"gofile.io", "megaup.net"}))
+
+
+def test_multiup_skips_mirrors_it_marks_invalid_and_tries_vikingfile():
+    """MultiUp's own check said which copies were gone; every one it marked failed."""
+    mirrors = [
+        ("https://megaup.net/a/file.rar", "invalid"),
+        ("https://mixdrop.ag/f/b", "invalid"),
+        ("https://gofile.io/d/c", "unknown"),
+        ("https://vikingfile.com/f/d", "valid"),
+    ]
+
+    names = [name for name, _, _ in hs._multiup_mirror_candidates(mirrors)]
+
+    assert names == ["VikingFile", "Gofile"]
