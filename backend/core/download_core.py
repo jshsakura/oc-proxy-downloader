@@ -491,6 +491,19 @@ def _filename_from_disposition(disposition: Optional[str]) -> str:
 MIRROR_FALLBACK_DELAY_SEC = 5
 
 
+# MultiUp answered, but every mirror it lists for this one file is gone. That
+# says nothing about MultiUp itself; holding the host for it stopped every other
+# MultiUp link for an hour on 2026-10-13.
+_DEAD_MIRROR_SET_MESSAGES = (
+    "MultiUp 모든 지원 미러 실패",
+    "MultiUp에 자동 다운로드 가능한 미러가 없음",
+)
+
+
+def _is_dead_mirror_set(error: str) -> bool:
+    return any(message in error for message in _DEAD_MIRROR_SET_MESSAGES)
+
+
 def _is_multiup_url(url: str) -> bool:
     return canonical_host(urlparse(url or "").hostname) == "multiup.io"
 
@@ -1482,7 +1495,8 @@ class DownloadCore:
                         )
                     except Exception as error:
                         apply_failure_to_request(req, "파싱", str(error))
-                        await self._record_host_refusal(req, db, container_host, container_key)
+                        if not _is_dead_mirror_set(str(error)):
+                            await self._record_host_refusal(req, db, container_host, container_key)
                         raise
                 await db_async.refresh(db, req)
                 if req.status == StatusEnum.stopped or cancel_signal.is_cancelled(req.id):

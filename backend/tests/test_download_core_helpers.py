@@ -730,3 +730,9 @@ async def test_a_link_that_was_not_a_multiup_mirror_fails_as_before():
     req.original_url = req.url = 'https://gofile.io/d/hHynWw'
 
     assert not await core._fall_back_to_next_mirror(req, db, Exception('x'))
+
+
+def test_a_file_whose_mirrors_are_all_gone_does_not_hold_multiup():
+    assert dc._is_dead_mirror_set("MultiUp 모든 지원 미러 실패 (미러마다 한 번씩 시도했습니다)")
+    assert dc._is_dead_mirror_set("MultiUp에 자동 다운로드 가능한 미러가 없음 (현재 미러: usenet)")
+    assert not dc._is_dead_mirror_set("MultiUp 페이지 조회 실패: 429")
