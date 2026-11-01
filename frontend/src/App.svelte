@@ -1626,9 +1626,24 @@
     }
   }
 
-  async function callApi(endpoint, downloadId = null) {
+  // A TeraBox share that failed for want of its extraction code says so in its
+  // error (the "?pwd=" hint), so the retry asks for the code first.
+  function retryDownload(id) {
+    const row = gridDownloads.find((d) => d.id === id);
+    if (!row?.error?.includes("?pwd=")) return callApi(`/api/retry/${id}`);
+    const password = window.prompt($t("share_password_prompt"));
+    if (!password?.trim()) return;
+    return callApi(`/api/retry/${id}`, null, { password: password.trim() });
+  }
+
+  async function callApi(endpoint, downloadId = null, body = null) {
     try {
-      const response = await authenticatedFetch(endpoint, { method: "POST" });
+      const response = await authenticatedFetch(
+        endpoint,
+        body
+          ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+          : { method: "POST" }
+      );
       
       if (response.ok) {
         const responseData = await response.json();
@@ -2500,7 +2515,7 @@
         on:toggleSelectAll={() => toggleSelectAll(gridDownloads)}
         on:start={(e) => callApi(`/api/downloads/start/${e.detail.id}`)}
         on:stop={(e) => callApi(`/api/downloads/stop/${e.detail.id}`)}
-        on:retry={(e) => callApi(`/api/retry/${e.detail.id}`)}
+        on:retry={(e) => retryDownload(e.detail.id)}
         on:copyLink={(e) => copyDownloadLink(e.detail.download)}
         on:redownload={(e) => redownload(e.detail.download)}
         on:proxyToggle={(e) => handleProxyToggle(e.detail.download)}

@@ -7,6 +7,7 @@ Async download API router
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import or_, true as sqlalchemy_true
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -18,7 +19,7 @@ import re
 from urllib.parse import urlparse, unquote, urlunparse
 
 from core.db import get_db, SessionLocal
-from core import db_async
+from core import cancel_signal, db_async
 from core.models import DownloadRequest, StatusEnum
 from core.download_core import download_core, ROUTE_MANUAL, _read_download_route, assert_downloaded_a_real_file
 from core.parser import fichier_parser
@@ -27,6 +28,7 @@ from core.config import get_config
 from core.link_admission import enqueue_link_error
 from core.link_containers import is_container_url, admission_url
 from core.host_policy import host_key_for_url
+from core.terabox_share import is_terabox_share_host, with_password
 from core.i18n import get_translations
 from core.error_messages import (
     classify_failure_text,
@@ -67,6 +69,11 @@ def _should_skip_retry(req: DownloadRequest, has_credentials: bool) -> Optional[
       - ``cooldown``: next retry time not yet reached. Clears naturally once
         the time passes.
     """
+    if is_terabox_share_host(urlparse(admission_url(req)).hostname):
+        return is_retry_blocked_now(
+            req, False,
+            has_terabox_cookie=bool((get_config().get("terabox_ndus") or "").strip()),
+        )
     return is_retry_blocked_now(req, has_credentials)
 
 
@@ -397,12 +404,29 @@ async def resume_download(download_id: int, use_proxy: Optional[bool] = None, db
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 
+class RetryBody(BaseModel):
+    password: Optional[str] = None
+
+
+def _apply_share_password(req: DownloadRequest, password: str) -> None:
+    """Store a late-entered share password as the link's ``?pwd=``."""
+    shares = [
+        column for column in ("url", "original_url")
+        if getattr(req, column) and is_terabox_share_host(urlparse(getattr(req, column)).hostname or "")
+    ]
+    if not shares:
+        raise HTTPException(status_code=400, detail="password_not_supported")
+    for column in shares:
+        setattr(req, column, with_password(getattr(req, column), password))
+
+
 @router.post("/retry/{download_id}")
 async def retry_download(
     download_id: int,
+    body: Optional[RetryBody] = None,
     db: Session = Depends(get_db)
 ):
-    """Retry a failed download"""
+    """Retry a failed download. A TeraBox share may come with its password."""
     try:
         req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == download_id))
         if not req:
@@ -417,7 +441,12 @@ async def retry_download(
         # Permanent failure — retrying yields the same result. Even if a
         # client calls this carelessly it only loads 1fichier and hands the
         # user the same failure again, so block it.
-        skip_reason = _should_skip_retry(req, _has_fichier_credentials())
+        password = (body.password or "").strip() if body else ""
+        if password:
+            _apply_share_password(req, password)
+        # A new password is new information, so it lifts a "dead" verdict
+        # that the wrong one earned.
+        skip_reason = None if password else _should_skip_retry(req, _has_fichier_credentials())
         if skip_reason == "dead":
             raise HTTPException(
                 status_code=409,
@@ -932,16 +961,29 @@ async def _perform_pre_parsing(req: DownloadRequest, db: Session):
 async def stop_all_downloads(db: Session = Depends(get_db)):
     """Stop all downloads"""
     try:
-        # Find all in-progress downloads (pending, downloading, parsing)
+        # Find all in-progress downloads (pending, downloading, parsing, waiting, proxying)
         active_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
-            DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing])
+            DownloadRequest.status.in_([
+                StatusEnum.pending,
+                StatusEnum.downloading,
+                StatusEnum.parsing,
+                StatusEnum.waiting,
+                StatusEnum.proxying,
+            ])
         ))
 
         stopped_count = 0
         for download in active_downloads:
+            cancel_signal.signal_cancel(download.id)
             download.status = StatusEnum.stopped
+            download.next_retry_at = None
             download.error = "사용자에 의해 일괄 정지됨"
             stopped_count += 1
+
+            if download.id in download_core.download_tasks:
+                task = download_core.download_tasks.pop(download.id, None)
+                if task is not None:
+                    task.cancel()
 
             # Send stopped status via SSE
             await sse_manager.broadcast_message("status_update", {
@@ -1071,7 +1113,13 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
     try:
         # Find in-progress local downloads (use_proxy=False)
         active_local_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
-            DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
+            DownloadRequest.status.in_([
+                StatusEnum.pending,
+                StatusEnum.downloading,
+                StatusEnum.parsing,
+                StatusEnum.waiting,
+                StatusEnum.proxying,
+            ]),
             _egress_filter(False)
         ))
 
@@ -1082,7 +1130,9 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
         stopped_count = 0
         for download in active_local_downloads:
             old_status = download.status
+            cancel_signal.signal_cancel(download.id)
             download.status = StatusEnum.stopped
+            download.next_retry_at = None
             download.error = "사용자에 의해 로컬 다운로드 일괄 정지됨"
             stopped_count += 1
 
@@ -1090,9 +1140,9 @@ async def stop_all_local_downloads(db: Session = Depends(get_db)):
 
             # Force-cancel the running task (the DB was already updated above, so cancel only the task)
             if download.id in download_core.download_tasks:
-                task = download_core.download_tasks[download.id]
-                task.cancel()
-                del download_core.download_tasks[download.id]
+                task = download_core.download_tasks.pop(download.id, None)
+                if task is not None:
+                    task.cancel()
                 print(f"[DEBUG] 태스크 강제 취소: {download.id}")
 
             # Send stopped status via SSE
@@ -1256,15 +1306,28 @@ async def stop_all_proxy_downloads(db: Session = Depends(get_db)):
     try:
         # Find in-progress proxy downloads (use_proxy=True)
         active_proxy_downloads = await db_async.all_rows(db.query(DownloadRequest).filter(
-            DownloadRequest.status.in_([StatusEnum.pending, StatusEnum.downloading, StatusEnum.parsing]),
+            DownloadRequest.status.in_([
+                StatusEnum.pending,
+                StatusEnum.downloading,
+                StatusEnum.parsing,
+                StatusEnum.waiting,
+                StatusEnum.proxying,
+            ]),
             _egress_filter(True)
         ))
 
         stopped_count = 0
         for download in active_proxy_downloads:
+            cancel_signal.signal_cancel(download.id)
             download.status = StatusEnum.stopped
+            download.next_retry_at = None
             download.error = "사용자에 의해 프록시 다운로드 일괄 정지됨"
             stopped_count += 1
+
+            if download.id in download_core.download_tasks:
+                task = download_core.download_tasks.pop(download.id, None)
+                if task is not None:
+                    task.cancel()
 
             # Send stopped status via SSE
             await sse_manager.broadcast_message("status_update", {

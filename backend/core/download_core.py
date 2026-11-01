@@ -16,8 +16,9 @@ import json
 import re
 import traceback
 import shutil
+from http.cookies import SimpleCookie
 from pathlib import Path
-from typing import Optional, Dict, Any, AsyncGenerator, Tuple
+from typing import Optional, Dict, Any, AsyncGenerator, List, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -48,6 +49,7 @@ from core.proxy_manager import proxy_manager
 from urllib.parse import urlparse, unquote, urlunparse
 from core.models import ProxyStatus, UserProxy
 from core.simple_parser import (
+    derive_display_name,
     parse_1fichier_simple_sync,
     preparse_1fichier_standalone,
     choose_1fichier_parse_url,
@@ -88,9 +90,10 @@ from core.mega_hoster import (
 )
 from core import fichier_auth
 from core import cancel_signal
+from core.terabox_share import terabox_cookie_domain, terabox_download_error
+from core.generic_links import google_drive_confirmation, read_confirmation_body
 from core.link_containers import is_container_url, resolve_container_sync, admission_url
 from core.hoster_common import HosterParseError
-from core.config import get_config
 from core.i18n import get_translations
 
 
@@ -251,6 +254,7 @@ SPECIAL_HOSTER_PARSE_TIMEOUT_SEC = 300  # 5 minutes
 # failure, retry the SAME url on this short backoff BEFORE falling through to a
 # (futile, same-node) re-parse or a hard failure.
 SPECIAL_NODE_RETRY_BACKOFF_SEC = ()  # no immediate reconnect/reparse loop
+STREAM_INCOMPLETE_RETRY_BACKOFF_SEC = (3, 10, 20)
 
 
 # 파일 대신 페이지를 받아놓고 완료 처리하면 안 된다.
@@ -420,6 +424,22 @@ def get_fichier_account_cookies() -> Dict[str, str]:
     except Exception as exc:
         print(f"[WARNING] 1fichier 자격증명 처리 중 예외 (게스트로 진행): {exc}")
         return {}
+
+
+def build_download_cookie_options(cookies: Dict[str, str], url: str) -> dict:
+    if not cookies.get("ndus"):
+        return {"cookies": cookies}
+    options = {"cookies": {key: value for key, value in cookies.items() if key != "ndus"}}
+    domain = terabox_cookie_domain(url)
+    if domain:
+        jar = aiohttp.CookieJar()
+        scoped = SimpleCookie({"ndus": cookies["ndus"]})
+        scoped["ndus"]["domain"] = domain
+        scoped["ndus"]["path"] = "/"
+        scoped["ndus"]["secure"] = True
+        jar.update_cookies(scoped)
+        options["cookie_jar"] = jar
+    return options
 
 
 def build_download_headers(user_agent: Optional[str] = None, referer: Optional[str] = None) -> Dict[str, str]:
@@ -1710,32 +1730,40 @@ class DownloadCore:
             print(f"[ERROR] 다운로드 태스크 오류: {e}")
             req = await db_async.first(db.query(DownloadRequest).filter(DownloadRequest.id == req_id))
             if req:
+                if cancel_signal.is_cancelled(req.id) or req.status == StatusEnum.stopped:
+                    req.status = StatusEnum.stopped
+                    req.next_retry_at = None
+                    await db_async.commit(db)
+                    return
+                if await self._fall_back_to_next_mirror(req, db, e):
+                    return
                 failure_stage = "파싱" if isinstance(e, (PreparseDeadLinkError, PreparseBlockedError, HosterParseError)) else "다운로드"
-                verdict = apply_failure_to_request(
-                    req, failure_stage, str(e)
-                )
-                req.status = _status_after_failure(verdict)
-                if req.status == StatusEnum.failed:
-                    req.finished_at = datetime.datetime.now()
-                await db_async.commit(db)
+                if not getattr(e, "_failure_already_recorded", False):
+                    verdict = apply_failure_to_request(
+                        req, failure_stage, str(e)
+                    )
+                    req.status = _status_after_failure(verdict)
+                    if req.status == StatusEnum.failed:
+                        req.finished_at = datetime.datetime.now()
+                    await db_async.commit(db)
+                    await self.send_download_update(req_id, {
+                        "status": "failed",
+                        "message": verdict.user_message,
+                        "stage": failure_stage,
+                        "raw_error": str(e),
+                        "failure_kind": verdict.kind,
+                        "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
+                        "attempt_count": verdict.attempt_count,
+                    })
                 host = host_key_for_url(admission_url(req))
                 egress = EGRESS_DIRECT if is_special_hoster_url(admission_url(req)) or is_container_url(req.url) else egress_of(req.use_proxy)
                 await self._record_host_refusal(req, db, host, f"{host}@{egress}")
                 if is_1fichier and isinstance(e, PreparseBlockedError):
                     fichier_egress = egress_of(req.use_proxy)
-                    if verdict.kind == KIND_SLOT_BUSY:
+                    if req.failure_kind == KIND_SLOT_BUSY:
                         await self._hold_fichier_queue_for_busy_slots(db, fichier_egress)
                     else:
                         await self._publish_fichier_cooldown(db, fichier_egress)
-                await self.send_download_update(req_id, {
-                    "status": "failed",
-                    "message": verdict.user_message,
-                    "stage": failure_stage,
-                    "raw_error": str(e),
-                    "failure_kind": verdict.kind,
-                    "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
-                    "attempt_count": verdict.attempt_count,
-                })
         finally:
             db.close()
 
@@ -1839,7 +1867,6 @@ class DownloadCore:
                 # For plain downloads, also try to extract the file name from the URL
                 print(f"[LOG] 일반 다운로드 파일명 추출 시작: {parse_url}")
                 try:
-                    from urllib.parse import urlparse, unquote
                     parsed_url = urlparse(parse_url)
                     path = unquote(parsed_url.path)
                     filename = path.split('/')[-1] if '/' in path else path
@@ -2157,7 +2184,6 @@ class DownloadCore:
             # Set the file save path
             if not req.save_path:
                 filename_to_use = req.file_name or f"download_{req.id}"
-                from utils.file_helpers import generate_file_path
                 req.save_path = generate_file_path(filename_to_use, is_temporary=True)
                 await db_async.commit(db)
 
@@ -2195,6 +2221,12 @@ class DownloadCore:
                 req.status = StatusEnum.stopped
                 req.next_retry_at = None
                 await db_async.commit(db)
+                return False
+
+            if await self._fall_back_to_next_mirror(req, db, e):
+                return False
+
+            if getattr(e, "_failure_already_recorded", False):
                 return False
 
             # Decide the stage label based on whether the download stage was entered
@@ -2255,14 +2287,16 @@ class DownloadCore:
         if initial_size == 0 and _name_needs_resolution(req.file_name):
             raise Exception("파일명(확장자)을 확인할 수 없어 다운로드를 중단했습니다")
 
-        # Update Content-Length. A body that starts at byte zero states the
-        # resource's true length, so it *supersedes* whatever we recorded — a
-        # resume the server answered with 200 leaves total_size inflated by the
-        # bytes already on disk, and a stale inflated total makes the
-        # completeness check below reject a finished file forever.
+        # Update Content-Length / Content-Range. Both a 200 (starting at byte zero)
+        # and a 206 (initial_size + remaining Content-Length, or Content-Range
+        # complete-length) state the resource's exact byte length and supersede
+        # rounded HTML display estimates (e.g., "2.19 GB").
         content_length = response.headers.get('Content-Length')
-        total_size = total_size_from_content_length(content_length, initial_size)
-        if total_size is not None and (initial_size == 0 or not req.total_size):
+        total_size = (
+            complete_length(response.headers.get('Content-Range'))
+            or total_size_from_content_length(content_length, initial_size)
+        )
+        if total_size is not None and total_size > 0:
             req.total_size = total_size
             await db_async.commit(db)
             print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
@@ -2282,6 +2316,14 @@ class DownloadCore:
             response, req.save_path, initial_size, req.total_size, req, db
         )
         print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
+
+        await db_async.refresh(db, req)
+        if cancel_signal.is_cancelled(req.id) or req.status == StatusEnum.stopped:
+            print(f"[LOG] 다운로드 {req.id} 정지 확인, 완료 처리 건너뜀")
+            req.status = StatusEnum.stopped
+            req.next_retry_at = None
+            await db_async.commit(db)
+            return
 
         # 완료로 찍기 전에 실제 파일인지 확인한다. .part 를 최종 이름으로
         # 바꾸기 전에 봐야 쓰레기가 최종 이름을 차지하지 않는다.
@@ -2572,17 +2614,23 @@ class DownloadCore:
         """
         assert_resolved_file_url(download_url)
         try:
-            print(f"[LOG] 직접 다운로드 시작: {download_url}")
+            print(f"[LOG] 직접 다운로드 시작: {urlparse(download_url).hostname}")
 
             # Set the download start time (avoid duplicates)
             if not req.started_at:
                 req.started_at = datetime.datetime.now()
                 await db_async.commit(db)
 
+            if not req.save_path:
+                filename_to_use = req.file_name or f"download_{req.id}"
+                req.save_path = generate_file_path(filename_to_use, is_temporary=True)
+                await db_async.commit(db)
+
             timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=300)
 
             reparse_attempted = 0
             same_url_retries = 0
+            progress_resumes = 0
             current_url = download_url
             current_cookies = cookies or {}
             current_ua = user_agent
@@ -2594,7 +2642,10 @@ class DownloadCore:
 
             while True:
                 try:
-                    async with aiohttp.ClientSession(timeout=timeout, cookies=current_cookies) as session:
+                    async with aiohttp.ClientSession(
+                        timeout=timeout,
+                        **build_download_cookie_options(current_cookies, current_url),
+                    ) as session:
                         headers = build_download_headers(user_agent=current_ua, referer=current_referer)
                         initial_size = 0
 
@@ -2613,6 +2664,10 @@ class DownloadCore:
                             refusal_preview = b""
                             if response.status == 403:
                                 refusal_preview = await response.content.read(2048)
+                            if terabox_cookie_domain(current_url):
+                                auth_error = terabox_download_error(response.status, refusal_preview)
+                                if auth_error:
+                                    raise Exception(auth_error)
                             if response.status == 403 and canonical_host(urlparse(admission_url(req)).hostname) == "akirabox.com":
                                 if b"the link is not available at this time" in refusal_preview.lower():
                                     raise Exception("akirabox storage unavailable")
@@ -2664,7 +2719,6 @@ class DownloadCore:
                             # 않은 호스터(multiup 등)의 HTML 이 파일로 저장됐다.
                             if "text/html" in content_type:
                                 if canonical_host(urlparse(admission_url(req)).hostname) == "drive.google.com":
-                                    from core.generic_links import google_drive_confirmation, read_confirmation_body
                                     if drive_confirmation_attempted:
                                         raise Exception("Google Drive 공개 파일 확인 후에도 파일 대신 HTML을 반환했습니다; 자동 반복 없음")
                                     body = await read_confirmation_body(response.content)
@@ -2708,17 +2762,39 @@ class DownloadCore:
                     ))
                     # Mid-transfer drop: the connection WAS established and bytes
                     # were flowing, but it was cut before Content-Length was met
-                    # (flaky node / CDN reset). Unlike conn_failed this is NOT a
-                    # node-reachability problem — the node is fine — so it must NOT
-                    # become a "node unreachable" verdict. Retry the SAME url and
-                    # RESUME from the .part via Range.
-                    stream_incomplete = is_special and any(k in lowered for k in (
+                    # (flaky node / CDN reset / TLS record drop). Unlike conn_failed
+                    # this is NOT a node-reachability problem — the node is fine — so
+                    # any host (1fichier, mediafire, datanodes, megaup, etc.) can
+                    # retry the SAME url and RESUME from the .part via Range.
+                    stream_incomplete = any(k in lowered for k in (
                         "payload is not completed",
                         "not enough data to satisfy content length",
                         "contentlengtherror",
                         "response payload is not completed",
                         "incompleteread", "incomplete read",
+                        "record layer failure",
+                        "sslerror",
+                        "전송이 중간에 끊겼습니다",
                     ))
+
+                    current_disk_size = (
+                        os.path.getsize(req.save_path)
+                        if getattr(req, "save_path", None) and os.path.exists(req.save_path)
+                        else 0
+                    )
+                    if (
+                        stream_incomplete
+                        and current_disk_size > initial_size
+                        and progress_resumes < 10
+                    ):
+                        progress_resumes += 1
+                        same_url_retries = 0
+
+                    retry_backoff_schedule = (
+                        STREAM_INCOMPLETE_RETRY_BACKOFF_SEC
+                        if stream_incomplete
+                        else SPECIAL_NODE_RETRY_BACKOFF_SEC
+                    )
 
                     # Transient node outage / mid-stream drop: retry the SAME url on
                     # a short backoff first — the node usually recovers within
@@ -2729,13 +2805,13 @@ class DownloadCore:
                     if (
                         (conn_failed or stream_incomplete)
                         and not expired
-                        and same_url_retries < len(SPECIAL_NODE_RETRY_BACKOFF_SEC)
+                        and same_url_retries < len(retry_backoff_schedule)
                     ):
-                        backoff = SPECIAL_NODE_RETRY_BACKOFF_SEC[same_url_retries]
+                        backoff = retry_backoff_schedule[same_url_retries]
                         same_url_retries += 1
-                        total_tries = len(SPECIAL_NODE_RETRY_BACKOFF_SEC)
+                        total_tries = len(retry_backoff_schedule)
                         reason = "전송 중 연결 끊김" if stream_incomplete else "노드 연결 실패"
-                        print(f"[WARNING] 특수 호스터 {reason}({err_text}) - "
+                        print(f"[WARNING] {reason}({err_text}) - "
                               f"동일 URL 이어받기 재시도 {same_url_retries}/{total_tries} "
                               f"({backoff}s 대기)")
                         await self.send_download_update(req.id, {
@@ -2799,6 +2875,14 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 직접 다운로드 실패: {e}")
+            await db_async.refresh(db, req)
+            if cancel_signal.is_cancelled(getattr(req, "id", None)) or getattr(req, "status", None) == StatusEnum.stopped:
+                req.status = StatusEnum.stopped
+                req.next_retry_at = None
+                await db_async.commit(db)
+                return
+            if await self._fall_back_to_next_mirror(req, db, e):
+                return
             verdict = apply_failure_to_request(req, "다운로드", str(e))
             user_message = verdict.user_message
             req.status = _status_after_failure(verdict)
@@ -2836,6 +2920,10 @@ class DownloadCore:
             except Exception as telegram_error:
                 print(f"[WARNING] 텔레그램 실패 알림 실패: {telegram_error}")
 
+            try:
+                setattr(e, "_failure_already_recorded", True)
+            except Exception:
+                pass
             raise e
 
     async def _download_local_async(self, req: DownloadRequest, db: Session):
@@ -2954,7 +3042,7 @@ class DownloadCore:
                     async with aiohttp.ClientSession(
                         timeout=timeout,
                         connector=connector,
-                        cookies=session_cookies,
+                        **build_download_cookie_options(session_cookies, download_url or req.url),
                     ) as session:
                             headers = build_download_headers(user_agent=user_agent, referer=referer)
                             initial_size = 0
@@ -2995,12 +3083,15 @@ class DownloadCore:
                                     raise Exception(_network_block_notice(preview) or "파일 대신 HTML/API 페이지를 반환했습니다")
                                 await self._apply_response_filename(req, db, response, initial_size)
 
-                                # Content-Length. A body starting at byte zero states
-                                # the true length and supersedes an inflated total left
-                                # behind by a resume the server answered with 200.
+                                # Content-Length / Content-Range. Both 200 and 206
+                                # state the true byte length and supersede any
+                                # approximate size parsed from HTML metadata.
                                 content_length = response.headers.get('Content-Length')
-                                total_size = total_size_from_content_length(content_length, initial_size)
-                                if total_size is not None and (initial_size == 0 or not req.total_size):
+                                total_size = (
+                                    complete_length(response.headers.get('Content-Range'))
+                                    or total_size_from_content_length(content_length, initial_size)
+                                )
+                                if total_size is not None and total_size > 0:
                                     req.total_size = total_size
                                     await db_async.commit(db)
                                     print(f"[LOG] Content-Length로 total_size 설정: {req.total_size}")
@@ -3021,6 +3112,14 @@ class DownloadCore:
                                     response, req.save_path, initial_size, req.total_size, req, db
                                 )
                                 print(f"[DEBUG] 파일 다운로드 완료 - 최종크기: {downloaded_size}")
+
+                                await db_async.refresh(db, req)
+                                if cancel_signal.is_cancelled(getattr(req, "id", None)) or getattr(req, "status", None) == StatusEnum.stopped:
+                                    print(f"[LOG] 다운로드 {req.id} 정지 확인, 완료 처리 건너뜀")
+                                    req.status = StatusEnum.stopped
+                                    req.next_retry_at = None
+                                    await db_async.commit(db)
+                                    return
 
                                 # 완료로 찍기 전에 실제 파일인지 확인한다.
                                 assert_downloaded_a_real_file(
@@ -3151,6 +3250,14 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 파일 다운로드 실패: {e}")
+            await db_async.refresh(db, req)
+            if cancel_signal.is_cancelled(getattr(req, "id", None)) or getattr(req, "status", None) == StatusEnum.stopped:
+                req.status = StatusEnum.stopped
+                req.next_retry_at = None
+                await db_async.commit(db)
+                return
+            if await self._fall_back_to_next_mirror(req, db, e):
+                return
             verdict = apply_failure_to_request(req, "다운로드", str(e))
             user_message = verdict.user_message
             req.status = _status_after_failure(verdict)
@@ -3210,25 +3317,76 @@ class DownloadCore:
 
         except Exception as e:
             print(f"[ERROR] 로컬 다운로드 실패: {e}")
-            verdict = apply_failure_to_request(req, "다운로드", str(e))
-            req.status = _status_after_failure(verdict)
-            req.finished_at = datetime.datetime.now()
-            await db_async.commit(db)
+            await db_async.refresh(db, req)
+            if cancel_signal.is_cancelled(getattr(req, "id", None)) or getattr(req, "status", None) == StatusEnum.stopped:
+                req.status = StatusEnum.stopped
+                req.next_retry_at = None
+                await db_async.commit(db)
+                return
+            if await self._fall_back_to_next_mirror(req, db, e):
+                return
+            if not getattr(e, "_failure_already_recorded", False):
+                verdict = apply_failure_to_request(req, "다운로드", str(e))
+                req.status = _status_after_failure(verdict)
+                req.finished_at = datetime.datetime.now()
+                await db_async.commit(db)
 
-            await self.send_download_update(req.id, {
-                "status": "failed",
-                "message": verdict.user_message,
-                "stage": "다운로드",
-                "raw_error": str(e),
-                "failure_kind": verdict.kind,
-                "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
-                "attempt_count": verdict.attempt_count,
-            })
-            raise Exception(f"로컬 다운로드 실패: {e}")
+                await self.send_download_update(req.id, {
+                    "status": "failed",
+                    "message": verdict.user_message,
+                    "stage": "다운로드",
+                    "raw_error": str(e),
+                    "failure_kind": verdict.kind,
+                    "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
+                    "attempt_count": verdict.attempt_count,
+                })
+                try:
+                    setattr(e, "_failure_already_recorded", True)
+                except Exception:
+                    pass
+            raise e
+
+    async def _split_into_rows(self, req: DownloadRequest, db: Session, files: List[Dict[str, str]]) -> None:
+        """One row per file of a multi-file link: ``req`` takes the first file without a row.
+
+        Adding the same link again therefore registers only what is missing.
+        """
+        urls = [item["url"] for item in files]
+        existing = await db_async.all_rows(db.query(DownloadRequest).filter(
+            DownloadRequest.url.in_(urls), DownloadRequest.id != req.id,
+        ))
+        known = {row.url for row in existing}
+        fresh = [item for item in files if item["url"] not in known]
+        if not fresh:
+            raise HosterParseError("TeraBox 공유의 파일은 이미 모두 목록에 있습니다")
+        first, *others = fresh
+        req.url = req.original_url = first["url"]
+        req.file_name = first.get("name") or derive_display_name(first["url"])
+        req.file_size = first.get("size")
+        req.total_size = _size_text_to_bytes(first.get("size"))
+        # A mirror stood for the whole link, not for this one file.
+        req.mirror_urls = None
+        for item in others:
+            db.add(DownloadRequest(
+                url=item["url"],
+                original_url=item["url"],
+                password=req.password,
+                use_proxy=req.use_proxy,
+                proxy_pinned=req.proxy_pinned,
+                status=StatusEnum.pending,
+                file_name=item.get("name") or derive_display_name(item["url"]),
+                file_size=item.get("size"),
+                total_size=_size_text_to_bytes(item.get("size")),
+            ))
+        await db_async.commit(db)
+        print(f"[LOG] 공유 링크를 파일별로 나눕니다: id={req.id}, 전체 {len(files)}개, 새 줄 {len(others)}개")
+        await sse_manager.broadcast_message("force_refresh", {})
+        asyncio.create_task(self._delayed_start_next_pending())
 
     async def _download_special_hoster_async(self, req: DownloadRequest, db: Session):
         """Resolve a file hosting page (MegaUp/DataNodes, etc.) to a final link, then download."""
         print(f"[DEBUG] 특수 호스팅 파싱 시작: {req.id} - {req.url}")
+        download_started = False
         await self.send_download_update(req.id, {
             "status": "parsing",
             "progress": 0,
@@ -3314,6 +3472,12 @@ class DownloadCore:
                         f"프록시 파싱 실패 - 최대 재시도({MAX_RETRIES}) 초과"
                     )
 
+            if parse_result.get("split_into"):
+                await self._split_into_rows(req, db, parse_result["split_into"])
+                # Now one file's row: its failures and its link are its own.
+                await self._download_special_hoster_async(req, db)
+                return
+
             file_info = parse_result.get("file_info") or {}
             _apply_hoster_file_info(req, file_info)
 
@@ -3344,6 +3508,7 @@ class DownloadCore:
                 req.save_path = generate_file_path(filename_to_use, is_temporary=True)
                 await db_async.commit(db)
 
+            download_started = True
             await self._download_file_directly(
                 req,
                 db,
@@ -3358,10 +3523,19 @@ class DownloadCore:
             )
         except Exception as e:
             print(f"[ERROR] 특수 호스팅 처리 실패: {e}")
+            await db_async.refresh(db, req)
+            if cancel_signal.is_cancelled(getattr(req, "id", None)) or getattr(req, "status", None) == StatusEnum.stopped:
+                req.status = StatusEnum.stopped
+                req.next_retry_at = None
+                await db_async.commit(db)
+                return
             if await self._fall_back_to_next_mirror(req, db, e):
                 return
+            if getattr(e, "_failure_already_recorded", False):
+                return
             metadata_changed = _apply_hoster_file_info(req, getattr(e, "file_info", None))
-            verdict = apply_failure_to_request(req, "파싱", str(e))
+            stage = "다운로드" if download_started else "파싱"
+            verdict = apply_failure_to_request(req, stage, str(e))
             req.status = _status_after_failure(verdict)
             req.finished_at = datetime.datetime.now()
             await db_async.commit(db)
@@ -3375,7 +3549,7 @@ class DownloadCore:
                 "file_size": req.file_size,
                 "total_size": req.total_size or 0,
                 "message": verdict.user_message,
-                "stage": "파싱",
+                "stage": stage,
                 "raw_error": str(e),
                 "failure_kind": verdict.kind,
                 "next_retry_at": verdict.next_retry_at.isoformat() if verdict.next_retry_at else None,
@@ -3589,8 +3763,6 @@ class DownloadCore:
         """Extract the file name from the URL"""
         try:
             print(f"[LOG] URL에서 파일명 추출 시도: {req.url}")
-
-            from urllib.parse import urlparse, unquote
 
             parsed_url = urlparse(req.url)
             path = unquote(parsed_url.path)

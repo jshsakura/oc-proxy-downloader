@@ -3,6 +3,7 @@ Common download utility functions
 - Functions shared by local/proxy downloads to remove duplication
 """
 
+from core import cancel_signal
 from core import db_async
 from core import live_progress
 import asyncio
@@ -13,7 +14,8 @@ from pathlib import Path
 from urllib.parse import unquote
 from sqlalchemy import and_
 from core.models import StatusEnum, DownloadRequest
-from core.config import get_download_path
+from core.config import get_config, get_download_path
+from core.i18n import get_translations
 from utils.sse import send_sse_message
 from services.sse_manager import sse_manager
 # The legacy synchronous download manager has been removed
@@ -35,7 +37,7 @@ def generate_file_path(filename, is_temporary=True):
     # Handle duplicate file names
     counter = 1
     original_path = file_path
-    while file_path.exists() or (file_path.with_suffix(file_path.suffix + PART_SUFFIX).exists() if not is_temporary else False):
+    while file_path.exists() or file_path.with_suffix(file_path.suffix + PART_SUFFIX).exists():
         stem = original_path.stem
         suffix = original_path.suffix
         file_path = original_path.parent / f"{stem}({counter}){suffix}"
@@ -128,8 +130,6 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                                     print(f"[LOG] 디스크 용량 부족으로 {stopped_count}개 다운로드 자동 정지")
 
                                     # Send updates over SSE for the stopped downloads
-                                    from services.sse_manager import sse_manager
-                                    import asyncio
                                     loop = asyncio.get_event_loop()
                                     if loop.is_running():
                                         for download in pending_downloads:
@@ -144,8 +144,6 @@ async def download_file_content(response, file_path, initial_size, total_size, r
 
                             # Get the error message in the user's language
                             try:
-                                from core.config import get_config
-                                from core.i18n import get_translations
                                 config = get_config()
                                 user_language = config.get("language", "ko")
                                 translations = get_translations(user_language)
@@ -162,11 +160,15 @@ async def download_file_content(response, file_path, initial_size, total_size, r
                         raise
 
                 # Performance improvement: widen the check interval (every 128 chunks = every 1MB)
-                if chunk_count % 128 == 0:
+                if cancel_signal.is_cancelled(req.id) or chunk_count % 128 == 0:
                     # Check for a download stop
-                    await db_async.refresh(db, req)
-                    if req.status == StatusEnum.stopped:
+                    if not cancel_signal.is_cancelled(req.id):
+                        await db_async.refresh(db, req)
+                    if cancel_signal.is_cancelled(req.id) or req.status == StatusEnum.stopped:
                         print(f"[LOG] 다운로드 중 정지됨: {req.id}")
+                        req.status = StatusEnum.stopped
+                        req.downloaded_size = downloaded
+                        await db_async.commit(db)
 
                         # Send a stopped-status SSE
                         try:

@@ -308,7 +308,6 @@ class DownloadService:
             # concurrency limit itself, so we simply launch every pending and let
             # the semaphores throttle. Gating here on a single semaphore value
             # would use the wrong limit for per-site hosts and starve pendings.
-            from core.download_core import download_core
             started_count = 0
 
             for req in pending_downloads:
@@ -324,9 +323,8 @@ class DownloadService:
 
     async def get_download_statistics(self) -> Dict[str, Any]:
         """Get download statistics"""
-        try:
+        def _query_counts() -> Dict[str, Any]:
             with SessionLocal() as db:
-                # Aggregate download counts by status
                 base = db.query(DownloadRequest)
                 return {
                     "total": base.count(),
@@ -336,9 +334,15 @@ class DownloadService:
                     "done": base.filter(DownloadRequest.status == StatusEnum.done).count(),
                     "failed": base.filter(DownloadRequest.status == StatusEnum.failed).count(),
                     "stopped": base.filter(DownloadRequest.status == StatusEnum.stopped).count(),
-                    "active_tasks": len(download_core.download_tasks),
-                    "sse_connections": len(sse_manager.connections),
                 }
+
+        try:
+            counts = await asyncio.to_thread(_query_counts)
+            return {
+                **counts,
+                "active_tasks": len(download_core.download_tasks),
+                "sse_connections": len(sse_manager.connections),
+            }
         except Exception as e:
             print(f"[ERROR] 통계 조회 실패: {e}")
             return {"error": str(e)}

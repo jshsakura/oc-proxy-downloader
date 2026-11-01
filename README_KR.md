@@ -8,9 +8,11 @@ FastAPI + Svelte 웹 앱으로, 파일 호스팅 링크를 해석해 다운로�
 
 ## ✨ 주요 기능
 
-- 🚀 **1fichier 최적화**: 자동 대기시간 감지 및 쿨다운 관리 (최대 24시간 대기), 한도 복구 시각 카운트다운 표시
+- 🚀 **1fichier 최적화**: 대기시간 감지와 쿨다운 관리. 소진된 일일 한도는 30분마다 다시 확인하고, 대기 중인 줄에는 순서와 풀릴 예정 시각을 보여주며, 슬롯이 혼잡하면 그 대기열만 멈춥니다
 - 🔐 **MEGA 지원**: 공개 링크 다운로드 + 클라이언트 측 AES 복호화 (파일명/크기/진행률)
-- 🧩 **호스트별 링크 해석**: DataNodes, MegaUp, MediaFire, Pixeldrain, Bunkr, AkiraBox, VikingFile, Rootz 등 (제약은 아래 표 참고)
+- 🧩 **호스트별 링크 해석**: DataNodes, MegaUp, MediaFire, Pixeldrain, Bunkr, AkiraBox, VikingFile, Rootz, MixDrop, Rapidgator 등 ([지원 링크 전체](#-지원-링크), 제약은 아래 표 참고)
+- 🔗 **링크 컨테이너**: MultiUp, FileCrypt, Linkcuy, OUO를 실제 파일 호스트 주소로 풀어 줍니다. MultiUp은 자체 검사 결과로 미러를 고르고, 첫 미러가 실패하면 다음 미러로 넘어갑니다
+- 🗂️ **한 파일에 링크 여러 개**: 파일 하나에 링크를 여러 개 등록할 수 있고, 하나가 막히면 다음 링크로 넘어갑니다
 - 🔄 **스마트 프록시**: 자동 순환, 실패 감지, 로컬/프록시 혼합 다운로드
 - 📊 **실시간 모니터링**: SSE 기반 실시간 상태 업데이트 및 진행률 표시
 - 🎯 **동시 다운로드 제한**: 전체 기본 8개·호스트별 검증 한도, 1fichier 무료 회선당 1개
@@ -59,9 +61,54 @@ Windows 실행 파일은 **단일 파일 유지를 위해 브라우저를 번들
 | **AkiraBox** (`akirabox.com`, `akirabox.to`) | **브라우저에서 유효기간 있는 다운로드 주소 발급** | ❌ **Docker 전용** |
 | **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **브라우저와 Turnstile 캡차** | ❌ **Docker 전용** |
 | **Rootz** (`rootz.so`) | **브라우저에서 파일 정보와 다운로드 주소 확인** | ❌ **Docker 전용** |
+| MixDrop | 파일 페이지는 없음. 없는 파일 페이지는 버튼을 기다리지 않고 바로 인식 | 미검증 |
+| **Rapidgator** | **브라우저와 캡차. 무료는 파일당 500MB 이하, 1개, 120분에 1파일** | ❌ **Docker 전용** |
+| MultiUp | 미러 목록 조회 뒤 고른 미러의 절차를 따름 | 미러에 따라 다름 |
+| OUO (`ouo.io`, `ouo.press`) | 평범한 HTTP로 먼저 해석하고, 브라우저 클릭은 폴백 | 폴백이 필요 없으면 됨 |
 | DataVaults | 실제 무료 폼을 단계별로 한 번씩 처리 | 검증을 요구하는 파일은 사람 확인에서 중단; 호스트 전체 차단 없음 |
 | FileCrypt / Linkcuy | 공개 링크 추출 또는 사이트 브라우저 절차 | FileCrypt 보안 확인을 통과한 뒤 단일 파일의 실제 미러 주소(MediaFire·Google Drive 등)를 넘깁니다. 파일이 여러 개면 직접 고르게 합니다 |
-| MomeryBox / TeraBox | 공개 이동 주소 확인 | 로그인 요구 시 자동 반복 없이 중단 |
+| TeraBox (`/s/1…` 공유 링크) | 없음. 사이트 웹 API로 해석하며 브라우저가 필요 없음. 파일이 여러 개인 공유는 파일마다 한 줄로 나뉘고(최대 200개) 암호가 있으면 주소 뒤에 `?pwd=`를 붙임 | 🟡 설정에 계정 쿠키 ndus를 넣으면 가장 빠른 서버를 고르고 익명 거절도 피함(무료 계정 실측 54MiB/s, 쿠키 없을 때 0.08MiB/s). QR 로그인은 휴대폰 기본 카메라가 아니라 TeraBox 앱 안의 스캐너로 읽어야 하며, 실제 휴대폰 승인은 아직 확인 전 |
+| MomeryBox | 공개 이동 주소 확인 | 로그인 요구 시 자동 반복 없이 중단 |
+
+### 🔗 지원 링크
+
+등록되어 있다고 실제 전송이 증명된 것은 아닙니다. 실제 전송 완료를 확인한 호스트는 [HOSTER_CASES.md](docs/HOSTER_CASES.md)에 따로 적습니다. 아래는 다운로더가 알아보는 링크 목록입니다.
+
+**파일 호스트**
+
+| 호스트 | 도메인 |
+|--------|--------|
+| 1fichier | `1fichier.com` |
+| MEGA | `mega.nz` (공개 링크, 클라이언트 측 복호화) |
+| Pixeldrain | `pixeldrain.com` |
+| GoFile | `gofile.io` |
+| MediaFire | `mediafire.com` |
+| MegaUp | `megaup.net` |
+| DataNodes | `datanodes.to` |
+| Send.now / Send.cm | `send.now`, `send.cm`, `tusfiles.com`, `tusfiles.net` |
+| AkiraBox | `akirabox.com`, `akirabox.to` |
+| VikingFile | `vikingfile.com`, `vik1ngfile.site` |
+| Rootz | `rootz.so` |
+| MixDrop | `mixdrop.ag`, `mixdrop.top`, `mixdrop.co`, `mixdrop.to`, `mixdrop.sx`, `mixdrop.vc`, `mixdrop.ps`, `mixdrop.my`, `mixdrop.sn`, `mixdrop.click`, `mxdrop.top`, `mxdrop.to`, `mxdrop.click` |
+| Rapidgator | `rapidgator.net` |
+| Bunkr | `bunkr.si`, `.ru`, `.la`, `.is`, `.to`, `.ax`, `.black`, `.cr`, `.fi`, `.pk`, `.ph`, `.sk`, `.ci`, `.ws`, `.site`, `.media`, `bunkrr.su`, `bunkrr.ru` |
+| TeraBox | `teraboxapp.com`, `terabox.app`, `terabox.com`, `1024terabox.com`, `1024tera.com`, `nephobox.com`, `terasharelink.com` (공개 공유. 파일마다 한 줄로 등록됨) |
+| Google Drive | `drive.google.com` (공개 단일 파일만) |
+| DataVaults | `datavaults.co` (사람 확인에서 중단) |
+| FileKeeper, DooDrive, ClicknUpload, FileRio, FRDL, LetsUpload, BowFile, Uptobox, SolidFiles, BayFiles, Qiwi | `filekeeper.net`, `doodrive.com`, `clicknupload.*`와 `clickndownload.org`, `filerio.in`, `frdl.my`, `letsupload.io`, `bowfile.com`, `uptobox.com`, `solidfiles.com`, `bayfiles.com`, `qiwi.gg` |
+| 그 밖의 HTTP 링크 | 직접 파일 주소면 모두. HTML·JSON 오류 페이지는 저장 전에 거부합니다 |
+
+**링크 컨테이너**
+
+| 컨테이너 | 도메인 |
+|----------|--------|
+| MultiUp | `multiup.io` |
+| FileCrypt | `filecrypt.cc`, `filecrypt.co`, `filecrypt.to` |
+| Linkcuy | `linkcuy.com` |
+| OUO | `ouo.io`, `ouo.press` |
+| MomeryBox | `momerybox.com` (TeraBox로 이동) |
+
+`zippyshare.com`은 서비스가 종료되었다고 알려 주기 위해서만 인식합니다. 별칭 도메인은 대표 도메인과 같은 대기열·한도를 공유합니다.
 
 브라우저가 필요한 링크 해석은 **사이트별로 한 번에 하나씩** 처리됩니다. 차례를 기다리는
 동안에는 실패 재시도 횟수가 소모되지 않습니다. AkiraBox·VikingFile·Rootz는 다운로드
@@ -83,6 +130,14 @@ this time.`으로 거부합니다. 이 경우 다운로드는 멈추고 파일 �
 Cloudflare 차단으로 오인하거나 자동 재시도하지 않습니다. 다른 노드의 파일은 정상 제공될
 수 있으므로 다른 미러 또는 파일 복구를 확인하세요.
 
+### 컨테이너와 완료 기준
+
+컨테이너에서 단일 파일 링크를 얻으면 원본 URL을 보존하고 실제 파일 호스트의 슬롯으로 넘깁니다.
+여러 파일·파트·미러는 자동으로 한꺼번에 받지 않고 직접 고르게 합니다. HTML·JSON 오류 페이지,
+없는 파일·빈 파일·크기 불일치는 완료 처리하지 않습니다. 단발 삭제 표식·404·비활성 API 응답은
+삭제 확정 근거가 아니며 수집한 링크를 숨기거나 삭제하지 않습니다. 전송 도중 스트림이 끊기면
+(연결 재설정, TLS 레코드 오류) 처음부터 다시 받지 않고 같은 주소로 `.part` 파일에서 이어받습니다.
+
 ### 실패 표시
 
 실패한 줄은 사용자가 할 수 있는 일을 기준으로 이름이 붙고, 앱이 원인을 설명하지 못하는
@@ -92,7 +147,7 @@ Cloudflare 차단으로 오인하거나 자동 재시도하지 않습니다. 다
 |------|------|-------|
 | **파일 없음** (갈색) | 호스트가 파일이 없다고 응답했거나 링크가 죽음 | 다른 미러를 사용하세요. 링크는 자동으로 지우지 않고 남깁니다 |
 | **사람 확인 필요** (주황) | 캡차·로그인·사람 확인이 필요함 | 사이트에서 확인을 마치거나 다른 미러를 사용하세요 |
-| **대기 필요** (라임) | 무료 슬롯 혼잡, 요청 제한, 일일 한도 | 1fichier 슬롯 혼잡은 1·2·4시간 간격으로 자동 재시도하고, 그동안 1fichier 대기열도 함께 기다립니다. 나머지는 나중에 다시 받으세요 |
+| **대기 필요** (라임) | 무료 슬롯 혼잡, 요청 제한, 일일 한도 | 1fichier 슬롯 혼잡은 1·2·4시간 간격으로 자동 재시도하고, 그동안 1fichier 대기열도 함께 기다립니다. 소진된 일일 한도는 30분마다 다시 확인합니다. 나머지는 나중에 다시 받으세요 |
 | **호스트 거부** (청록) | 호스트나 저장 서버가 전송을 거부함 | 다른 미러를 사용하거나 호스트가 복구된 뒤 다시 받으세요 |
 | **실패** (빨강) | 앱이 원인을 분류하지 못함 | 로그를 확인하세요 |
 
@@ -160,7 +215,6 @@ Windows 사용자를 위한 독립 실행 파일을 제공합니다:
 
 ```yaml
 # docker-compose.yml
-version: "3.8"
 services:
   oc-proxy-downloader:
     image: jshsakura/oc-proxy-downloader:latest
@@ -185,7 +239,6 @@ services:
 
 ```yaml
 # docker-compose.yml (Synology)
-version: "3.8"
 services:
   oc-proxy-downloader:
     image: jshsakura/oc-proxy-downloader:latest
@@ -336,8 +389,3 @@ docker compose up -d
 ---
 
 **⭐ 이 프로젝트가 도움이 되셨다면 Star를 눌러주세요!**
-
-컨테이너에서 단일 파일 링크를 얻으면 원본 URL을 보존하고 실제 파일 호스트의 슬롯으로 넘깁니다.
-여러 파일/파트/미러는 자동 일괄 실행하지 않고 개별 링크 선택을 요구합니다. HTML·JSON 오류 페이지,
-없는 파일·빈 파일·크기 불일치는 완료 처리하지 않습니다. 단발 삭제 표식·404·비활성 API 응답은
-삭제 확정 근거가 아니며 수집 링크를 숨기거나 삭제하지 않습니다.

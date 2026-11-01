@@ -4071,6 +4071,47 @@ span.status.status-failed.tone-refused {
 [data-sonner-toaster] [data-sonner-toast] {
   min-width: 400px !important;
   max-width: 600px !important;
+  padding-right: 36px !important;
+  position: relative !important;
+}
+
+/* Toast close button styling: top-right position and theme-matching neutral color */
+[data-sonner-toaster] [data-close-button],
+[data-sonner-toaster] [data-sonner-toast] [data-close-button],
+[data-sonner-toaster] [data-rich-colors='true'][data-sonner-toast] [data-close-button],
+[data-sonner-toaster] [data-rich-colors='true'][data-sonner-toast][data-type] [data-close-button] {
+  left: auto !important;
+  right: 10px !important;
+  top: 12px !important;
+  transform: none !important;
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--text-secondary, #94a3b8) !important;
+  opacity: 0.7 !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease !important;
+}
+
+[data-sonner-toaster] [data-close-button]:hover,
+[data-sonner-toaster] [data-sonner-toast] [data-close-button]:hover,
+[data-sonner-toaster] [data-rich-colors='true'][data-sonner-toast] [data-close-button]:hover,
+[data-sonner-toaster] [data-rich-colors='true'][data-sonner-toast][data-type] [data-close-button]:hover {
+  opacity: 1 !important;
+  background: var(--card-border, rgba(148, 163, 184, 0.18)) !important;
+  border-color: var(--card-border, rgba(148, 163, 184, 0.25)) !important;
+  color: var(--text-primary, #f1f5f9) !important;
+}
+
+[data-sonner-toaster] [data-close-button] svg {
+  width: 12px !important;
+  height: 12px !important;
+  stroke: currentColor !important;
 }
 
 /* Mobile responsive toast width */

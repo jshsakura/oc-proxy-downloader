@@ -23,6 +23,7 @@ from core.hoster_common import (
     _cloudflare_challenge_seen, _raise_for_dead_page, _extract_size_from_text,
 )
 from core.host_policy import http_failure_message
+from core.terabox_share import parse_terabox_share_sync
 from core.config import CONFIG_DIR
 
 
@@ -53,7 +54,7 @@ SITES = {
     "bayfiles": Site("BayFiles", ("bayfiles.com",), r"/[a-zA-Z0-9]+(?:/.*)?", "page", 'a#download-url[href]', ("bayfilesusercontent.com",)),
     "qiwi": Site("Qiwi", ("qiwi.gg",), r"/file/[a-zA-Z0-9_-]+/?", "page", 'a[download][href], a#download[href], a.download[href]', ("spyderrock.com",)),
     "zippyshare": Site("Zippyshare", ("zippyshare.com",), r"/v/[a-zA-Z0-9]+/file\.html", "browser", 'a#dlbutton[href]'),
-    "teraboxapp": Site("TeraBoxApp", ("teraboxapp.com", "terabox.app", "1024terabox.com", "terabox.com"), r"/(?:s/[^/]+|sharing/link)/?", "terabox", '.download-btn'),
+    "teraboxapp": Site("TeraBoxApp", ("teraboxapp.com", "terabox.app", "1024terabox.com", "terabox.com", "1024tera.com", "nephobox.com", "terasharelink.com"), r"/(?:s/[^/]+|sharing/link|wap/share/(?:code|filelist))/?", "terabox", '.download-btn'),
     "rapidgator_free": Site("Rapidgator", ("rapidgator.net",), r"/file/[a-fA-F0-9]{32}(?:/[^/]+)?/?", "rapidgator", 'a.btn-free:visible, #freeDownload:visible, #free-download:visible'),
 }
 
@@ -460,5 +461,5 @@ def parse_solidfiles_sync(url,proxies=None): return parse_site('solidfiles',url,
 def parse_bayfiles_sync(url,proxies=None): return parse_site('bayfiles',url,proxies)
 def parse_qiwi_sync(url,proxies=None): return parse_site('qiwi',url,proxies)
 def parse_zippyshare_sync(url,proxies=None): return parse_site('zippyshare',url,proxies)
-def parse_teraboxapp_sync(url,proxies=None): return parse_site('teraboxapp',url,proxies)
+def parse_teraboxapp_sync(url,proxies=None): return parse_terabox_share_sync(url,proxies)
 def parse_rapidgator_free_sync(url,proxies=None): return parse_site('rapidgator_free',url,proxies)

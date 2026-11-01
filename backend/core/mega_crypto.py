@@ -79,7 +79,7 @@ def decrypt_attr(attr: bytes, aes_key: A32) -> Dict[str, str]:
     Returns ``{}`` when the prefix is absent (wrong key / corrupt data).
     """
     cipher = AES.new(a32_to_bytes(aes_key), AES.MODE_CBC, b"\0" * 16)
-    plain = cipher.decrypt(attr).decode("latin-1").rstrip("\0")
+    plain = cipher.decrypt(attr).decode("utf-8", errors="replace").rstrip("\0")
     if plain[:6] != 'MEGA{"':
         return {}
     return json.loads(plain[4:])

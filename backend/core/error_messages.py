@@ -39,6 +39,7 @@ from pathlib import Path
 import random
 import re
 from typing import List, Optional, Tuple
+from core.host_policy import host_key_for_url
 
 
 @lru_cache(maxsize=24)
@@ -280,6 +281,18 @@ _RULES: Tuple[Tuple[str, str, str, str, bool], ...] = (
      "MultiUp 미러 목록을 읽지 못했습니다",
      "사이트 화면이 바뀌었을 수 있습니다. 자동 재시도하지 않습니다.",
      KIND_BROWSER_PARSE, False),
+    ("terabox 공유의 파일은 이미 모두 목록에",
+     "이 공유의 파일은 이미 모두 목록에 있습니다",
+     "받아야 할 파일이 있으면 해당 줄을 다시 시도하세요. 이 줄은 지워도 됩니다.",
+     KIND_BROWSER_PARSE, False),
+    ("terabox 공유 파일이 너무 많",
+     "TeraBox 공유 파일이 너무 많아 한 번에 등록하지 못했습니다",
+     "폴더를 나누어 공유하세요. 자동 재시도하지 않습니다.",
+     KIND_BROWSER_PARSE, False),
+    ("terabox 공유에서 이 파일을 찾지",
+     "TeraBox 공유에서 이 파일이 사라졌습니다",
+     "공유 링크를 다시 등록하세요. 자동 재시도하지 않습니다.",
+     KIND_DEAD, False),
     ("gofile 폴더에 파일이 여러 개",
      "GoFile 폴더에 파일이 여러 개라 대상을 고를 수 없습니다",
      "개별 파일 링크를 사용하세요. 자동 재시도하지 않습니다.",
@@ -786,6 +799,26 @@ def classify_error(stage: str, raw_message: str) -> ClassifiedError:
         return ClassifiedError(stage=stage, summary="파일 접근 불가 응답을 받았습니다 (삭제 여부 미확인)",
                                action="원본 링크를 보존합니다. 확인 후 수동으로 다시 시도하세요.",
                                raw=raw_message, kind=KIND_SOURCE_UNCONFIRMED, definitive=False)
+    if "terabox 공유 요청 실패" in text or "terabox 공유 페이지 요청 실패" in text:
+        return ClassifiedError(stage=stage, summary="TeraBox 서버에 연결하지 못했습니다",
+                               action="잠시 후 자동으로 다시 시도합니다.",
+                               raw=raw_message, kind=KIND_TRANSIENT, definitive=False)
+    if "terabox 공유 암호" in text:
+        return ClassifiedError(stage=stage, summary="공유에 추출 코드가 필요하거나 코드가 맞지 않습니다",
+                               action="다시 받기를 누르면 코드를 물어봅니다. 주소 뒤에 ?pwd=코드 를 붙여도 됩니다. 자동 반복하지 않습니다.",
+                               raw=raw_message, kind=KIND_AUTH_REQUIRED, definitive=True)
+    if "terabox 다운로드 인증 세션" in text:
+        return ClassifiedError(stage=stage, summary="TeraBox 다운로드 서버가 계정 세션을 확인하지 못했습니다",
+                               action="TeraBox 앱에서 QR 로그인을 다시 승인하거나 계정 쿠키(ndus)를 갱신한 뒤 다시 받기를 누르세요.",
+                               raw=raw_message, kind=KIND_AUTH_REQUIRED, definitive=True)
+    if "terabox 로그인 실패" in text or "terabox qr 로그인 실패" in text:
+        return ClassifiedError(stage=stage, summary="TeraBox 계정으로 로그인하지 못했습니다",
+                               action="TeraBox 앱에서 QR 로그인을 다시 승인하거나 설정에 계정 쿠키(ndus)를 입력하세요. 자동 반복하지 않습니다.",
+                               raw=raw_message, kind=KIND_AUTH_REQUIRED, definitive=True)
+    if "terabox가 익명 다운로드 요청을 거절" in text:
+        return ClassifiedError(stage=stage, summary="TeraBox가 로그인 없는 다운로드를 거절했습니다",
+                               action="설정에 TeraBox 계정 쿠키(ndus)를 넣은 뒤 다시 시도하세요. 자동 반복하지 않습니다.",
+                               raw=raw_message, kind=KIND_AUTH_REQUIRED, definitive=True)
     if ("다운로드에 사람 확인" in text or "컨테이너의 사람 확인" in text
             or "terabox 공유 파일 다운로드에 로그인" in text):
         return ClassifiedError(stage=stage, summary="다운로드에 사람 확인 또는 로그인이 필요합니다",
@@ -1160,7 +1193,7 @@ def apply_failure_to_request(
     )
 
 
-def is_retry_blocked_now(req, has_credentials: bool) -> Optional[str]:
+def is_retry_blocked_now(req, has_credentials: bool, *, has_terabox_cookie: bool = False) -> Optional[str]:
     """Reason to skip ``req`` on a batch/single retry — None if there is none.
 
     Looks at the persistent columns (``failure_kind`` / ``next_retry_at``) first,
@@ -1175,8 +1208,12 @@ def is_retry_blocked_now(req, has_credentials: bool) -> Optional[str]:
     # ``has_credentials`` describes only the configured 1fichier account. It
     # cannot clear a DataVault human captcha, Rootz password, GoFile permission,
     # or a Rapidgator premium requirement.
-    fichier_link = "1fichier.com" in (getattr(req, "original_url", None) or getattr(req, "url", None) or "").lower()
-    auth_available = has_credentials and fichier_link
+    source = getattr(req, "original_url", None) or getattr(req, "url", None) or ""
+    host = host_key_for_url(source)
+    auth_available = (
+        (has_credentials and host == "1fichier.com")
+        or (has_terabox_cookie and host == "teraboxapp.com")
+    )
 
     if not kind:
         # Pre-migration record — fall back to text

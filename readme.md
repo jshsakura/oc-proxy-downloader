@@ -8,9 +8,11 @@ A FastAPI + Svelte web app that resolves file-host links, queues downloads, and 
 
 ## ✨ Key Features
 
-- 🚀 **1fichier Optimized**: Automatic wait time detection and cooldown management (up to 24-hour wait), with a visible quota-recovery countdown
+- 🚀 **1fichier Optimized**: Wait time detection and cooldown management. A spent daily quota is re-checked every 30 minutes, queued rows show their place in line and when it should free, and a busy slot pauses only that queue
 - 🔐 **MEGA Support**: Public-link download with client-side AES decryption (filename, size, progress)
-- 🧩 **Host-specific link resolution**: DataNodes, MegaUp, MediaFire, Pixeldrain, Bunkr, AkiraBox, VikingFile, Rootz, and more (see limits below)
+- 🧩 **Host-specific link resolution**: DataNodes, MegaUp, MediaFire, Pixeldrain, Bunkr, AkiraBox, VikingFile, Rootz, MixDrop, Rapidgator, and more ([full list of supported links](#-supported-links), limits below)
+- 🔗 **Link containers**: MultiUp, FileCrypt, Linkcuy and OUO are unwrapped to the real file host. MultiUp mirrors are picked by MultiUp's own check and the next mirror is tried when one fails
+- 🗂️ **Several links for one file**: register a file with more than one link; when one is stuck the downloader moves on to the next
 - 🔄 **Smart Proxy**: Auto-rotation, failure detection, mixed local/proxy downloads
 - 📊 **Real-time Monitoring**: SSE-based real-time status updates and progress display
 - 🎯 **Concurrent Download Limits**: 8 global and 3 per host by default; one free 1fichier transfer per egress
@@ -60,9 +62,54 @@ The [host parsing and failure matrix](docs/HOSTER_CASES.md) lists the current ca
 | **AkiraBox** (`akirabox.com`, `akirabox.to`) | **Browser to issue a short-lived download URL** | ❌ **Docker only** |
 | **VikingFile** (`vikingfile.com`, `vik1ngfile.site`) | **Browser and Turnstile captcha** | ❌ **Docker only** |
 | **Rootz** (`rootz.so`) | **Browser to verify metadata and resolve the file URL** | ❌ **Docker only** |
+| MixDrop | Nothing for the file page; a missing-file page is recognised right away instead of waiting for its button | Not verified |
+| **Rapidgator** | **Browser and captcha; free tier is 500 MB per file, one file, one per 120 minutes** | ❌ **Docker only** |
+| MultiUp | Mirror list lookup, then the chosen mirror's own flow | Depends on the mirror |
+| OUO (`ouo.io`, `ouo.press`) | Resolved over plain HTTP first; a browser click is only the fallback | Works unless the fallback is needed |
 | DataVaults | Follow actual free-download forms once each | Stop on human verification; no blanket host block |
 | FileCrypt / Linkcuy | Extract public destinations or follow site navigation | FileCrypt: passes the security check and hands over a single file's real mirror (MediaFire, Google Drive, ...); several files need a manual choice |
-| MomeryBox / TeraBox | Redirects to TeraBox; the example link prompts for login on download | ❌ Automated downloads unsupported |
+| TeraBox (`/s/1…` share links) | Nothing. Resolved over the site's web API, no browser. A share with several files becomes one row per file, up to 200; add `?pwd=` for a password-protected share | 🟡 Add an ndus account cookie in Settings: it picks the fastest download server (measured 54 MiB/s against 0.08 MiB/s without, on a free account) and avoids anonymous refusals. QR sign-in needs the scanner inside the TeraBox app, not the phone's camera, and is not yet confirmed on a real phone |
+| MomeryBox | Redirects to TeraBox; the example link prompts for login on download | ❌ Automated downloads unsupported |
+
+### 🔗 Supported links
+
+Registered does not mean proven. [HOSTER_CASES.md](docs/HOSTER_CASES.md) records which hosts were seen completing a real transfer; the lists below are what the downloader recognises.
+
+**File hosts**
+
+| Host | Domains |
+|------|---------|
+| 1fichier | `1fichier.com` |
+| MEGA | `mega.nz` (public links, client-side decryption) |
+| Pixeldrain | `pixeldrain.com` |
+| GoFile | `gofile.io` |
+| MediaFire | `mediafire.com` |
+| MegaUp | `megaup.net` |
+| DataNodes | `datanodes.to` |
+| Send.now / Send.cm | `send.now`, `send.cm`, `tusfiles.com`, `tusfiles.net` |
+| AkiraBox | `akirabox.com`, `akirabox.to` |
+| VikingFile | `vikingfile.com`, `vik1ngfile.site` |
+| Rootz | `rootz.so` |
+| MixDrop | `mixdrop.ag`, `mixdrop.top`, `mixdrop.co`, `mixdrop.to`, `mixdrop.sx`, `mixdrop.vc`, `mixdrop.ps`, `mixdrop.my`, `mixdrop.sn`, `mixdrop.click`, `mxdrop.top`, `mxdrop.to`, `mxdrop.click` |
+| Rapidgator | `rapidgator.net` |
+| Bunkr | `bunkr.si`, `.ru`, `.la`, `.is`, `.to`, `.ax`, `.black`, `.cr`, `.fi`, `.pk`, `.ph`, `.sk`, `.ci`, `.ws`, `.site`, `.media`, `bunkrr.su`, `bunkrr.ru` |
+| TeraBox | `teraboxapp.com`, `terabox.app`, `terabox.com`, `1024terabox.com`, `1024tera.com`, `nephobox.com`, `terasharelink.com` (public shares, one row per file) |
+| Google Drive | `drive.google.com` (a public single file only) |
+| DataVaults | `datavaults.co` (stops at human verification) |
+| FileKeeper, DooDrive, ClicknUpload, FileRio, FRDL, LetsUpload, BowFile, Uptobox, SolidFiles, BayFiles, Qiwi | `filekeeper.net`, `doodrive.com`, `clicknupload.*` and `clickndownload.org`, `filerio.in`, `frdl.my`, `letsupload.io`, `bowfile.com`, `uptobox.com`, `solidfiles.com`, `bayfiles.com`, `qiwi.gg` |
+| Other HTTP links | Any direct file URL. HTML or JSON error pages are rejected before saving |
+
+**Link containers**
+
+| Container | Domains |
+|-----------|---------|
+| MultiUp | `multiup.io` |
+| FileCrypt | `filecrypt.cc`, `filecrypt.co`, `filecrypt.to` |
+| Linkcuy | `linkcuy.com` |
+| OUO | `ouo.io`, `ouo.press` |
+| MomeryBox | `momerybox.com` (redirects to TeraBox) |
+
+`zippyshare.com` is recognised only to report that the service has shut down. Aliases share one queue and one limit with their main domain.
 
 Browser-based link resolution runs **one link at a time per site**. Waiting for a
 turn does not consume a failure retry. AkiraBox, VikingFile, and Rootz resolve
@@ -86,6 +133,15 @@ signed URL with `The link is not available at this time.` The downloader reports
 that storage refusal and stops automatic retries. Files on another node may still
 work, so use another mirror or wait for the host to restore the file.
 
+### Containers and completion rules
+
+A container keeps the original URL and admits a single destination by its actual host.
+Several files, parts or mirrors need an explicit choice. HTML or JSON error pages,
+missing or empty files and length mismatches never become completed downloads. A single
+missing or inactive observation never removes a collected link. When a stream is cut
+mid-transfer (reset, TLS record drop), the downloader resumes the same URL from the
+`.part` file instead of starting over.
+
 ### Failure labels
 
 A failed row is named by what you can do about it, and only a failure the app cannot
@@ -95,7 +151,7 @@ explain stays red. The full reason and the next step are in the detail dialog.
 |-------|---------|------------|
 | **File gone** (brown) | The host says the file is missing or the link is dead | Use another mirror; the link is kept, never removed automatically |
 | **Needs you** (orange) | A captcha, login or human check is required | Finish it on the site, or use another mirror |
-| **Wait needed** (lime) | Free slot busy, rate limit or daily quota | Retry later; a busy 1fichier slot pauses the rest of that queue |
+| **Wait needed** (lime) | Free slot busy, rate limit or daily quota | Retry later; a busy 1fichier slot pauses the rest of that queue, and a spent quota is re-checked every 30 minutes |
 | **Host refused** (teal) | The host or its storage server refused the transfer | Use another mirror, or retry when the host recovers |
 | **Failed** (red) | The app could not classify the error | Check the logs |
 
@@ -163,7 +219,6 @@ We provide a standalone executable for Windows users:
 
 ```yaml
 # docker-compose.yml
-version: "3.8"
 services:
   oc-proxy-downloader:
     image: jshsakura/oc-proxy-downloader:latest
@@ -188,7 +243,6 @@ services:
 
 ```yaml
 # docker-compose.yml (Synology)
-version: "3.8"
 services:
   oc-proxy-downloader:
     image: jshsakura/oc-proxy-downloader:latest
@@ -341,8 +395,3 @@ This project is distributed under the MIT License.
 ---
 
 **⭐ If this project helped you, please give it a Star!**
-
-Containers preserve the original URL and admit a single destination by its actual host.
-Multiple files/parts/mirrors require explicit selection. HTML/JSON error pages, missing
-or empty files and length mismatches cannot become completed downloads. Single missing
-or inactive observations never authorize removal of collected links.
