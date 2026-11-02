@@ -13,7 +13,7 @@ import html
 import os
 import re
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from urllib.parse import unquote, urljoin, urlparse
 
 import cloudscraper
@@ -101,6 +101,9 @@ class HosterParseResult:
     cookies: Optional[Dict[str, str]] = None
     user_agent: Optional[str] = None
     referer: Optional[str] = None
+    # A link holding several files: one ``{"url", "name", "size"}`` per file, the
+    # first being the file ``download_link`` serves.
+    split_into: Optional[List[Dict[str, str]]] = None
 
     def as_parse_result(self) -> Dict[str, object]:
         return {
@@ -110,6 +113,7 @@ class HosterParseResult:
             "cookies": self.cookies or {},
             "user_agent": self.user_agent,
             "referer": self.referer,
+            "split_into": self.split_into,
         }
 
 

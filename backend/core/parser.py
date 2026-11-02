@@ -30,7 +30,7 @@ class FichierParser:
         '//a[contains(@href, "://s") and contains(@href, ".1fichier.com/")]',     # s<number> servers
 
         # Backup selectors (against the older structure)
-        '//a[@href and string-length(@href) > 50 and contains(@href, "1fichier")]'
+        '//a[@href and string-length(@href) > 50 and contains(@href, "1fichier")]',
 
         # Newer 1fichier structure (as of 2024)
         '//a[contains(@class, "ok btn-general")]',

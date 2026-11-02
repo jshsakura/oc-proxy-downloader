@@ -20,9 +20,10 @@ import requests
 from bs4 import BeautifulSoup
 
 from core.browser_solver import flow_for_host, solve_download_page, resolve_rootz_page
-from core.host_policy import BUNKR_HOSTS, canonical_host
+from core.host_policy import BUNKR_HOSTS, canonical_host, http_failure_message
 from core import hoster_legacy_sites as legacy_sites
-from core.host_policy import http_failure_message
+from core import hoster_web
+from core import simple_parser
 from core.hoster_common import (
     DEFAULT_HOSTER_USER_AGENT,
     HosterParseError,
@@ -309,6 +310,14 @@ _MULTIUP_MIRRORS = (
     ("Gofile", "gofile.io", "parse_gofile_sync"),
     ("MixDrop", "mixdrop.ag", "parse_mixdrop_sync"),
     ("ClicknUpload", "clicknupload.to", "parse_clicknupload_sync"),
+    ("DataNodes", "datanodes.to", "parse_datanodes_sync"),
+    ("Pixeldrain", "pixeldrain.com", "parse_pixeldrain_sync"),
+    ("MediaFire", "mediafire.com", "parse_mediafire_sync"),
+    ("Send.now", "send.now", "parse_sendnow_sync"),
+    ("Send.cm", "send.cm", "parse_sendcm_sync"),
+    ("FileKeeper", "filekeeper.net", "parse_filekeeper_sync"),
+    ("DooDrive", "doodrive.com", "parse_doodrive_sync"),
+    ("1fichier", "1fichier.com", "parse_1fichier_mirror_sync"),
 )
 # MultiUp checks its mirrors and marks each one. "invalid" copies are gone;
 # measured on 2026-10-13, every MegaUp and MixDrop copy marked so failed.
@@ -330,11 +339,20 @@ def _multiup_mirror_candidates(mirrors):
     return [(name, mirror_url, _multiup_resolver(resolver)) for _, _, name, mirror_url, resolver in ranked]
 
 
+def parse_1fichier_mirror_sync(url: str, proxies=None):
+    try:
+        return simple_parser.parse_1fichier_simple_sync(url, proxies=proxies)
+    except HosterParseError:
+        raise
+    except Exception as exc:
+        raise HosterParseError(str(exc)) from exc
+
+
 def _multiup_resolver(name):
     # Looked up when used so a replaced parser (tests, hot fixes) is the one called.
-    if name == "parse_clicknupload_sync":
-        return legacy_sites.parse_clicknupload_sync
-    return globals()[name]
+    if name in globals():
+        return globals()[name]
+    return getattr(legacy_sites, name)
 
 
 def parse_multiup_sync(url: str, proxies: Optional[Dict[str, str]] = None, *, mirror_only=False, skip_hosts=()) -> Dict[str, object]:
@@ -880,18 +898,17 @@ def _gofile_pick_file_node(data: Dict[str, object]) -> Dict[str, object]:
 
 
 def parse_gofile_sync(url: str, proxies: Optional[Dict[str, str]] = None) -> Dict[str, object]:
-    from core.hoster_web import resolve_gofile_website, is_gofile_storage_url
     content_id = _gofile_content_id(url)
     if not content_id or _host(url) not in {"gofile.io", "www.gofile.io"}:
         raise HosterParseError("GoFile 링크에서 콘텐츠 ID를 찾을 수 없음")
     if proxies:
         raise HosterParseError("GoFile 웹 세션과 파일 전송은 같은 직접 연결을 사용해야 합니다")
-    context = resolve_gofile_website(url, content_id)
+    context = hoster_web.resolve_gofile_website(url, content_id)
     node = _gofile_pick_file_node(context["data"])
     link = node.get("link") or ""
     if node.get("canAccess") is False:
         raise HosterParseError("GoFile 웹 경로에서 파일 접근 권한을 요구했습니다; 무료 다운로드 진행 불가")
-    if not is_gofile_storage_url(link):
+    if not hoster_web.is_gofile_storage_url(link):
         raise HosterParseError("GoFile 웹 페이지가 유효한 파일 서버 주소를 제공하지 않았습니다")
     info = {}
     if node.get("name"):

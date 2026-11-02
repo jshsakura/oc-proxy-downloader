@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher, onMount } from "svelte";
+  import { createEventDispatcher, onDestroy, onMount } from "svelte";
   import { theme } from "./theme.js";
   import { modalFocus } from "./modal.js";
   import { t, loadTranslations, isLoading, availableLanguages } from "./i18n.js";
@@ -13,6 +13,10 @@
   import BarChartIcon from "../icons/BarChartIcon.svelte";
   import SearchIcon from "../icons/SearchIcon.svelte";
   import CheckCircleIcon from "../icons/CheckCircleIcon.svelte";
+  import LockIcon from "../icons/LockIcon.svelte";
+  import ClipboardIcon from "../icons/ClipboardIcon.svelte";
+  import FolderIcon from "../icons/FolderIcon.svelte";
+  import QrCodeIcon from "../icons/QrCodeIcon.svelte";
   import AuditPanel from "./AuditPanel.svelte";
   import HistoryPeriodControls from "./HistoryPeriodControls.svelte";
   import TrendChart from "./TrendChart.svelte";
@@ -110,6 +114,107 @@
     fichierEditMode = true;
     toast.info($t("fichier_clear_toast"));
   }
+
+  let teraboxQr = null;
+  let teraboxQrStatus = "";
+  let teraboxQrTimer = null;
+  let teraboxAccountExpanded = false;
+  let teraboxQrLoading = false;
+  let teraboxQrRequest = 0;
+  let teraboxLoginMethod = "cookie";
+  const teraboxLoginMethods = ["cookie", "qr"];
+
+  function setTeraboxLoginMethod(method, focusTab = false) {
+    if (method !== "qr") stopTeraboxQr();
+    teraboxLoginMethod = method;
+    if (focusTab) queueMicrotask(() => document.getElementById(`terabox-method-${method}`)?.focus());
+  }
+
+  function onTeraboxMethodKeydown(event, index) {
+    let next;
+    const direction = document.documentElement.dir === "rtl" ? -1 : 1;
+    const count = teraboxLoginMethods.length;
+    if (event.key === "ArrowRight") next = (index + direction + count) % count;
+    else if (event.key === "ArrowLeft") next = (index - direction + count) % count;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = count - 1;
+    else return;
+    event.preventDefault();
+    setTeraboxLoginMethod(teraboxLoginMethods[next]);
+    document.getElementById(`terabox-method-${teraboxLoginMethods[next]}`)?.focus();
+  }
+
+  function stopTeraboxQr() {
+    teraboxQrRequest += 1;
+    clearTimeout(teraboxQrTimer);
+    teraboxQrTimer = null;
+    teraboxQr = null;
+    teraboxQrStatus = "";
+    teraboxQrLoading = false;
+  }
+
+  function toggleTeraboxAccount() {
+    teraboxAccountExpanded = !teraboxAccountExpanded;
+    if (!teraboxAccountExpanded) stopTeraboxQr();
+  }
+
+  async function postJson(url, body) {
+    const res = await authenticatedFetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}) });
+    return res.json();
+  }
+
+  async function pollTeraboxQr(handle) {
+    if (teraboxQr?.handle !== handle) return;
+    try {
+      const data = await postJson("/api/terabox/qr/poll", { handle });
+      if (teraboxQr?.handle !== handle) return;
+      if (!data.success) {
+        stopTeraboxQr();
+        toast.error(data.message);
+        return;
+      }
+      if (data.status === "done") {
+        stopTeraboxQr();
+        settings.terabox_ndus = "********";
+        toast.success($t("terabox_qr_done"));
+        return;
+      }
+      teraboxQrStatus = data.status;
+    } catch (e) {
+      if (teraboxQr?.handle !== handle) return;
+      stopTeraboxQr();
+      toast.error(String(e));
+      return;
+    }
+    teraboxQrTimer = setTimeout(() => pollTeraboxQr(handle), 2500);
+  }
+
+  async function startTeraboxQr() {
+    stopTeraboxQr();
+    const request = teraboxQrRequest;
+    teraboxQrLoading = true;
+    try {
+      const data = await postJson("/api/terabox/qr/start");
+      if (request !== teraboxQrRequest) return;
+      if (!data.success) {
+        toast.error(data.message);
+        return;
+      }
+      teraboxQr = { handle: data.handle, png: data.png_base64 };
+      teraboxQrStatus = "waiting_scan";
+      teraboxQrTimer = setTimeout(() => pollTeraboxQr(data.handle), 2500);
+    } catch (e) {
+      if (request !== teraboxQrRequest) return;
+      toast.error(String(e));
+    } finally {
+      if (request === teraboxQrRequest) teraboxQrLoading = false;
+    }
+  }
+
+  onDestroy(stopTeraboxQr);
 
   async function testFichierLogin() {
     if (!settings.fichier_email || !settings.fichier_password) {
@@ -336,6 +441,7 @@
       telegram_notify_start: currentSettings.telegram_notify_start === true,
       fichier_email: currentSettings.fichier_email || "",
       fichier_password: currentSettings.fichier_password || "",
+      terabox_ndus: currentSettings.terabox_ndus || "",
       flaresolverr_url: currentSettings.flaresolverr_url || "",
       max_concurrent_downloads: currentSettings.max_concurrent_downloads ?? 8,
       max_per_host_downloads: currentSettings.max_per_host_downloads ?? 3,
@@ -345,6 +451,7 @@
     selectedTheme = $theme;
     originalTheme = $theme;
     selectedLocale = localStorage.getItem("lang") || "ko";
+    teraboxLoginMethod = "cookie";
     savedOnClose = false;
     isInitialized = true;
   }
@@ -360,6 +467,8 @@
     settings = {};
     isInitialized = false;
     fichierEditMode = false;
+    teraboxAccountExpanded = false;
+    stopTeraboxQr();
     savedOnClose = false;
   }
 
@@ -1013,19 +1122,32 @@
             {/if}
           </div>
 
+          <div class="account-section-heading">
+            <h3>{$t("download_accounts_title")}</h3>
+            <p>{$t("download_accounts_hint")}</p>
+          </div>
+
           <!-- 1fichier account (workaround for guest slot shortage) -->
-          <fieldset class="form-group telegram-notifications">
-            <legend>{$t("fichier_account_title")}</legend>
+          <fieldset class="form-group account-card">
+            <legend class="account-legend">{$t("fichier_account_title")}</legend>
 
             <button
               type="button"
-              class="telegram-header"
+              class="telegram-header account-header"
+              aria-expanded={fichierAccountExpanded}
+              aria-controls="fichier-account-content"
               on:click={() => (fichierAccountExpanded = !fichierAccountExpanded)}
             >
-              <div class="telegram-info">
-                <p class="telegram-desc">{$t("fichier_account_header")}</p>
-                <p class="telegram-sub">{$t("fichier_account_sub")}</p>
-              </div>
+              <span class="account-service-icon" aria-hidden="true"><FolderIcon /></span>
+              <span class="telegram-info">
+                <span class="account-service-heading">
+                  <span class="account-service-name">1fichier</span>
+                  <span class="account-state" class:saved={Boolean(currentSettings?.fichier_email && currentSettings?.fichier_password)}>
+                    {$t(currentSettings?.fichier_email && currentSettings?.fichier_password ? "account_saved" : "account_not_configured")}
+                  </span>
+                </span>
+                <span class="telegram-sub">{$t("fichier_account_sub")}</span>
+              </span>
               <div class="toggle-chevron" class:expanded={fichierAccountExpanded}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" stroke-width="2"
@@ -1036,8 +1158,8 @@
             </button>
 
             {#if fichierAccountExpanded}
-              <div class="telegram-accordion">
-                <div class="accordion-content">
+              <div class="telegram-accordion" id="fichier-account-content">
+                <div class="accordion-content account-content">
                   {#if currentSettings?.fichier_email && currentSettings?.fichier_password && !fichierEditMode}
                     <!-- Saved credentials: show only the email, cleanly -->
                     <div class="fichier-saved">
@@ -1067,7 +1189,7 @@
                     </div>
                   {:else}
                     <!-- Input/edit mode -->
-                    <div class="telegram-input-group">
+                    <div class="telegram-input-group account-credentials">
                       <div class="input-field">
                         <label for="fichier-email">{$t("fichier_email_label")}</label>
                         <input
@@ -1131,6 +1253,124 @@
                       </div>
                     </div>
                   {/if}
+                </div>
+                <div class="account-footer"><LockIcon /><span>{$t("account_save_hint")}</span></div>
+              </div>
+            {/if}
+          </fieldset>
+
+          <fieldset class="form-group account-card">
+            <legend class="account-legend">{$t("terabox_account_title")}</legend>
+            <button
+              type="button"
+              class="telegram-header account-header"
+              aria-expanded={teraboxAccountExpanded}
+              aria-controls="terabox-account-content"
+              on:click={toggleTeraboxAccount}
+            >
+              <span class="account-service-icon" aria-hidden="true"><LockIcon /></span>
+              <span class="telegram-info">
+                <span class="account-service-heading">
+                  <span class="account-service-name">TeraBox</span>
+                  <span class="account-state" class:saved={Boolean(currentSettings?.terabox_ndus)}>
+                    {$t(currentSettings?.terabox_ndus ? "account_saved" : "account_not_configured")}
+                  </span>
+                </span>
+                <span class="telegram-sub">{$t("terabox_account_sub")}</span>
+              </span>
+              <span class="toggle-chevron" class:expanded={teraboxAccountExpanded} aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6,9 12,15 18,9"></polyline>
+                </svg>
+              </span>
+            </button>
+
+            {#if teraboxAccountExpanded}
+              <div class="telegram-accordion" id="terabox-account-content">
+                <div class="account-method-picker" role="tablist" aria-label={$t("account_login_method")}>
+                  {#each teraboxLoginMethods as method, index}
+                    <button
+                      type="button"
+                      class="account-method-tab"
+                      class:active={teraboxLoginMethod === method}
+                      role="tab"
+                      id={`terabox-method-${method}`}
+                      aria-selected={teraboxLoginMethod === method}
+                      aria-controls={`terabox-panel-${method}`}
+                      tabindex={teraboxLoginMethod === method ? 0 : -1}
+                      on:click={() => setTeraboxLoginMethod(method)}
+                      on:keydown={(event) => onTeraboxMethodKeydown(event, index)}
+                    >
+                      <span class="account-method-icon" aria-hidden="true">
+                        {#if method === "qr"}<QrCodeIcon />{:else}<ClipboardIcon />{/if}
+                      </span>
+                      <span class="account-method-label">
+                        <strong>{$t(`terabox_method_${method}`)}</strong>
+                        <small>{$t(`terabox_method_${method}_hint`)}</small>
+                      </span>
+                    </button>
+                  {/each}
+                </div>
+
+                <div class="account-content account-method-panel" role="tabpanel"
+                  id="terabox-panel-qr" aria-labelledby="terabox-method-qr"
+                  hidden={teraboxLoginMethod !== "qr"} tabindex="0">
+                    <div class="account-qr-layout">
+                      <div class="account-qr-frame" class:pending={!teraboxQr} aria-busy={teraboxQrLoading}>
+                        {#if teraboxQr}
+                          <img class="terabox-qr" alt={$t("terabox_qr_button")}
+                            src={"data:image/png;base64," + teraboxQr.png} width="180" height="180" />
+                        {:else}
+                          <span class="account-qr-placeholder" aria-hidden="true"><QrCodeIcon /></span>
+                          <span class="account-qr-caption">{$t(teraboxQrLoading ? "loading_message" : "terabox_qr_ready")}</span>
+                        {/if}
+                      </div>
+                      <div class="account-qr-guide">
+                        <h3>{$t("terabox_method_qr")}</h3>
+                        <ol>
+                          <li>{$t("terabox_qr_step_scan")}</li>
+                          <li>{$t("terabox_qr_step_approve")}</li>
+                        </ol>
+                        {#if teraboxQr}
+                          <p class="account-qr-status" role="status">
+                            <span class="account-status-dot" aria-hidden="true"></span>
+                            {$t(teraboxQrStatus === "waiting_confirm" ? "terabox_qr_confirm" : "terabox_qr_waiting")}
+                          </p>
+                        {/if}
+                        <div class="account-method-actions">
+                          {#if !teraboxQr}
+                            <button type="button" class="button button-primary"
+                              disabled={teraboxQrLoading} aria-busy={teraboxQrLoading} on:click={startTeraboxQr}>
+                              <QrCodeIcon /> {$t(teraboxQrLoading ? "loading_message" : "terabox_qr_generate")}
+                            </button>
+                          {/if}
+                          {#if teraboxQr || teraboxQrLoading}
+                            <button type="button" class="button button-secondary" on:click={stopTeraboxQr}>
+                              {$t("button_cancel")}
+                            </button>
+                          {/if}
+                        </div>
+                      </div>
+                    </div>
+                </div>
+                <div class="account-content account-method-panel" role="tabpanel"
+                  id="terabox-panel-cookie" aria-labelledby="terabox-method-cookie"
+                  hidden={teraboxLoginMethod !== "cookie"} tabindex="0">
+                    <div class="account-method-intro">
+                      <h3>{$t("terabox_cookie_title")}</h3>
+                      <p>{$t("terabox_cookie_intro")}</p>
+                    </div>
+                    <div class="input-field">
+                      <label for="terabox-ndus">{$t("terabox_ndus_label")}</label>
+                      <input id="terabox-ndus" type="password" class="input" autocomplete="off"
+                        placeholder="••••••••" aria-describedby="terabox-ndus-hint"
+                        bind:value={settings.terabox_ndus} />
+                      <small class="input-hint" id="terabox-ndus-hint">{$t("terabox_ndus_hint")}</small>
+                    </div>
+                </div>
+                <div class="account-footer">
+                  <LockIcon /><span>{$t(teraboxLoginMethod === "qr" ? "terabox_qr_save_hint" : "account_save_hint")}</span>
                 </div>
               </div>
             {/if}
@@ -2793,6 +3033,496 @@
     min-height: 2rem;
   }
 
+  .account-section-heading {
+    margin: 1.5rem 0 1rem;
+  }
+
+  .account-section-heading h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+
+  .account-section-heading p {
+    margin: 0.35rem 0 0;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.5;
+  }
+
+  fieldset.form-group.account-card {
+    min-inline-size: 0;
+    margin: 0 0 1rem;
+    overflow: hidden;
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    background: var(--card-background);
+  }
+
+  .account-legend {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .account-card .account-header {
+    gap: 0.85rem;
+    margin: 0;
+    padding: 1.1rem 1.2rem;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    text-align: start;
+  }
+
+  .account-card .account-header:hover {
+    background: color-mix(in srgb, var(--primary-color) 5%, var(--card-background));
+    box-shadow: none;
+  }
+
+  .account-service-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border: 1px solid color-mix(in srgb, var(--primary-color) 22%, var(--card-border));
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--primary-color) 10%, var(--card-background));
+    color: var(--primary-color);
+  }
+
+  .account-service-icon :global(svg) {
+    width: 21px;
+    height: 21px;
+  }
+
+  .account-header .telegram-info {
+    min-width: 0;
+  }
+
+  .account-service-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+  }
+
+  .account-service-name {
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .account-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.45rem;
+    border: 1px solid var(--card-border);
+    border-radius: 5px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    font-size: 0.7rem;
+    line-height: 1.25;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .account-state.saved {
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--success-color) 30%, var(--card-border));
+    background: color-mix(in srgb, var(--success-color) 8%, var(--card-background));
+  }
+
+  .account-state.saved::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--success-color);
+  }
+
+  .account-header .telegram-sub {
+    display: block;
+    margin-top: 0.4rem;
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
+
+  .account-header .toggle-chevron {
+    flex-shrink: 0;
+    margin: 0;
+    background: transparent;
+  }
+
+  .account-card .telegram-accordion {
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--card-border);
+    border-radius: 0;
+    animation: none;
+  }
+
+  .account-content {
+    padding: 1.2rem;
+  }
+
+  .account-credentials {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 0;
+  }
+
+  .account-content .input-field {
+    min-width: 0;
+    gap: 0.5rem;
+  }
+
+  .account-content .input-field label {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-transform: none;
+  }
+
+  .account-content .input-hint {
+    display: block;
+    margin: 0;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .account-credentials .telegram-test-section {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    margin: 0;
+  }
+
+  .account-method-picker {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin: 1.2rem 1.2rem 0;
+  }
+
+  .account-method-tab {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    text-align: start;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .account-method-tab:hover {
+    border-color: color-mix(in srgb, var(--primary-color) 50%, var(--card-border));
+    color: var(--text-primary);
+  }
+
+  .account-method-tab.active {
+    background: color-mix(in srgb, var(--primary-color) 9%, var(--card-background));
+    border-color: color-mix(in srgb, var(--primary-color) 65%, var(--card-border));
+    color: var(--primary-color);
+  }
+
+  .account-method-icon {
+    display: flex;
+    flex-shrink: 0;
+  }
+
+  .account-method-icon :global(svg) {
+    width: 19px;
+    height: 19px;
+  }
+
+  .account-method-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .account-method-label strong {
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  .account-method-label small {
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    line-height: 1.35;
+  }
+
+  .account-method-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .account-method-panel[hidden] {
+    display: none;
+  }
+
+  .account-method-intro h3,
+  .account-qr-guide h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .account-method-intro p {
+    margin: 0.4rem 0 0;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.6;
+  }
+
+  .account-qr-layout {
+    display: grid;
+    grid-template-columns: 216px minmax(0, 1fr);
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .account-qr-frame {
+    --qr-code-surface: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    width: 216px;
+    max-width: 100%;
+    aspect-ratio: 1;
+    padding: 11px;
+    box-sizing: border-box;
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    background: var(--input-bg);
+  }
+
+  /* Preserve the QR image's white surround even in dark themes. */
+  .account-qr-frame:not(.pending) {
+    padding: 16px;
+    background: var(--qr-code-surface);
+  }
+
+  .account-qr-placeholder {
+    display: flex;
+    color: var(--text-secondary);
+    opacity: 0.55;
+  }
+
+  .account-qr-placeholder :global(svg) {
+    width: 56px;
+    height: 56px;
+    stroke-width: 1.3;
+  }
+
+  .account-qr-caption {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    text-align: center;
+  }
+
+  .terabox-qr {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .account-qr-guide {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.85rem;
+    min-width: 0;
+  }
+
+  .account-qr-guide ol {
+    display: grid;
+    gap: 0.65rem;
+    margin: 0;
+    padding-inline-start: 1.1rem;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.65;
+  }
+
+  .account-qr-guide li::marker {
+    color: var(--primary-color);
+    font-weight: 600;
+  }
+
+  .account-qr-status {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
+
+  .account-status-dot {
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--primary-color);
+  }
+
+  .account-method-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .account-method-actions .button {
+    gap: 0.4rem;
+    height: auto;
+    min-height: 36px;
+    padding: 0.5rem 0.8rem;
+    white-space: normal;
+  }
+
+  .account-footer {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    padding: 0.75rem 1.2rem;
+    border-top: 1px solid var(--card-border);
+    background: color-mix(in srgb, var(--text-primary) 2%, var(--card-background));
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    line-height: 1.5;
+  }
+
+  .account-footer :global(svg) {
+    flex-shrink: 0;
+    width: 13px;
+    height: 13px;
+    margin-top: 1px;
+  }
+
+  .account-header:focus-visible,
+  .account-method-tab:focus-visible,
+  .account-method-panel:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -3px;
+  }
+
+  @media (max-width: 560px) {
+    .account-card .account-header,
+    .account-content {
+      padding: 1rem;
+    }
+
+    .account-card .account-header {
+      gap: 0.65rem;
+    }
+
+    .account-service-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+    }
+
+    .account-credentials {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.85rem;
+    }
+
+    .account-method-picker {
+      margin: 1rem 1rem 0;
+      gap: 0.4rem;
+    }
+
+    .account-method-tab {
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.65rem 0.25rem;
+      text-align: center;
+    }
+
+    .account-method-label strong {
+      font-size: 0.75rem;
+    }
+
+    .account-method-label small {
+      font-size: 0.65rem;
+    }
+
+    .account-qr-layout {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 1rem;
+    }
+
+    .account-qr-frame {
+      align-self: center;
+      order: 2;
+    }
+
+    .account-qr-guide {
+      display: contents;
+    }
+
+    .account-qr-guide h3 {
+      order: 0;
+    }
+
+    .account-qr-guide .account-method-actions {
+      order: 1;
+    }
+
+    .account-qr-guide ol {
+      order: 3;
+    }
+
+    .account-qr-guide .account-qr-status {
+      order: 4;
+    }
+
+    .account-qr-frame.pending {
+      width: 164px;
+    }
+
+    .account-footer {
+      padding-inline: 1rem;
+    }
+
+    .settings-tabs {
+      overflow-x: auto;
+    }
+
+    .settings-tab {
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+  }
+
   .fichier-saved {
     display: flex;
     flex-direction: column;
@@ -2825,6 +3555,7 @@
     flex: 1;
   }
   .fichier-saved-email {
+    overflow-wrap: anywhere;
     font-weight: 600;
     color: var(--text-primary);
     font-size: 0.95rem;

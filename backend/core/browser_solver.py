@@ -13,6 +13,7 @@ the container provides through Xvfb.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import json
 from pathlib import Path
@@ -29,7 +30,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from patchright.sync_api import Page, sync_playwright
 
-from core.hoster_common import HosterParseError, _format_size_bytes
+from core.host_policy import canonical_host, http_failure_message
+from core.hoster_common import HosterParseError, _format_size_bytes, _raise_for_dead_page
 from core.config import CONFIG_DIR
 
 
@@ -140,7 +142,6 @@ BROWSER_UNSUPPORTED_MESSAGE = (
 
 def _host_lock(host: str) -> threading.Lock:
     """The queue for one site, created on first use."""
-    from core.host_policy import canonical_host
     host = canonical_host(host)
     with _HOST_LOCKS_GUARD:
         lock = _HOST_LOCKS.get(host)
@@ -207,7 +208,21 @@ MIXDROP_FLOW = BrowserFlow(
     # into the final download link after a short countdown.
     action_selector="a.download-btn",
 )
-MIXDROP_DOMAINS = frozenset({"mixdrop.ag", "mixdrop.top", "mxdrop.top"})
+MIXDROP_DOMAINS = frozenset({
+    "mixdrop.ag",
+    "mixdrop.top",
+    "mxdrop.top",
+    "mxdrop.click",
+    "mixdrop.click",
+    "mxdrop.to",
+    "mixdrop.to",
+    "mixdrop.co",
+    "mixdrop.sx",
+    "mixdrop.vc",
+    "mixdrop.ps",
+    "mixdrop.my",
+    "mixdrop.sn",
+})
 VIKING_FLOW = BrowserFlow(
     direct_link_selector='a#download-link[href^="http"]',
     widget_selector="#captcha",
@@ -226,9 +241,7 @@ DEFAULT_FLOW = BrowserFlow()
 _FLOWS = {
     "datanodes.to": DATANODES_FLOW,
     "send.now": SEND_NOW_FLOW,
-    "mixdrop.ag": MIXDROP_FLOW,
-    "mixdrop.top": MIXDROP_FLOW,
-    "mxdrop.top": MIXDROP_FLOW,
+    **{domain: MIXDROP_FLOW for domain in MIXDROP_DOMAINS},
     "vikingfile.com": VIKING_FLOW,
     "vik1ngfile.site": VIKING_FLOW,
     "akirabox.com": AKIRABOX_FLOW,
@@ -238,7 +251,29 @@ _FLOWS = {
 # Hosts that have a browser flow at all. Used to route their parses onto the
 # dedicated pool in core.executors, so a minutes-long solve never occupies a
 # shared worker.
-BROWSER_FLOW_HOSTS = frozenset({*_FLOWS, "ouo.io", "ouo.press", "gofile.io", "rapidgator.net", "teraboxapp.com", "terabox.app", "1024terabox.com", "rootz.so", "filecrypt.cc", "filecrypt.co", "filecrypt.to", "linkcuy.com", "momerybox.com"})
+BROWSER_FLOW_HOSTS = frozenset({
+    *_FLOWS,
+    "ouo.io",
+    "ouo.press",
+    "gofile.io",
+    "rapidgator.net",
+    "terabox.com",
+    "teraboxapp.com",
+    "terabox.app",
+    "1024terabox.com",
+    "rootz.so",
+    "send.cm",
+    "tusfiles.com",
+    "tusfiles.net",
+    "buzzheavier.com",
+    "bzzhr.co",
+    "bhvr.cc",
+    "filecrypt.cc",
+    "filecrypt.co",
+    "filecrypt.to",
+    "linkcuy.com",
+    "momerybox.com",
+})
 
 # The subset where the browser is unavoidable: every free download ends at a
 # captcha, so a build without one can refuse the link immediately. Send.now is
@@ -400,7 +435,6 @@ def _capture_download_response(response, page_url: str, captured: Dict[str, str]
                       and request.frame == main_frame)
         if (response_host and (issuance or navigation)
                 and getattr(response, "status", 200) >= 400):
-            from core.host_policy import http_failure_message
             captured["http_error"] = http_failure_message(
                 response.status, response.status_text,
                 {"Retry-After": response.headers.get("retry-after", "")})
@@ -803,7 +837,6 @@ def solve_download_page(
                 if captured.get("http_error"):
                     raise HosterParseError(captured["http_error"])
                 _await_page_ready(page, flow, deadline)
-                from core.hoster_common import _raise_for_dead_page
                 _raise_for_dead_page(host, page.content(), initial_response.status if initial_response else 200)
 
                 def direct_link() -> Optional[str]:
@@ -857,7 +890,6 @@ def solve_download_page(
             finally:
                 if page is not None:
                     try:
-                        import hashlib
                         key = hashlib.sha256(url.encode()).hexdigest()[:16]
                         path = CONFIG_DIR / f'host_browser_{key}.html'
                         path.write_text(page.content()); path.chmod(0o600)

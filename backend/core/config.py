@@ -1,9 +1,10 @@
-
 import os
 import sys
 from pathlib import Path
 import json
 import secrets
+import tempfile
+import threading
 
 # Environment-specific config directory setup
 # 1. OC_CONFIG_DIR environment variable (set when running standalone)
@@ -117,7 +118,10 @@ DEFAULT_CONFIG = {
     # one VPN exit (Surfshark JP). A different exit may work fine, and a hoster
     # can change its mind, so set a host to [] to lift its denial or add your own
     # once you have measured it. {} disables the whole thing.
-    "host_egress_deny": {"datanodes.to": ["vpn"]}
+    "host_egress_deny": {"datanodes.to": ["vpn"]},
+    # TeraBox answers some anonymous share downloads with a refusal. The `ndus`
+    # cookie of a logged-in account is what the web app sends instead.
+    "terabox_ndus": "",
 }
 
 # Credentials that must never leave the server in readable form. They grant
@@ -126,11 +130,14 @@ DEFAULT_CONFIG = {
 SECRET_CONFIG_KEYS = frozenset({
     "telegram_bot_token",
     "fichier_password",
+    # TeraBox's login cookie: it is the account, so it stays server-side too.
+    "terabox_ndus",
     # The API token is revealed only through its own dedicated endpoint, never in
     # the general settings payload.
     "api_token",
 })
 SECRET_PLACEHOLDER = "********"
+RETIRED_CONFIG_KEYS = frozenset({"terabox_email", "terabox_password"})
 
 
 def mask_secrets(config: dict) -> dict:
@@ -138,6 +145,7 @@ def mask_secrets(config: dict) -> dict:
     return {
         key: SECRET_PLACEHOLDER if key in SECRET_CONFIG_KEYS and value else value
         for key, value in config.items()
+        if key not in RETIRED_CONFIG_KEYS
     }
 
 
@@ -150,31 +158,60 @@ def restore_masked_secrets(incoming: dict, stored: dict) -> dict:
     return {
         key: stored.get(key, "") if key in SECRET_CONFIG_KEYS and value == SECRET_PLACEHOLDER else value
         for key, value in incoming.items()
+        if key not in RETIRED_CONFIG_KEYS
     }
 
 
-def get_config():
-    # Create CONFIG_DIR
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    
-    if CONFIG_FILE.exists():
+_CONFIG_LOCK = threading.RLock()
+
+
+def _atomic_write_json(target_file: Path, payload: dict) -> None:
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{target_file.name}.",
+        suffix=".tmp",
+        dir=str(target_file.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=4, ensure_ascii=False)
+            f.flush()
+        os.replace(tmp_path, target_file)
+    except Exception:
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                stored = json.load(f)
-            # Defaults first, stored on top: a config.json written by an older
-            # version is missing keys added since, and reading those as None makes
-            # new settings look unset in the UI and unusable in code.
-            return {**DEFAULT_CONFIG, **stored}
-        except json.JSONDecodeError:
-            print(f"[ERROR] config.json is corrupted or empty. Using default config.")
-            # If the file is corrupted or empty, overwrite it with the defaults
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
-            return DEFAULT_CONFIG.copy()
-    # If the file is missing, create it with the defaults
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
-    return DEFAULT_CONFIG.copy()
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def get_config():
+    with _CONFIG_LOCK:
+        # Create CONFIG_DIR
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+        if CONFIG_FILE.exists():
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    stored = json.load(f)
+                # Defaults first, stored on top: a config.json written by an older
+                # version is missing keys added since, and reading those as None makes
+                # new settings look unset in the UI and unusable in code.
+                return {
+                    key: value for key, value in {**DEFAULT_CONFIG, **stored}.items()
+                    if key not in RETIRED_CONFIG_KEYS
+                }
+            except json.JSONDecodeError:
+                print("[ERROR] config.json is corrupted or empty. Using default config in memory without overwriting file.")
+                return DEFAULT_CONFIG.copy()
+        # If the file is missing, create it with the defaults
+        try:
+            _atomic_write_json(CONFIG_FILE, DEFAULT_CONFIG)
+        except PermissionError:
+            pass
+        return DEFAULT_CONFIG.copy()
+
 
 def save_config(config, *, merge: bool = True):
     """Persist settings, merging into what is already stored by default.
@@ -189,19 +226,22 @@ def save_config(config, *, merge: bool = True):
     Pass merge=False to replace wholesale — only for callers that genuinely hold
     the complete config.
     """
-    try:
-        payload = config
-        if merge:
-            try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    payload = {**json.load(f), **config}
-            except (FileNotFoundError, json.JSONDecodeError):
-                payload = config
-        with open(CONFIG_FILE, 'w', encoding="utf-8") as f:
-            json.dump(payload, f, indent=4, ensure_ascii=False)
-    except PermissionError:
-        print(f"[WARN] Cannot write to config file: {CONFIG_FILE}")
-        print("[WARN] Config changes will not be persisted")
+    with _CONFIG_LOCK:
+        try:
+            payload = config
+            if merge:
+                try:
+                    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                        payload = {**json.load(f), **config}
+                except (FileNotFoundError, json.JSONDecodeError):
+                    payload = config
+            _atomic_write_json(CONFIG_FILE, {
+                key: value for key, value in payload.items()
+                if key not in RETIRED_CONFIG_KEYS
+            })
+        except PermissionError:
+            print(f"[WARN] Cannot write to config file: {CONFIG_FILE}")
+            print("[WARN] Config changes will not be persisted")
 
 API_TOKEN_KEY = "api_token"
 _API_TOKEN_BYTES = 32  # 256-bit, urlsafe → ~43 chars

@@ -15,7 +15,7 @@ from urllib.parse import urlparse, urlunparse
 from services.notification_service import send_telegram_wait_notification
 from core.config import CONFIG_DIR
 from core import cancel_signal
-from core.hoster_parsers import get_flaresolverr_context_for_url
+from core.hoster_common import get_flaresolverr_context_for_url
 
 
 def _save_parse_debug(stage: str, status_code, body_text):

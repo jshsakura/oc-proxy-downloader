@@ -6,15 +6,18 @@ import httpx
 import asyncio
 from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from core.config import (get_config, save_config, get_download_path, get_default_download_path,
+from core import fichier_auth, terabox_login
+from core.config import (CONFIG_DIR, get_config, save_config, get_download_path, get_default_download_path,
                          IS_STANDALONE, mask_secrets, restore_masked_secrets,
                          get_or_create_api_token, regenerate_api_token)
 from core.db import get_db
+from core.i18n import get_translations
 from core.version import CURRENT_VERSION
 from core.download_core import download_core
-from core.hoster_common import resolve_flaresolverr_url
+from core.hoster_common import HosterParseError, resolve_flaresolverr_url
 from services.notification_service import send_telegram_notification
 
 
@@ -213,9 +216,6 @@ def get_debug_parse_response(stage: str = "post"):
     in a browser immediately downloads the HTML. Useful for diagnosing
     failures even in environments where docker logs are hard to access.
     """
-    from fastapi.responses import Response
-    from core.config import CONFIG_DIR
-
     if stage not in ("get", "post"):
         raise HTTPException(status_code=400, detail="stage 는 get 또는 post 여야 합니다")
 
@@ -241,6 +241,28 @@ def get_debug_parse_response(stage: str = "post"):
     )
 
 
+@router.post("/terabox/qr/start")
+def terabox_qr_start():
+    """Start a QR sign-in for accounts without a password (Google, Apple)."""
+    try:
+        return {"success": True, **terabox_login.qr_start()}
+    except HosterParseError as exc:
+        return {"success": False, "message": str(exc)}
+
+
+@router.post("/terabox/qr/poll")
+def terabox_qr_poll(body: dict):
+    """Poll a QR sign-in; once approved the cookie is stored and never returned."""
+    try:
+        state = terabox_login.qr_poll(str(body.get("handle") or ""))
+    except HosterParseError as exc:
+        return {"success": False, "message": str(exc)}
+    if state["status"] == "done":
+        save_config({"terabox_ndus": state["ndus"]})
+        return {"success": True, "status": "done"}
+    return {"success": True, "status": state["status"]}
+
+
 @router.post("/fichier/test-login")
 async def test_fichier_login(request: Request):
     """Test login using the stored 1fichier credentials.
@@ -249,8 +271,6 @@ async def test_fichier_login(request: Request):
     ``fichier_password``; if the body has ``email`` / ``password``, test with
     those values on the spot (without saving).
     """
-    from core import fichier_auth
-
     try:
         body = await request.json()
     except Exception:
@@ -272,7 +292,9 @@ async def test_fichier_login(request: Request):
 
     try:
         # force_refresh=True ignores the cache and attempts a fresh login
-        fichier_auth.get_authenticated_scraper(email, password, force_refresh=True)
+        await asyncio.to_thread(
+            fichier_auth.get_authenticated_scraper, email, password, force_refresh=True
+        )
         return {"success": True, "message": "로그인 성공 — 다운로드 시 자동 사용됩니다."}
     except fichier_auth.FichierLoginError as exc:
         return {"success": False, "message": f"로그인 실패: {exc}"}
@@ -293,7 +315,6 @@ def test_telegram_notification(request: Request):
         notify_success = config.get("telegram_notify_success", False)
 
         # Get the translated text
-        from core.i18n import get_translations
         user_language = config.get("language", "ko")
         translations = get_translations(user_language)
 

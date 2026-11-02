@@ -80,7 +80,10 @@ def switch_to_next_mirror(req, now: datetime.datetime) -> str:
     req.mirror_urls = json.dumps(mirrors[1:]) if len(mirrors) > 1 else None
     # A partial file from the previous host need not be the same bytes.
     if req.save_path and req.save_path.endswith(".part") and os.path.exists(req.save_path):
-        os.remove(req.save_path)
+        try:
+            os.remove(req.save_path)
+        except OSError:
+            pass
     req.save_path = None
     req.downloaded_size = 0
     req.total_size = 0
