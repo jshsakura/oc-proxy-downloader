@@ -48,6 +48,12 @@ is in git history (`git log -- docs/HANDOFF.md`).
   `<compose stack>/account-ui-20261031/`; rollback uses the
   preceding QR-platform image. No active downloads were restarted.
 - Current deployment: production pins
+  `oc-proxy-downloader:2.16.94-host-refusal-r4-20261108`. It is r3 plus one fix.
+  A file that fails with `auth_required` (Rapidgator over 500 MB on a free account,
+  a password, a missing permission) no longer puts its whole host on a one-hour
+  wait. Build inputs and rollback Compose are in
+  `<compose stack>/host-refusal-r4-20261108/`.
+- Previous deployment: production pinned
   `oc-proxy-downloader:2.16.94-terabox-qr-region-r3-20261101`, which adds multi-file
   shares, regional hosts and the in-app scanner wording, with build inputs in
   `<compose stack>/terabox-qr-region-r3-20261101/`. With a saved cookie, TeraBox

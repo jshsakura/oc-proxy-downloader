@@ -246,6 +246,18 @@ def test_generic_rate_limit_preserves_parallel_transfer_policy(core):
     assert "vikingfile.com@direct" in core._host_cooldown_until
 
 
+@pytest.mark.parametrize("host, raw", [
+    ("rapidgator.net", "Rapidgator 무료 모드는 500 MB 초과 파일을 지원하지 않습니다 (실제 페이지 제한)"),
+    ("rootz.so", "Rootz: 비밀번호가 필요한 파일입니다"),
+    ("gofile.io", "GoFile 웹 경로에서 파일 접근 권한이 필요합니다"),
+])
+def test_a_file_that_needs_an_account_leaves_the_host_open(core, host, raw):
+    req = SimpleNamespace(failure_kind=classify_error("파싱", raw).kind, next_retry_at=None,
+                          attempts_json=json.dumps([{"raw": raw}]))
+    assert not core._register_host_refusal(req, host, f"{host}@direct")
+    assert f"{host}@direct" not in core._host_cooldown_until
+
+
 def test_retry_after_is_kept_in_classification():
     raw = http_failure_message(429, "Too Many Requests", {"Retry-After": "3600"})
     assert classify_error("다운로드", raw).retry_after_seconds == 3600

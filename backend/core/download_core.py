@@ -67,7 +67,6 @@ from core.hoster_parsers import (
 from core.error_messages import (
     apply_failure_to_request,
     classify_error,
-    KIND_AUTH_REQUIRED,
     KIND_BLOCKED,
     KIND_CLOUDFLARE,
     KIND_DAILY_QUOTA,
@@ -738,8 +737,10 @@ class DownloadCore:
             # again by the task's outer handler, which held MultiUp anyway.
             return False
         kind = getattr(req, "failure_kind", None)
+        # auth_required is about this one file (too large for free, password,
+        # permission); waiting never clears it and other files are unaffected.
         refusal_kinds = {KIND_RATE_LIMITED, KIND_CLOUDFLARE, KIND_BLOCKED,
-                         KIND_BROWSER_PARSE, KIND_PROXY_BLOCKED, KIND_SLOT_BUSY, KIND_AUTH_REQUIRED}
+                         KIND_BROWSER_PARSE, KIND_PROXY_BLOCKED, KIND_SLOT_BUSY}
         if kind not in refusal_kinds and not is_host_rate_limit(raw):
             return False
         # A host wait applies to *other* queued files even when this file has
